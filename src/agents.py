@@ -83,15 +83,16 @@ class FornaxUdfTags:
             f"{key}={_sanitize_tag_value(str(value))}" for key, value in fields_in_order
         )
 
-
 class Agent(ABC):
     @property
     @abstractmethod
     def env_file_path(self) -> str | None:
+        """返回agent的env文件路径"""
         pass
 
     @abstractmethod
     def _restart_gateway(self) -> None:
+        """重启agent的gateway"""
         pass
 
     def _prepare_chat_env(
