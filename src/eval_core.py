@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from src.agents import Agent, FornaxUdfTags
 from src.benchmark_schema import BenchmarkTask
+from src.config import CONFIG
 
 
 class EvalJudgeResult(BaseModel):
@@ -37,7 +38,9 @@ def _build_judge_prompt(user_prompt: str, agent_result: str, content_reqs: str) 
     )
 
 
-def run_task(task: BenchmarkTask, run_id: str, agent: Agent, max_turns: int = 10) -> bool:
+def run_task(
+    task: BenchmarkTask, run_id: str, agent: Agent, max_turns: int = CONFIG.eval_max_turns
+) -> bool:
     # 初始化 FornaxUdfTags
     tags = FornaxUdfTags.init_tags(task, run_id)
     # 用于连续对话的 session ID

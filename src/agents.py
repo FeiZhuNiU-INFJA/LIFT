@@ -142,7 +142,7 @@ class HermesAgent(Agent):
         # 要使用hermes API server， 必须要要运行hermes gateway (启动很慢)
         LOGGER.info("Running command: hermes gateway")
         subprocess.run(["hermes", "gateway"], check=True)
-        LOGGER.info("Command succeeded: hermes gateway")
+        LOGGER.info("Command started in background: hermes gateway")
 
     def chat(
         self,
