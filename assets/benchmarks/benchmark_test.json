@@ -1,0 +1,24 @@
+{
+    "name": "benchmark_test",
+    "categories":[
+        {
+            "name": "testing",
+            "id": "123"
+        }
+
+    ],
+    "tasks":[
+        {
+            "name": "greeting",
+            "category_id": "123",
+            "query": "你好",
+            "requirements":{
+                "default_skills": []
+            },
+            "expected_result": {
+                "content_reqs": "任何形式正常的打招呼就行",
+                "trajectory_reqs": "任何形式正常的打招呼就行"
+            }
+        }
+    ]
+}
