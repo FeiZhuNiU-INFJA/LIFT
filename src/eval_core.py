@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from src.agents import Agent, FornaxUdfTags
 from src.benchmark_schema import BenchmarkTask
-from src.config import CONFIG
+from src.config import CONFIG, LOGGER
 
 
 class EvalJudgeResult(BaseModel):
@@ -38,20 +38,26 @@ def _build_judge_prompt(user_prompt: str, agent_result: str, content_reqs: str) 
     )
 
 
-def run_task(
+def _short_id(n: int = 8) -> str:
+    return uuid.uuid4().hex[:n]
+
+
+async def run_task(
     task: BenchmarkTask, run_id: str, agent: Agent, max_turns: int = CONFIG.eval_max_turns
 ) -> bool:
     # 初始化 FornaxUdfTags
     tags = FornaxUdfTags.init_tags(task, run_id)
     # 用于连续对话的 session ID
-    user_session_id = str(uuid.uuid4())
+    user_session_id = _short_id()
     # 任务当前轮次的用户提示词（初始为任务的提示词）
     current_prompt = task.query
 
     for _ in range(max_turns):
-        agent_result = agent.chat(current_prompt, user_session_id, tags)
+        LOGGER.info(f"[{run_id}] [{user_session_id}] User Prompt: {current_prompt}")
+        agent_result = await agent.chat(current_prompt, user_session_id, tags)
+        LOGGER.info(f"[{run_id}] [{user_session_id}] Agent result: {agent_result}")
 
-        judge_session_id = str(uuid.uuid4())
+        judge_session_id = _short_id()
         # 构建评测器提示词
         judge_prompt = _build_judge_prompt(
             user_prompt=task.query,
@@ -59,7 +65,9 @@ def run_task(
             content_reqs=task.expected_result.content_reqs,
         )
         # 评测器回复
-        judge_result_text = agent.chat(judge_prompt, judge_session_id, tags)
+        judge_result_text = await agent.chat(
+            judge_prompt, judge_session_id, tags, response_schema=EvalJudgeResult
+        )
         # 解析评测器回复
         judge_result = _extract_judge_result(judge_result_text)
         # 更新tags的content_score
@@ -68,11 +76,11 @@ def run_task(
         if judge_result.success:
             tags.is_ended = True
             tags.content_score = judge_result.score
-            agent.chat("好的，你的任务完成了", user_session_id, tags)
+            await agent.chat("好的，你的任务完成了", user_session_id, tags)
             return True
 
         current_prompt = judge_result.reason
 
     tags.is_ended = True
-    agent.chat("任务失败，已超过最大尝试次数。", user_session_id, tags)
+    await agent.chat("任务失败，已超过最大尝试次数。", user_session_id, tags)
     return False
