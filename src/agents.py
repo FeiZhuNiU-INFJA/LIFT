@@ -1,10 +1,12 @@
 from __future__ import annotations
+import asyncio
 import subprocess
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from src.config import CONFIG, LOGGER
@@ -91,11 +93,11 @@ class Agent(ABC):
         pass
 
     @abstractmethod
-    def _restart_gateway(self) -> None:
+    async def _restart_gateway(self) -> None:
         """重启agent的gateway"""
         pass
 
-    def _prepare_chat_env(
+    async def _prepare_chat_env(
         self,
         tags: FornaxUdfTags,
     ) -> None:
@@ -106,15 +108,15 @@ class Agent(ABC):
         tags_value = tags.to_env_value()
         LOGGER.info("Updating FORNAX_UDF_TAGS, env_file_path=%s", env_file_path)
         LOGGER.debug("FORNAX_UDF_TAGS length=%d", len(tags_value))
-        _upsert_env_var(env_file_path, "FORNAX_UDF_TAGS", tags_value)
+        await asyncio.to_thread(_upsert_env_var, env_file_path, "FORNAX_UDF_TAGS", tags_value)
         LOGGER.info("FORNAX_UDF_TAGS updated successfully")
 
         LOGGER.info("Restarting gateway")
-        self._restart_gateway()
+        await self._restart_gateway()
         LOGGER.info("Gateway restarted successfully")
 
     @abstractmethod
-    def chat(
+    async def chat(
         self,
         msg: str,
         session_id: str,
@@ -130,36 +132,88 @@ class HermesAgent(Agent):
         return CONFIG.hermes_env_file
 
     def __init__(self) -> None:
-        self.client = OpenAI(
+        self.client = AsyncOpenAI(
             base_url="http://localhost:8642/v1",
             api_key=CONFIG.hermes_api_key,
         )
+        self._gateway_proc: asyncio.subprocess.Process | None = None
+        self._gateway_ready: bool = False
 
-    def _restart_gateway(self) -> None:
+    async def _run_cmd_checked(self, args: list[str]) -> None:
+        LOGGER.info("Running command: %s", " ".join(args))
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(
+                proc.returncode,
+                args,
+                output=stdout,
+                stderr=stderr,
+            )
+        LOGGER.info("Command succeeded: %s", " ".join(args))
+
+    async def _wait_for_tcp_ready(
+        self, host: str, port: int, timeout_s: float = 60.0
+    ) -> None:
+        deadline = time.monotonic() + timeout_s
+        last_exc: Exception | None = None
+        delay_s = 0.2
+        while time.monotonic() < deadline:
+            try:
+                reader, writer = await asyncio.open_connection(host, port)
+                writer.close()
+                await writer.wait_closed()
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                await asyncio.sleep(delay_s)
+                delay_s = min(delay_s * 1.5, 2.0)
+        raise TimeoutError(
+            f"Timed out waiting for TCP {host}:{port} to be ready"
+        ) from last_exc
+
+    async def _restart_gateway(self) -> None:
         LOGGER.info("Running command: hermes gateway restart")
-        subprocess.run(["hermes", "gateway", "restart"], check=True)
-        LOGGER.info("Command succeeded: hermes gateway restart")
+        await self._run_cmd_checked(["hermes", "gateway", "restart"])
         # 要使用hermes API server， 必须要要运行hermes gateway (启动很慢)
-        LOGGER.info("Running command: hermes gateway")
-        subprocess.run(["hermes", "gateway"], check=True)
-        LOGGER.info("Command started in background: hermes gateway")
+        if self._gateway_proc is not None and self._gateway_proc.returncode is None:
+            LOGGER.info("hermes gateway already running")
+            if not self._gateway_ready:
+                await self._wait_for_tcp_ready("localhost", 8642, timeout_s=60.0)
+                self._gateway_ready = True
+            return
 
-    def chat(
+        LOGGER.info("Starting command in background: hermes gateway")
+        self._gateway_proc = await asyncio.create_subprocess_exec(
+            "hermes",
+            "gateway",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        self._gateway_ready = False
+        await self._wait_for_tcp_ready("localhost", 8642, timeout_s=300.0)
+        self._gateway_ready = True
+
+    async def chat(
         self,
         msg: str,
         session_id: str,
         tags: FornaxUdfTags,
         response_schema: BaseModel | None = None, # hermes agent对这个参数无感
     ) -> str:
-        self._prepare_chat_env(tags)
+        await self._prepare_chat_env(tags)
         if response_schema is None:
-            response = self.client.responses.create(
+            response = await self.client.responses.create(
                 model="hermes-agent",
                 input=msg,
                 conversation=session_id,
             )
         else:
-            response = self.client.responses.create(
+            response = await self.client.responses.create(
                 model="hermes-agent",
                 input=msg,
                 conversation=session_id,
@@ -189,12 +243,12 @@ class OpenClawAgent(Agent):
     def env_file_path(self) -> str | None:
         return CONFIG.openclaw_env_file
 
-    def _restart_gateway(self) -> None:
+    async def _restart_gateway(self) -> None:
         raise NotImplementedError(
             "OpenClawAgent gateway restart is not implemented yet."
         )
 
-    def chat(
+    async def chat(
         self,
         msg: str,
         session_id: str,

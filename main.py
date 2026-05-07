@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from pathlib import Path
 
@@ -8,8 +9,8 @@ from src.benchmark_schema import BenchmarkSpec
 from src.eval_core import run_task
 
 
-if __name__ == "__main__":
-    benchmark_path = Path("assets/benchmarks/benchmark1.json")
+async def main() -> None:
+    benchmark_path = Path("assets/benchmarks/benchmark_test.json")
     benchmark = BenchmarkSpec.from_json_file(benchmark_path)
     if not benchmark.tasks:
         raise ValueError(f"No tasks found in {benchmark_path}")
@@ -18,5 +19,9 @@ if __name__ == "__main__":
     run_id = f"{benchmark.name}_{first_task.category_name}_{first_task.name}_{uuid.uuid4()}"
     agent = HermesAgent()
 
-    success = run_task(first_task, run_id, agent)
+    success = await run_task(first_task, run_id, agent)
     print(f"First task success: {success}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
