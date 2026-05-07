@@ -14,6 +14,7 @@ class BenchmarkCategory(BaseModel):
 
 class TaskRequirements(BaseModel):
     default_skills: list[str] = Field(default_factory=list)
+    extra_skills_dir: str | None = None
 
 
 class ExpectedResult(BaseModel):

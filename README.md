@@ -1,11 +1,12 @@
 # evolve_eval
 
-一个用于运行 benchmark task 并做循环评测的 Python 项目。
+一个用于运行 benchmark task 并做循环评测的 Python 项目，当前支持 `hermes` 和 `openclaw` 两种 agent framework。
 
 ## 1. 环境准备
 
 - Conda（Miniconda/Anaconda 任一）
 - 可用的 `hermes` CLI（项目会调用 `hermes gateway restart` 和 `hermes gateway`）
+- 可用的 `openclaw` CLI（使用 `openclaw` framework 时需要）
 - 可访问的 Hermes OpenAI 兼容服务（默认 `http://localhost:8642/v1`）
 
 ## 2. 安装依赖
@@ -33,6 +34,7 @@ pip install -r requirements.txt
 HERMES_API_KEY=your_api_key
 HERMES_ENV_FILE=~/.hermes/.env
 OPENCLAW_ENV_FILE=~/.openclaw/.env
+MODEL_NAME=provider/model_name
 EVAL_MAX_TURNS=10
 ```
 
@@ -40,7 +42,8 @@ EVAL_MAX_TURNS=10
 
 - `HERMES_API_KEY`：调用 Hermes OpenAI 接口所需
 - `HERMES_ENV_FILE`：Hermes 的 env 文件路径，程序会写入 `FORNAX_UDF_TAGS`
-- `OPENCLAW_ENV_FILE`：预留给 OpenClaw
+- `OPENCLAW_ENV_FILE`：OpenClaw 的 env 文件路径，程序会写入 `FORNAX_UDF_TAGS`
+- `MODEL_NAME`：`openclaw agents add --model` 使用的模型名，必须填写为 `provider/model_name` 格式，例如 `anthropic/claude-sonnet-4-20250514`
 - `EVAL_MAX_TURNS`：`run_task` 最大尝试轮次（默认 10）
 
 > 注意：路径中的 `~` 在代码里会自动展开。
@@ -49,7 +52,7 @@ EVAL_MAX_TURNS=10
 
 运行入口默认读取：
 
-- `assets/benchmarks/benchmark_test.json`
+- `assets/benchmarks/benchmark1.json`
 
 其中至少需要：
 
@@ -62,15 +65,27 @@ EVAL_MAX_TURNS=10
 在项目根目录执行：
 
 ```bash
-python main.py
+python main.py --framework openclaw
 ```
+
+或：
+
+```bash
+python main.py --framework hermes
+```
+
+参数说明：
+
+- `--framework`：选择 agent framework，可选值为 `openclaw` 或 `hermes`
+- 默认值是 `openclaw`
 
 程序会：
 
-1. 读取 benchmark 文件并取第一个 task
-2. 创建 `HermesAgent`
-3. 执行 `eval_task` 循环评测，直到 success
-4. 输出最终结果 `First task success: True/False`
+1. 读取 `assets/benchmarks/benchmark1.json`
+2. 遍历 benchmark 中的 task
+3. 对每个 task 依次执行 `baseline` 和 `evolved` 两轮评测
+4. 根据 `--framework` 创建 `OpenClawAgent` 或 `HermesAgent`
+5. 执行 `run_task` 循环评测并输出日志
 
 ### run_task 流程图
 
@@ -108,25 +123,30 @@ flowchart TD
 
 如果达到 `max_turns` 仍未成功：设置 `tags.is_ended=True`，发送一次“任务失败（超过最大尝试次数）”提示，函数返回 `False`。
 
-## 6. 如何支持 OpenClaw
+## 6. OpenClaw 说明
 
-当前仓库的 OpenClaw 仅有基础骨架，默认还不能直接跑：
+当前仓库已经支持 `OpenClawAgent` 运行，但使用前需要确认本地 OpenClaw 环境可用：
 
-- `src/agents.py` 中 `OpenClawAgent._restart_gateway()` 仍是 `NotImplementedError`
-- `src/agents.py` 中 `OpenClawAgent.chat()` 仍是 `NotImplementedError`
-- `main.py` 目前固定使用 `HermesAgent`
+- 已安装并可执行 `openclaw`
+- `OPENCLAW_ENV_FILE` 已配置
+- `MODEL_NAME` 已填写，且格式必须是 `provider/model_name`
 
-要接入 OpenClaw，建议按下面步骤：
+运行 `openclaw` framework 时，程序会：
 
-1. 完成 `OpenClawAgent` 实现
-   - 在 `src/agents.py` 的 `OpenClawAgent._restart_gateway()` 中补上 OpenClaw 对应的 gateway 启动/重启逻辑
-   - 在 `OpenClawAgent.chat()` 中补上对 OpenAI 兼容接口（或 OpenClaw SDK）的实际调用，返回 assistant 文本
-2. 配置 OpenClaw 环境变量
-   - 在项目根目录 `.env` 中填写 `OPENCLAW_ENV_FILE`
-   - 如果 OpenClaw 需要 API key / base url，也在 `.env` 新增对应变量，并在 `src/config.py` 读取
-3. 切换入口使用的 Agent
-   - 将 `main.py` 里的 `HermesAgent()` 替换为 `OpenClawAgent()`
-4. 验证
-   - 先运行一个最小 benchmark，确认 `run_task` 能正常进行多轮 `chat` 与评测
+1. 启用 `openclaw-fornax-trace` 插件
+2. 启动 OpenClaw gateway
+3. 创建 benchmark 专用 agent 和工作区
+4. 使用 `openclaw agent --json --local` 发起对话
+5. 在任务结束后调用 `chat.send` / `chat.history` 触发进化流程
 
-如果你希望同时支持 Hermes / OpenClaw 两种后端，推荐再加一个 `AGENT_BACKEND=hermes|openclaw` 配置，在 `main.py` 按配置动态选择 Agent。
+如果只想跑 Hermes，可直接使用：
+
+```bash
+python main.py --framework hermes
+```
+
+如果只想跑 OpenClaw，可直接使用：
+
+```bash
+python main.py --framework openclaw
+```

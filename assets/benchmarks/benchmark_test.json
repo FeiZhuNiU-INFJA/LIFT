@@ -13,7 +13,8 @@
             "category_id": "123",
             "query": "你好",
             "requirements":{
-                "default_skills": []
+                "default_skills": [],
+                "extra_skills_dir": ""
             },
             "expected_result": {
                 "content_reqs": "任何形式正常的打招呼就行",
