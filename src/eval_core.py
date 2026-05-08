@@ -123,9 +123,6 @@ async def run_task(
             tags.is_ended = True
             tags.content_score = judge_result.score
             await agent.chat("好的，你的任务完成了", user_session_id, tags)
-            # 任务结束，主动触发进化
-            LOGGER.info("Triggering agent evolution...")
-            await agent.evolve(user_session_id)
             return True
         
         # 如果评测器认为任务未完成，则更新当前提示词为失败原因和任务的提示词，并要求再试一次
@@ -133,7 +130,5 @@ async def run_task(
 
     tags.is_ended = True
     await agent.chat("任务失败，已超过最大尝试次数。", user_session_id, tags)
-    # 任务结束，主动触发进化
-    LOGGER.info("Triggering agent evolution...")
-    await agent.evolve(user_session_id)
+
     return False
