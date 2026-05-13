@@ -7,11 +7,6 @@ from pathlib import Path
 from pydantic import BaseModel, Field, model_validator
 
 
-class BenchmarkCategory(BaseModel):
-    name: str
-    category_id: str = Field(alias="id")
-
-
 class TaskRequirements(BaseModel):
     default_skills: list[str] = Field(default_factory=list)
     extra_skills_dir: str | None = None
@@ -36,7 +31,6 @@ class ExpectedResult(BaseModel):
 
 class BenchmarkTask(BaseModel):
     name: str
-    category_id: str
     query: str
     requirements: TaskRequirements
     expected_result: ExpectedResult
@@ -45,19 +39,13 @@ class BenchmarkTask(BaseModel):
 
 class BenchmarkSpec(BaseModel):
     name: str
-    categories: list[BenchmarkCategory] = Field(default_factory=list)
+    category: str
     tasks: list[BenchmarkTask] = Field(default_factory=list)
 
     @classmethod
     def from_json_file(cls, file_path: str | Path) -> BenchmarkSpec:
         data = json.loads(Path(file_path).read_text(encoding="utf-8"))
         spec = cls.model_validate(data)
-        category_name_by_id = {c.category_id: c.name for c in spec.categories}
         for task in spec.tasks:
-            category_name = category_name_by_id.get(task.category_id)
-            if category_name is None:
-                raise ValueError(
-                    f"Unknown category_id '{task.category_id}' for task '{task.name}'."
-                )
-            task.category_name = category_name
+            task.category_name = spec.category
         return spec
