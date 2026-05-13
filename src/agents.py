@@ -151,6 +151,7 @@ class Agent(ABC):
 
         tags_value = tags.to_env_value()
         LOGGER.info("Updating FORNAX_UDF_TAGS, env_file_path=%s", env_file_path)
+        LOGGER.info("FORNAX_UDF_TAGS=%s", tags_value)
         LOGGER.debug("FORNAX_UDF_TAGS length=%d", len(tags_value))
         await asyncio.to_thread(_upsert_env_var, env_file_path, "FORNAX_UDF_TAGS", tags_value)
         LOGGER.info("FORNAX_UDF_TAGS updated successfully")
@@ -288,22 +289,53 @@ class HermesAgent(Agent):
 
 
 class OpenClawAgent(Agent):
-    def __init__(self, run_id: str, task_id: str, skills_dir: str | None = None) -> None:
+    _runtime_ready: bool = False
+
+    def __init__(
+        self,
+        run_id: str,
+        task_id: str,
+        skills_dir: str | None = None,
+        workspace_dir: str | Path | None = None,
+    ) -> None:
         
         self.run_id = run_id
         self.task_id = task_id
         # Agent名字一定以evobench开头，方便后续删除Agent
         self.agent_name = "evobench-" + str(uuid.uuid4())[:16] + '-' + CONFIG.model
-        self.workspace_dir = self._mk_workspace()
+        self.workspace_dir = self._mk_workspace(workspace_dir)
         if skills_dir:
-                self.copy_skill_dir(skills_dir)
+            self.copy_skill_dir(skills_dir)
+        self._ensure_runtime_ready()
+        
+        self._create_agent()
+
+    def _openclaw_env(self, extra_env: dict[str, str] | None = None) -> dict[str, str]:
+        env = os.environ.copy()
+        env_file_path = self.env_file_path
+        if env_file_path:
+            env_path = Path(env_file_path).expanduser().resolve()
+            if env_path.exists():
+                for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+                    line = raw_line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    env[key] = value
+        if extra_env:
+            env.update(extra_env)
+        return env
+
+    @classmethod
+    def _ensure_runtime_ready(cls) -> None:
+        if cls._runtime_ready:
+            return
         # Start Fornax trace plugins
         LOGGER.info("Running command: openclaw plugins enable openclaw-fornax-trace")
         subprocess.run(["openclaw", "plugins", "enable", "openclaw-fornax-trace"], check=True)
-        LOGGER.info("Running command: openclaw gateway start")
-        subprocess.run(["openclaw", "gateway", "start"], check=True)
-        
-        self._create_agent()
+        LOGGER.info("Running command: openclaw gateway restart")
+        subprocess.run(["openclaw", "gateway", "restart"], check=True)
+        cls._runtime_ready = True
         
     def _create_agent(self) -> None:
         def chk_existance():
@@ -316,7 +348,20 @@ class OpenClawAgent(Agent):
         if chk_existance():
             LOGGER.info(f"Agent {self.agent_name} already exists")
             return
-        subprocess.run(["openclaw", "agents", "add", self.agent_name, "--model", CONFIG.model, "--workspace", self.workspace_dir], check=True)
+        subprocess.run(
+            [
+                "openclaw",
+                "agents",
+                "add",
+                self.agent_name,
+                "--model",
+                CONFIG.model,
+                "--workspace",
+                str(self.workspace_dir),
+            ],
+            check=True,
+            env=self._openclaw_env(),
+        )
         if not chk_existance():
             raise ValueError(f"Failed to create agent {self.agent_name}")
         LOGGER.info(f"Agent {self.agent_name} created successfully")
@@ -326,16 +371,19 @@ class OpenClawAgent(Agent):
     def env_file_path(self) -> str | None:
         return CONFIG.openclaw_env_file
     
-    def _mk_workspace(self) -> Path:
+    def _mk_workspace(self, workspace_dir: str | Path | None = None) -> Path:
         """
         Create workspace directory at /tmp/<run_id>/<task_id>
         If task id starts with "baseline-", then it is a baseline run.
         If it starts with "evolved-", then it is an evolved run.
         If it already exists, do nothing.
         """
-        workspace_dir = Path("/tmp") / str(self.run_id) / str(self.task_id)
-        workspace_dir.mkdir(parents=True, exist_ok=True)
-        return workspace_dir
+        if workspace_dir is None:
+            workspace_path = Path("/tmp") / str(self.run_id) / str(self.task_id)
+        else:
+            workspace_path = Path(workspace_dir).expanduser().resolve()
+        workspace_path.mkdir(parents=True, exist_ok=True)
+        return workspace_path
 
     def copy_skill_dir(self, skill_path: str | Path) -> Path:
         source_dir = Path(skill_path).expanduser().resolve()
@@ -356,6 +404,7 @@ class OpenClawAgent(Agent):
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=self._openclaw_env(),
         )
         stdout, stderr = await proc.communicate()
         stdout_text = stdout.decode("utf-8", errors="replace")
@@ -375,12 +424,12 @@ class OpenClawAgent(Agent):
 
     async def evolve(self, session_id: str) -> None:
         # evolve command
-        # openclaw gateway call chat.send --params '{"sessionKey": "{session_id}", "message": "/learn review --approve", "idempotencyKey": "review-{session_id}"}'
+        # openclaw gateway call chat.send --params '{"sessionKey": "{session_id}", "message": "/learn review", "idempotencyKey": "review-{session_id}"}'
         # loop until message is not empty list
         # openclaw gateway call chat.history --params '{"sessionKey": "session_id"}'
         send_params = {
             "sessionKey": session_id,
-            "message": "/learn review --approve",
+            "message": "/learn review",
             "idempotencyKey": f"review-{session_id}",
         }
         send_cmd = ["openclaw", "gateway", "call", "chat.send", "--params", json.dumps(send_params), "--json"]
