@@ -7,9 +7,10 @@ from typing import Callable
 from json_repair import repair_json
 from pydantic import BaseModel, Field
 
-from src.agents import Agent, FornaxUdfTags
-from src.benchmark_schema import BenchmarkTask
+from src.agents import Agent
+from src.models import BenchmarkTask, FornaxUdfTags
 from src.config import CONFIG, LOGGER
+from src.utils import short_id
 
 
 class EvalJudgeResult(BaseModel):
@@ -30,9 +31,7 @@ def _extract_judge_result(raw_text: str) -> EvalJudgeResult:
         return EvalJudgeResult.model_validate(data)
     except Exception as exc:  # noqa: BLE001
         schema = EvalJudgeResult.model_json_schema()
-        raise ValueError(
-            "Judge response is not valid JSON. "
-        ) from exc
+        raise ValueError("Judge response is not valid JSON. ") from exc
 
 
 def _build_judge_prompt(user_prompt: str, agent_result: str, content_reqs: str) -> str:
@@ -62,10 +61,6 @@ def _build_judge_prompt_retry(invalid_response: str, error_message: str) -> str:
     )
 
 
-def _short_id(n: int = 8) -> str:
-    return uuid.uuid4().hex[:n]
-
-
 async def run_task(
     task: BenchmarkTask,
     run_id: str,
@@ -79,16 +74,21 @@ async def run_task(
     tags.is_final_task = is_final_task
     tags.is_evolve_turn = is_evolve_turn
     # 用于连续对话的 session ID
-    user_session_id = _short_id()
+    user_session_id = short_id()
     # 任务当前轮次的用户提示词（初始为任务的提示词）
     current_prompt = task.query
 
     for _ in range(max_turns):
         LOGGER.info(f"[{run_id}] [{user_session_id}] User Prompt: {current_prompt}")
-        agent_result = await agent.chat(current_prompt, user_session_id, tags)
+        agent_result = await agent.chat(
+            current_prompt, 
+            user_session_id,
+            tags,
+            chat_role="work_agent",
+        )
         LOGGER.info(f"[{run_id}] [{user_session_id}] Agent result: {agent_result}")
 
-        judge_session_id = _short_id()
+        judge_session_id = short_id()
         # 构建评测器提示词
         judge_prompt = _build_judge_prompt(
             user_prompt=task.query,
@@ -97,7 +97,11 @@ async def run_task(
         )
         # 评测器回复
         judge_result_text = await agent.chat(
-            judge_prompt, judge_session_id, tags, response_schema=EvalJudgeResult
+            judge_prompt,
+            judge_session_id,
+            tags,
+            response_schema=EvalJudgeResult,
+            chat_role="judge_agent",
         )
         # 解析评测器回复
         max_judge_retry_times = 8
@@ -116,12 +120,15 @@ async def run_task(
                         judge_result_text,
                     )
                     raise
-                judge_retry_prompt = _build_judge_prompt_retry(judge_result_text, str(exc))
+                judge_retry_prompt = _build_judge_prompt_retry(
+                    judge_result_text, str(exc)
+                )
                 judge_result_text = await agent.chat(
                     judge_retry_prompt,
                     judge_session_id,
                     tags,
                     response_schema=EvalJudgeResult,
+                    chat_role="judge_agent",
                 )
         # 更新tags的content_score
         tags.content_score = judge_result.score
@@ -129,14 +136,24 @@ async def run_task(
         if judge_result.success:
             tags.content_score = judge_result.score
             tags.is_ended = True
-            await agent.chat("好的，你的任务完成了", user_session_id, tags)
+            await agent.chat(
+                "好的，你的任务完成了",
+                user_session_id,
+                tags,
+                chat_role="work_agent",
+            )
             return True
-        
+
         # 如果评测器认为任务未完成，则更新当前提示词为失败原因和任务的提示词，并要求再试一次
         current_prompt = judge_result.reason + "你再试一次看看能不能完成任务"
 
     tags.is_ended = True
-    await agent.chat("任务失败，已超过最大尝试次数。", user_session_id, tags)
+    await agent.chat(
+        "任务失败，已超过最大尝试次数。",
+        user_session_id,
+        tags,
+        chat_role="work_agent",
+    )
 
     return False
 
@@ -148,20 +165,26 @@ async def openclaw_run_task(
     max_turns: int = CONFIG.eval_max_turns,
     is_evolve_turn: bool = False,
     is_final_task: bool = False,
-) -> bool:
+) -> tuple[bool, str, str]:
+    """Returns (success, work_session_id, judge_session_id)."""
     # OpenClaw 当前新建 session 会 fallback，因此每个逻辑 session 使用一个独立 agent。
     tags = FornaxUdfTags.init_tags(task, run_id)
     tags.is_final_task = is_final_task
     tags.is_evolve_turn = is_evolve_turn
-    user_session_id = _short_id()
+    user_session_id = f"user-{short_id()}"
     user_agent = openclaw_create_agent(f"user-{user_session_id}")
-    judge_session_id = _short_id()
+    judge_session_id = f"judge-{short_id()}"
     judge_agent = openclaw_create_agent(f"judge-{judge_session_id}")
     current_prompt = task.query
 
     for _ in range(max_turns):
         LOGGER.info(f"[{run_id}] [{user_session_id}] User Prompt: {current_prompt}")
-        agent_result = await user_agent.chat(current_prompt, user_session_id, tags)
+        agent_result = await user_agent.chat(
+            current_prompt,
+            user_session_id,
+            tags,
+            chat_role="work_agent",
+        )
         LOGGER.info(f"[{run_id}] [{user_session_id}] Agent result: {agent_result}")
 
         judge_prompt = _build_judge_prompt(
@@ -170,7 +193,11 @@ async def openclaw_run_task(
             content_reqs=task.expected_result.content_reqs,
         )
         judge_result_text = await judge_agent.chat(
-            judge_prompt, judge_session_id, tags, response_schema=EvalJudgeResult
+            judge_prompt,
+            judge_session_id,
+            tags,
+            response_schema=EvalJudgeResult,
+            chat_role="judge_agent",
         )
 
         max_judge_retry_times = 8
@@ -189,23 +216,26 @@ async def openclaw_run_task(
                         judge_result_text,
                     )
                     raise
-                judge_retry_prompt = _build_judge_prompt_retry(judge_result_text, str(exc))
+                judge_retry_prompt = _build_judge_prompt_retry(
+                    judge_result_text, str(exc)
+                )
                 judge_result_text = await judge_agent.chat(
                     judge_retry_prompt,
                     judge_session_id,
                     tags,
                     response_schema=EvalJudgeResult,
+                    chat_role="judge_agent",
                 )
 
         tags.content_score = judge_result.score
         if judge_result.success:
             tags.content_score = judge_result.score
             tags.is_ended = True
-            await user_agent.chat("好的，你的任务完成了", user_session_id, tags)
-            return True
+            await user_agent.chat("好的，你的任务完成了", user_session_id, tags, chat_role="work_agent")
+            return (True, user_session_id, judge_session_id)
 
         current_prompt = judge_result.reason + "你再试一次看看能不能完成任务"
 
     tags.is_ended = True
-    await user_agent.chat("任务失败，已超过最大尝试次数。", user_session_id, tags)
-    return False
+    await user_agent.chat("任务失败，已超过最大尝试次数。", user_session_id, tags, chat_role="work_agent")
+    return (False, user_session_id, judge_session_id)

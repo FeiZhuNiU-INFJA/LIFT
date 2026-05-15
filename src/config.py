@@ -1,6 +1,7 @@
-import os
 import logging
+import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -46,18 +47,63 @@ class ColorFormatter(logging.Formatter):
             record.levelname = original_levelname
 
 
+_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _default_log_file() -> Path:
+    return _PROJECT_ROOT / "evolve_eval.log"
+
+
 def setup_logging() -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
 
+    log_path = Path(
+        os.getenv("EVAL_LOG_FILE", str(_default_log_file())),
+    ).expanduser()
+    if not log_path.is_absolute():
+        log_path = (_PROJECT_ROOT / log_path).resolve()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plain_formatter = logging.Formatter(_LOG_FORMAT)
+    color_formatter = ColorFormatter(_LOG_FORMAT)
+
+    def _has_stream_handler() -> bool:
+        return any(
+            isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+            for h in root_logger.handlers
+        )
+
+    def _has_file_handler_for_path(path: Path) -> bool:
+        for h in root_logger.handlers:
+            if isinstance(h, logging.FileHandler):
+                base = getattr(h, "baseFilename", None)
+                if base and Path(base).resolve() == path.resolve():
+                    return True
+        return False
+
     if root_logger.handlers:
         for handler in root_logger.handlers:
-            handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+            if isinstance(handler, logging.StreamHandler) and not isinstance(
+                handler, logging.FileHandler
+            ):
+                handler.setFormatter(color_formatter)
+            elif isinstance(handler, logging.FileHandler):
+                handler.setFormatter(plain_formatter)
+        if not _has_file_handler_for_path(log_path):
+            file_handler = logging.FileHandler(log_path, encoding="utf-8")
+            file_handler.setFormatter(plain_formatter)
+            root_logger.addHandler(file_handler)
         return
 
-    handler = logging.StreamHandler()
-    handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    root_logger.addHandler(handler)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(color_formatter)
+    root_logger.addHandler(stream_handler)
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(plain_formatter)
+    root_logger.addHandler(file_handler)
 
 
 CONFIG = load_config()
