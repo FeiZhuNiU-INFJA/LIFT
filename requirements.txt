@@ -2,3 +2,4 @@ openai
 pydantic
 python-dotenv
 json-repair
+langfuse>=4.0

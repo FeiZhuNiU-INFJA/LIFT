@@ -5,14 +5,20 @@ import asyncio
 import os
 import shutil
 import subprocess
-import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.agents import OpenClawAgent
-from src.benchmark_schema import BenchmarkSpec, BenchmarkTask
+from src.models import (
+    BenchmarkSpec,
+    BenchmarkTask,
+    OpenClawBenchmarkPhaseRun,
+    OpenClawBenchmarkReport,
+    OpenClawBenchmarkTaskRun,
+)
 from src.config import LOGGER
 from src.eval_core import openclaw_run_task
+from src.utils import short_id
 
 
 def openclaw_workspace(run_id: str, phase: str, category_name: str) -> Path:
@@ -87,6 +93,11 @@ async def openclaw_main() -> None:
         default="assets/benchmarks",
         help="Benchmark file or directory to run.",
     )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Test mode, only run one benchmark.",
+    )
     args = parser.parse_args()
 
     # reinstall_openclaw_evolve_plugin()
@@ -96,7 +107,8 @@ async def openclaw_main() -> None:
     if not benchmark_paths:
         raise ValueError(f"No benchmark json files found in {benchmark_root}")
     
-    run_id = f"evobench-{datetime.now().strftime('%Y-%m-%d')}-{uuid.uuid4()}"
+    run_id = f"evobench-runid-{datetime.now().strftime('%Y%m%d')}-{short_id()}"
+    report_root = Path.cwd() / "evobench-reports"
     for benchmark_path in benchmark_paths:
         benchmark = BenchmarkSpec.from_json_file(benchmark_path)
         if not benchmark.tasks:
@@ -105,6 +117,13 @@ async def openclaw_main() -> None:
         category_name = benchmark.category
         baseline_workspace = openclaw_workspace(run_id, "baseline", category_name)
         evolved_workspace = openclaw_workspace(run_id, "evolved", category_name)
+
+        bench_report = OpenClawBenchmarkReport(
+            run_id=run_id,
+            benchmark_path=str(benchmark_path.resolve()),
+            benchmark_name=benchmark.name,
+            category=category_name,
+        )
 
         LOGGER.info("Running benchmark: %s", benchmark_path)
 
@@ -121,13 +140,38 @@ async def openclaw_main() -> None:
                 run_id,
                 baseline_workspace,
             )
-            success = await openclaw_run_task(
+            success, work_sid, judge_sid = await openclaw_run_task(
                 task,
                 run_id,
                 agent_factory,
                 is_final_task=idx == len(benchmark.tasks) - 1,
             )
+            bench_report.tasks.append(
+                OpenClawBenchmarkTaskRun(
+                    task_name=task.name,
+                    category=category_name,
+                    baseline=OpenClawBenchmarkPhaseRun(
+                        work_session_id=work_sid,
+                        judge_session_id=judge_sid,
+                        success=success,
+                        workspace_dir=str(baseline_workspace.resolve()),
+                    ),
+                    evolved=None,
+                )
+            )
             LOGGER.info("Baseline task %s: success: %s", task.name, success)
+            if args.test:
+                LOGGER.info("Test mode, stopping after baseline task %s", task.name)
+                break
+
+        if args.test:
+            LOGGER.info("Test mode, stopping after baseline task %s", task.name)
+            bench_report.completed_at = datetime.now(timezone.utc).isoformat()
+            safe_cat = category_name.replace("/", "_").replace(" ", "_")
+            out_path = report_root / f"{run_id}__{safe_cat}__{benchmark_path.stem}.json"
+            bench_report.write_json(out_path)
+            LOGGER.info("Wrote benchmark report: %s", out_path)
+            break
 
         LOGGER.info("Triggering baseline agent evolution for category=%s...", category_name)
         evolve_agent = OpenClawAgent(
@@ -135,7 +179,7 @@ async def openclaw_main() -> None:
             task_id=f"baseline-evolve-{category_name}",
             workspace_dir=baseline_workspace,
         )
-        await evolve_agent.evolve(f"evolve-{category_name}-{uuid.uuid4().hex[:8]}")
+        await evolve_agent.evolve(f"evolve-{category_name}-{short_id()}")
         openclaw_copy_evolved_skills(baseline_workspace, evolved_workspace)
 
         for idx, task in enumerate(benchmark.tasks):
@@ -152,16 +196,31 @@ async def openclaw_main() -> None:
                 run_id,
                 evolved_workspace,
             )
-            success = await openclaw_run_task(
+            success, work_sid, judge_sid = await openclaw_run_task(
                 task,
                 run_id,
                 agent_factory,
                 is_evolve_turn=True,
                 is_final_task=idx == len(benchmark.tasks) - 1,
             )
+            row = bench_report.tasks[idx]
+            bench_report.tasks[idx] = row.model_copy(
+                update={
+                    "evolved": OpenClawBenchmarkPhaseRun(
+                        work_session_id=work_sid,
+                        judge_session_id=judge_sid,
+                        success=success,
+                        workspace_dir=str(evolved_workspace.resolve()),
+                    )
+                }
+            )
             LOGGER.info("Evolved task %s: success: %s", task.name, success)
 
-        LOGGER.info("\nBenchmark completed. Run_id: %s benchmark: %s", run_id, benchmark_path)
+        bench_report.completed_at = datetime.now(timezone.utc).isoformat()
+        safe_cat = category_name.replace("/", "_").replace(" ", "_")
+        out_path = report_root / f"{run_id}__{safe_cat}__{benchmark_path.stem}.json"
+        bench_report.write_json(out_path)
+        LOGGER.info("\nBenchmark completed. Run_id: %s benchmark: %s report: %s", run_id, benchmark_path, out_path)
 
 
 if __name__ == "__main__":

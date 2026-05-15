@@ -6,29 +6,21 @@ import shutil
 import subprocess
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from pathlib import Path
 
 from openai import AsyncOpenAI
 import os
-import uuid
 from pydantic import BaseModel
 from src.config import CONFIG, LOGGER
-from src.benchmark_schema import BenchmarkTask
+from src.report.langfuse_reporting import emit_pre_chat_state
+from src.models import FornaxUdfTags
+from src.utils import short_id
 
 GMT_PLUS_8 = timezone(timedelta(hours=8), name="GMT+8")
 WEEKDAY_ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
-def _bool_to_tag(value: bool | None) -> str:
-    if value is None:
-        return ""
-    return "1" if value else "0"
 
-
-def _sanitize_tag_value(value: str) -> str:
-    # FORNAX_UDF_TAGS uses comma-separated key=value pairs.
-    return value.replace(",", " ").replace("\n", " ").strip()
 
 
 def _upsert_env_var(file_path: str | Path, key: str, value: str) -> None:
@@ -55,7 +47,7 @@ def _parse_json_loose(raw: str) -> dict:
     `openclaw ... --json` may still print a non-JSON prefix line.
     Parse the last JSON object from output robustly.
     """
-    LOGGER.info("Raw output: %s", raw)
+    # LOGGER.info("Raw output: %s", raw)
     text = (raw or "").strip()
     if not text:
         return {}
@@ -81,48 +73,6 @@ def _format_message_timestamp() -> str:
     weekday = WEEKDAY_ABBR[now.weekday()]
     return f"[{weekday} {now.strftime('%Y-%m-%d %H:%M:%S')} GMT+8]"
 
-
-@dataclass
-class FornaxUdfTags:
-    run: str
-    task: str
-    task_query: str
-    is_final_task: bool
-    is_evolve_turn: bool
-    is_ended: bool
-    content_reqs: str
-    trajectory_reqs: str
-    content_score: float
-
-    @classmethod
-    def init_tags(cls, task: BenchmarkTask, run_id: str) -> FornaxUdfTags:
-        return cls(
-            run=run_id,
-            task=f"{task.category_name}_{task.name}",
-            task_query=task.query,
-            is_final_task=False,
-            is_evolve_turn=False,
-            is_ended=False,
-            content_reqs=task.expected_result.content_reqs,
-            trajectory_reqs=task.expected_result.trajectory_reqs,
-            content_score=0.0,
-        )
-
-    def to_env_value(self) -> str:
-        fields_in_order = [
-            ("run", self.run),
-            ("task", self.task),
-            ("task_query", self.task_query),
-            ("is_final_task", _bool_to_tag(self.is_final_task)),
-            ("is_evolve_turn", _bool_to_tag(self.is_evolve_turn)),
-            ("is_ended", _bool_to_tag(self.is_ended)),
-            ("content_reqs", self.content_reqs),
-            ("trajectory_reqs", self.trajectory_reqs),
-            ("content_score", self.content_score),
-        ]
-        return ",".join(
-            f"{key}={_sanitize_tag_value(str(value))}" for key, value in fields_in_order
-        )
 
 class Agent(ABC):
     @property
@@ -167,6 +117,8 @@ class Agent(ABC):
         session_id: str,
         tags: FornaxUdfTags,
         response_schema: BaseModel | None = None,
+        *,
+        chat_role: str = "work_agent",
     ) -> str:
         pass
 
@@ -253,7 +205,10 @@ class HermesAgent(Agent):
         session_id: str,
         tags: FornaxUdfTags,
         response_schema: BaseModel | None = None, # hermes agent对这个参数无感
+        *,
+        chat_role: str = "work_agent",
     ) -> str:
+        emit_pre_chat_state(session_id=session_id, tags=tags, chat_role=chat_role)
         await self._prepare_chat_env(tags)
         msg = f"{_format_message_timestamp()}\n{msg}"
         if response_schema is None:
@@ -302,7 +257,7 @@ class OpenClawAgent(Agent):
         self.run_id = run_id
         self.task_id = task_id
         # Agent名字一定以evobench开头，方便后续删除Agent
-        self.agent_name = "evobench-" + str(uuid.uuid4())[:16] + '-' + CONFIG.model
+        self.agent_name = "evobench-agent_name-" + short_id()
         self.workspace_dir = self._mk_workspace(workspace_dir)
         if skills_dir:
             self.copy_skill_dir(skills_dir)
@@ -472,9 +427,12 @@ class OpenClawAgent(Agent):
         session_id: str,
         tags: FornaxUdfTags,
         response_schema: BaseModel | None = None,
+        *,
+        chat_role: str = "work_agent",
     ) -> str:
+        tags.agent_name = self.agent_name
+        emit_pre_chat_state(session_id=session_id, tags=tags, chat_role=chat_role)
         await self._prepare_chat_env(tags)
-        _ = tags
         _ = response_schema  # OpenClaw CLI mode currently ignores schema output control.
         msg = f"{_format_message_timestamp()}\n{msg}"
         command = [

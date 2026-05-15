@@ -10,6 +10,7 @@ from src.agents import HermesAgent, OpenClawAgent
 from src.benchmark_schema import BenchmarkSpec
 from src.eval_core import run_task
 from src.config import LOGGER
+from src.utils import short_id
 
 
 def create_agent() -> HermesAgent:
@@ -28,9 +29,15 @@ def iter_benchmark_paths(path: Path) -> list[Path]:
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--benchmark",
+        "--benchmark", "-f",
         default="assets/benchmarks",
         help="Benchmark file or directory to run.",
+    )
+    parser.add_argument(
+        "--no-evolve",
+        action="store_true",
+        default=False,
+        help="Do not perform agent evolution after baseline run (default: evolve after baseline).",
     )
     args = parser.parse_args()
     benchmark_root = Path(args.benchmark)
@@ -38,7 +45,7 @@ async def main() -> None:
     if not benchmark_paths:
         raise ValueError(f"No benchmark json files found in {benchmark_root}")
 
-    run_id = f"evobench-{datetime.now().strftime('%Y-%m-%d')}-{uuid.uuid4()}"
+    run_id = f"evobench-runid-{datetime.now().strftime('%Y%m%d')}-{short_id()}"
     for benchmark_path in benchmark_paths:
         benchmark = BenchmarkSpec.from_json_file(benchmark_path)
         if not benchmark.tasks:
