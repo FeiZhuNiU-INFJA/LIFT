@@ -83,9 +83,31 @@ class LangfusePluginTraceMetadata(BaseModel):
     tool_roundtrips: int = 0
     tool_call_blocks: int = 0
     tool_names_distinct: str | None = None
+    messages: list[Any] = Field(
+        default_factory=list,
+        description="完整 event.messages（OpenClaw transcript）",
+    )
+    messages_truncated: bool = Field(
+        default=False,
+        alias="messagesTruncated",
+        description="是否有任意 message 因 binary/不可序列化做了单条清洗",
+    )
+    messages_sanitized_count: int = Field(
+        default=0,
+        alias="messagesSanitizedCount",
+        description="被清洗的 message 条数",
+    )
+    messages_serialized_chars: int = Field(
+        default=0,
+        alias="messagesSerializedChars",
+        description="清洗后 metadata.messages 序列化的字符长度（观测用，不触发截断）",
+    )
+
+    model_config = {"populate_by_name": True}
 
     @classmethod
     def from_langfuse_dict(cls, raw: dict[str, Any]) -> LangfusePluginTraceMetadata:
+        msgs = raw.get("messages")
         return cls(
             success=bool(raw.get("success", True)),
             error=raw.get("error") if raw.get("error") is not None else None,
@@ -93,6 +115,10 @@ class LangfusePluginTraceMetadata(BaseModel):
             tool_roundtrips=int(raw.get("toolRoundtrips") or raw.get("tool_roundtrips") or 0),
             tool_call_blocks=int(raw.get("toolCallBlocks") or raw.get("tool_call_blocks") or 0),
             tool_names_distinct=raw.get("toolNamesDistinct") or raw.get("tool_names_distinct"),
+            messages=list(msgs) if isinstance(msgs, list) else [],
+            messages_truncated=bool(raw.get("messagesTruncated")),
+            messages_sanitized_count=int(raw.get("messagesSanitizedCount") or 0),
+            messages_serialized_chars=int(raw.get("messagesSerializedChars") or 0),
         )
 
     @property
@@ -252,6 +278,10 @@ class LangfuseWorkSessionAnalytics(BaseModel):
     total_latency_seconds: float = Field(
         default=0.0,
         description="各 chat_turn.latency_seconds 之和",
+    )
+    all_messages: list[Any] = Field(
+        default_factory=list,
+        description="最后一轮 work 的 plugin metadata.messages（整段会话 transcript，避免多轮 extend 重复）",
     )
 
 

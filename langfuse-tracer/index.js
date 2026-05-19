@@ -19,7 +19,9 @@
  * File log (append): repo root `langfuse-tracer-plugin.log` (parent of this plugin folder).
  * Override with LANGFUSE_TRACER_LOG_FILE=/abs/path.log or a path relative to repo root.
  *
- * Optional: LANGFUSE_TRACER_DEBUG_MESSAGES=1 — append full messages JSON (truncated) to file.
+ * Optional: LANGFUSE_TRACER_DEBUG_MESSAGES=1 — append full messages JSON (truncated) to file log.
+ * Full ``event.messages`` is written to Langfuse ``metadata.messages`` (no global length cap).
+ * Only per-message sanitization when a message is not JSON-serializable or contains binary payloads.
  *
  * Each `before_agent_start` / `agent_end` writes hook `event` (1st) and `ctx` (2nd) to the file
  * (JSON, size caps). agent_end omits `messages` body unless LANGFUSE_TRACER_DEBUG_MESSAGES=1.
@@ -156,6 +158,7 @@ export function register(api) {
 
     const usage = aggregateAssistantUsage(turnSlice);
     const toolStats = summarizeTools(turnSlice);
+    const messagesPayload = serializeMessagesForMetadata(safeMessages, appendLog);
 
     const traceTags = buildTraceTags({
       agentId,
@@ -185,6 +188,10 @@ export function register(api) {
             success,
             error: error ?? undefined,
             messageCount: safeMessages.length,
+            messages: messagesPayload.messages,
+            messagesTruncated: messagesPayload.anyMessageTruncated,
+            messagesSanitizedCount: messagesPayload.sanitizedCount,
+            messagesSerializedChars: messagesPayload.serializedChars,
             ...toolStats,
           },
           timestamp: startTime,
@@ -208,6 +215,10 @@ export function register(api) {
           metadata: {
             durationMs,
             messageCount: safeMessages.length,
+            messages: messagesPayload.messages,
+            messagesTruncated: messagesPayload.anyMessageTruncated,
+            messagesSanitizedCount: messagesPayload.sanitizedCount,
+            messagesSerializedChars: messagesPayload.serializedChars,
             ...toolStats,
           },
         },
@@ -362,6 +373,153 @@ function summarizeTools(turnMessages) {
     toolRoundtrips: toolResultCount,
     toolCallBlocks: toolCallBlockCount,
     toolNamesDistinct: toolNames.size > 0 ? [...toolNames].sort().join(',') : undefined,
+  };
+}
+
+function isProbablyBase64Payload(s) {
+  if (typeof s !== 'string' || s.length < 256) return false;
+  const sample = s.length > 4096 ? s.slice(0, 4096) : s;
+  return /^[A-Za-z0-9+/=\s]+$/.test(sample);
+}
+
+function isBinaryLike(value) {
+  if (value == null) return false;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) return true;
+  if (value instanceof Uint8Array || value instanceof ArrayBuffer) return true;
+  if (typeof value === 'object' && value.type === 'Buffer' && Array.isArray(value.data)) return true;
+  return false;
+}
+
+function binaryPlaceholder(label, byteLength) {
+  return { _langfuse_omitted: label, byteLength: byteLength ?? null };
+}
+
+/**
+ * Deep-sanitize one value for JSON; replaces binary / huge base64 with placeholders.
+ * @returns {{ value: any, truncated: boolean }}
+ */
+function sanitizeValueForJson(value) {
+  if (value === null || value === undefined) {
+    return { value, truncated: false };
+  }
+  const t = typeof value;
+  if (t === 'string' || t === 'number' || t === 'boolean') {
+    if (t === 'string' && isProbablyBase64Payload(value)) {
+      return {
+        value: `[omitted base64 payload, ${value.length} chars]`,
+        truncated: true,
+      };
+    }
+    return { value, truncated: false };
+  }
+  if (isBinaryLike(value)) {
+    const len =
+      typeof Buffer !== 'undefined' && Buffer.isBuffer(value)
+        ? value.length
+        : value instanceof ArrayBuffer
+          ? value.byteLength
+          : value instanceof Uint8Array
+            ? value.length
+            : Array.isArray(value?.data)
+              ? value.data.length
+              : null;
+    return { value: binaryPlaceholder('binary', len), truncated: true };
+  }
+  if (Array.isArray(value)) {
+    let truncated = false;
+    const out = value.map((item) => {
+      const r = sanitizeValueForJson(item);
+      if (r.truncated) truncated = true;
+      return r.value;
+    });
+    return { value: out, truncated };
+  }
+  if (t === 'object') {
+    let truncated = false;
+    const out = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (
+        (key === 'data' || key === 'image' || key === 'blob') &&
+        typeof val === 'string' &&
+        isProbablyBase64Payload(val)
+      ) {
+        out[key] = `[omitted ${key}, ${val.length} chars]`;
+        truncated = true;
+        continue;
+      }
+      if (
+        val &&
+        typeof val === 'object' &&
+        typeof val.type === 'string' &&
+        ['image', 'binary', 'file', 'audio', 'video'].includes(val.type)
+      ) {
+        out[key] = {
+          type: val.type,
+          ...binaryPlaceholder(val.type, null),
+          ...(val.name ? { name: val.name } : {}),
+        };
+        truncated = true;
+        continue;
+      }
+      const r = sanitizeValueForJson(val);
+      if (r.truncated) truncated = true;
+      out[key] = r.value;
+    }
+    return { value: out, truncated };
+  }
+  return { value: String(value), truncated: false };
+}
+
+/**
+ * Full ``event.messages`` for Langfuse metadata — no global array truncation.
+ * Per-message only when JSON clone fails or binary-like fields are stripped.
+ */
+function serializeMessagesForMetadata(messages, appendLog) {
+  const src = Array.isArray(messages) ? messages : [];
+  const out = [];
+  let sanitizedCount = 0;
+
+  for (let i = 0; i < src.length; i++) {
+    const msg = src[i];
+    let truncated = false;
+    let cleaned = msg;
+
+    try {
+      cleaned = JSON.parse(JSON.stringify(msg));
+    } catch (err) {
+      appendLog?.(`[langfuse-tracer] message[${i}] JSON.stringify failed, sanitizing: ${String(err)}`);
+      const r = sanitizeValueForJson(msg);
+      cleaned = r.value;
+      truncated = r.truncated;
+    }
+
+    if (!truncated) {
+      const r = sanitizeValueForJson(cleaned);
+      cleaned = r.value;
+      truncated = r.truncated;
+    }
+
+    if (truncated) {
+      sanitizedCount += 1;
+      if (cleaned && typeof cleaned === 'object' && !Array.isArray(cleaned)) {
+        cleaned = { ...cleaned, _langfuse_message_sanitized: true };
+      }
+    }
+    out.push(cleaned);
+  }
+
+  let serializedChars = 0;
+  try {
+    serializedChars = JSON.stringify(out).length;
+  } catch (err) {
+    appendLog?.(`[langfuse-tracer] metadata.messages final stringify failed: ${String(err)}`);
+  }
+
+  return {
+    messages: out,
+    anyMessageTruncated: sanitizedCount > 0,
+    sanitizedCount,
+    serializedChars,
   };
 }
 

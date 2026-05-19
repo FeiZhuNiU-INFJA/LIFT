@@ -47,9 +47,19 @@ def _dialogue_turn(turn_index: int, ref: LangfuseTraceRef) -> LangfuseDialogueTu
     )
 
 
+def _last_turn_messages(work_turns: list[LangfuseTraceRef]) -> list[Any]:
+    """取最后一轮带 plugin messages 的 transcript（每轮 agent_end 多为全量，只保留末轮）。"""
+    for ref in reversed(work_turns):
+        meta = ref.plugin_metadata
+        if meta is not None and meta.messages:
+            return list(meta.messages)
+    return []
+
+
 def build_work_analytics(work_turns: list[LangfuseTraceRef]) -> LangfuseWorkSessionAnalytics:
     """仅 work 侧；每轮一条 trace_chain（input/output），与 work_agent_traces 对齐。"""
     trace_chain = [_dialogue_turn(i, ref) for i, ref in enumerate(work_turns)]
+    all_messages = _last_turn_messages(work_turns)
     chat_turns: list[LangfuseWorkChatTurn] = []
 
     for i, ref in enumerate(work_turns):
@@ -80,4 +90,5 @@ def build_work_analytics(work_turns: list[LangfuseTraceRef]) -> LangfuseWorkSess
         chat_turns=chat_turns,
         global_stats=g,
         total_latency_seconds=total_latency,
+        all_messages=all_messages,
     )
