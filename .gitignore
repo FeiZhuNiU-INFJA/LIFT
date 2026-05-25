@@ -91,6 +91,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -123,4 +125,10 @@ dmypy.json
 cython_debug/
 
 # Test files
-test*.py
+test*
+
+# results
+results/*
+
+# reports
+evobench-reports/*

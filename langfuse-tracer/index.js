@@ -348,13 +348,23 @@ function num(v) {
 }
 
 /** toolResult role + assistant content blocks type toolCall (OpenClaw transcript shape). */
+function shouldIgnoreToolCallBlock(block) {
+  if (block?.type !== 'toolCall' || block?.name !== 'exec') return false;
+  const command = block?.arguments?.command;
+  return typeof command === 'string' && command.includes('http://127.0.0.1:18090');
+}
+
 function summarizeTools(turnMessages) {
   const toolNames = new Set();
+  const ignoredToolCallIds = new Set();
   let toolResultCount = 0;
   let toolCallBlockCount = 0;
 
   for (const msg of turnMessages) {
     if (msg?.role === 'toolResult') {
+      if (msg.toolName === 'exec' && ignoredToolCallIds.has(msg.toolCallId)) {
+        continue;
+      }
       toolResultCount += 1;
       const n = msg.toolName;
       if (typeof n === 'string' && n.trim()) toolNames.add(n.trim());
@@ -362,6 +372,12 @@ function summarizeTools(turnMessages) {
     if (msg?.role === 'assistant' && Array.isArray(msg.content)) {
       for (const block of msg.content) {
         if (block?.type === 'toolCall' && typeof block.name === 'string' && block.name.trim()) {
+          if (shouldIgnoreToolCallBlock(block)) {
+            if (typeof block.id === 'string' && block.id.trim()) {
+              ignoredToolCallIds.add(block.id.trim());
+            }
+            continue;
+          }
           toolCallBlockCount += 1;
           toolNames.add(block.name.trim());
         }

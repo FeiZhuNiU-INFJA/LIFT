@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.agents import HermesAgent, OpenClawAgent
-from src.benchmark_schema import BenchmarkSpec
+from src.models import BenchmarkSpec
 from src.eval_core import run_task
 from src.config import LOGGER
 from src.utils import short_id
@@ -67,7 +67,7 @@ async def main() -> None:
             
         # 一轮任务结束，统一主动触发进化
         LOGGER.info("Triggering agent evolution...")
-        await agent.evolve("review_session")
+        await type(agent).evolve("review_session")
             
         # evolved run
         for idx, task in enumerate(benchmark.tasks):

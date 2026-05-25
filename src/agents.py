@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
 import shutil
@@ -11,7 +12,7 @@ from pathlib import Path
 from openai import AsyncOpenAI
 import os
 from pydantic import BaseModel
-from src.config import CONFIG, LOGGER
+from src.config import CONFIG, LOGGER, _PROJECT_ROOT
 from src.report.langfuse_reporting import emit_pre_chat_state
 from src.models import FornaxUdfTags
 from src.utils import short_id
@@ -86,11 +87,26 @@ class Agent(ABC):
         """重启agent的gateway"""
         pass
     
+    @staticmethod
     @abstractmethod
-    async def evolve(self, session_id: str) -> None:
+    async def evolve(session_id: str) -> None:
         """启动agent进化"""
         pass
 
+    @staticmethod
+    def disable_evolve() -> None:
+        pass
+
+    @staticmethod
+    def enable_evolve() -> None:
+        pass
+    
+    @staticmethod
+    @abstractmethod
+    def reset_evolve(run_id: str, category: str, repeat_index: int) -> None:
+        """重置当前 benchmark 闭环后的进化状态，并按 run/category 归档备份。"""
+        pass
+    
     async def _prepare_chat_env(
         self,
         tags: FornaxUdfTags,
@@ -136,8 +152,23 @@ class HermesAgent(Agent):
         self._gateway_proc: asyncio.subprocess.Process | None = None
         self._gateway_ready: bool = False
 
-    async def evolve(self, session_id: str) -> None:
+    @staticmethod
+    async def evolve(session_id: str) -> None:
         """Hermes无需主动触发进化"""
+        _ = session_id
+        pass
+
+    @staticmethod
+    def disable_evolve() -> None:
+        pass
+
+    @staticmethod
+    def enable_evolve() -> None:
+        pass
+
+    @staticmethod
+    def reset_evolve(run_id: str, category: str, repeat_index: int) -> None:
+        _ = (run_id, category, repeat_index)
         pass
 
     async def _run_cmd_checked(self, args: list[str]) -> None:
@@ -244,13 +275,12 @@ class HermesAgent(Agent):
 
 
 class OpenClawAgent(Agent):
-    _runtime_ready: bool = False
-
     def __init__(
         self,
         run_id: str,
         task_id: str,
         skills_dir: str | None = None,
+        material_dir: str | None = None,
         workspace_dir: str | Path | None = None,
     ) -> None:
         
@@ -261,8 +291,8 @@ class OpenClawAgent(Agent):
         self.workspace_dir = self._mk_workspace(workspace_dir)
         if skills_dir:
             self.copy_skill_dir(skills_dir)
-        self._ensure_runtime_ready()
-        
+        if material_dir:
+            self.copy_material_dir(material_dir)
         self._create_agent()
 
     def _openclaw_env(self, extra_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -281,17 +311,6 @@ class OpenClawAgent(Agent):
             env.update(extra_env)
         return env
 
-    @classmethod
-    def _ensure_runtime_ready(cls) -> None:
-        if cls._runtime_ready:
-            return
-        # Start Fornax trace plugins
-        LOGGER.info("Running command: openclaw plugins enable openclaw-fornax-trace")
-        subprocess.run(["openclaw", "plugins", "enable", "openclaw-fornax-trace"], check=True)
-        LOGGER.info("Running command: openclaw gateway restart")
-        subprocess.run(["openclaw", "gateway", "restart"], check=True)
-        cls._runtime_ready = True
-        
     def _create_agent(self) -> None:
         def chk_existance():
             result = subprocess.run(["openclaw", "agents", "list"], check=False, capture_output=True)
@@ -340,8 +359,14 @@ class OpenClawAgent(Agent):
         workspace_path.mkdir(parents=True, exist_ok=True)
         return workspace_path
 
+    def _resolve_project_path(self, path_value: str | Path) -> Path:
+        path = Path(path_value).expanduser()
+        if not path.is_absolute():
+            path = _PROJECT_ROOT / path
+        return path.resolve()
+
     def copy_skill_dir(self, skill_path: str | Path) -> Path:
-        source_dir = Path(skill_path).expanduser().resolve()
+        source_dir = self._resolve_project_path(skill_path)
         if not source_dir.exists():
             raise ValueError(f"Skill path does not exist: {source_dir}")
         if not source_dir.is_dir():
@@ -351,6 +376,17 @@ class OpenClawAgent(Agent):
         destination_dir = self.workspace_dir / source_dir.name
         shutil.copytree(source_dir, destination_dir, dirs_exist_ok=True)
         LOGGER.info("Copied skill directory to workspace: %s -> %s", source_dir, destination_dir)
+        return destination_dir
+
+    def copy_material_dir(self, material_path: str | Path) -> Path:
+        source_dir = self._resolve_project_path(material_path)
+        if not source_dir.exists():
+            raise ValueError(f"Material path does not exist: {source_dir}")
+        if not source_dir.is_dir():
+            raise ValueError(f"Material path is not a directory: {source_dir}")
+        destination_dir = self.workspace_dir / source_dir.name
+        shutil.copytree(source_dir, destination_dir, dirs_exist_ok=True)
+        LOGGER.info("Copied material directory to workspace: %s -> %s", source_dir, destination_dir)
         return destination_dir
 
     async def _run_cmd_checked_capture(self, args: list[str]) -> str:
@@ -377,49 +413,210 @@ class OpenClawAgent(Agent):
         LOGGER.info("Command succeeded: %s", " ".join(args))
         return stdout_text
 
-    async def evolve(self, session_id: str) -> None:
-        # evolve command
-        # openclaw gateway call chat.send --params '{"sessionKey": "{session_id}", "message": "/learn review", "idempotencyKey": "review-{session_id}"}'
-        # loop until message is not empty list
-        # openclaw gateway call chat.history --params '{"sessionKey": "session_id"}'
-        send_params = {
-            "sessionKey": session_id,
-            "message": "/learn review",
-            "idempotencyKey": f"review-{session_id}",
+    @staticmethod
+    def _openclaw_config_path() -> Path:
+        return Path("~/.openclaw/openclaw.json").expanduser().resolve()
+
+    @staticmethod
+    def _load_openclaw_json(path: Path) -> dict:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("top-level JSON value must be an object")
+        return data
+
+    @staticmethod
+    def _dump_openclaw_json(path: Path, data: dict) -> None:
+        with path.open("w", encoding="utf-8", newline="\n") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+
+    @staticmethod
+    def _add_openclaw_config_fields(data: dict) -> tuple[dict, dict[str, int]]:
+        patched = deepcopy(data)
+        stats = {
+            "model_compat_added": 0,
+            "langfuse_hooks_added": 0,
         }
-        send_cmd = ["openclaw", "gateway", "call", "chat.send", "--params", json.dumps(send_params), "--json"]
-        await self._run_cmd_checked_capture(send_cmd)
 
-        start_ts = time.monotonic()
-        warned = False
+        providers = patched.get("models", {}).get("providers", {})
+        if isinstance(providers, dict):
+            for provider_cfg in providers.values():
+                if not isinstance(provider_cfg, dict):
+                    continue
+                models = provider_cfg.get("models", [])
+                if not isinstance(models, list):
+                    continue
+                for model_cfg in models:
+                    if not isinstance(model_cfg, dict):
+                        continue
+                    compat = model_cfg.get("compat")
+                    if not isinstance(compat, dict):
+                        model_cfg["compat"] = {"supportsUsageInStreaming": True}
+                        stats["model_compat_added"] += 1
+                    elif "supportsUsageInStreaming" not in compat:
+                        compat["supportsUsageInStreaming"] = True
+                        stats["model_compat_added"] += 1
 
-        history_cmd = [
-            "openclaw",
-            "gateway",
-            "call",
-            "chat.history",
-            "--params",
-            json.dumps({"sessionKey": session_id}),
-            "--json",
-        ]
-        while True:
-            LOGGER.debug("Polling command: %s", " ".join(history_cmd))
-            stdout = await self._run_cmd_checked_capture(history_cmd)
-            payload = _parse_json_loose(stdout)
-            messages = payload.get("messages")
-            if isinstance(messages, list) and len(messages) > 0:
-                LOGGER.info("Evolve review finished: chat.history messages=%d", len(messages))
-                return
+        plugin_entries = patched.get("plugins", {}).get("entries", {})
+        if isinstance(plugin_entries, dict):
+            langfuse_cfg = plugin_entries.get("langfuse-tracer")
+            if isinstance(langfuse_cfg, dict):
+                hooks = langfuse_cfg.get("hooks")
+                if not isinstance(hooks, dict):
+                    langfuse_cfg["hooks"] = {"allowConversationAccess": True}
+                    stats["langfuse_hooks_added"] += 1
+                elif "allowConversationAccess" not in hooks:
+                    hooks["allowConversationAccess"] = True
+                    stats["langfuse_hooks_added"] += 1
 
-            elapsed = time.monotonic() - start_ts
-            if elapsed >= 300 and not warned:
-                warned = True
-                LOGGER.warning(
-                    "Evolve review still running after %.1fs (>=300s). Continue polling without raising.",
-                    elapsed,
-                )
+        return patched, stats
 
-            await asyncio.sleep(5.0)
+    @staticmethod
+    def _remove_openclaw_config_fields(data: dict) -> tuple[dict, dict[str, int]]:
+        patched = deepcopy(data)
+        stats = {
+            "model_compat_removed": 0,
+            "langfuse_hooks_removed": 0,
+        }
+
+        providers = patched.get("models", {}).get("providers", {})
+        if isinstance(providers, dict):
+            for provider_cfg in providers.values():
+                if not isinstance(provider_cfg, dict):
+                    continue
+                models = provider_cfg.get("models", [])
+                if not isinstance(models, list):
+                    continue
+                for model_cfg in models:
+                    if not isinstance(model_cfg, dict):
+                        continue
+                    compat = model_cfg.get("compat")
+                    if isinstance(compat, dict) and "supportsUsageInStreaming" in compat:
+                        del compat["supportsUsageInStreaming"]
+                        stats["model_compat_removed"] += 1
+                        if not compat:
+                            del model_cfg["compat"]
+
+        plugin_entries = patched.get("plugins", {}).get("entries", {})
+        if isinstance(plugin_entries, dict):
+            langfuse_cfg = plugin_entries.get("langfuse-tracer")
+            if isinstance(langfuse_cfg, dict):
+                hooks = langfuse_cfg.get("hooks")
+                if isinstance(hooks, dict) and "allowConversationAccess" in hooks:
+                    del hooks["allowConversationAccess"]
+                    stats["langfuse_hooks_removed"] += 1
+                    if not hooks:
+                        del langfuse_cfg["hooks"]
+
+        return patched, stats
+
+    @staticmethod
+    def initialize_environment(
+        *,
+        ensure_config_fields: bool = True,
+        trace_plugin: str = "langfuse",
+        restart_gateway: bool = True,
+        rebuild_runtime: bool = True,
+    ) -> None:
+        if rebuild_runtime:
+            OpenClawAgent.rebuild_evolution_runtime()
+
+        if ensure_config_fields:
+            OpenClawAgent.add_fields_to_openclaw_config()
+
+        trace_plugin_name: str | None
+        if trace_plugin == "fornax":
+            trace_plugin_name = "openclaw-fornax-trace"
+        elif trace_plugin == "langfuse":
+            trace_plugin_name = "langfuse-tracer"
+        else:
+            raise ValueError(f"Unsupported trace plugin: {trace_plugin}")
+
+        if trace_plugin_name:
+            LOGGER.info("Running command: openclaw plugins enable %s", trace_plugin_name)
+            subprocess.run(["openclaw", "plugins", "enable", trace_plugin_name], check=True)
+
+        subprocess.run(["openclaw", "plugins", "enable", "self-evolving-plugin-pro"], check=True)
+        
+        if restart_gateway:
+            LOGGER.info("Running command: openclaw gateway restart")
+            subprocess.run(["openclaw", "gateway", "restart"], check=True)
+
+    @staticmethod
+    def remove_fields_from_openclaw_config() -> dict[str, int]:
+        config_path = OpenClawAgent._openclaw_config_path()
+        LOGGER.info("Loading OpenClaw config: %s", config_path)
+        data = OpenClawAgent._load_openclaw_json(config_path)
+        patched, stats = OpenClawAgent._remove_openclaw_config_fields(data)
+        if patched != data:
+            OpenClawAgent._dump_openclaw_json(config_path, patched)
+            LOGGER.info("Removed fields from OpenClaw config: %s", stats)
+        else:
+            LOGGER.info("OpenClaw config already has fields removed: %s", stats)
+        return stats
+
+    @staticmethod
+    def add_fields_to_openclaw_config() -> dict[str, int]:
+        config_path = OpenClawAgent._openclaw_config_path()
+        LOGGER.info("Loading OpenClaw config: %s", config_path)
+        data = OpenClawAgent._load_openclaw_json(config_path)
+        patched, stats = OpenClawAgent._add_openclaw_config_fields(data)
+        if patched != data:
+            OpenClawAgent._dump_openclaw_json(config_path, patched)
+            LOGGER.info("Added fields to OpenClaw config: %s", stats)
+        else:
+            LOGGER.info("OpenClaw config already has fields added: %s", stats)
+        return stats
+
+    @staticmethod
+    def rebuild_evolution_runtime() -> None:
+        script_path = _PROJECT_ROOT / "scripts" / "rebuild-evolution-runtime.sh"
+        LOGGER.info("Running command: bash %s", script_path)
+        subprocess.run(["bash", str(script_path)], check=True)
+
+    @staticmethod
+    def _run_review_command() -> None:
+        LOGGER.info("Running command: openclaw learn review")
+        subprocess.run(["openclaw", "learn", "review"], check=True)
+
+    @staticmethod
+    async def evolve(session_id: str) -> None:
+        _ = session_id
+        await asyncio.to_thread(OpenClawAgent.remove_fields_from_openclaw_config)
+        try:
+            await asyncio.to_thread(OpenClawAgent._run_review_command)
+        finally:
+            await asyncio.to_thread(OpenClawAgent.add_fields_to_openclaw_config)
+
+    @staticmethod
+    def disable_evolve() -> None:
+        subprocess.run(["openclaw", "plugins", "disable", "self-evolving-plugin-pro"], check=True)
+        LOGGER.info("Running command: openclaw plugins disable self-evolving-plugin-pro")
+        subprocess.run(["openclaw", "gateway", "restart"], check=True)
+        LOGGER.info("Running command: openclaw gateway restart")
+
+    @staticmethod
+    def enable_evolve() -> None:
+        subprocess.run(["openclaw", "plugins", "enable", "self-evolving-plugin-pro"], check=True)
+        LOGGER.info("Running command: openclaw plugins enable self-evolving-plugin-pro")
+        subprocess.run(["openclaw", "gateway", "restart"], check=True)
+        LOGGER.info("Running command: openclaw gateway restart")
+    
+    @staticmethod
+    def reset_evolve(run_id: str, category: str, repeat_index: int) -> None:
+        script_path = _PROJECT_ROOT / "scripts" / "reset-evolution.sh"
+        LOGGER.info(
+            "Running command: bash %s %s %s %s",
+            script_path,
+            run_id,
+            category,
+            repeat_index,
+        )
+        subprocess.run(
+            ["bash", str(script_path), run_id, category, str(repeat_index)],
+            check=True,
+        )
 
     async def chat(
         self,
