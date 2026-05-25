@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 class TaskRequirements(BaseModel):
     default_skills: list[str] = Field(default_factory=list)
     extra_skills_dir: str | None = None
+    material_dir: str | None = None
 
 
 class ExpectedResult(BaseModel):
@@ -335,16 +336,31 @@ class OpenClawBenchmarkTaskRun(BaseModel):
     evolved: OpenClawBenchmarkPhaseRun | None = None
 
 
-class OpenClawBenchmarkReport(BaseModel):
-    """单个 benchmark JSON 在一次 evobench 运行中的汇总，可 model_dump_json / write_json。"""
+class OpenClawBenchmarkRunBenchmark(BaseModel):
+    """一次完整 benchmark 运行中的单个 benchmark 文件结果。"""
 
-    run_id: str
-    benchmark_path: str
-    benchmark_name: str
-    category: str
+    benchmark_name: str | None = None
+    benchmark_path: str | None = None
+    category: str | None = None
+    tasks: list[OpenClawBenchmarkTaskRun] = Field(default_factory=list)
+
+
+class OpenClawBenchmarkRun(BaseModel):
+    """一次完整 benchmark 套件执行的结果。"""
+
     started_at: str = Field(default_factory=_utc_now_iso)
     completed_at: str | None = None
-    tasks: list[OpenClawBenchmarkTaskRun] = Field(default_factory=list)
+    benchmarks: list[OpenClawBenchmarkRunBenchmark] = Field(default_factory=list)
+
+
+class OpenClawBenchmarkReport(BaseModel):
+    """一次 evobench 运行的汇总，可 model_dump_json / write_json。"""
+
+    run_id: str
+    categories: list[str] = Field(default_factory=list)
+    started_at: str = Field(default_factory=_utc_now_iso)
+    completed_at: str | None = None
+    runs: list[OpenClawBenchmarkRun] = Field(default_factory=list)
 
     def write_json(self, path: str | Path) -> None:
         p = Path(path)

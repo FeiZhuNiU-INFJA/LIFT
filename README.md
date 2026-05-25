@@ -1,6 +1,12 @@
-# evolve_eval
+# evolve\_eval
 
-一个用于运行 benchmark task 并做循环评测的 Python 项目，当前支持 `hermes` 和 `openclaw` 两种 agent framework。
+一个用于运行 benchmark task 并做循环评测的 Python 项目，当前支持 `hermes` 和 `openclaw` 两种 agent framework。目前Openclaw链路已完善
+
+当前稳定主链路是：
+
+1. 用 [openclaw_main.py](./openclaw_main.py) 跑 benchmark，产出轻量 report JSON
+2. 用 [postprocess/run_post_process.py](./postprocess/run_post_process.py) 统一完成 enrich、抽取、打分、指标统计和 HTML 展示
+3. 或者直接在 `openclaw_main.py --evaluate` 中一键完成整条流水线
 
 ## 1. 环境准备
 
@@ -40,7 +46,7 @@ EVAL_MAX_TURNS=10
 # Langfuse（langfuse_report.py / pre-chat 上报，见第 7 节）
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_HOST=http://your-langfuse-host:3050
+LANGFUSE_HOST=http://your-langfuse-host:3000
 ```
 
 说明：
@@ -57,7 +63,9 @@ LANGFUSE_HOST=http://your-langfuse-host:3050
 
 运行入口默认读取：
 
-- `assets/benchmarks/benchmark1.json`
+- `assets/benchmarks/**/*.json`
+
+每个 benchmark JSON 由 [preprocess/convert_benchmark_mds_to_json.py](./preprocess/convert_benchmark_mds_to_json.py) 生成，核心结构包含：
 
 其中至少需要：
 
@@ -69,28 +77,28 @@ LANGFUSE_HOST=http://your-langfuse-host:3050
 
 在项目根目录执行：
 
+### Openclaw
 ```bash
-python main.py --framework openclaw
+python openclaw_main.py
 ```
 
-或：
+常用参数：
 
-```bash
-python main.py --framework hermes
-```
+- `--benchmark`：指定单个 benchmark 文件或目录，默认 `assets/benchmarks`
+- `--test`：只跑 baseline
+- `--repeat`：完整执行全部 benchmark 文件 N 次，每次完整执行写入 `report.runs[i]`
+- `--trace`：选择 tracing 插件，默认 `langfuse`
+- `--evaluate`：benchmark 结束后自动执行后处理流水线
 
-参数说明：
+若要将对话 trace 上报 Langfuse：请在项目根目录执行：
 
-- `--framework`：选择 agent framework，可选值为 `openclaw` 或 `hermes`
-- 默认值是 `openclaw`
+  ```bash
+  ln -s "$(pwd)/langfuse-tracer" ~/.openclaw/extensions/langfuse-tracer
+  openclaw plugins install --link "$(pwd)/langfuse-tracer"
+  openclaw gateway restart
+  ```
 
-程序会：
-
-1. 读取 `assets/benchmarks/benchmark1.json`
-2. 遍历 benchmark 中的 task
-3. 对每个 task 依次执行 `baseline` 和 `evolved` 两轮评测
-4. 根据 `--framework` 创建 `OpenClawAgent` 或 `HermesAgent`
-5. 执行 `run_task` 循环评测并输出日志
+  安装后再在 `~/.openclaw/openclaw.json` 中为 `langfuse-tracer` 配置环境变量与 `hooks.allowConversationAccess` 等项，详见 `langfuse-tracer/index.js` 文件头部注释。需要刷新清单时可执行 `openclaw plugins registry --refresh`。
 
 ### run_task 流程图
 
@@ -128,79 +136,114 @@ flowchart TD
 
 如果达到 `max_turns` 仍未成功：设置 `tags.is_ended=True`，发送一次“任务失败（超过最大尝试次数）”提示，函数返回 `False`。
 
-## 6. OpenClaw 说明
 
-当前仓库已经支持 `OpenClawAgent` 运行，但使用前需要确认本地 OpenClaw 环境可用：
-
-- 已安装并可执行 `openclaw`
-- `OPENCLAW_ENV_FILE` 已配置
-- `MODEL_NAME` 已填写，且格式必须是 `provider/model_name`
-- 若要将对话 trace 上报 Langfuse：请在项目根目录执行：
-
-  ```bash
-  ln -s "$(pwd)/langfuse-tracer" ~/.openclaw/extensions/langfuse-tracer
-  openclaw plugins install --link "$(pwd)/langfuse-tracer"
-  openclaw gateway restart
-  ```
-
-  安装后再在 `~/.openclaw/openclaw.json` 中为 `langfuse-tracer` 配置环境变量与 `hooks.allowConversationAccess` 等项，详见 `langfuse-tracer/index.js` 文件头部注释。需要刷新清单时可执行 `openclaw plugins registry --refresh`。
-
-运行 `openclaw` framework 时，程序会：
-
-1. 启用 `openclaw-fornax-trace` 插件
-2. 启动 OpenClaw gateway
-3. 创建 benchmark 专用 agent 和工作区
-4. 使用 `openclaw agent --json --local` 发起对话
-5. 在任务结束后调用 `chat.send` / `chat.history` 触发进化流程
 
 如果只想跑 Hermes，可直接使用：
 
 ```bash
-python main.py --framework hermes
+python main.py
 ```
 
-如果只想跑 OpenClaw，可直接使用：
+详细功能待补全
+
+## 6. 数据处理
+
+此处主要为Langfuse方式收集数据时，可以使用的数据处理方法。如果启动时使用了`--evaluate`，则会自动处理数据，直接输出分析报告。
+可选输出参数：
 
 ```bash
-python main.py --framework openclaw
+python postprocess/run_post_process.py evobench-reports/evobench-runid-xxxx.json ^
+  --output-dir results ^
+  --output-prefix my_run ^
+  --enriched-json results/my_run_enriched.json ^
+  --comparison-csv results/my_run_comparison_metrics.csv ^
+  --summary-csv results/my_run_summary_metrics.csv ^
+  --report-html results/my_run_metrics_report.html
 ```
 
-## 7. Evobench Report 与 Langfuse 串联
+默认输出文件名规则定义在 [postprocess/run_post_process.py](./postprocess/run_post_process.py) 的 `default_output_paths()` 中：
 
-OpenClaw 评测跑完后会落盘一份 **轻量 report JSON**；可用 `langfuse_report.py` 从 Langfuse 拉全量 trace，合并 agent/plugin 并写入结构化字段（对话、token、工具、latency）。
+- `<prefix>_enriched.json`
+- `<prefix>_comparison_metrics.csv`
+- `<prefix>_summary_metrics.csv`
+- `<prefix>_metrics_report.html`
 
-### 7.1 评测时如何产生 report
+### 6.1 Python 函数入口
 
-`openclaw_main.py` 在每个 benchmark 跑完后写入：
+如果想在代码里直接调用，使用：
 
-```text
-evobench-reports/{run_id}__{category}__{benchmark_name}.json
-```
+`process_report_to_outputs()`，定义在 [postprocess/run_post_process.py](./postprocess/run_post_process.py)
 
-内容为 `OpenClawBenchmarkReport`（见 `src/models.py`），每个 task 包含：
+它会一次性完成：
 
-- `baseline` / `evolved`：`work_session_id`、`judge_session_id`、`success`、`workspace_dir`
-- 此时 **不含** Langfuse 详情，仅 session id 等元数据
+1. 判断输入是否已 enrich
+2. 必要时从 Langfuse 拉 trace 并生成 enriched JSON 数据
+3. 抽取 task 粒度指标
+4. 计算 trajectory score
+5. 生成 comparison CSV
+6. 生成 summary CSV
+7. 生成 HTML 报告
 
-`--test` 模式下只跑 baseline，不写 evolved。
+### 6.2. 后处理指标口径
 
-### 7.2 Langfuse 环境变量
+抽取逻辑在 [postprocess/extract.py](./postprocess/extract.py)，对比逻辑在 [postprocess/metrics.py](./postprocess/metrics.py)。
 
-在 `.env` 中配置（`langfuse_report.py` 与 `src/report/langfuse_reporting.py` 共用）：
+任务级 comparison CSV 当前包含：
 
-```env
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_HOST=http://your-langfuse-host:3050
-# 或 LANGFUSE_BASE_URL（与插件侧一致）
+- `run`
+- `benchmark_name`
+- `benchmark_path`
+- `task_name`
+- `category`
+- `is_final_task`
+- `success`
+- `trials`
+- `tool_use_num`
+- `content_score`
+- `cached_token`
+- `total_tokens`
+- `total_latency_seconds`
+- `trajectory_score`
+- 每个指标对应的 `impr_*`
 
-# 可选：关闭每次 chat 前的 pre-chat span
-EVAL_LANGFUSE_PRE_CHAT=true
-```
+其中：
 
-评测运行时还会通过 `FORNAX_UDF_TAGS` / `emit_pre_chat_state` 上报 pre-chat span（name 为 `work_agent` / `judge_agent`）；插件 `langfuse-tracer` 在 `agent_end` 上报 `openclaw-plugin` trace（含 prompt/回复、工具 metadata、GENERATION usage）。
+- 原始指标列是 evolved 侧的值
+- `impr_*` 的定义是 `evolved / baseline`
+- baseline/evolved 的配对键是 `run + benchmark_name + benchmark_path + task_name + category`
 
-### 7.3 串联命令：`langfuse_report.py`
+当前纳入 improvement 的指标有：
+
+- `trials`
+- `tool_use_num`
+- `content_score`
+- `cached_token`
+- `total_tokens`
+- `total_latency_seconds`
+- `trajectory_score`
+
+
+## 7. Langfuse 串联逻辑
+
+Langfuse enrich 内核已经收敛到 [postprocess/langfuse_enrich.py](./postprocess/langfuse_enrich.py)。
+
+真正的 trace stitching 入口是：
+
+- `stitch_phase_langfuse_traces()`，位于 [src/report/langfuse_trace_stitch.py](./src/report/langfuse_trace_stitch.py)
+
+处理流程：
+
+1. `trace.list` 按 `run_id` / `work_session_id` / `judge_session_id` 搜索 trace
+2. `trace.get` 拉全量 detail 和 observations
+3. 合并 `*_agent` 与 `openclaw-plugin`
+4. 生成 `work_agent_traces` / `judge_agent_traces`
+5. 仅基于 work 侧生成 `work_analytics`
+
+插件实现见 [langfuse-tracer/](./langfuse-tracer/)。
+
+## 8. Langfuse拉取trace数据链路
+
+最推荐的使用方式是：
 
 ```bash
 # 全量 task，输出到 stdout
@@ -218,7 +261,7 @@ python langfuse_report.py --report evobench-reports/....json --print-summary
 
 每个 phase 会调用 `stitch_phase_langfuse_traces`，在对应 `baseline` / `evolved` 上填充 `langfuse` 字段。
 
-### 7.4 采集与合并流程
+### 8.1 采集与合并流程
 
 ```mermaid
 flowchart TD
@@ -241,7 +284,7 @@ flowchart TD
 | 1:1 合并 | 每条 `work_agent` / `judge_agent` 行吸收紧随其后的 `openclaw-plugin` |
 | `work_analytics` | 仅统计 **work** 侧（judge 模拟用户反馈，不参与全局 token 汇总） |
 
-### 7.5 输出结构（`phase.langfuse`）
+### 8.2 输出结构（`phase.langfuse`）
 
 **`work_agent_traces` / `judge_agent_traces`**（每轮对话一条，已合并 plugin）：
 
@@ -264,7 +307,7 @@ flowchart TD
 | `global_stats` | 各轮 token/工具合计 |
 | `total_latency_seconds` | 各轮 latency 之和 |
 
-### 7.6 代码模块（`src/report/`）
+### 8.3 代码模块（`src/report/`）
 
 | 文件 | 职责 |
 |------|------|
@@ -276,3 +319,19 @@ flowchart TD
 | `langfuse_work_analytics.py` | 生成 `trace_chain`、`chat_turns`、`global_stats` |
 
 插件实现见仓库根目录 `langfuse-tracer/`。
+
+### 8.4 Langfuse for Openclaw 最佳实践
+
+```bash
+python openclaw_main.py --benchmark assets/benchmarks --evaluate
+```
+
+这样会同时得到：
+
+- 轻量 report JSON：`evobench-reports/<run_id>.json`
+- enriched JSON：`results/<run_id>/<run_id>_enriched.json`
+- 对比指标 CSV：`results/<run_id>/<run_id>_comparison_metrics.csv`
+- 汇总指标 CSV：`results/<run_id>/<run_id>_summary_metrics.csv`
+- HTML 报告：`results/<run_id>/<run_id>_metrics_report.html`
+
+如果 post-process 失败，benchmark report JSON 仍然会保留，便于后续单独重新处理。
