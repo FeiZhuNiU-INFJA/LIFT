@@ -1,0 +1,71 @@
+{
+  "name": "Team_Building_Planning",
+  "category": "Team_Building_Planning",
+  "tasks": [
+    {
+      "name": "Q1",
+      "query": "下个月部门要团建，先发问卷问大家。帮我起一份团建偏好问卷，材料在 `q1_materials/`，保存到 `result/result_q1`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Team_Building_Planning/q1_survey_design/q1_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 问卷字段以 `survey_template_guide.txt` 为准：7 项必含字段、4 类禁问隐私、问卷开头三段说明（目的+时间窗口+截止+隐私承诺）一项都不能少。\n2. 写作与排版以 `output_style_guide.txt` 为准；第一行 `日期：YYYY-MM-DD`；无开场白与结束语。\n3. 输出为可直接粘贴飞书问卷的纯文本：每题一段、题号在前；多选用方括号、单选用圆括号、自填用「（请填写）」占位。\n4. 须显式覆盖 4 类少数派情况的提问入口（忌口/过敏/健康限制），但不得追问婚育、年龄、住址、宗教信仰本身。\n5. 末尾必须含「感谢配合，团建组」+ 答卷截止时间。\n6. 部门人数与少数派人数仅可参考 `team_constraints.txt`，问卷正文不点名具体同事。",
+        "trajectory_reqs": "1. 需进行规则对齐操作：阅读 `survey_template_guide.txt` 与 `output_style_guide.txt`，对齐必含字段、禁问字段、排版风格。\n2. 需进行问卷设计操作：将必含字段写为飞书可粘贴的题号化问卷，并覆盖少数派饮食与健康提问入口。\n3. 需进行文档生成操作：将完整问卷写入 `result/result_q1` 文件夹。"
+      }
+    },
+    {
+      "name": "Q2",
+      "query": "问卷收上来了 35 份，帮我看看大家想去哪。材料在 `q2_materials/`，保存到 `result/result_q2`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Team_Building_Planning/q2_survey_analysis/q2_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 数据读法：从 `survey_responses.xlsx` 默认工作表（首行表头）读 35 行回收记录；缺勤同事须在文末「数据说明」列出 emp_id。\n2. 输出风格以 `output_style_guide.txt` 为准；第一行 `日期：YYYY-MM-DD`；无开场白与结束语；金额整数显示。\n3. 必须包含二级标题（顺序固定）：「偏好分布」「冲突与少数派否决项」「推荐方向」「数据说明」。\n4. 「偏好分布」按 4 个核心字段各出一张 Markdown 表：活动偏好、时间偏好、是否带家属、预算心理预期；每个选项列票数与占比（%，1 位小数）。\n5. 「冲突与少数派否决项」必须显式列出：来源于 `team_constraints.txt` 的 4 类少数派（孕期 / 术后 / 严重过敏 / 清真饮食）各 1 行，注明对应不可安排项；并指出与问卷偏好的冲突（例如「多数想户外，但有孕期与术后同事」）。\n6. 「推荐方向」给出 2–3 个方向，每个方向 1–2 句理由，且必须明确照顾到上面 4 类少数派否决项。\n7. 禁止在分析中引入材料未提供的字段（如婚育、年龄、住址）。",
+        "trajectory_reqs": "1. 需进行 Excel 数据解析操作：按字段聚合票数、计算占比，识别缺勤 emp_id。\n2. 需进行规则对齐操作：阅读 `team_constraints.txt`，将少数派否决项映射到偏好冲突。\n3. 需进行偏好分析操作：综合偏好分布与否决项给出 2–3 个推荐方向并写理由。\n4. 需进行文档生成操作：按四节固定结构输出 Markdown，保存到 `result/result_q2` 文件夹。"
+      }
+    },
+    {
+      "name": "Q3",
+      "query": "基于大家偏好，列 3 套候选团建方案对比。材料在 `q3_materials/`，保存到 `result/result_q3`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Team_Building_Planning/q3_candidate_plans/q3_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 预算口径以 `budget_rules.txt` 为准：半天人均≤800 元、全天含晚餐人均≤1500 元；超标项标注「超预算」。\n2. 偏好基线以 `survey_summary.txt` 为准；候选场地仅可来自 `venue_candidates.xlsx` 默认工作表（首行表头），不得编造场地。\n3. 输出风格以 `output_style_guide.txt` 为准；第一行 `日期：YYYY-MM-DD`；金额整数；无开场白与结束语。\n4. 必须输出 **3 套**方案，且需满足：至少 1 套近距离（commute_min ≤ 30）、至少 1 套半天方案、3 套至少覆盖 2 种不同活动类型（type）。\n5. 二级标题（顺序固定）：「方案对比表」「方案 A 详情」「方案 B 详情」「方案 C 详情」「推荐与理由」。\n6. 「方案对比表」列固定：方案 | 主题 | 场地（venue_name） | 行程概要 | 人均预算 | 是否合规 | 利弊。\n7. 每套方案须显式说明对 4 类少数派否决项（孕期 / 术后 / 严重过敏 / 清真饮食）的处理（不少于一句）。\n8. 「推荐与理由」推荐 1 套，理由须引用偏好基线与预算合规性，并指出落选两套的关键短板。",
+        "trajectory_reqs": "1. 需进行 Excel 数据解析操作：读取 `venue_candidates.xlsx` 全部场地行，作为候选筛选输入。\n2. 需进行预算校验操作：按 `budget_rules.txt` 计算人均，对每套方案给出合规/超预算判断。\n3. 需进行方案设计操作：结合 `survey_summary.txt` 偏好与少数派否决项，生成 3 套差异化方案。\n4. 需进行文档生成操作：按五节固定结构输出 Markdown，保存到 `result/result_q3` 文件夹。"
+      }
+    },
+    {
+      "name": "Q4",
+      "query": "老板定了周末市内一日游 + 晚餐这套，帮我排详细日程，再起一份通知发同事。材料在 `q4_materials/`，保存到 `result/result_q4`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Team_Building_Planning/q4_itinerary_notice/q4_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 选定方案以 `selected_plan.txt` 为准；不得改主场地与日期。\n2. 花名册以 `employee_roster.xlsx` 默认工作表（首行表头）为准；按 dept 分小组，每组 4–5 人，且必须把少数派同事（孕期 / 术后 / 严重过敏 / 清真饮食）分散到不同小组。\n3. 预算口径以 `budget_rules.txt` 为准；预算明细表列固定：项目 | 单价 | 数量 | 小计 | 是否合规 | 备注；末行：合计 X 元；人均 X 元；上限 X 元；结论。\n4. 通知稿格式以 `notification_template_guide.txt` 为准：6 字段全部出现且顺序固定；称呼「各位同事」；不超过 600 汉字；不点名具体同事。\n5. 输出风格以 `output_style_guide.txt` 为准；第一行 `日期：YYYY-MM-DD`；无开场白与结束语。\n6. 必须包含二级标题（顺序固定）：「行程时间表」「人员分组」「餐饮安排」「应急预案」「预算明细」「通知稿」。\n7. 「行程时间表」列固定：时段 | 时长 | 地点 | 内容 | 负责人；覆盖 09:30 到 21:00 全程。\n8. 「餐饮安排」须显式列出至少 4 类替代菜单或备选餐厅：清真、忌海鲜、花生过敏、忌辣/素食。\n9. 「应急预案」至少包含：雨天替代项、孕期或术后同事的轻量替代项、临时缺席的退款/补位规则。\n10. 通知稿中的紧急联系人电话用占位 `13X-XXXX-XXXX`，姓名写「王芳」。",
+        "trajectory_reqs": "1. 需进行 Excel 数据解析操作：读取花名册，按部门生成小组草案并散布少数派。\n2. 需进行规则对齐操作：对照 `selected_plan.txt`、`budget_rules.txt`、`notification_template_guide.txt` 完成日程、预算与通知格式。\n3. 需进行行程编排操作：排出 09:30–21:00 时段与负责人，并设计应急预案。\n4. 需进行文档生成操作：按六节固定结构输出 Markdown，保存到 `result/result_q4` 文件夹。"
+      }
+    },
+    {
+      "name": "Q5",
+      "query": "老板说下个月要团建，让我搞定。从问卷到最后的通知都安排上吧。材料在 `q5_materials/`，保存到 `result/result_q5`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Team_Building_Planning/q5_full_teambuild/q5_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 在 `result/result_q5/` 下分阶段交付 6 个产物（文件名自定，但顺序对应清晰）：问卷草稿、问卷分析、候选方案对比、最终方案详情、通知稿、预算审批表。\n2. 6 个产物之间必须自洽：最终方案必须来自候选方案之一；通知稿日期、地点、费用承担与最终方案一致；预算审批表与最终方案人均一致。\n3. 问卷字段以 `survey_template_guide.txt` 为准（7 项必含 + 4 类禁问隐私 + 三段开头说明）。\n4. 问卷分析数据来自 `survey_responses.xlsx`，必须显式列「少数派否决项」（孕期 / 术后 / 严重过敏 / 清真饮食），并指出与多数偏好的冲突。\n5. 候选方案至少 **3 套**，仅可来自 `venue_candidates.xlsx`；至少 1 套近距离（commute_min ≤ 30）、至少 1 套半天；按 `budget_rules.txt` 校验合规并标注「超预算」。\n6. 最终方案详情包含行程时间表（时段 | 时长 | 地点 | 内容 | 负责人）、人员分组（按 `employee_roster.xlsx` 部门分 4–5 人/组，少数派分散）、餐饮替代菜单（至少 4 类）、应急预案（雨天 / 健康限制 / 临时缺席）。\n7. 通知稿严格按 `notification_template_guide.txt` 的 6 字段顺序撰写，称呼「各位同事」，不超过 600 汉字；紧急联系人姓名「王芳」，电话占位 `13X-XXXX-XXXX`。\n8. 预算审批表按 `budget_rules.txt`：列固定为「项目 | 单价 | 数量 | 小计 | 是否合规 | 备注」，末行给出合计、人均、上限、合规结论。\n9. 输出风格统一以 `output_style_guide.txt` 为准：每个 Markdown 产物第一行 `日期：YYYY-MM-DD`；金额整数；无开场白与结束语；不使用 emoji。\n10. 全流程禁止追问婚育、年龄、住址、宗教信仰本身；禁止编造材料外的同事、场地或预算项。\n11. 必须照顾 4 类少数派否决项：餐饮有替代菜单、行程有轻量替代项、不要求强制参与。\n12. 若调研期或活动日期与材料中给出的窗口冲突，必须显式说明并选择最贴近的合法日期。",
+        "trajectory_reqs": "1. 需进行规则对齐操作：阅读全部 txt 指引（survey_template / team_constraints / budget_rules / notification_template / output_style），约束 6 个产物的字段与格式。\n2. 需进行 Excel 数据解析操作：分别读取 `survey_responses.xlsx`、`venue_candidates.xlsx`、`employee_roster.xlsx`，支撑分析、候选筛选与分组。\n3. 需进行偏好分析与方案设计操作：从分析到候选再到最终方案逐层收敛，并在每一步显式照顾少数派否决项与预算合规。\n4. 需进行行程编排操作：排出 09:30–21:00 时段与负责人，并设计雨天与健康限制的替代项。\n5. 需进行文档生成操作：将 6 个产物按自洽要求生成并保存到 `result/result_q5/` 文件夹。"
+      }
+    }
+  ]
+}

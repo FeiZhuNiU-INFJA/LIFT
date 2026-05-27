@@ -1,0 +1,71 @@
+{
+  "name": "工程自动化与代码执行类评测",
+  "category": "工程自动化与代码执行类评测",
+  "tasks": [
+    {
+      "name": "Q1",
+      "query": "请基于 q1_materials/source_docs/ 里的少量示例文档，写一个“样本包构造器”脚本，把原始资料抽样成多个代表性 sample package。最终代码和输出保存到 result/result_q1。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/工程自动化与代码执行类评测/q1_sample_package_constructor/q1_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 最终产物包含 sample_package_builder.py、README.md、config.example.json、至少 2 个生成出来的 sample_package 示例。\n2. 脚本必须保留原始目录层级，但每个文件只抽取部分内容；不得直接完整复制原文件充当抽样结果。\n3. 抽样策略不能固定只取前三段，需要结合文件长度、标题、关键词或随机种子做可解释抽样。\n4. 所有原始文件应尽量在多个 sample package 中被覆盖到；若未覆盖，需在 coverage_report.json 中说明。\n5. 脚本必须支持 CLI 参数：--source_dir、--output_dir、--num_packages、--seed、--max_chars_per_file。\n6. README.md 要写明运行方式、输出结构、抽样策略、已知限制。",
+        "trajectory_reqs": "1. 文件遍历：递归读取 materials/source_docs/，记录原始目录结构和文件长度。\n2. 抽样实现：按可解释策略对每个文件抽取片段，生成多个 sample package，避免完整复制。\n3. 覆盖统计：计算每个原始文件是否被抽中，输出 coverage_report.json。\n4. CLI 与文档：实现命令行参数和 README，保证可复现实验。"
+      }
+    },
+    {
+      "name": "Q2",
+      "query": "请根据 q2_materials/jobs.jsonl 写一个批量请求大模型的调度脚本。这里不需要真的调用外部 API，可以用 mock_client 模拟。结果保存到 result/result_q2。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/工程自动化与代码执行类评测/q2_batch_llm_orchestrator/q2_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 最终产物包含 batch_runner.py、mock_client.py、README.md、outputs/predictions.jsonl、logs/run_summary.json。\n2. 脚本必须支持并发执行、失败重试、指数退避、QPS 限制、断点续跑。\n3. 输入 jobs.jsonl 每行一个任务，输出 predictions.jsonl 必须保留 job_id、input、output、status、attempts、error、latency_ms。\n4. 断点续跑时不得重复处理已经成功的 job_id；重复 job_id 需要记录 warning。\n5. README.md 要说明如何配置 concurrency、qps、max_retries、resume。\n6. 代码要模块化，核心逻辑不能全部堆在 main 函数里。",
+        "trajectory_reqs": "1. 任务读取：解析 jobs.jsonl，校验 job_id 唯一性并记录重复项。\n2. 调度实现：实现并发、QPS 限制、失败重试和指数退避，并用 mock_client 模拟 API。\n3. 断点续跑：读取已有 predictions.jsonl，跳过已成功 job_id。\n4. 运行汇总：输出 run_summary.json，包含成功数、失败数、平均延迟、总耗时和 warnings。"
+      }
+    },
+    {
+      "name": "Q3",
+      "query": "请在 q3_materials/examples/ 的基础上写一个 Excel 产物裁判 skill，用来判断 Agent 生成的表格是否满足用户 query。最终结果保存到 result/result_q3。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/工程自动化与代码执行类评测/q3_excel_output_judge_skill/q3_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 最终产物包含 skill.md、judge.py、rubric.json、README.md、tests/test_cases.json。\n2. 裁判不能依赖隐藏真值文件，只能根据 query、输入表结构、产出表结构和产出内容判断是否符合意图。\n3. 评分维度至少包含：意图满足度、字段/格式正确性、计算逻辑合理性、数据完整性、异常处理、可解释性。\n4. judge.py 需要输出 JSON，字段包括 passed、score、dimension_scores、issues、suggested_fix。\n5. 必须设计至少 5 个测试用例，覆盖正确产物、字段缺失、公式错误、格式错误、过度生成。\n6. skill.md 要写清楚裁判原则：先理解 query，再检查结构，再抽查计算，不确定时降置信度而不是武断通过。",
+        "trajectory_reqs": "1. 需求归纳：从 Excel Agent 产物评测场景中提炼不依赖真值的判定维度。\n2. 规则实现：将 rubric.json 的维度映射到 judge.py 的评分逻辑，并输出结构化 JSON。\n3. 测试构造：在 tests/test_cases.json 中覆盖正确和典型错误场景。\n4. 文档化：在 skill.md 和 README 中说明裁判流程、输入输出格式和局限性。"
+      }
+    },
+    {
+      "name": "Q4",
+      "query": "我想让一个自进化 Agent 每轮都能重新加载自己的代码。请你写一个最小可运行的热加载器 demo，材料里有初始说明，结果保存到 result/result_q4。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/工程自动化与代码执行类评测/q4_hot_reload_agent_loop/q4_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 最终产物包含 loader.py、agent_impl.py、protocol.md、README.md、logs/example_run.log。\n2. loader.py 必须保持稳定，不允许被 agent_impl.py 修改；每轮从文件系统重新加载 agent_impl.py。\n3. agent_impl.py 每轮可以输出一个 evolution_patch 或 next_action，但只有当它显式输出 status=evolution_done 时，loader 才进入下一轮重载。\n4. 需要提供暂停接口和人工干预信息注入接口，可以用 CLI 命令、文件信号或简单 HTTP 接口实现，但必须写清楚。\n5. 必须有安全边界：禁止删除工作区根目录外文件；写入操作默认限制在 workspace/ 子目录；支持 dry-run。\n6. README.md 要解释生命周期：加载 -> 执行 -> 产出进化信号 -> 重载 -> 下一轮。",
+        "trajectory_reqs": "1. 架构设计：将稳定 loader 与可变 agent_impl 分离，定义二者通信协议。\n2. 热加载实现：每轮从磁盘重新 import 或执行 agent_impl.py，避免只使用内存旧版本。\n3. 控制接口：实现暂停和人工干预注入机制，并在 protocol.md 中说明。\n4. 安全约束：限制文件操作范围，加入 dry-run 和日志，避免自进化误删关键文件。"
+      }
+    },
+    {
+      "name": "Q5",
+      "query": "帮我做一个最小自进化 Agent 工作区，不要搞太复杂，但要能跑、能改自己、能评估自己，结果放到 result/result_q5。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/工程自动化与代码执行类评测/q5_final_self_evolving_workspace_agent/q5_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 最终产物包含 loader.py、agent_impl.py、evaluator.py、workspace/、protocol.md、README.md、tests/、logs/example_run.log。\n2. 必须采用稳定 loader + 可变 agent_impl 的结构；loader 每轮从磁盘重载 agent_impl，不能一直使用启动时内存中的旧代码。\n3. agent_impl 可以提出代码修改，但只有显式输出 status=evolution_done 后，loader 才能开始下一轮并加载新版本。\n4. 需要提供暂停进化、恢复进化、人工干预信息注入三个控制入口；入口形式可以是 CLI、文件信号或轻量 HTTP，但必须可运行。\n5. 必须实现 evaluator.py，对每轮 agent 产物给出结构化评分 JSON，至少包含 success、score、issues、next_suggestion。\n6. 必须包含安全边界：dry-run、工作区路径限制、修改前备份、异常回滚、日志记录；禁止默认执行危险 shell 命令。\n7. README.md 必须给出一条从安装、运行、注入人工提示、触发进化、查看日志到运行测试的完整路径。\n8. tests/ 至少覆盖：热加载生效、暂停/恢复、人工干预注入、错误回滚、evaluator 输出格式。",
+        "trajectory_reqs": "1. 系统拆分：实现 loader、agent_impl、evaluator、workspace、tests 的最小闭环结构。\n2. 热加载与进化协议：定义并实现 status=evolution_done 后重载新 agent_impl 的生命周期。\n3. 控制接口：提供暂停、恢复、人工干预注入，并用 README 演示。\n4. 自评估：实现 evaluator.py 输出结构化 JSON，并把评分反馈给下一轮可用。\n5. 安全工程：加入 dry-run、路径限制、修改前备份、异常回滚和日志，确保自修改过程可控。\n6. 测试验证：编写覆盖热加载、控制接口、回滚和 evaluator 格式的测试。"
+      }
+    }
+  ]
+}

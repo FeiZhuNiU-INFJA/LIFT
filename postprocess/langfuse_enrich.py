@@ -2,14 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from dotenv import load_dotenv
+
 from langfuse import get_client
 
 from src.models import OpenClawBenchmarkPhaseRun, OpenClawBenchmarkReport
 from src.report.langfuse_trace_stitch import stitch_phase_langfuse_traces
 
-
-load_dotenv()
 
 
 def get_langfuse_client():

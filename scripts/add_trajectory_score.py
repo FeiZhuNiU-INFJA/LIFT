@@ -1,27 +1,18 @@
 import argparse
 import json
-import os
+
 import re
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from dotenv import load_dotenv
 
-load_dotenv()
+from src.config import CONFIG
 
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
-JUDGE_MODEL_NAME = os.getenv("JUDGE_MODEL_NAME", "gpt-4o-mini")
-USE_JUDGE = _env_flag("USE_JUDGE", default=False)
+OPENAI_API_KEY = CONFIG.openai_api_key
+OPENAI_BASE_URL = CONFIG.openai_base_url
+JUDGE_MODEL_NAME = CONFIG.judge_model_name
+USE_JUDGE = CONFIG.use_judge
 
 SYSTEM_PROMPT_TEMPLATE = """你是一个Agent轨迹评判高手，你会了解到目标任务、任务要求以及一个其他Agent的执行轨迹，你需要根据你对任务以及要求的理解，在脑海中构建一条最佳实现路径来完美根据要求完成任务，然后在和Agent的实际执行轨迹对比，评判实际执行的轨迹质量高低，并且输出一个得分，值在0到1之间，越高说明质量越好。你只需要关注轨迹信息，不需要在意内容质量，因此，你需要根据提供的文本轨迹信息和轨迹要求进行分析，不需要了解实际的文件内容。
 

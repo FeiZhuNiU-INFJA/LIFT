@@ -1,0 +1,71 @@
+{
+  "name": "Sales_Ops_Weekly_Analytics",
+  "category": "Sales_Ops_Weekly_Analytics",
+  "tasks": [
+    {
+      "name": "Q1",
+      "query": "用 `q1_materials/` 汇总 2026-05-12 至 2026-05-18 各产品线周业绩，保存到 `result/result_q1`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Sales_Ops_Weekly_Analytics/q1_single_table_summary/q1_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 指标口径与 Excel 读法以 `metric_definitions.txt` 为准：从 `sales_daily.xlsx` 默认工作表读取（首行表头）；GMV 使用列 `gmv`，回款使用列 `paid_amount`，不得自行改口径。\n2. 汇总维度为 `product_line`（产品线），需包含各产品线小计及全公司合计行。\n3. 金额统一保留 2 位小数，千分位可选；订单数为整数。\n4. 产出 Markdown 文件开头第一行必须为：`日期：YYYY-MM-DD`（使用任务执行日当天日期）。\n5. 文档需包含二级标题「按产品线周汇总」和「本周合计」，合计行标注为「合计」。\n6. 表格列顺序固定为：产品线 | 本周GMV | 本周回款 | 本周订单数。\n7. 保存结果时不要写开场白、结束语或「以上是…」类套话。\n8. 若某产品线在材料中无记录，需在文末「数据说明」中列出「未发现数据的产品线：…」，不得静默省略。",
+        "trajectory_reqs": "1. 需进行 Excel 数据解析操作：打开 `sales_daily.xlsx` 并读取默认工作表，按 `product_line` 聚合 `gmv`、`paid_amount`、`orders`，为汇总表提供计算基础。\n2. 需进行规则对齐操作：阅读 `metric_definitions.txt` 确认 GMV/回款/周区间定义，避免口径漂移。\n3. 需进行文档生成操作：将聚合结果与合计行组织为 Markdown 表格并写入 `result/result_q1` 文件夹。"
+      }
+    },
+    {
+      "name": "Q2",
+      "query": "用 `q2_materials/` 做 2026-05-12 至 2026-05-18 渠道周报，保存到 `result/result_q2`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Sales_Ops_Weekly_Analytics/q2_channel_join_report/q2_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 指标口径与 Excel 读法以 `metric_definitions.txt` 为准；从 `orders_detail.xlsx`、`channel_mapping.xlsx` 默认工作表读取（首行表头）；金额保留 2 位小数，订单数为整数。\n2. 需将 `orders_detail.xlsx` 的 `channel_code` 与 `channel_mapping.xlsx` 关联，输出字段必须包含：渠道名称、渠道类型、本周GMV、本周回款、本周订单数。\n3. 仅统计 `orders_detail.xlsx` 中 `status=paid` 的订单。\n4. 产出 Markdown 文件开头第一行必须为：`日期：YYYY-MM-DD`（任务执行日当天）。\n5. 文档需用二级标题「按渠道周汇总」，其下按 `channel_type`（直销/渠道/电商）分组展示表格，组内按本周 GMV 降序排列。\n6. 需增加「渠道结构」小节：计算各渠道 GMV 占比（%，保留 1 位小数），并指出占比最高的渠道。\n7. 保存结果时不要写开场白、结束语。\n8. 若关联后某 `channel_code` 在 mapping 中缺失，该渠道单独列入「未映射渠道」分组，不得丢弃订单。",
+        "trajectory_reqs": "1. 需进行 Excel 数据解析操作：打开 `orders_detail.xlsx` 读取默认工作表，筛选已支付订单，按渠道聚合 GMV、回款与订单数。\n2. 需进行 Excel 数据关联操作：将订单表 `channel_code` 与 `channel_mapping.xlsx` 匹配，补全渠道名称与渠道类型，支撑分组展示。\n3. 需进行指标计算操作：在渠道汇总基础上计算 GMV 占比与 Top 渠道，服务于「渠道结构」小节。\n4. 需进行文档生成操作：按渠道类型分组输出 Markdown 表格与占比说明，保存至 `result/result_q2` 文件夹。"
+      }
+    },
+    {
+      "name": "Q3",
+      "query": "对比 2026-05-12 至 2026-05-18 各大区业绩与目标达成，材料在 `q3_materials/`，保存到 `result/result_q3`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Sales_Ops_Weekly_Analytics/q3_dept_target_compare/q3_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 指标口径与 Excel 读法以 `metric_definitions.txt` 为准；从 `sales_by_dept.xlsx`、`dept_targets.xlsx` 默认工作表读取（首行表头）；周区间为 2026-05-12 至 2026-05-18。\n2. 从 `sales_by_dept.xlsx` 按 `department` 汇总本周 GMV、回款、订单数；与 `dept_targets.xlsx`（`week_start=2026-05-12`）中的目标对比。\n3. 必须输出 GMV 完成率、回款完成率（定义见 `metric_definitions.txt`，保留 1 位小数并带 `%`）。\n4. 金额保留 2 位小数；订单数为整数。\n5. 产出 Markdown 文件开头第一行必须为：`日期：YYYY-MM-DD`（任务执行日当天）。\n6. 表格列顺序：大区 | 本周GMV | GMV目标 | GMV完成率 | 本周回款 | 回款目标 | 回款完成率 | 本周订单数。\n7. 需增加「排名与点评」：按 GMV 完成率降序列出大区排名；对完成率低于 90% 的大区用一句话说明风险（基于数据，勿编造外部事件）。\n8. 保存结果时不要写开场白、结束语。\n9. 若某大区有实际值但无目标值，需在「数据说明」列出，且完成率填「N/A」。",
+        "trajectory_reqs": "1. 需进行 Excel 数据解析操作：打开 `sales_by_dept.xlsx` 读取默认工作表，并按大区级聚合实际业绩指标。\n2. 需进行 Excel 数据关联操作：将实际值与 `dept_targets.xlsx` 按 `department` 对齐，获取目标值以计算完成率。\n3. 需进行对比分析操作：完成率排序、识别低于 90% 的大区并撰写简短风险点评。\n4. 需进行文档生成操作：输出主表与「排名与点评」小节，保存至 `result/result_q3` 文件夹。"
+      }
+    },
+    {
+      "name": "Q4",
+      "query": "帮我看下 2026-05-12 到 2026-05-18 这周销售有没有明显异常，产品线和大区都查一下，有问题的说清原因。材料在 `q4_materials/`，保存到 `result/result_q4`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Sales_Ops_Weekly_Analytics/q4_anomaly_attribution/q4_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 指标口径与 Excel 读法以 `metric_definitions.txt` 为准；业务表均为 `.xlsx`，默认工作表、首行表头；异常判定阈值以 `anomaly_thresholds.txt` 为准。\n2. 产品线维度：用 `sales_daily.xlsx` 汇总周 GMV，与 `weekly_baseline.xlsx` 中对应 `product_line` 的 `baseline_gmv` 对比；超过 ±15% 记为异常。\n3. 大区维度：用 `sales_by_dept.xlsx` 汇总周 GMV，与 `weekly_baseline.xlsx` 中对应 `department` 的 `baseline_gmv` 对比；超过 ±12% 记为异常。\n4. 产出 Markdown 文件开头第一行必须为：`日期：YYYY-MM-DD`（任务执行日当天）。\n5. 文档结构须包含二级标题：「异常概览」「产品线异常明细」「大区异常明细」「综合判断」。\n6. 每条异常须包含：对象名称、本周实际 GMV、对比基准、偏差百分比（保留 1 位小数）、可能原因（1-2 条，仅基于材料推断）。\n7. 若无任何维度触发异常，在「异常概览」中明确写「本周未发现达到阈值的异常」。\n8. 金额保留 2 位小数；保存结果时不要写开场白、结束语。\n9. 「综合判断」需用 3-5 句话归纳：异常集中在哪些维度、对下周运营关注的 1 条建议（建议须与异常分析结论一致）。",
+        "trajectory_reqs": "1. 需进行 Excel 数据解析操作：分别从 `sales_daily.xlsx`、`sales_by_dept.xlsx` 读取默认工作表并聚合周 GMV，作为异常检测输入。\n2. 需进行 Excel 基线对比操作：读取 `weekly_baseline.xlsx` 默认工作表，结合 `anomaly_thresholds.txt` 计算相对 baseline 的偏差并标记异常项。\n3. 需进行归因分析操作：对每条异常结合材料字段给出可能原因，避免无依据的外推。\n4. 需进行文档生成操作：按固定四段结构输出报告，保存至 `result/result_q4` 文件夹。"
+      }
+    },
+    {
+      "name": "Q5",
+      "query": "我是销售运营王明，明天上午要向 VP 汇报本周（2026-05-12 至 2026-05-18）经营情况。帮我把该算的指标和异常风险捋清楚，整理成可直接发的简报。材料在 `q5_materials/`，保存到 `result/result_q5`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Sales_Ops_Weekly_Analytics/q5_boss_weekly_brief/q5_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 指标口径与 Excel 读法以 `materials/metric_definitions.txt` 为准：业务数据均为 `.xlsx`，默认工作表、首行表头；GMV 用列 `gmv`，回款用列 `paid_amount`；金额保留 2 位小数，订单数为整数。\n2. 产出 Markdown 文件开头第一行必须为：`日期：YYYY-MM-DD`（任务执行日当天）。\n3. 保存结果时不要写开场白、结束语或「以上是…」类套话。\n4. **产品线总览**：使用 `sales_daily.xlsx` 按 `product_line` 汇总本周 GMV、回款、订单数，表格列顺序为：产品线 | 本周GMV | 本周回款 | 本周订单数，并给出全公司合计行。\n5. **渠道结构**：使用 `orders_detail.xlsx`（仅 `status=paid`）关联 `channel_mapping.xlsx`，输出各渠道 GMV、回款、订单数，按 `channel_type` 分组，组内按 GMV 降序；并给出各渠道 GMV 占比（%，1 位小数）及占比最高渠道。\n6. **大区目标达成**：使用 `sales_by_dept.xlsx` 与 `dept_targets.xlsx`（`week_start=2026-05-12`）对比，输出大区 | 本周GMV | GMV目标 | GMV完成率 | 本周回款 | 回款目标 | 回款完成率；完成率定义见 `metric_definitions.txt`；对 GMV 完成率低于 90% 的大区附一句风险说明。\n7. **异常与建议**：按 `anomaly_thresholds.txt` 与 `weekly_baseline.xlsx` 检查产品线（±15%）与大区（±12%）GMV 异常；每条异常写清对象、实际值、基准、偏差比例、可能原因（1-2 条）；若无异常须明确说明。\n8. 文档须用二级标题组织，且必须包含以下章节（顺序可调整但标题名需一致）：「执行摘要」「产品线总览」「渠道结构」「大区目标达成」「异常与建议」「下周关注」。\n9. 「执行摘要」不超过 8 行，须覆盖：本周 GMV/回款合计、表现最好的产品线与大区、是否存在异常、一句 VP 级结论。\n10. 「下周关注」列出 3 条可执行事项，须与前述数据结论一致，不得泛泛而谈。\n11. 关联渠道时，未在 mapping 中出现的 `channel_code` 归入「未映射渠道」，不得丢单。",
+        "trajectory_reqs": "1. 需进行 Excel 数据解析操作：读取 `materials/` 下各 `.xlsx` 默认工作表，分别完成产品线、渠道、大区三类聚合，为简报各章节提供数据基础。\n2. 需进行 Excel 数据关联操作：订单表与渠道 mapping 工作簿关联、大区实际与目标表关联，支撑渠道结构与大区达成分析。\n3. 需进行对比与异常检测操作：依据 baseline 与阈值识别产品线/大区异常，并撰写归因与 VP 级摘要。\n4. 需进行文档生成操作：将多维度结论整合为固定章节结构的 Markdown 简报，保存至 `result/result_q5` 文件夹。"
+      }
+    }
+  ]
+}

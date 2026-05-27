@@ -76,6 +76,8 @@ def _format_message_timestamp() -> str:
 
 
 class Agent(ABC):
+    _active_trace_plugin: str | None = None
+
     @property
     @abstractmethod
     def env_file_path(self) -> str | None:
@@ -106,11 +108,33 @@ class Agent(ABC):
     def reset_evolve(run_id: str, category: str, repeat_index: int) -> None:
         """重置当前 benchmark 闭环后的进化状态，并按 run/category 归档备份。"""
         pass
+
+    @classmethod
+    def set_trace_plugin(cls, trace_plugin: str | None) -> None:
+        if trace_plugin not in {None, "fornax", "langfuse"}:
+            raise ValueError(f"Unsupported trace plugin: {trace_plugin}")
+        cls._active_trace_plugin = trace_plugin
+        Agent._active_trace_plugin = trace_plugin
+
+    @classmethod
+    def detect_trace_plugin(cls) -> str | None:
+        if cls._active_trace_plugin in {"fornax", "langfuse"}:
+            return cls._active_trace_plugin
+        if Agent._active_trace_plugin in {"fornax", "langfuse"}:
+            return Agent._active_trace_plugin
+        return None
+
+    def _uses_fornax_tracer(self) -> bool:
+        return type(self).detect_trace_plugin() == "fornax"
     
     async def _prepare_chat_env(
         self,
         tags: FornaxUdfTags,
     ) -> None:
+        if not self._uses_fornax_tracer():
+            LOGGER.debug("Skipped FORNAX_UDF_TAGS update because fornax tracer is not active")
+            return
+
         env_file_path = self.env_file_path
         if not env_file_path:
             raise ValueError("Missing agent env file path in config.py")
@@ -122,9 +146,7 @@ class Agent(ABC):
         await asyncio.to_thread(_upsert_env_var, env_file_path, "FORNAX_UDF_TAGS", tags_value)
         LOGGER.info("FORNAX_UDF_TAGS updated successfully")
 
-        LOGGER.info("Restarting gateway")
-        await self._restart_gateway()
-        LOGGER.info("Gateway restarted successfully")
+        LOGGER.info("Skipped gateway restart during chat environment preparation")
 
     @abstractmethod
     async def chat(
@@ -279,20 +301,25 @@ class OpenClawAgent(Agent):
         self,
         run_id: str,
         task_id: str,
+        agent_name: str,
         skills_dir: str | None = None,
         material_dir: str | None = None,
         workspace_dir: str | Path | None = None,
     ) -> None:
-        
         self.run_id = run_id
         self.task_id = task_id
-        # Agent名字一定以evobench开头，方便后续删除Agent
-        self.agent_name = "evobench-agent_name-" + short_id()
-        self.workspace_dir = self._mk_workspace(workspace_dir)
-        if skills_dir:
-            self.copy_skill_dir(skills_dir)
-        if material_dir:
-            self.copy_material_dir(material_dir)
+        self.agent_name = agent_name
+        self._skills_dir = skills_dir
+        self._material_dir = material_dir
+        self._workspace_dir_arg = workspace_dir
+        self.workspace_dir: Path | None = None
+
+    def initialize(self) -> None:
+        self.workspace_dir = self._mk_workspace(self._workspace_dir_arg)
+        if self._skills_dir:
+            self.copy_skill_dir(self._skills_dir)
+        if self._material_dir:
+            self.copy_material_dir(self._material_dir)
         self._create_agent()
 
     def _openclaw_env(self, extra_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -311,7 +338,7 @@ class OpenClawAgent(Agent):
             env.update(extra_env)
         return env
 
-    def _create_agent(self) -> None:
+    def _create_agent(self, max_retries: int = 3) -> None:
         def chk_existance():
             result = subprocess.run(["openclaw", "agents", "list"], check=False, capture_output=True)
             if result.returncode == 1:
@@ -319,26 +346,41 @@ class OpenClawAgent(Agent):
                 raise ValueError("Failed to list agents")
             result = result.stdout.decode(encoding="utf-8")
             return result.find(self.agent_name) != -1
-        if chk_existance():
-            LOGGER.info(f"Agent {self.agent_name} already exists")
-            return
-        subprocess.run(
-            [
-                "openclaw",
-                "agents",
-                "add",
+
+        for attempt in range(max_retries):
+            if chk_existance():
+                LOGGER.info(f"Agent {self.agent_name} already exists")
+                return
+            try:
+                subprocess.run(
+                    [
+                        "openclaw",
+                        "agents",
+                        "add",
+                        self.agent_name,
+                        "--model",
+                        CONFIG.model,
+                        "--workspace",
+                        str(self.workspace_dir),
+                    ],
+                    check=True,
+                    env=self._openclaw_env(),
+                )
+                if chk_existance():
+                    LOGGER.info(f"Agent {self.agent_name} created successfully")
+                    return
+            except subprocess.CalledProcessError:
+                pass
+            LOGGER.warning(
+                "Failed to create agent %s (attempt %d/%d), retrying with new name...",
                 self.agent_name,
-                "--model",
-                CONFIG.model,
-                "--workspace",
-                str(self.workspace_dir),
-            ],
-            check=True,
-            env=self._openclaw_env(),
-        )
-        if not chk_existance():
-            raise ValueError(f"Failed to create agent {self.agent_name}")
-        LOGGER.info(f"Agent {self.agent_name} created successfully")
+                attempt + 1,
+                max_retries,
+            )
+            time.sleep(1)
+            self.agent_name = "evobench-agent_name-" + short_id()
+
+        raise ValueError(f"Failed to create agent after {max_retries} retries")
         
     
     @property

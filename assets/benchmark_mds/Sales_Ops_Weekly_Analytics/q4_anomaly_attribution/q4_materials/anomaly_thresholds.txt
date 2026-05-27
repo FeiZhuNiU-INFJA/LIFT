@@ -1,0 +1,7 @@
+异常阈值（私人定制）
+
+产品线 GMV：和 baseline 比正负15%，baseline 见 weekly_baseline.xlsx
+大区 GMV：和 baseline 比正负12%，baseline 见 weekly_baseline.xlsx
+渠道订单占比：单渠道占比周环比变动超过 8 个百分点，要结合 orders_detail.xlsx 和 channel_mapping.xlsx
+
+写异常时必须写：异常对象、实际值、对比基准、偏差幅度、可能原因（1-2条，只能根据材料推断，不要编材料里没有的字段）

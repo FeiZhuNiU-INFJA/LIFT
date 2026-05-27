@@ -16,6 +16,7 @@ from src.models import BenchmarkSpec  # noqa: E402
 
 TASK_DIR_RE = re.compile(r"^q(?P<index>\d+)(?:[_-].+)?$", re.IGNORECASE)
 SECTION_NAMES = ("query", "要求", "轨迹要求")
+IGNORED_DIR_NAMES = {"__MACOSX"}
 
 
 def to_project_relative(path: Path) -> str:
@@ -67,23 +68,54 @@ def find_task_markdown(task_dir: Path) -> Path:
     raise ValueError(f"Unable to determine task markdown file in {task_dir}")
 
 
+def resolve_scene_dir(scene_dir: Path) -> Path:
+    if iter_task_dirs(scene_dir):
+        return scene_dir
+
+    nested_candidates = [
+        path
+        for path in scene_dir.iterdir()
+        if path.is_dir() and path.name not in IGNORED_DIR_NAMES
+    ]
+
+    preferred_nested = [path for path in nested_candidates if path.name == scene_dir.name]
+    for candidate in preferred_nested + nested_candidates:
+        if iter_task_dirs(candidate):
+            return candidate
+
+    raise ValueError(f"No task directories found in benchmark scene: {scene_dir}")
+
+
+def find_materials_dir(task_dir: Path, task_index: int) -> Path | None:
+    preferred_dir = task_dir / f"q{task_index}_materials"
+    if preferred_dir.exists():
+        return preferred_dir
+
+    legacy_dir = task_dir / "materials"
+    if legacy_dir.exists():
+        return legacy_dir
+
+    return None
+
+
 def build_task_entry(scene_dir: Path, task_dir: Path) -> dict[str, object]:
     match = TASK_DIR_RE.match(task_dir.name)
     if match is None:
         raise ValueError(f"Invalid task directory name: {task_dir.name}")
 
+    task_index = int(match.group("index"))
     md_path = find_task_markdown(task_dir)
     sections = parse_markdown_sections(md_path.read_text(encoding="utf-8"), md_path)
-    materials_dir = task_dir / "materials"
+    materials_dir = find_materials_dir(task_dir, task_index)
     skills_dir = scene_dir / "skills"
 
     return {
-        "name": f"Q{int(match.group('index'))}",
+        "name": f"Q{task_index}",
         "query": sections["query"],
         "requirements": {
             "default_skills": [],
             "extra_skills_dir": to_project_relative(skills_dir) if skills_dir.exists() else "",
-            "material_dir": to_project_relative(materials_dir) if materials_dir.exists() else "",
+            "material_dir": to_project_relative(materials_dir) if materials_dir is not None else "",
         },
         "expected_result": {
             "content_reqs": sections["要求"],
@@ -102,14 +134,13 @@ def iter_task_dirs(scene_dir: Path) -> list[Path]:
 
 
 def build_benchmark_spec(scene_dir: Path) -> dict[str, object]:
-    task_dirs = iter_task_dirs(scene_dir)
-    if not task_dirs:
-        raise ValueError(f"No task directories found in benchmark scene: {scene_dir}")
+    resolved_scene_dir = resolve_scene_dir(scene_dir)
+    task_dirs = iter_task_dirs(resolved_scene_dir)
 
     return {
-        "name": scene_dir.name,
-        "category": scene_dir.name,
-        "tasks": [build_task_entry(scene_dir, task_dir) for task_dir in task_dirs],
+        "name": resolved_scene_dir.name,
+        "category": resolved_scene_dir.name,
+        "tasks": [build_task_entry(resolved_scene_dir, task_dir) for task_dir in task_dirs],
     }
 
 
@@ -117,7 +148,11 @@ def convert_all(input_root: Path, output_root: Path) -> list[Path]:
     output_root.mkdir(parents=True, exist_ok=True)
     written_files: list[Path] = []
 
-    for scene_dir in sorted(path for path in input_root.iterdir() if path.is_dir()):
+    for scene_dir in sorted(
+        path
+        for path in input_root.iterdir()
+        if path.is_dir() and path.name not in IGNORED_DIR_NAMES
+    ):
         benchmark_data = build_benchmark_spec(scene_dir)
         BenchmarkSpec.model_validate(benchmark_data)
 

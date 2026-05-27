@@ -1,0 +1,22 @@
+{
+  "name": "陈先生",
+  "age": 35,
+  "investable_amount_yuan": 500000,
+  "risk_preference": "中等",
+  "max_drawdown_tolerance": 0.15,
+  "investment_style": "价值投资",
+  "preferred_industries": ["科技", "消费"],
+  "forbidden_industries": ["白酒", "烟草", "博彩"],
+  "single_stock_max_weight": 0.20,
+  "single_industry_max_weight": 0.40,
+  "valuation_threshold": {
+    "pe_high": 60,
+    "roe_low": 8,
+    "debt_ratio_high": 70
+  },
+  "signal_light": {
+    "green": "强烈推荐",
+    "yellow": "中性",
+    "red": "不推荐"
+  }
+}
