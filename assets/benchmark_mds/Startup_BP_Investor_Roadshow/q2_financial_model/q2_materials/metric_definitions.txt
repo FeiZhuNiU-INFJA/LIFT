@@ -1,0 +1,17 @@
+财务模型口径（智协 LarkMate）
+
+【Excel 怎么读】
+文件 financial_model.xlsx 里有两个表：assumptions 是参数；monthly_projection 是 2026年6月到12月预测。
+每个表第一行是表头，按列名读；金额单位是万元（除非备注写了别的）。
+
+【指标含义】
+MRR：月末月度经常性收入（万元）
+ARR：MRR 乘以 12（万元）
+Burn：当月现金费用支出（万元，不含融资到账）
+Net cash flow：表里已给，按 MRR 减 Burn 的简化口径
+Runway（月）：cash_on_hand 除以最近一个月的 burn，向上取整到整数月
+毛利率：看 assumptions 里的 gross_margin 参数，文字说明用，不要另造表外数字
+
+【展示要求】
+表格金额保留 1 位小数。
+不要编造 assumptions 和 monthly_projection 里没有的月份或参数。

@@ -1,0 +1,7 @@
+request_id,timestamp,endpoint,status_code,latency_ms,retry_count,error_type
+R001,2026-03-01 10:00:00,/generate,200,830,0,
+R002,2026-03-01 10:00:01,/generate,200,920,0,
+R003,2026-03-01 10:00:02,/generate,500,4200,2,timeout
+R004,2026-03-01 10:00:03,/embed,200,340,0,
+R005,2026-03-01 10:00:04,/generate,429,5000,3,rate_limit
+R006,2026-03-01 10:00:05,/generate,200,760,1,

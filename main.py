@@ -6,6 +6,10 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from src.agents import HermesAgent, OpenClawAgent
 from src.models import BenchmarkSpec
 from src.eval_core import run_task

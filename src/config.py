@@ -16,6 +16,13 @@ LEVEL_COLORS = {
     logging.CRITICAL: "\033[35m",
 }
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 @dataclass(frozen=True)
 class AppConfig:
     hermes_api_key: str | None
@@ -23,6 +30,18 @@ class AppConfig:
     openclaw_env_file: str | None
     eval_max_turns: int
     model: str
+    log_file: str
+    langfuse_pre_chat: bool
+    langfuse_public_key: str | None
+    langfuse_secret_key: str | None
+    openai_api_key: str | None
+    openai_base_url: str | None
+    judge_model_name: str
+    use_judge: bool
+
+    @property
+    def langfuse_credentials_present(self) -> bool:
+        return bool(self.langfuse_public_key and self.langfuse_secret_key)
 
 
 def load_config() -> AppConfig:
@@ -31,7 +50,15 @@ def load_config() -> AppConfig:
         hermes_env_file=os.getenv("HERMES_ENV_FILE"),
         openclaw_env_file=os.getenv("OPENCLAW_ENV_FILE"),
         eval_max_turns=int(os.getenv("EVAL_MAX_TURNS", "2")),
-        model=os.getenv("MODEL_NAME", 'unknown'),
+        model=os.getenv("MODEL_NAME", "unknown"),
+        log_file=os.getenv("EVAL_LOG_FILE", str(_default_log_file())),
+        langfuse_pre_chat=_env_flag("EVAL_LANGFUSE_PRE_CHAT", default=True),
+        langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+        langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        openai_base_url=os.getenv("OPENAI_BASE_URL"),
+        judge_model_name=os.getenv("JUDGE_MODEL_NAME", "gpt-4o-mini"),
+        use_judge=_env_flag("USE_JUDGE", default=False),
     )
 
 
@@ -59,9 +86,7 @@ def setup_logging() -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
 
-    log_path = Path(
-        os.getenv("EVAL_LOG_FILE", str(_default_log_file())),
-    ).expanduser()
+    log_path = Path(CONFIG.log_file).expanduser()
     if not log_path.is_absolute():
         log_path = (_PROJECT_ROOT / log_path).resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)

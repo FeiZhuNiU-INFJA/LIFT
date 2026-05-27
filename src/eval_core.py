@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Callable
 
 from json_repair import repair_json
 from pydantic import BaseModel, Field
@@ -39,8 +38,8 @@ def _build_judge_prompt(user_prompt: str, agent_result: str, content_reqs: str) 
         "你是严格评测器。请根据【用户提示词】和【任务期望结果】判定当前任务是否已经完成。\n"
         "你必须只输出一个 JSON 对象，不要输出任何其他文字、解释或 markdown。\n"
         '输出格式固定为：{"success": true/false, "reason": "失败原因，需要详细给出不满足的问题点以及应该怎么做，成功时可为空字符串", "score": 0.0}\n'
-        "其中 score 范围是 0 到 1。表示任务的完成率，success为true时，score为1\n"
-        "注意：在填写reason字段时需要内容详细，不能只说没满足，要说清楚第一个没有被满足的要求具体是什么、当前哪里没做到、应该怎么改。不要一次性罗列所有未满足要求，只反馈第一个未满足的要求即可。\n"
+        "其中 score 范围是 0 到 1。表示任务的完成率，也就是满足的要求数除以总要求数。success为true时，score为1\n"
+        "注意：在填写reason字段时需要内容详细，不能只说没满足，要说清楚第一个没有被满足的要求具体是什么、当前哪里没做到、应该怎么改。不要一次性罗列所有未满足要求，只反馈前两个未满足的要求即可，如果只剩一个要求没满足就只需要反馈哪一个就行了。\n"
         "同时，reason不能只写负面的没满足要求，已经满足的要求也得给出正面的反馈，告诉他做得对，而且这些已满足项可以正常说明。\n"
         "此外，reason的填写得保证Agent能够根据这个反馈进行改进来做到满足更多的要求，Agent本身不知道这些任务期望和要求，所以你得在reason中写清楚。\n"
         "最后，reason的语言风格需要自然，符合日常对话习惯。\n"
@@ -161,20 +160,18 @@ async def run_task(
 async def openclaw_run_task(
     task: BenchmarkTask,
     run_id: str,
-    openclaw_create_agent: Callable[[str], Agent],
+    user_agent: Agent,
+    judge_agent: Agent,
+    user_session_id: str,
+    judge_session_id: str,
     max_turns: int = CONFIG.eval_max_turns,
     is_evolve_turn: bool = False,
     is_final_task: bool = False,
 ) -> tuple[bool, str, str]:
     """Returns (success, work_session_id, judge_session_id)."""
-    # OpenClaw 当前新建 session 会 fallback，因此每个逻辑 session 使用一个独立 agent。
     tags = FornaxUdfTags.init_tags(task, run_id)
     tags.is_final_task = is_final_task
     tags.is_evolve_turn = is_evolve_turn
-    user_session_id = f"user-{short_id()}"
-    user_agent = openclaw_create_agent(f"user-{user_session_id}")
-    judge_session_id = f"judge-{short_id()}"
-    judge_agent = openclaw_create_agent(f"judge-{judge_session_id}")
     current_prompt = task.query
 
     for _ in range(max_turns):

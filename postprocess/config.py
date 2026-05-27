@@ -1,18 +1,6 @@
-import os
+from src.config import CONFIG
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
-
-def env_flag(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
-JUDGE_MODEL_NAME = os.getenv("JUDGE_MODEL_NAME", "gpt-4o-mini")
-USE_JUDGE = env_flag("USE_JUDGE", default=False)
+OPENAI_API_KEY = CONFIG.openai_api_key
+OPENAI_BASE_URL = CONFIG.openai_base_url
+JUDGE_MODEL_NAME = CONFIG.judge_model_name
+USE_JUDGE = CONFIG.use_judge

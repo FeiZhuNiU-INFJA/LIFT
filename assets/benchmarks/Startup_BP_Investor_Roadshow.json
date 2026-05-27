@@ -1,0 +1,71 @@
+{
+  "name": "Startup_BP_Investor_Roadshow",
+  "category": "Startup_BP_Investor_Roadshow",
+  "tasks": [
+    {
+      "name": "Q1",
+      "query": "我是智协 LarkMate 创始人李晨，在写 Pre-A BP，也要起路演 PPT。用工作区 `q1_materials/` 整理 BP 前四章，并写好第 1–4 页幻灯片要点，保存到 `result/result_q1`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Startup_BP_Investor_Roadshow/q1_problem_solution/q1_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 写作风格以 `output_style_guide.txt` 为准；幻灯片以 `deck_style_guide.txt` 为准。\n2. 所有数字与事实仅可来自 `founder_brief.txt`、`market_snapshot.txt`；未给出写「待补充」，禁止编造。\n3. **BP 文稿**（Markdown）：第一行 `日期：YYYY-MM-DD`；二级标题顺序固定：「执行摘要」「问题与痛点」「解决方案」「市场机会」；执行摘要 ≤10 条 bullet；市场机会含 TAM/SAM/SOM 三行表；无开场白/结束语。\n4. **幻灯片要点**（纯文本）：产出文件名为 `slide_pages_01-04.txt`，严格按 `deck_pages_q1.txt` 的页序与 `---页码---` 块格式填写第 1–4 页，每页要点遵守 deck_style_guide（≤5 条、每条 ≤40 字）。\n5. 暂不生成 `.pptx`（本任务只产出文字稿与页要点，供后续合成 deck）。",
+        "trajectory_reqs": "1. 需进行文档阅读操作：从 founder、市场材料提取 BP 与幻灯片共用事实。\n2. 需进行规则对齐操作：对照 output_style_guide 与 deck_style_guide 分别约束文稿与页要点。\n3. 需进行商业写作操作：生成 BP Markdown 与 `slide_pages_01-04.txt`，保存至 `result/result_q1` 文件夹。"
+      }
+    },
+    {
+      "name": "Q2",
+      "query": "用工作区 `q2_materials/` 整理 BP 的财务预测与资金用途，并写第 5–7 页幻灯片要点，保存到 `result/result_q2`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Startup_BP_Investor_Roadshow/q2_financial_model/q2_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 口径与 Excel 读法以 `metric_definitions.txt` 为准；从 `financial_model.xlsx` 的 assumptions、monthly_projection 读取，勿编造。\n2. 写作与幻灯片风格分别见 `output_style_guide.txt`、`deck_style_guide.txt`。\n3. **BP 文稿**（Markdown）：第一行 `日期：YYYY-MM-DD`；二级标题顺序：「关键假设」「月度预测」「Runway 与资金用途」「财务小结」；关键假设表含 assumptions 全部参数行；月度预测表列：月份 | MRR | ARR | Burn | Net cash flow；runway 与资金用途见 funding_use.txt 三项比例；财务小结 3–5 条 bullet。\n4. **幻灯片要点**：产出 `slide_pages_05-07.txt`，按 `deck_pages_q2.txt` 填写第 5–7 页，格式同 Q1 的 `---页码---` 块，数字与 Excel 一致。\n5. 本任务不生成 `.pptx`。\n6. 无开场白/结束语。",
+        "trajectory_reqs": "1. 需进行 Excel 数据解析与指标计算操作：读取假设与预测表，计算 runway。\n2. 需进行规则对齐操作：统一万元精度与幻灯片字数限制。\n3. 需进行文档生成操作：输出财务 Markdown 与 `slide_pages_05-07.txt`，保存至 `result/result_q2` 文件夹。"
+      }
+    },
+    {
+      "name": "Q3",
+      "query": "用工作区 `q3_materials/` 写 BP 的竞争格局与差异化，并写第 8–9 页幻灯片要点，保存到 `result/result_q3`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Startup_BP_Investor_Roadshow/q3_competitive_positioning/q3_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 竞品事实仅来自 `competitor_landscape.xlsx` 默认工作表；定位须符合 `positioning_notes.txt`。\n2. **BP 文稿**（Markdown）：第一行 `日期：YYYY-MM-DD`；二级标题：「竞争格局总览」「竞品对比表」「差异化与壁垒」「定位一句话」；对比表列：竞品 | 品类 | 优势 | 劣势 | 定价要点 | 我方差异点（全覆盖）；定位一句话 ≤40 字加粗。\n3. **幻灯片要点**：产出 `slide_pages_08-09.txt`，按 `deck_pages_q3.txt` 填写第 8–9 页。\n4. 本任务不生成 `.pptx`；无开场白/结束语。",
+        "trajectory_reqs": "1. 需进行 Excel 数据解析操作：读取竞品全表。\n2. 需进行文档阅读与商业分析操作：结合 positioning_notes 写壁垒与幻灯片短句。\n3. 需进行文档生成操作：输出 Markdown 与 `slide_pages_08-09.txt`，保存至 `result/result_q3` 文件夹。"
+      }
+    },
+    {
+      "name": "Q4",
+      "query": "我下周（5/26–6/6）要开始见投资人。用工作区 `q4_materials/` 排会议日程，并写第 10 页路演周幻灯片要点，保存到 `result/result_q4`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Startup_BP_Investor_Roadshow/q4_investor_meeting_schedule/q4_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 投资人来自 `investor_pipeline.xlsx`，6 人各至少 1 场；约束见 calendar_blackouts、meeting_rules。\n2. **排期文稿**（Markdown）：第一行 `日期：YYYY-MM-DD`；二级标题：「排期总览」「会议日程表」「议程与准备」「排期说明」；日程表列：日期 | 开始 | 结束 | 投资人 | 机构 | 形式 | 优先级 | 时区备注；P0 优先 5/26–5/30 上午；议程含四段时长；会前 24h 交付 **roadshow_deck.pptx**（见 meeting_rules）。\n3. **幻灯片要点**：产出 `slide_pages_10.txt`，按 `deck_pages_q4.txt` 写第 10 页，数据与本次日程表一致。\n4. 本任务不生成 `.pptx`；无开场白/结束语。",
+        "trajectory_reqs": "1. 需进行 Excel 数据解析与约束求解操作：生成合法会议时间表。\n2. 需进行日程编排操作：为每场写议程与 pptx 会前提醒。\n3. 需进行文档生成操作：输出排期 Markdown 与 `slide_pages_10.txt`，保存至 `result/result_q4` 文件夹。"
+      }
+    },
+    {
+      "name": "Q5",
+      "query": "我是 LarkMate 李晨，下周一至 6 号在北京见 Pre-A，白天基本排满。帮我做十几页路演 PPT，再附会议排期说明，别撞发布彩排和法务尽调。材料在 `q5_materials/`，保存到 `result/result_q5`。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/Startup_BP_Investor_Roadshow/q5_roadshow_final/q5_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 写作与数据规则以 `output_style_guide.txt` 为准；**PPT 版式**以 `deck_style_guide.txt` 为准；**页序与页主题**以 `deck_page_spec.txt` 为准（共 14 页）。\n2. 可从 `pitch_deck_skeleton.pptx` 起步修改，也可新建；**必须交付** `roadshow_deck.pptx`（14 页齐全，页序与 spec 一致）。\n3. 第 1–10 页内容须分别与 BP/财务/竞品/排期材料一致（founder_brief、market_snapshot、financial_model.xlsx、competitor_landscape.xlsx、positioning_notes、investor_pipeline、blackouts、meeting_rules）；第 11–14 页按 spec 与 founder_brief 填写。\n4. 财务页数字与 `financial_model.xlsx` 一致；竞品页覆盖表中全部 4 家；排期页场次数、首场时间与当次排期逻辑一致（若本任务内重算排期，须自洽）。\n5. 投资人会议：6 人各至少 1 场，窗口 2026-05-26–06-06，遵守 blackout 与 meeting_rules（单日≤3 场、45 分钟、间隔≥30 分钟）。\n6. **附稿** `roadshow_brief.md`：第一行 `日期：YYYY-MM-DD`；含二级标题「执行摘要」「投资人会议排期」「路演前检查清单」；检查清单 5 条 `- [ ]`；排期表列同 Q4；无开场白/结束语。\n7. 重复沿用前期私人定制：公司名智协 LarkMate、万元 1 位小数、禁止编造、幻灯片每页≤5 条等（见 style 文件）。\n8. 英文会议标注 timezone 与选时理由（1 句）。",
+        "trajectory_reqs": "1. 需进行多源阅读与 Excel 解析操作：汇总 BP、财务、竞品、投资人数据。\n2. 需进行演示文稿生成操作：按 deck_page_spec 与 deck_style_guide 制作 `roadshow_deck.pptx`（含数据页图表或表）。\n3. 需进行日程编排操作：生成会议排期写入 roadshow_brief.md。\n4. 需进行质量检查操作：核对 14 页齐全、会前 pptx 交付要求与检查清单一致，保存至 `result/result_q5` 文件夹。"
+      }
+    }
+  ]
+}

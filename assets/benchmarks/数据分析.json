@@ -1,0 +1,71 @@
+{
+  "name": "数据分析",
+  "category": "数据分析",
+  "tasks": [
+    {
+      "name": "Q1",
+      "query": "请使用 q1_materials/call_records.csv 做一份客服热线质检数据分析，输出核心指标、异常线索和一张汇总图表。最终产物保存到工作区 result/result_q1。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/数据分析/q1_call_center_metrics/q1_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 最终产物至少包含 analysis_report.md、metrics_table.csv、cleaned_call_records.csv、figures/summary.png。\n2. 核心指标必须包含：总通话量、总通话时长、平均通话时长、平均情感分、负面通话占比、转派工单率、各业务域占比、各接线员接听量与平均情感分。\n3. 所有时长在报告中显示为 HH:MM:SS，同时在 metrics_table.csv 中保留秒数原始字段，便于复核。\n4. 负面通话定义为 sentiment_score <= 0.3；中性为 0.3 < score < 0.7；正面为 score >= 0.7。\n5. 报告必须写清楚数据清洗规则、缺失值处理、异常通话判断逻辑；不能只给结果。\n6. 图表要能独立读懂，标题、坐标轴、图例或注释完整。",
+        "trajectory_reqs": "1. 数据读取：读取 call_records.csv，检查字段、类型、缺失值和重复 Business_Number。\n2. 指标计算：按要求计算整体、业务域、接线员三个层级指标，并生成 metrics_table.csv。\n3. 可视化：生成至少一张能展示业务域或情感分布的 summary.png。\n4. 清洗记录：将清洗后的明细保存为 cleaned_call_records.csv，并在报告中解释清洗逻辑。"
+      }
+    },
+    {
+      "name": "Q2",
+      "query": "请用 q2_materials/dip_cases.csv 试做一次心内科 DIP 数据月度对比分析，重点看 2025 与 2026 年初的费用和住院天数变化。结果保存到 result/result_q2。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/数据分析/q2_dip_monthly_compare/q2_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 最终产物包含 dip_analysis_report.md、monthly_metrics.csv、missingness_report.csv、figures/trend_total_cost.png。\n2. 必须区分 total_cost、dip_paid_amount、prepay_total 三个费用字段，不允许混用；如果字段缺失严重，要单独说明不能用于主结论。\n3. monthly_metrics.csv 至少包含 year_month、case_count、avg_total_cost、median_total_cost、avg_length_of_stay、missing_dip_paid_rate、missing_disease_code_rate。\n4. 报告必须先做缺失情况诊断，再给趋势结论；不能在字段缺失明显时直接比较。\n5. 如果 2026 只有 1-2 月数据，结论必须写成“探索性分析”，不得写成政策效果结论。\n6. 所有代码和中间结果要可复现，建议输出 analysis.py 或 notebook。",
+        "trajectory_reqs": "1. 缺失诊断：检查费用、病种代码、初始分值、住院天数字段的缺失比例，并输出 missingness_report.csv。\n2. 指标计算：按 year_month 聚合病例数、次均费用、中位费用、平均住院天数和关键缺失率。\n3. 趋势可视化：绘制 total_cost 月度趋势图，并避免把缺失字段作为主趋势。\n4. 结论约束：根据样本月份和缺失情况限定结论强度，明确探索性分析边界。"
+      }
+    },
+    {
+      "name": "Q3",
+      "query": "q3_materials/survey_sample.csv 是研究生焦虑风险调查的小样本试算数据。请做一份描述性分析和建模前数据质量评估，结果放到 result/result_q3。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/数据分析/q3_student_anxiety_survey/q3_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 最终产物包含 survey_qc_report.md、descriptive_stats.csv、risk_group_table.csv、figures/gad7_distribution.png。\n2. 必须说明 GAD-7 风险分层规则：0-4 最小，5-9 轻度，10-14 中度，15-21 重度；同时计算每组人数和占比。\n3. 描述性统计需覆盖人口学变量、睡眠、运动、导师支持、经济压力、GAD-7、PHQ-9。\n4. 报告必须区分“描述性发现”和“因果解释”；小样本不得给出确定性因果结论。\n5. 建模前评估要说明：样本量是否足够、类别是否稀疏、是否存在共线性风险、是否需要扩大样本。\n6. 输出至少 3 条后续正式调查问卷或采样策略建议。",
+        "trajectory_reqs": "1. 数据质控：检查量表取值范围、缺失、重复 student_id 和明显异常值。\n2. 分层统计：根据 GAD-7 规则生成人数和占比，输出 risk_group_table.csv。\n3. 描述性分析：按变量类型生成描述性统计，并输出 descriptive_stats.csv。\n4. 建模可行性评估：从样本量、类别稀疏、共线性和因果限制角度写入报告。"
+      }
+    },
+    {
+      "name": "Q4",
+      "query": "请分析 q4_materials/agent_request_logs.csv，找出 Agent 调用链路里的延迟和错误异常，并输出一个工程排查报告。结果保存到 result/result_q4。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/数据分析/q4_agent_log_anomaly/q4_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 最终产物包含 log_anomaly_report.md、endpoint_metrics.csv、anomaly_cases.csv、figures/latency_by_endpoint.png。\n2. endpoint_metrics.csv 至少包含 endpoint、request_count、success_rate、p50_latency_ms、p95_latency_ms、avg_retry_count、top_error_type。\n3. 异常规则至少包括：status_code 非 2xx、latency_ms 超过整体 P95、retry_count >= 2；命中的请求写入 anomaly_cases.csv。\n4. 报告必须给出工程排查顺序：先看限流/超时/服务端错误，再看是否集中在某 endpoint 或时间段。\n5. 如果样本太少，必须说明统计指标不稳定，只能作为排查线索。\n6. 不要只写“优化性能”，要给出可执行动作，如重试退避、限流保护、缓存、超时参数、报警阈值。",
+        "trajectory_reqs": "1. 日志解析：读取请求日志并校验时间、状态码、延迟、重试次数字段类型。\n2. 指标聚合：按 endpoint 计算成功率、延迟分位数、平均重试次数和主要错误类型。\n3. 异常检测：按非 2xx、超过 P95、retry_count >= 2 三类规则筛选异常请求。\n4. 工程归因：根据错误类型、endpoint 和时间集中性提出排查顺序与可执行优化动作。"
+      }
+    },
+    {
+      "name": "Q5",
+      "query": "我现在想看看新流程上线后到底有没有变好。q5_materials 里有一份汇总表，帮我做一版能给老师看的探索性分析，结果放 result/result_q5。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": "assets/benchmark_mds/数据分析/q5_final_policy_effect_exploration/q5_materials"
+      },
+      "expected_result": {
+        "content_reqs": "1. 最终产物包含 final_exploratory_report.md、analysis_dataset.csv、metric_summary.csv、missingness_report.csv、figures/monthly_trends.png、analysis.py。\n2. 必须先检查字段含义和缺失率，尤其是费用、住院天数、负面通话率、工单转派率、缺失支付字段比例；缺失严重的指标不能作为主结论。\n3. 报告必须区分探索性对比、趋势线索和政策效果结论；当前数据不足时不能宣称因果效果。\n4. 指标至少包括：case_count、avg_total_cost、avg_length_of_stay、negative_call_rate、ticket_rate，并按 pre/post 分组汇总。\n5. 图表至少展示月度趋势，并在图中或图注标记上线前后阶段。\n6. 必须说明是否适合做 ITS、PSM+DID、混合效应模型；若样本月份少或个体级变量不足，要解释为什么暂不适合。\n7. 所有时长/费用/比例字段的单位要在报告和表格中写清楚，脚本可复现，输出路径固定到 result/result_q5。",
+        "trajectory_reqs": "1. 数据质控：读取 summary_monthly.csv，检查字段含义、单位、缺失率和 period 分组是否合理。\n2. 探索性汇总：按 pre/post 计算病例量、费用、住院天数、负面通话率、工单率的均值或总量。\n3. 趋势可视化：绘制月度趋势图并标记上线前后，避免用缺失严重字段支撑主结论。\n4. 方法适配判断：根据样本月份、是否有个体级协变量、是否有对照组，判断 ITS、PSM+DID、混合效应模型是否适合。\n5. 复现落盘：保存清洗数据、指标表、缺失报告、图表和 analysis.py 到 result/result_q5。"
+      }
+    }
+  ]
+}

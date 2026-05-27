@@ -12,26 +12,12 @@ Disable with EVAL_LANGFUSE_PRE_CHAT=0|false.
 
 from __future__ import annotations
 
-import os
-
-from dotenv import load_dotenv
-
+from src.config import CONFIG, LOGGER
 from src.models import FornaxUdfTags
-
-load_dotenv()
-
-from src.config import LOGGER
-
-_EVAL_PRE_CHAT = os.getenv("EVAL_LANGFUSE_PRE_CHAT", "true").strip().lower() not in (
-    "0",
-    "false",
-    "no",
-    "off",
-)
 
 
 def _langfuse_credentials_present() -> bool:
-    return bool(os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"))
+    return CONFIG.langfuse_credentials_present
 
 
 def _truncate_str(value: str, max_len: int = 200) -> str:
@@ -68,7 +54,7 @@ def emit_pre_chat_state(
     - Full dynamic fields live on span ``input`` (JSON-serializable dict).
     - ``propagate_attributes(metadata=...)`` only carries short string dimensions (v4 limit).
     """
-    if not _EVAL_PRE_CHAT or not _langfuse_credentials_present():
+    if not CONFIG.langfuse_pre_chat or not _langfuse_credentials_present():
         return
 
     try:
