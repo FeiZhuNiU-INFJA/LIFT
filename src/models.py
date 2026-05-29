@@ -58,7 +58,11 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-LANGFUSE_PLUGIN_TRACE_NAME = "openclaw-plugin"
+# 业务侧 turn trace 的 name 集合：openclaw 走 "openclaw-plugin"，hermes 走 "Hermes turn"。
+# 两者 trace.metadata 都需写成 OpenClaw schema（messages / toolCallBlocks）。
+LANGFUSE_PLUGIN_TRACE_NAMES: tuple[str, ...] = ("openclaw-plugin", "Hermes turn")
+# 兼容旧引用：默认/占位 trace 名仍取首项。
+LANGFUSE_PLUGIN_TRACE_NAME = LANGFUSE_PLUGIN_TRACE_NAMES[0]
 
 
 class LangfuseAgentTraceInput(BaseModel):
@@ -69,7 +73,6 @@ class LangfuseAgentTraceInput(BaseModel):
     task_query: str
     is_final_task: bool = False
     is_evolve_turn: bool = False
-    is_ended: bool = False
     content_reqs: str = ""
     trajectory_reqs: str = ""
     content_score: float = 0.0
@@ -152,7 +155,11 @@ class LangfuseTraceRef(BaseModel):
     tags: list[str] = Field(default_factory=list)
     plugin_trace_id: str | None = Field(
         default=None,
-        description="配对的 openclaw-plugin trace id",
+        description="配对的 plugin trace id（openclaw-plugin / Hermes turn）",
+    )
+    plugin_trace_name: str | None = Field(
+        default=None,
+        description="配对的 plugin trace name（用于 postprocess 区分 OpenClaw / Hermes 计算路径）",
     )
     agent_input: LangfuseAgentTraceInput | None = Field(
         default=None,
@@ -320,6 +327,10 @@ class OpenClawBenchmarkPhaseRun(BaseModel):
     work_session_id: str = Field(description="传给 work_agent 的 session id（user_session_id）")
     judge_session_id: str = Field(description="传给 judge_agent 的 session id")
     success: bool
+    content_score: float = Field(
+        default=0.0,
+        description="judge 给出的最近一次 content_score（0-1）；任务超出最大尝试次数时为最后一轮的分数",
+    )
     workspace_dir: str | None = Field(default=None, description="该 phase 使用的 OpenClaw workspace 目录")
     langfuse: OpenClawBenchmarkPhaseLangfuseBundle | None = Field(
         default=None,
@@ -395,7 +406,6 @@ class FornaxUdfTags:
     task_query: str
     is_final_task: bool
     is_evolve_turn: bool
-    is_ended: bool
     content_reqs: str
     trajectory_reqs: str
     content_score: float
@@ -409,7 +419,6 @@ class FornaxUdfTags:
             task_query=task.query,
             is_final_task=False,
             is_evolve_turn=False,
-            is_ended=False,
             content_reqs=task.expected_result.content_reqs,
             trajectory_reqs=task.expected_result.trajectory_reqs,
             content_score=0.0,
@@ -423,7 +432,6 @@ class FornaxUdfTags:
             ("task_query", self.task_query),
             ("is_final_task", _bool_to_tag(self.is_final_task)),
             ("is_evolve_turn", _bool_to_tag(self.is_evolve_turn)),
-            ("is_ended", _bool_to_tag(self.is_ended)),
             ("content_reqs", self.content_reqs),
             ("trajectory_reqs", self.trajectory_reqs),
             ("content_score", self.content_score),
@@ -439,7 +447,6 @@ class FornaxUdfTags:
             "task_query": self.task_query,
             "is_final_task": self.is_final_task,
             "is_evolve_turn": self.is_evolve_turn,
-            "is_ended": self.is_ended,
             "content_reqs": self.content_reqs,
             "trajectory_reqs": self.trajectory_reqs,
             "content_score": self.content_score,

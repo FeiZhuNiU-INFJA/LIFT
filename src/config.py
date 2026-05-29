@@ -34,8 +34,12 @@ class AppConfig:
     langfuse_pre_chat: bool
     langfuse_public_key: str | None
     langfuse_secret_key: str | None
+    langfuse_base_url: str | None
     openai_api_key: str | None
     openai_base_url: str | None
+    firecrawl_api_key: str | None
+    api_server_enabled: bool
+    api_server_key: str | None
     judge_model_name: str
     use_judge: bool
 
@@ -55,8 +59,12 @@ def load_config() -> AppConfig:
         langfuse_pre_chat=_env_flag("EVAL_LANGFUSE_PRE_CHAT", default=True),
         langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
         langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+        langfuse_base_url=os.getenv("LANGFUSE_BASE_URL"),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_base_url=os.getenv("OPENAI_BASE_URL"),
+        firecrawl_api_key=os.getenv("FIRECRAWL_API_KEY"),
+        api_server_enabled=_env_flag("API_SERVER_ENABLED", default=False),
+        api_server_key=os.getenv("API_SERVER_KEY"),
         judge_model_name=os.getenv("JUDGE_MODEL_NAME", "gpt-4o-mini"),
         use_judge=_env_flag("USE_JUDGE", default=False),
     )

@@ -23,7 +23,6 @@ WEEKDAY_ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 
-
 def _upsert_env_var(file_path: str | Path, key: str, value: str) -> None:
     path = Path(file_path).expanduser().resolve()
     lines: list[str] = []
@@ -75,9 +74,42 @@ def _format_message_timestamp() -> str:
     return f"[{weekday} {now.strftime('%Y-%m-%d %H:%M:%S')} GMT+8]"
 
 
-class Agent(ABC):
-    _active_trace_plugin: str | None = None
+def _resolve_project_path(path_value: str | Path) -> Path:
+    path = Path(path_value).expanduser()
+    if not path.is_absolute():
+        path = _PROJECT_ROOT / path
+    return path.resolve()
 
+
+def copy_skill_dir_to(workspace_dir: Path, skill_path: str | Path) -> Path:
+    """将 skills 目录拷贝到 ``workspace_dir`` 下，OpenClaw / Hermes 共用。"""
+    source_dir = _resolve_project_path(skill_path)
+    if not source_dir.exists():
+        raise ValueError(f"Skill path does not exist: {source_dir}")
+    if not source_dir.is_dir():
+        raise ValueError(f"Skill path is not a directory: {source_dir}")
+    if source_dir.name != "skills":
+        raise ValueError(f"skills directory must be named 'skills', but got {source_dir.name}")
+    destination_dir = workspace_dir / source_dir.name
+    shutil.copytree(source_dir, destination_dir, dirs_exist_ok=True)
+    LOGGER.info("Copied skill directory to workspace: %s -> %s", source_dir, destination_dir)
+    return destination_dir
+
+
+def copy_material_dir_to(workspace_dir: Path, material_path: str | Path) -> Path:
+    """将 materials 目录拷贝到 ``workspace_dir`` 下，OpenClaw / Hermes 共用。"""
+    source_dir = _resolve_project_path(material_path)
+    if not source_dir.exists():
+        raise ValueError(f"Material path does not exist: {source_dir}")
+    if not source_dir.is_dir():
+        raise ValueError(f"Material path is not a directory: {source_dir}")
+    destination_dir = workspace_dir / source_dir.name
+    shutil.copytree(source_dir, destination_dir, dirs_exist_ok=True)
+    LOGGER.info("Copied material directory to workspace: %s -> %s", source_dir, destination_dir)
+    return destination_dir
+
+
+class Agent(ABC):
     @property
     @abstractmethod
     def env_file_path(self) -> str | None:
@@ -109,45 +141,6 @@ class Agent(ABC):
         """重置当前 benchmark 闭环后的进化状态，并按 run/category 归档备份。"""
         pass
 
-    @classmethod
-    def set_trace_plugin(cls, trace_plugin: str | None) -> None:
-        if trace_plugin not in {None, "fornax", "langfuse"}:
-            raise ValueError(f"Unsupported trace plugin: {trace_plugin}")
-        cls._active_trace_plugin = trace_plugin
-        Agent._active_trace_plugin = trace_plugin
-
-    @classmethod
-    def detect_trace_plugin(cls) -> str | None:
-        if cls._active_trace_plugin in {"fornax", "langfuse"}:
-            return cls._active_trace_plugin
-        if Agent._active_trace_plugin in {"fornax", "langfuse"}:
-            return Agent._active_trace_plugin
-        return None
-
-    def _uses_fornax_tracer(self) -> bool:
-        return type(self).detect_trace_plugin() == "fornax"
-    
-    async def _prepare_chat_env(
-        self,
-        tags: FornaxUdfTags,
-    ) -> None:
-        if not self._uses_fornax_tracer():
-            LOGGER.debug("Skipped FORNAX_UDF_TAGS update because fornax tracer is not active")
-            return
-
-        env_file_path = self.env_file_path
-        if not env_file_path:
-            raise ValueError("Missing agent env file path in config.py")
-
-        tags_value = tags.to_env_value()
-        LOGGER.info("Updating FORNAX_UDF_TAGS, env_file_path=%s", env_file_path)
-        LOGGER.info("FORNAX_UDF_TAGS=%s", tags_value)
-        LOGGER.debug("FORNAX_UDF_TAGS length=%d", len(tags_value))
-        await asyncio.to_thread(_upsert_env_var, env_file_path, "FORNAX_UDF_TAGS", tags_value)
-        LOGGER.info("FORNAX_UDF_TAGS updated successfully")
-
-        LOGGER.info("Skipped gateway restart during chat environment preparation")
-
     @abstractmethod
     async def chat(
         self,
@@ -162,17 +155,160 @@ class Agent(ABC):
 
 
 class HermesAgent(Agent):
+    _next_agent_id: int = 0
+    # 每个 HermesAgent profile 的 API server 监听端口起点。Hermes 默认是 8642，
+    # 在并发 / 串行多 profile 场景会冲突，因此为每个实例分配一个独立端口
+    # ``_BASE_API_SERVER_PORT + _agent_id``。50000 起步落在 IANA 动态端口范围
+    # （49152-65535）内，对千级别 agent 数仍然安全。
+    _BASE_API_SERVER_PORT: int = 50000
+
     @property
     def env_file_path(self) -> str | None:
         return CONFIG.hermes_env_file
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        workspace_path: str | Path,
+    ) -> None:
+        self._workspace_path = Path(workspace_path)
+        self._agent_id = HermesAgent._next_agent_id
+        HermesAgent._next_agent_id += 1
+        self._profile_name = f"hermes-{self._agent_id}"
+        self._port = HermesAgent._BASE_API_SERVER_PORT + self._agent_id
         self.client = AsyncOpenAI(
-            base_url="http://localhost:8642/v1",
+            base_url=f"http://localhost:{self._port}/v1",
             api_key=CONFIG.hermes_api_key,
+            timeout=3600.0,
+            max_retries=5,
         )
         self._gateway_proc: asyncio.subprocess.Process | None = None
         self._gateway_ready: bool = False
+        self.has_emitted_work_pre_span: bool = False
+        self.has_emitted_judge_pre_span: bool = False
+
+    @property
+    def workspace_dir(self) -> Path:
+        return self._workspace_path
+
+    def copy_task_assets(
+        self,
+        skill_path: str | Path | None,
+        material_path: str | Path | None,
+    ) -> None:
+        """在每个 task 执行前，把 task 级 skills / materials 拷贝到当前 phase workspace。"""
+        self._workspace_path.mkdir(parents=True, exist_ok=True)
+        if skill_path:
+            copy_skill_dir_to(self._workspace_path, skill_path)
+        if material_path:
+            copy_material_dir_to(self._workspace_path, material_path)
+
+    @classmethod
+    async def create(
+        cls,
+        workspace_path: str | Path,
+    ) -> HermesAgent:
+        instance = cls(workspace_path)
+        await instance._ensure_profile()
+        instance._init_env()
+        await instance._spawn_gateway_proc()
+        return instance
+
+    async def _spawn_gateway_proc(self) -> None:
+        """启动当前 profile 的 ``<profile_name> gateway run`` 后台进程，并等待端口就绪。
+
+        ``create`` 与 ``_restart_gateway`` 共用此方法，确保两条路径的启动方式完全一致。
+        stdout/stderr 走 DEVNULL，避免长时间运行后 PIPE buffer 写满反压子进程。
+        """
+        LOGGER.info(
+            "Starting command in background: %s gateway run (port=%d)",
+            self._profile_name,
+            self._port,
+        )
+        self._gateway_proc = await asyncio.create_subprocess_exec(
+            self._profile_name,
+            "gateway",
+            "run",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await self._wait_for_tcp_ready("localhost", self._port, timeout_s=300.0)
+        self._gateway_ready = True
+
+    async def aclose(self) -> None:
+        """显式关闭后台 gateway 子进程，释放端口与 profile 占用。
+
+        必须在每个 benchmark_path 运行完成（无论成功或异常）时调用，
+        否则 ``<profile_name> gateway run`` 会作为孤儿子进程持续占用端口，
+        且 Python 对象 GC 不会触发其退出。
+        """
+        proc = self._gateway_proc
+        if proc is not None and proc.returncode is None:
+            LOGGER.info(
+                "Closing gateway process for profile %s (pid=%s, port=%d)",
+                self._profile_name,
+                proc.pid,
+                self._port,
+            )
+            try:
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    LOGGER.warning(
+                        "Gateway process %s did not exit in 15s; killing",
+                        proc.pid,
+                    )
+                    proc.kill()
+                    await proc.wait()
+            except ProcessLookupError:
+                pass
+        self._gateway_proc = None
+        self._gateway_ready = False
+
+    async def _ensure_profile(self) -> None:
+        try:
+            await self._run_cmd_checked(
+                ["hermes", "profile", "create", self._profile_name, "--clone"]
+            )
+        except subprocess.CalledProcessError:
+            await self._run_cmd_checked(
+                ["hermes", "profile", "delete", self._profile_name, "-y"]
+            )
+            await self._run_cmd_checked(
+                ["hermes", "profile", "create", self._profile_name, "--clone"]
+            )
+
+    def _init_env(self) -> None:
+        env = self._env_file
+        if CONFIG.langfuse_public_key:
+            _upsert_env_var(env, "HERMES_LANGFUSE_PUBLIC_KEY", CONFIG.langfuse_public_key)
+        if CONFIG.langfuse_secret_key:
+            _upsert_env_var(env, "HERMES_LANGFUSE_SECRET_KEY", CONFIG.langfuse_secret_key)
+        if CONFIG.langfuse_base_url:
+            _upsert_env_var(env, "HERMES_LANGFUSE_BASE_URL", CONFIG.langfuse_base_url)
+        if CONFIG.firecrawl_api_key:
+            _upsert_env_var(env, "HERMES_FIRECRAWL_API_KEY", CONFIG.firecrawl_api_key)
+        if CONFIG.api_server_key:
+            _upsert_env_var(env, "API_SERVER_KEY", CONFIG.api_server_key)
+        if CONFIG.api_server_enabled:
+            _upsert_env_var(env, "API_SERVER_ENABLED", CONFIG.api_server_enabled)
+        # 每个 profile 独立监听端口，避免多 HermesAgent 之间端口冲突。
+        _upsert_env_var(env, "API_SERVER_PORT", str(self._port))
+
+    @property
+    def _env_file(self) -> Path:
+        return Path.home() / ".hermes" / "profiles" / self._profile_name / ".env"
+
+    async def switch_session(self, session_id: str) -> None:
+        if hasattr(self, "_current_session_id") and self._current_session_id == session_id:
+            return
+        self._current_session_id = session_id
+        _upsert_env_var(self._env_file, "SESSION_ID", session_id)
+        await self._restart_gateway()
+
+    def reset_pre_chat_state(self) -> None:
+        self.has_emitted_work_pre_span = False
+        self.has_emitted_judge_pre_span = False
 
     @staticmethod
     async def evolve(session_id: str) -> None:
@@ -231,26 +367,37 @@ class HermesAgent(Agent):
         ) from last_exc
 
     async def _restart_gateway(self) -> None:
-        LOGGER.info("Running command: hermes gateway restart")
-        await self._run_cmd_checked(["hermes", "gateway", "restart"])
-        # 要使用hermes API server， 必须要要运行hermes gateway (启动很慢)
-        if self._gateway_proc is not None and self._gateway_proc.returncode is None:
-            LOGGER.info("hermes gateway already running")
-            if not self._gateway_ready:
-                await self._wait_for_tcp_ready("localhost", 8642, timeout_s=60.0)
-                self._gateway_ready = True
-            return
-
-        LOGGER.info("Starting command in background: hermes gateway")
-        self._gateway_proc = await asyncio.create_subprocess_exec(
-            "hermes",
-            "gateway",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+        LOGGER.info(
+            "Restarting gateway for profile: %s", self._profile_name
         )
+        # 注意：``<profile_name> gateway restart`` 在前台模式下不会立即返回
+        # （与 ``<profile_name> gateway run`` 一样会阻塞当前进程）。
+        # 因此这里不调用 restart 子命令，而是直接 terminate 掉 ``create`` 阶段
+        # 由 ``_spawn_gateway_proc`` 拉起的那个 ``<profile_name> gateway run`` 子进程，
+        # 再复用同一方法重新拉起，从而触发 profile env 重新加载。
+        if self._gateway_proc is not None and self._gateway_proc.returncode is None:
+            LOGGER.info(
+                "Terminating existing gateway process for profile %s (pid=%s)",
+                self._profile_name,
+                self._gateway_proc.pid,
+            )
+            try:
+                self._gateway_proc.terminate()
+                try:
+                    await asyncio.wait_for(self._gateway_proc.wait(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    LOGGER.warning(
+                        "Gateway process %s did not exit in 15s; killing",
+                        self._gateway_proc.pid,
+                    )
+                    self._gateway_proc.kill()
+                    await self._gateway_proc.wait()
+            except ProcessLookupError:
+                pass
+        self._gateway_proc = None
         self._gateway_ready = False
-        await self._wait_for_tcp_ready("localhost", 8642, timeout_s=300.0)
-        self._gateway_ready = True
+
+        await self._spawn_gateway_proc()
 
     async def chat(
         self,
@@ -261,20 +408,26 @@ class HermesAgent(Agent):
         *,
         chat_role: str = "work_agent",
     ) -> str:
-        emit_pre_chat_state(session_id=session_id, tags=tags, chat_role=chat_role)
-        await self._prepare_chat_env(tags)
+        if chat_role == "work_agent" and not self.has_emitted_work_pre_span:
+            emit_pre_chat_state(session_id=session_id, tags=tags, chat_role=chat_role)
+            self.has_emitted_work_pre_span = True
+        elif chat_role == "judge_agent" and not self.has_emitted_judge_pre_span:
+            emit_pre_chat_state(session_id=session_id, tags=tags, chat_role=chat_role)
+            self.has_emitted_judge_pre_span = True
         msg = f"{_format_message_timestamp()}\n{msg}"
         if response_schema is None:
             response = await self.client.responses.create(
                 model="hermes-agent",
                 input=msg,
                 conversation=session_id,
+                max_output_tokens=32768
             )
         else:
             response = await self.client.responses.create(
                 model="hermes-agent",
                 input=msg,
                 conversation=session_id,
+                max_output_tokens=32768,
                 text={
                     "format": {
                         "type": "json_schema",
@@ -389,47 +542,28 @@ class OpenClawAgent(Agent):
     
     def _mk_workspace(self, workspace_dir: str | Path | None = None) -> Path:
         """
-        Create workspace directory at /tmp/<run_id>/<task_id>
+        Create workspace directory at ``<cwd>/results/<run_id>/outcome/<task_id>``.
         If task id starts with "baseline-", then it is a baseline run.
         If it starts with "evolved-", then it is an evolved run.
         If it already exists, do nothing.
         """
         if workspace_dir is None:
-            workspace_path = Path("/tmp") / str(self.run_id) / str(self.task_id)
+            workspace_path = (
+                Path.cwd() / "results" / str(self.run_id) / "outcome" / str(self.task_id)
+            )
         else:
             workspace_path = Path(workspace_dir).expanduser().resolve()
         workspace_path.mkdir(parents=True, exist_ok=True)
         return workspace_path
 
     def _resolve_project_path(self, path_value: str | Path) -> Path:
-        path = Path(path_value).expanduser()
-        if not path.is_absolute():
-            path = _PROJECT_ROOT / path
-        return path.resolve()
+        return _resolve_project_path(path_value)
 
     def copy_skill_dir(self, skill_path: str | Path) -> Path:
-        source_dir = self._resolve_project_path(skill_path)
-        if not source_dir.exists():
-            raise ValueError(f"Skill path does not exist: {source_dir}")
-        if not source_dir.is_dir():
-            raise ValueError(f"Skill path is not a directory: {source_dir}")
-        if source_dir.name != "skills":
-            raise ValueError(f"skills directory must be named 'skills', but got {source_dir.name}")
-        destination_dir = self.workspace_dir / source_dir.name
-        shutil.copytree(source_dir, destination_dir, dirs_exist_ok=True)
-        LOGGER.info("Copied skill directory to workspace: %s -> %s", source_dir, destination_dir)
-        return destination_dir
+        return copy_skill_dir_to(self.workspace_dir, skill_path)
 
     def copy_material_dir(self, material_path: str | Path) -> Path:
-        source_dir = self._resolve_project_path(material_path)
-        if not source_dir.exists():
-            raise ValueError(f"Material path does not exist: {source_dir}")
-        if not source_dir.is_dir():
-            raise ValueError(f"Material path is not a directory: {source_dir}")
-        destination_dir = self.workspace_dir / source_dir.name
-        shutil.copytree(source_dir, destination_dir, dirs_exist_ok=True)
-        LOGGER.info("Copied material directory to workspace: %s -> %s", source_dir, destination_dir)
-        return destination_dir
+        return copy_material_dir_to(self.workspace_dir, material_path)
 
     async def _run_cmd_checked_capture(self, args: list[str]) -> str:
         LOGGER.info("Running command: %s", " ".join(args))
@@ -557,7 +691,6 @@ class OpenClawAgent(Agent):
     def initialize_environment(
         *,
         ensure_config_fields: bool = True,
-        trace_plugin: str = "langfuse",
         restart_gateway: bool = True,
         rebuild_runtime: bool = True,
     ) -> None:
@@ -567,17 +700,8 @@ class OpenClawAgent(Agent):
         if ensure_config_fields:
             OpenClawAgent.add_fields_to_openclaw_config()
 
-        trace_plugin_name: str | None
-        if trace_plugin == "fornax":
-            trace_plugin_name = "openclaw-fornax-trace"
-        elif trace_plugin == "langfuse":
-            trace_plugin_name = "langfuse-tracer"
-        else:
-            raise ValueError(f"Unsupported trace plugin: {trace_plugin}")
-
-        if trace_plugin_name:
-            LOGGER.info("Running command: openclaw plugins enable %s", trace_plugin_name)
-            subprocess.run(["openclaw", "plugins", "enable", trace_plugin_name], check=True)
+        LOGGER.info("Running command: openclaw plugins enable langfuse-tracer")
+        subprocess.run(["openclaw", "plugins", "enable", "langfuse-tracer"], check=True)
 
         subprocess.run(["openclaw", "plugins", "enable", "self-evolving-plugin-pro"], check=True)
         
@@ -671,7 +795,6 @@ class OpenClawAgent(Agent):
     ) -> str:
         tags.agent_name = self.agent_name
         emit_pre_chat_state(session_id=session_id, tags=tags, chat_role=chat_role)
-        await self._prepare_chat_env(tags)
         _ = response_schema  # OpenClaw CLI mode currently ignores schema output control.
         msg = f"{_format_message_timestamp()}\n{msg}"
         command = [

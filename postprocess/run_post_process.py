@@ -2,6 +2,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from typing import Literal
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -13,6 +14,9 @@ from postprocess.judge import attach_trajectory_scores
 from postprocess.metrics import build_comparison_dataframe, build_summary_dataframe, print_summary_to_console, validate_pairs
 from postprocess.report_html import render_report_html
 from src.models import OpenClawBenchmarkReport
+
+
+AgentSource = Literal["openclaw", "hermes"]
 
 
 def default_output_paths(output_dir: Path, output_prefix: str) -> tuple[Path, Path, Path, Path]:
@@ -47,14 +51,17 @@ def is_enriched_report(data: dict) -> bool:
     return False
 
 
-def load_or_enrich_report(input_path: Path) -> tuple[dict, str]:
+def load_or_enrich_report(
+    input_path: Path,
+    agent_source: AgentSource = "openclaw",
+) -> tuple[dict, str]:
     data = load_json(input_path)
     if is_enriched_report(data):
         return data, input_path.stem
 
     report = OpenClawBenchmarkReport.from_json_file(input_path)
     client = get_langfuse_client()
-    enriched = enrich_report(report, client)
+    enriched = enrich_report(report, client, agent_source)
     enriched_data = json.loads(enriched.model_dump_json())
     return enriched_data, report.run_id
 
@@ -66,9 +73,10 @@ def process_report_to_outputs(
     comparison_csv: Path,
     summary_csv: Path,
     report_html: Path,
+    agent_source: AgentSource = "openclaw",
 ) -> tuple[Path | None, Path, Path, Path]:
-    data, title_stem = load_or_enrich_report(input_path)
-    extracted_df = build_extracted_dataframe(data)
+    data, title_stem = load_or_enrich_report(input_path, agent_source)
+    extracted_df = build_extracted_dataframe(data, agent_source)
     scored_df = attach_trajectory_scores(extracted_df)
     validate_pairs(scored_df)
     comparison_df = build_comparison_dataframe(scored_df)
@@ -88,6 +96,7 @@ def process_report_to_outputs(
         comparison_df=comparison_df,
         summary_df=summary_df,
         title=f"{title_stem} Metrics Report",
+        agent_source=agent_source,
     )
     report_html.write_text(html_text, encoding="utf-8")
     print_summary_to_console(summary_df)
@@ -105,6 +114,12 @@ def main() -> None:
     parser.add_argument("--comparison-csv", help="Optional override for comparison metrics CSV output path.")
     parser.add_argument("--summary-csv", help="Optional override for summary metrics CSV output path.")
     parser.add_argument("--report-html", help="Optional override for HTML report output path.")
+    parser.add_argument(
+        "--agent-source",
+        choices=["openclaw", "hermes"],
+        default="openclaw",
+        help="Agent source for trace stitching (default: openclaw).",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input_json).resolve()
@@ -127,6 +142,7 @@ def main() -> None:
         comparison_csv=comparison_csv,
         summary_csv=summary_csv,
         report_html=report_html,
+        agent_source=args.agent_source,
     )
 
     print(f"Input: {input_path}")
