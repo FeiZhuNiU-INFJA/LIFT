@@ -28,9 +28,16 @@ from src.models import (
 )
 
 
-
 def openclaw_workspace(run_id: str, run_index: int, phase: str, category_name: str) -> Path:
-    workspace_dir = Path("/tmp") / run_id / f"run-{run_index}" / phase / category_name
+    workspace_dir = (
+        Path.cwd()
+        / "results"
+        / run_id
+        / "outcome"
+        / f"run-{run_index}"
+        / phase
+        / category_name
+    )
     workspace_dir.mkdir(parents=True, exist_ok=True)
     return workspace_dir
 
@@ -73,10 +80,6 @@ def iter_benchmark_paths(path: Path) -> list[Path]:
     benchmark_dir = path / "benchmarks" if path.name == "assets" else path
     return sorted(benchmark_dir.glob("**/*.json"))
 
-def post_process_results_dir(run_id: str) -> Path:
-    results_dir = Path.cwd() / "results" / run_id
-    results_dir.mkdir(parents=True, exist_ok=True)
-    return results_dir
 
 def resolve_benchmark_paths(benchmark_root: Path, task_filter: str) -> list[Path]:
     all_paths = iter_benchmark_paths(benchmark_root)
@@ -101,6 +104,38 @@ def post_process_results_dir(run_id: str) -> Path:
     results_dir = Path.cwd() / "results" / run_id
     results_dir.mkdir(parents=True, exist_ok=True)
     return results_dir
+
+
+def _run_post_process_pipeline(run_id: str, report_path: Path, agent_source: str) -> None:
+    """对已生成的 benchmark report JSON 执行后处理，输出 enriched JSON / CSV / HTML。"""
+    results_dir = post_process_results_dir(run_id)
+    try:
+        enriched_json, comparison_csv, summary_csv, report_html = process_report_to_outputs(
+            report_path,
+            enriched_json=results_dir / f"{run_id}_enriched.json",
+            comparison_csv=results_dir / f"{run_id}_comparison_metrics.csv",
+            summary_csv=results_dir / f"{run_id}_summary_metrics.csv",
+            report_html=results_dir / f"{run_id}_metrics_report.html",
+            agent_source=agent_source,
+        )
+        LOGGER.info("Post-process enriched JSON: %s", enriched_json)
+        LOGGER.info("Post-process comparison CSV: %s", comparison_csv)
+        LOGGER.info("Post-process summary CSV: %s", summary_csv)
+        LOGGER.info("Post-process HTML report: %s", report_html)
+    except Exception:
+        LOGGER.exception("Post-process pipeline failed.")
+        LOGGER.error("Benchmark report was still saved successfully at: %s", report_path)
+
+
+def evaluate_only_mode(args: argparse.Namespace) -> None:
+    if not args.run_id:
+        raise ValueError("--evaluate-only requires --run_id to locate the benchmark report JSON.")
+    run_id = f"evobench-runid-{args.run_id}"
+    report_path = Path.cwd() / "evobench-reports" / f"{run_id}.json"
+    if not report_path.exists():
+        raise FileNotFoundError(f"Benchmark report JSON not found: {report_path}")
+    LOGGER.info("Running evaluate-only post-process for %s", report_path)
+    _run_post_process_pipeline(run_id, report_path, agent_source="openclaw")
 
 
 def reset_benchmark_evolution_state(run_id: str, category_name: str, repeat_index: int) -> None:
@@ -163,7 +198,7 @@ async def run_openclaw_task_phase(
         repeat_index,
         workspace_dir,
     )
-    success, work_sid, judge_sid = await openclaw_run_task(
+    success, work_sid, judge_sid, content_score = await openclaw_run_task(
         task,
         run_id,
         user_agent=user_agent,
@@ -178,6 +213,7 @@ async def run_openclaw_task_phase(
         work_session_id=work_sid,
         judge_session_id=judge_sid,
         success=success,
+        content_score=content_score,
         workspace_dir=str(workspace_dir.resolve()),
     )
 
@@ -259,10 +295,8 @@ def _write_report(bench_report: OpenClawBenchmarkReport, out_path: Path) -> None
 
 
 async def replay_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> None:
-    OpenClawAgent.set_trace_plugin(args.trace)
     OpenClawAgent.initialize_environment(
         ensure_config_fields=True, # 确保model的compat字段存在，并且langfuse-plugin的hooks存在
-        trace_plugin=args.trace, # 开启trace插件
         restart_gateway=True, # 更改插件时是否重启gateway
     )
 
@@ -356,32 +390,15 @@ async def replay_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> 
     _write_report(bench_report, out_path)
 
     if args.evaluate:
-        results_dir = post_process_results_dir(run_id)
-        try:
-            enriched_json, comparison_csv, summary_csv, report_html = process_report_to_outputs(
-                out_path,
-                enriched_json=results_dir / f"{run_id}_enriched.json",
-                comparison_csv=results_dir / f"{run_id}_comparison_metrics.csv",
-                summary_csv=results_dir / f"{run_id}_summary_metrics.csv",
-                report_html=results_dir / f"{run_id}_metrics_report.html",
-            )
-            LOGGER.info("Post-process enriched JSON: %s", enriched_json)
-            LOGGER.info("Post-process comparison CSV: %s", comparison_csv)
-            LOGGER.info("Post-process summary CSV: %s", summary_csv)
-            LOGGER.info("Post-process HTML report: %s", report_html)
-        except Exception:
-            LOGGER.exception("Post-process pipeline failed after benchmark completion.")
-            LOGGER.error("Benchmark report was still saved successfully at: %s", out_path)
+        _run_post_process_pipeline(run_id, out_path, agent_source="openclaw")
 
 
 async def exam_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> None:
     if args.test:
         LOGGER.info("Exam mode ignores --test and always runs the full benchmark workflow.")
 
-    OpenClawAgent.set_trace_plugin(args.trace)
     OpenClawAgent.initialize_environment(
         ensure_config_fields=True,  # 确保model的compat字段存在，并且langfuse-plugin的hooks存在
-        trace_plugin=args.trace,  # 开启trace插件
         restart_gateway=True,  # 更改插件时是否重启gateway
     )
 
@@ -504,22 +521,7 @@ async def exam_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> No
     _write_report(bench_report, out_path)
 
     if args.evaluate:
-        results_dir = post_process_results_dir(run_id)
-        try:
-            enriched_json, comparison_csv, summary_csv, report_html = process_report_to_outputs(
-                out_path,
-                enriched_json=results_dir / f"{run_id}_enriched.json",
-                comparison_csv=results_dir / f"{run_id}_comparison_metrics.csv",
-                summary_csv=results_dir / f"{run_id}_summary_metrics.csv",
-                report_html=results_dir / f"{run_id}_metrics_report.html",
-            )
-            LOGGER.info("Post-process enriched JSON: %s", enriched_json)
-            LOGGER.info("Post-process comparison CSV: %s", comparison_csv)
-            LOGGER.info("Post-process summary CSV: %s", summary_csv)
-            LOGGER.info("Post-process HTML report: %s", report_html)
-        except Exception:
-            LOGGER.exception("Post-process pipeline failed after benchmark completion.")
-            LOGGER.error("Benchmark report was still saved successfully at: %s", out_path)
+        _run_post_process_pipeline(run_id, out_path, agent_source="openclaw")
 
 
 async def openclaw_main() -> None:
@@ -528,7 +530,7 @@ async def openclaw_main() -> None:
         "--mode",
         choices=("replay", "exam"),
         default="replay",
-        help="Execution mode. 'replay' runs the benchmark replay pipeline, 'exam' is reserved for the future exam workflow.",
+        help="Execution mode. 'replay' runs the benchmark replay pipeline, 'exam' is the exam workflow.",
     )
     parser.add_argument(
         "--benchmark",
@@ -541,16 +543,15 @@ async def openclaw_main() -> None:
         help="Test mode, only run one benchmark.",
     )
     parser.add_argument(
-        "--trace",
-        choices=("fornax", "langfuse"),
-        default="langfuse",
-        help="Trace plugin to enable during initialization.",
-    )
-    parser.add_argument(
         "-e",
         "--evaluate",
         action="store_true",
         help="After writing the benchmark report JSON, run the post-process pipeline and generate CSV/HTML outputs.",
+    )
+    parser.add_argument(
+        "--evaluate-only",
+        action="store_true",
+        help="Skip benchmark execution and only run the post-process pipeline against an existing benchmark report JSON. Requires --run_id.",
     )
     parser.add_argument(
         "--task",
@@ -572,14 +573,14 @@ async def openclaw_main() -> None:
         "-p",
         "--parallel",
         action="store_true",
-        help="Run tasks within each benchmark in parallel. Incompatible with the fornax tracer.",
+        help="Run tasks within each benchmark in parallel.",
     )
     args = parser.parse_args()
     if args.repeat < 1:
         raise ValueError("--repeat must be at least 1")
-    if args.parallel and args.trace == "fornax":
-        LOGGER.warning("Parallel mode is incompatible with the fornax tracer because it relies on shared gateway/env state.")
-        raise ValueError("--parallel/-p is incompatible with --trace fornax. Use --trace langfuse or disable --parallel.")
+    if args.evaluate_only:
+        evaluate_only_mode(args)
+        return
 
     preprocess_benchmark_mds()
 

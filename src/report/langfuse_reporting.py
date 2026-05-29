@@ -34,7 +34,6 @@ def _tags_to_full_payload(tags: FornaxUdfTags) -> dict[str, str]:
         "task_query": tags.task_query,
         "is_final_task": tags.is_final_task,
         "is_evolve_turn": tags.is_evolve_turn,
-        "is_ended": tags.is_ended,
         "content_reqs": tags.content_reqs,
         "trajectory_reqs": tags.trajectory_reqs,
         "content_score": tags.content_score,
@@ -76,7 +75,6 @@ def emit_pre_chat_state(
     #     "chat_role": _truncate_str(chat_role),
     #     "is_final_task": "true" if tags.is_final_task else "false",
     #     "is_evolve_turn": "true" if tags.is_evolve_turn else "false",
-    #     "is_ended": "true" if tags.is_ended else "false",
     #     "content_score": _truncate_str(str(tags.content_score)),
     # }
     # trace_name = _truncate_str(f"evolve_eval:{tags.task}")
@@ -87,7 +85,7 @@ def emit_pre_chat_state(
             user_id=_truncate_str(tags.run),
             # trace_name=trace_name,
             # metadata=short_meta,
-            tags=[chat_role, tags.run, tags.task, tags.agent_name],
+            tags=[chat_role, tags.run, tags.task, tags.agent_name, session_id],
         ):
             with client.start_as_current_observation(
                 as_type="span",

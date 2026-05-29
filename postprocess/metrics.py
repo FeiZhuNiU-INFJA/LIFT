@@ -7,6 +7,7 @@ METRIC_COLUMNS = [
     "tool_use_num",
     "content_score",
     "cached_token",
+    "cached_token_ratio",
     "total_tokens",
     "total_latency_seconds",
     "trajectory_score",
@@ -15,17 +16,40 @@ METRIC_COLUMNS = [
 KEY_COLUMNS = ["task_name", "category"]
 PAIR_KEY_COLUMNS = ["run", "benchmark_name", "benchmark_path", "task_name", "category"]
 
+# Summary 计算时，``impr_trials`` / ``impr_tool_use_num`` 超过该阈值的样本视为离群（退化过强），
+# 仅在 task 详情表展示，不参与 category / global 的 mean_impr 与 mean_diff 聚合。
+SUMMARY_IMPR_OUTLIER_METRICS = ("trials", "tool_use_num")
+SUMMARY_IMPR_OUTLIER_THRESHOLD = 2.0
 
-def compute_ratio(evolved_value: Any, baseline_value: Any) -> float:
+
+def compute_improvement_pct(evolved_value: Any, baseline_value: Any) -> float:
+    """改进比例 ``(evolved - baseline) / baseline``，常用百分比形式展示。
+
+    baseline 为 0 时无法定义相对改进，返回 NaN。
+    """
     baseline = pd.to_numeric(pd.Series([baseline_value]), errors="coerce").iloc[0]
     evolved = pd.to_numeric(pd.Series([evolved_value]), errors="coerce").iloc[0]
     if pd.isna(baseline) or pd.isna(evolved) or baseline == 0:
         return float("nan")
-    return float(evolved) / float(baseline)
+    return (float(evolved) - float(baseline)) / float(baseline)
+
+
+def compute_difference(evolved_value: Any, baseline_value: Any) -> float:
+    """绝对差值 ``evolved - baseline``。"""
+    baseline = pd.to_numeric(pd.Series([baseline_value]), errors="coerce").iloc[0]
+    evolved = pd.to_numeric(pd.Series([evolved_value]), errors="coerce").iloc[0]
+    if pd.isna(baseline) or pd.isna(evolved):
+        return float("nan")
+    return float(evolved) - float(baseline)
 
 
 def validate_pairs(df: pd.DataFrame) -> None:
-    required_columns = ["run", "benchmark_name", "benchmark_path"] + KEY_COLUMNS + ["baseline", "evolved", "success", "is_final_task"] + METRIC_COLUMNS
+    required_columns = (
+        ["run", "benchmark_name", "benchmark_path"]
+        + KEY_COLUMNS
+        + ["baseline", "evolved", "success", "is_final_task"]
+        + METRIC_COLUMNS
+    )
     missing = [col for col in required_columns if col not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
@@ -55,13 +79,41 @@ def build_comparison_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     out["success"] = merged["success_evolved"]
 
     for metric in METRIC_COLUMNS:
+        # 同时保留 evolved 与 baseline 原值，HTML 详情列展示"evolved (baseline)"形式。
         out[metric] = merged[f"{metric}_evolved"]
+        out[f"baseline_{metric}"] = merged[f"{metric}_baseline"]
         out[f"impr_{metric}"] = merged.apply(
-            lambda row: compute_ratio(row[f"{metric}_evolved"], row[f"{metric}_baseline"]),
+            lambda row, m=metric: compute_improvement_pct(
+                row[f"{m}_evolved"], row[f"{m}_baseline"]
+            ),
+            axis=1,
+        )
+        out[f"diff_{metric}"] = merged.apply(
+            lambda row, m=metric: compute_difference(
+                row[f"{m}_evolved"], row[f"{m}_baseline"]
+            ),
             axis=1,
         )
 
     return out
+
+
+def _outlier_mask(comparison_df: pd.DataFrame) -> pd.Series:
+    """返回 summary 聚合时应剔除的样本布尔掩码。
+
+    - ``impr_trials`` / ``impr_tool_use_num`` 任一项 > ``SUMMARY_IMPR_OUTLIER_THRESHOLD``
+      表示进化后比基线退化过强（消耗过高），视为离群。
+    """
+    if comparison_df.empty:
+        return pd.Series(dtype=bool)
+    mask = pd.Series(False, index=comparison_df.index)
+    for metric in SUMMARY_IMPR_OUTLIER_METRICS:
+        col = f"impr_{metric}"
+        if col not in comparison_df.columns:
+            continue
+        series = pd.to_numeric(comparison_df[col], errors="coerce")
+        mask = mask | (series > SUMMARY_IMPR_OUTLIER_THRESHOLD)
+    return mask
 
 
 def build_summary_row(
@@ -70,10 +122,17 @@ def build_summary_row(
     comparison_df: pd.DataFrame,
     original_df: pd.DataFrame,
 ) -> dict[str, Any]:
+    # Summary 聚合：剔除 impr_trials / impr_tool_use_num > 阈值的离群样本。
+    outlier_mask = _outlier_mask(comparison_df)
+    aggregate_df = comparison_df.loc[~outlier_mask] if not comparison_df.empty else comparison_df
+    excluded_count = int(outlier_mask.sum()) if not comparison_df.empty else 0
+
     row: dict[str, Any] = {
         "scope": scope,
         "category": category if pd.notna(category) else "UNKNOWN",
         "task_count": int(len(comparison_df)),
+        "task_count_aggregated": int(len(aggregate_df)),
+        "task_count_excluded": excluded_count,
     }
 
     baseline_success_rate = pd.to_numeric(
@@ -88,9 +147,14 @@ def build_summary_row(
     row["evolved_success_rate"] = float(evolved_success_rate) if pd.notna(evolved_success_rate) else float("nan")
 
     for metric in METRIC_COLUMNS:
-        series = pd.to_numeric(comparison_df[f"impr_{metric}"], errors="coerce")
-        row[f"mean_impr_{metric}"] = float(series.mean()) if pd.notna(series.mean()) else float("nan")
-        row[f"var_impr_{metric}"] = float(series.var(ddof=0)) if pd.notna(series.var(ddof=0)) else float("nan")
+        impr_series = pd.to_numeric(aggregate_df.get(f"impr_{metric}"), errors="coerce")
+        diff_series = pd.to_numeric(aggregate_df.get(f"diff_{metric}"), errors="coerce")
+        row[f"mean_impr_{metric}"] = (
+            float(impr_series.mean()) if impr_series is not None and pd.notna(impr_series.mean()) else float("nan")
+        )
+        row[f"mean_diff_{metric}"] = (
+            float(diff_series.mean()) if diff_series is not None and pd.notna(diff_series.mean()) else float("nan")
+        )
 
     return row
 
@@ -125,27 +189,27 @@ def print_summary_to_console(summary_df: pd.DataFrame) -> None:
     category_rows = summary_df[summary_df["scope"] == "category"]
     global_rows = summary_df[summary_df["scope"] == "global"]
 
-    for _, row in category_rows.iterrows():
-        category = row["category"]
-        print(f"=== Category: {category} Improvement Stats ===")
-        for metric in METRIC_COLUMNS:
+    def _print_block(title: str, row: pd.Series) -> None:
+        print(f"=== {title} ===")
+        excluded = int(row.get("task_count_excluded", 0) or 0)
+        if excluded:
             print(
-                f"impr_{metric}: "
-                f"mean={row[f'mean_impr_{metric}']:.6f} "
-                f"var={row[f'var_impr_{metric}']:.6f}"
+                f"task_count={int(row['task_count'])} aggregated={int(row['task_count_aggregated'])} "
+                f"excluded_outliers={excluded}"
             )
-        print(f"=== Category: {category} Success Rate ===")
-        print(f"baseline_success_rate={row['baseline_success_rate']:.6f}")
-        print(f"evolved_success_rate={row['evolved_success_rate']:.6f}")
+        for metric in METRIC_COLUMNS:
+            impr = row[f"mean_impr_{metric}"]
+            diff = row[f"mean_diff_{metric}"]
+            impr_str = "NaN" if pd.isna(impr) else f"{impr * 100:.2f}%"
+            diff_str = "NaN" if pd.isna(diff) else f"{diff:.6f}"
+            print(f"{metric}: mean_impr={impr_str} mean_diff={diff_str}")
+        print(
+            f"baseline_success_rate={row['baseline_success_rate']:.6f} "
+            f"evolved_success_rate={row['evolved_success_rate']:.6f}"
+        )
+
+    for _, row in category_rows.iterrows():
+        _print_block(f"Category: {row['category']} Summary", row)
 
     for _, row in global_rows.iterrows():
-        print("=== Global Improvement Stats ===")
-        for metric in METRIC_COLUMNS:
-            print(
-                f"impr_{metric}: "
-                f"mean={row[f'mean_impr_{metric}']:.6f} "
-                f"var={row[f'var_impr_{metric}']:.6f}"
-            )
-        print("=== Global Success Rate ===")
-        print(f"baseline_success_rate={row['baseline_success_rate']:.6f}")
-        print(f"evolved_success_rate={row['evolved_success_rate']:.6f}")
+        _print_block("Global Summary", row)

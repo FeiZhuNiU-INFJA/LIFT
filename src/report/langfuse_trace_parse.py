@@ -7,11 +7,11 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from src.models import LANGFUSE_PLUGIN_TRACE_NAME, LangfuseAgentTraceInput, LangfusePluginTraceMetadata
+from src.models import LANGFUSE_PLUGIN_TRACE_NAMES, LangfuseAgentTraceInput, LangfusePluginTraceMetadata
 
 
 def is_plugin_trace(name: str | None) -> bool:
-    return (name or "") == LANGFUSE_PLUGIN_TRACE_NAME
+    return (name or "") in LANGFUSE_PLUGIN_TRACE_NAMES
 
 
 def is_agent_trace(name: str | None) -> bool:

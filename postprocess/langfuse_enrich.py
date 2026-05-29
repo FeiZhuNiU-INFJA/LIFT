@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
-
+from typing import Any, Literal
 
 from langfuse import get_client
 
 from src.models import OpenClawBenchmarkPhaseRun, OpenClawBenchmarkReport
 from src.report.langfuse_trace_stitch import stitch_phase_langfuse_traces
 
+
+AgentSource = Literal["openclaw", "hermes"]
 
 
 def get_langfuse_client():
@@ -19,7 +20,12 @@ def get_langfuse_client():
     return client
 
 
-def enrich_phase(client: Any, run_tag: str, phase: OpenClawBenchmarkPhaseRun | None):
+def enrich_phase(
+    client: Any,
+    run_tag: str,
+    phase: OpenClawBenchmarkPhaseRun | None,
+    agent_source: AgentSource = "openclaw",
+):
     if phase is None:
         return None
     bundle = stitch_phase_langfuse_traces(
@@ -27,11 +33,16 @@ def enrich_phase(client: Any, run_tag: str, phase: OpenClawBenchmarkPhaseRun | N
         eval_run_tag=run_tag,
         work_session_id=phase.work_session_id,
         judge_session_id=phase.judge_session_id,
+        agent_source=agent_source,
     )
     return phase.model_copy(update={"langfuse": bundle})
 
 
-def enrich_report(report: OpenClawBenchmarkReport, client: Any) -> OpenClawBenchmarkReport:
+def enrich_report(
+    report: OpenClawBenchmarkReport,
+    client: Any,
+    agent_source: AgentSource = "openclaw",
+) -> OpenClawBenchmarkReport:
     run_tag = report.run_id
     new_runs = []
     for run in report.runs:
@@ -39,8 +50,12 @@ def enrich_report(report: OpenClawBenchmarkReport, client: Any) -> OpenClawBench
         for benchmark in run.benchmarks:
             new_tasks = []
             for task_run in benchmark.tasks:
-                baseline = enrich_phase(client, run_tag, task_run.baseline)
-                evolved = enrich_phase(client, run_tag, task_run.evolved) if task_run.evolved else None
+                baseline = enrich_phase(client, run_tag, task_run.baseline, agent_source)
+                evolved = (
+                    enrich_phase(client, run_tag, task_run.evolved, agent_source)
+                    if task_run.evolved
+                    else None
+                )
                 new_tasks.append(task_run.model_copy(update={"baseline": baseline, "evolved": evolved}))
             new_benchmarks.append(benchmark.model_copy(update={"tasks": new_tasks}))
         new_runs.append(run.model_copy(update={"benchmarks": new_benchmarks}))

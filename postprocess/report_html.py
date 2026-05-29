@@ -1,8 +1,29 @@
 from html import escape
+from typing import Literal
 
 import pandas as pd
 
 from postprocess.metrics import METRIC_COLUMNS
+
+AgentSource = Literal["openclaw", "hermes"]
+
+_HTML_HIDDEN_METRICS_BASE = {"cached_token"}
+# Hermes 上报暂不提供缓存命中与每轮延迟，HTML 不展示这两项及其改进比例。
+_HTML_HIDDEN_METRICS_HERMES = _HTML_HIDDEN_METRICS_BASE | {
+    "cached_token_ratio",
+    "total_latency_seconds",
+}
+
+
+def _hidden_metrics(agent_source: AgentSource) -> set[str]:
+    if agent_source == "hermes":
+        return _HTML_HIDDEN_METRICS_HERMES
+    return _HTML_HIDDEN_METRICS_BASE
+
+
+def _html_summary_metrics(agent_source: AgentSource) -> list[str]:
+    hidden = _hidden_metrics(agent_source)
+    return [m for m in METRIC_COLUMNS if m not in hidden]
 
 
 def format_number(value) -> str:
@@ -20,6 +41,17 @@ def format_number(value) -> str:
     return f"{numeric:,.6f}".rstrip("0").rstrip(".")
 
 
+def format_percent(value) -> str:
+    """以 ``xx.xx%`` 形式展示改进比例 (输入为 0.1234 这类小数比值)。"""
+    if pd.isna(value):
+        return "NaN"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return escape(str(value))
+    return f"{numeric * 100:.2f}%"
+
+
 def task_label(row: pd.Series) -> str:
     icons = []
     if bool(row.get("is_final_task")):
@@ -28,18 +60,34 @@ def task_label(row: pd.Series) -> str:
     return f"{' '.join(icons)} {row['task_name']}".strip()
 
 
-def summary_table_html(summary_row: pd.Series) -> str:
+_METRIC_DISPLAY_LABELS: dict[str, str] = {
+    "trials": "Trials",
+    "tool_use_num": "Tool Use Num",
+    "content_score": "Outcome Score",
+    "cached_token": "Cached Token",
+    "cached_token_ratio": "Cached Token Ratio",
+    "total_tokens": "Total Tokens",
+    "total_latency_seconds": "Latency",
+    "trajectory_score": "Trajectory Score",
+}
+
+
+def _metric_label(metric: str) -> str:
+    return _METRIC_DISPLAY_LABELS.get(metric, metric)
+
+
+def summary_table_html(summary_row: pd.Series, agent_source: AgentSource) -> str:
     lines = [
         "<table class='summary-table'>",
-        "<thead><tr><th>Metric</th><th>Mean Improvement</th><th>Variance</th></tr></thead>",
+        "<thead><tr><th>Metric</th><th>Mean Improvement</th><th>Mean Diff (evolved - baseline)</th></tr></thead>",
         "<tbody>",
     ]
-    for metric in METRIC_COLUMNS:
+    for metric in _html_summary_metrics(agent_source):
         lines.append(
             "<tr>"
-            f"<td>{escape(metric)}</td>"
-            f"<td>{format_number(summary_row[f'mean_impr_{metric}'])}</td>"
-            f"<td>{format_number(summary_row[f'var_impr_{metric}'])}</td>"
+            f"<td>{escape(_metric_label(metric))}</td>"
+            f"<td>{format_percent(summary_row[f'mean_impr_{metric}'])}</td>"
+            f"<td>{format_number(summary_row[f'mean_diff_{metric}'])}</td>"
             "</tr>"
         )
     lines.append("</tbody></table>")
@@ -47,35 +95,50 @@ def summary_table_html(summary_row: pd.Series) -> str:
 
 
 def success_badges_html(summary_row: pd.Series) -> str:
-    return (
-        "<div class='success-row'>"
-        f"<span class='chip'>Baseline Success Rate: {format_number(summary_row['baseline_success_rate'])}</span>"
-        f"<span class='chip'>Evolved Success Rate: {format_number(summary_row['evolved_success_rate'])}</span>"
-        f"<span class='chip'>Task Count: {format_number(summary_row['task_count'])}</span>"
-        "</div>"
-    )
-
-
-def task_table_html(category_df: pd.DataFrame) -> str:
-    headers = [
-        "Run",
-        "Benchmark",
-        "Task",
-        "Trials",
-        "Impr Trials",
-        "Tool Use Num",
-        "Impr Tool Use Num",
-        "Content Score",
-        "Impr Content Score",
-        "Cached Token",
-        "Impr Cached Token",
-        "Total Tokens",
-        "Impr Total Tokens",
-        "Latency",
-        "Impr Latency",
-        "Trajectory Score",
-        "Impr Trajectory Score",
+    chips = [
+        f"<span class='chip'>Baseline Success Rate: {format_number(summary_row['baseline_success_rate'])}</span>",
+        f"<span class='chip'>Evolved Success Rate: {format_number(summary_row['evolved_success_rate'])}</span>",
+        f"<span class='chip'>Task Count: {format_number(summary_row['task_count'])}</span>",
     ]
+    excluded = summary_row.get("task_count_excluded", 0)
+    try:
+        excluded_int = int(excluded) if pd.notna(excluded) else 0
+    except (TypeError, ValueError):
+        excluded_int = 0
+    if excluded_int > 0:
+        aggregated = summary_row.get("task_count_aggregated", 0)
+        try:
+            aggregated_int = int(aggregated) if pd.notna(aggregated) else 0
+        except (TypeError, ValueError):
+            aggregated_int = 0
+        chips.append(
+            "<span class='chip' style='background:#fff1f0;color:#a8071a;'>"
+            f"Aggregated: {aggregated_int} (Excluded outliers: {excluded_int})"
+            "</span>"
+        )
+    return "<div class='success-row'>" + "".join(chips) + "</div>"
+
+
+def task_table_html(category_df: pd.DataFrame, agent_source: AgentSource) -> str:
+    # 按 agent_source 决定要展示的指标列；hermes 不展示缓存命中率与延迟。
+    hidden = _hidden_metrics(agent_source)
+    metric_columns: list[str] = [
+        "trials",
+        "tool_use_num",
+        "content_score",
+    ]
+    if "cached_token_ratio" not in hidden:
+        metric_columns.append("cached_token_ratio")
+    metric_columns.append("total_tokens")
+    if "total_latency_seconds" not in hidden:
+        metric_columns.append("total_latency_seconds")
+    metric_columns.append("trajectory_score")
+
+    headers = ["Run", "Benchmark", "Task"]
+    for metric in metric_columns:
+        label = _metric_label(metric)
+        headers.append(f"{label} (evolved / baseline)")
+        headers.append(f"Impr {label}")
 
     lines = [
         "<table class='task-table'>",
@@ -84,33 +147,28 @@ def task_table_html(category_df: pd.DataFrame) -> str:
     ]
 
     for _, row in category_df.iterrows():
-        lines.append(
-            "<tr>"
-            f"<td>{format_number(row['run'])}</td>"
-            f"<td>{escape(str(row.get('benchmark_name', '')))}</td>"
-            f"<td>{escape(task_label(row))}</td>"
-            f"<td>{format_number(row['trials'])}</td>"
-            f"<td>{format_number(row['impr_trials'])}</td>"
-            f"<td>{format_number(row['tool_use_num'])}</td>"
-            f"<td>{format_number(row['impr_tool_use_num'])}</td>"
-            f"<td>{format_number(row['content_score'])}</td>"
-            f"<td>{format_number(row['impr_content_score'])}</td>"
-            f"<td>{format_number(row['cached_token'])}</td>"
-            f"<td>{format_number(row['impr_cached_token'])}</td>"
-            f"<td>{format_number(row['total_tokens'])}</td>"
-            f"<td>{format_number(row['impr_total_tokens'])}</td>"
-            f"<td>{format_number(row['total_latency_seconds'])}</td>"
-            f"<td>{format_number(row['impr_total_latency_seconds'])}</td>"
-            f"<td>{format_number(row['trajectory_score'])}</td>"
-            f"<td>{format_number(row['impr_trajectory_score'])}</td>"
-            "</tr>"
-        )
+        cells = [
+            f"<td>{format_number(row['run'])}</td>",
+            f"<td>{escape(str(row.get('benchmark_name', '')))}</td>",
+            f"<td>{escape(task_label(row))}</td>",
+        ]
+        for metric in metric_columns:
+            evolved_val = format_number(row[metric])
+            baseline_val = format_number(row[f"baseline_{metric}"])
+            cells.append(f"<td>{evolved_val} ({baseline_val})</td>")
+            cells.append(f"<td>{format_percent(row[f'impr_{metric}'])}</td>")
+        lines.append("<tr>" + "".join(cells) + "</tr>")
 
     lines.append("</tbody></table>")
     return "\n".join(lines)
 
 
-def render_report_html(comparison_df: pd.DataFrame, summary_df: pd.DataFrame, title: str) -> str:
+def render_report_html(
+    comparison_df: pd.DataFrame,
+    summary_df: pd.DataFrame,
+    title: str,
+    agent_source: AgentSource = "openclaw",
+) -> str:
     global_row = summary_df[summary_df["scope"] == "global"].iloc[0]
     category_rows = summary_df[summary_df["scope"] == "category"]
 
@@ -138,7 +196,7 @@ def render_report_html(comparison_df: pd.DataFrame, summary_df: pd.DataFrame, ti
         "<section class='section'>",
         "<h2>Global Summary</h2>",
         success_badges_html(global_row),
-        summary_table_html(global_row),
+        summary_table_html(global_row, agent_source),
         "</section>",
     ]
 
@@ -150,7 +208,7 @@ def render_report_html(comparison_df: pd.DataFrame, summary_df: pd.DataFrame, ti
             run_blocks.extend(
                 [
                     f"<h3>Run {escape(str(run_index))}</h3>",
-                    task_table_html(run_df),
+                    task_table_html(run_df, agent_source),
                 ]
             )
         parts.extend(
@@ -158,7 +216,7 @@ def render_report_html(comparison_df: pd.DataFrame, summary_df: pd.DataFrame, ti
                 "<section class='section'>",
                 f"<h2>Category: {escape(str(category))}</h2>",
                 success_badges_html(summary_row),
-                summary_table_html(summary_row),
+                summary_table_html(summary_row, agent_source),
                 "<h3>Run Blocks</h3>",
                 "\n".join(run_blocks),
                 "</section>",
