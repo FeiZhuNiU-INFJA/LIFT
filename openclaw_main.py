@@ -12,41 +12,27 @@ load_dotenv()
 
 from src.config import LOGGER
 from src.eval_core import openclaw_run_task
-from src.utils import short_id
+from src.utils import make_run_id, outcome_workspace, resolve_suite_paths, short_id
 
-from preprocess.convert_benchmark_mds_to_json import preprocess_benchmark_mds
-from postprocess.run_post_process import process_report_to_outputs
+from preprocess.convert_suite_mds_to_json import preprocess_suite_mds
+from postprocess.run_post_process import run_post_process_pipeline
 from src.agents import OpenClawAgent
 from src.models import (
-    BenchmarkSpec,
-    BenchmarkTask,
-    OpenClawBenchmarkPhaseRun,
-    OpenClawBenchmarkReport,
-    OpenClawBenchmarkRun,
-    OpenClawBenchmarkRunBenchmark,
-    OpenClawBenchmarkTaskRun,
+    SuiteSpec,
+    SuiteTask,
+    EvalRepeat,
+    EvalReport,
+    PhaseRun,
+    SuiteRun,
+    TaskRun,
 )
-
-
-def openclaw_workspace(run_id: str, run_index: int, phase: str, category_name: str) -> Path:
-    workspace_dir = (
-        Path.cwd()
-        / "results"
-        / run_id
-        / "outcome"
-        / f"run-{run_index}"
-        / phase
-        / category_name
-    )
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-    return workspace_dir
 
 
 def openclaw_create_agent_factory(
     run_id: str,
     run_index: int,
     phase: str,
-    task: BenchmarkTask,
+    task: SuiteTask,
     workspace_dir: Path
 ):
     def create_agent(session_role: str) -> OpenClawAgent:
@@ -74,68 +60,15 @@ def openclaw_copy_evolved_skills(source_workspace: Path, target_workspace: Path)
     LOGGER.info("Copied evolved skills: %s -> %s", source_skills_dir, target_skills_dir)
 
 
-def iter_benchmark_paths(path: Path) -> list[Path]:
-    if path.is_file():
-        return [path]
-    benchmark_dir = path / "benchmarks" if path.name == "assets" else path
-    return sorted(benchmark_dir.glob("**/*.json"))
-
-
-def resolve_benchmark_paths(benchmark_root: Path, task_filter: str) -> list[Path]:
-    all_paths = iter_benchmark_paths(benchmark_root)
-    if not all_paths:
-        raise ValueError(f"No benchmark json files found in {benchmark_root}")
-
-    if task_filter == "all":
-        return all_paths
-
-    task_names = [t.strip() for t in task_filter.split(",")]
-    allowed_stems = {t if t.endswith(".json") else f"{t}.json" for t in task_names}
-    missing = allowed_stems - {p.name for p in all_paths}
-    if missing:
-        available = [p.name for p in all_paths]
-        raise ValueError(
-            f"--task specified non-existent benchmark(s): {sorted(missing)}. "
-            f"Available: {available}"
-        )
-    return [p for p in all_paths if p.name in allowed_stems]
-
-def post_process_results_dir(run_id: str) -> Path:
-    results_dir = Path.cwd() / "results" / run_id
-    results_dir.mkdir(parents=True, exist_ok=True)
-    return results_dir
-
-
-def _run_post_process_pipeline(run_id: str, report_path: Path, agent_source: str) -> None:
-    """对已生成的 benchmark report JSON 执行后处理，输出 enriched JSON / CSV / HTML。"""
-    results_dir = post_process_results_dir(run_id)
-    try:
-        enriched_json, comparison_csv, summary_csv, report_html = process_report_to_outputs(
-            report_path,
-            enriched_json=results_dir / f"{run_id}_enriched.json",
-            comparison_csv=results_dir / f"{run_id}_comparison_metrics.csv",
-            summary_csv=results_dir / f"{run_id}_summary_metrics.csv",
-            report_html=results_dir / f"{run_id}_metrics_report.html",
-            agent_source=agent_source,
-        )
-        LOGGER.info("Post-process enriched JSON: %s", enriched_json)
-        LOGGER.info("Post-process comparison CSV: %s", comparison_csv)
-        LOGGER.info("Post-process summary CSV: %s", summary_csv)
-        LOGGER.info("Post-process HTML report: %s", report_html)
-    except Exception:
-        LOGGER.exception("Post-process pipeline failed.")
-        LOGGER.error("Benchmark report was still saved successfully at: %s", report_path)
-
-
 def evaluate_only_mode(args: argparse.Namespace) -> None:
     if not args.run_id:
         raise ValueError("--evaluate-only requires --run_id to locate the benchmark report JSON.")
-    run_id = f"evobench-runid-{args.run_id}"
+    run_id = make_run_id(args.run_id)
     report_path = Path.cwd() / "evobench-reports" / f"{run_id}.json"
     if not report_path.exists():
         raise FileNotFoundError(f"Benchmark report JSON not found: {report_path}")
     LOGGER.info("Running evaluate-only post-process for %s", report_path)
-    _run_post_process_pipeline(run_id, report_path, agent_source="openclaw")
+    run_post_process_pipeline(run_id, report_path, agent_source="openclaw")
 
 
 def reset_benchmark_evolution_state(run_id: str, category_name: str, repeat_index: int) -> None:
@@ -152,7 +85,7 @@ def reset_benchmark_evolution_state(run_id: str, category_name: str, repeat_inde
 
 
 def _create_agents_for_task(
-    task: BenchmarkTask,
+    task: SuiteTask,
     run_id: str,
     repeat_index: int,
     phase: str,
@@ -176,7 +109,7 @@ def _create_agents_for_task(
 
 async def run_openclaw_task_phase(
     *,
-    task: BenchmarkTask,
+    task: SuiteTask,
     run_id: str,
     repeat_index: int,
     phase: str,
@@ -187,7 +120,7 @@ async def run_openclaw_task_phase(
     is_final_task: bool | None = None,
     log_label: str = "task",
     agents: tuple[OpenClawAgent, OpenClawAgent, str, str],
-) -> OpenClawBenchmarkPhaseRun:
+) -> PhaseRun:
     user_agent, judge_agent, user_session_id, judge_session_id = agents
     LOGGER.info(
         "Running %s %s: %s with run_id: %s suite_run: %d workspace: %s",
@@ -209,7 +142,7 @@ async def run_openclaw_task_phase(
         is_final_task=(task_index == total_tasks - 1) if is_final_task is None else is_final_task,
     )
     LOGGER.info("%s %s %s: success: %s", phase.capitalize(), log_label, task.name, success)
-    return OpenClawBenchmarkPhaseRun(
+    return PhaseRun(
         work_session_id=work_sid,
         judge_session_id=judge_sid,
         success=success,
@@ -220,7 +153,7 @@ async def run_openclaw_task_phase(
 
 async def run_openclaw_task_phase_batch(
     *,
-    tasks: list[BenchmarkTask],
+    tasks: list[SuiteTask],
     run_id: str,
     repeat_index: int,
     phase: str,
@@ -229,7 +162,7 @@ async def run_openclaw_task_phase_batch(
     is_evolve_turn: bool = False,
     is_final_task: bool | None = None,
     log_label: str = "task",
-) -> list[OpenClawBenchmarkPhaseRun]:
+) -> list[PhaseRun]:
     if not tasks:
         return []
 
@@ -253,7 +186,7 @@ async def run_openclaw_task_phase_batch(
             )
         )
 
-    async def run_one(idx: int, task: BenchmarkTask) -> OpenClawBenchmarkPhaseRun:
+    async def run_one(idx: int, task: SuiteTask) -> PhaseRun:
         return await run_openclaw_task_phase(
             task=task,
             run_id=run_id,
@@ -283,56 +216,53 @@ async def run_openclaw_task_phase_batch(
         ]
         return await asyncio.gather(*running_tasks)
 
-    results: list[OpenClawBenchmarkPhaseRun] = []
+    results: list[PhaseRun] = []
     for idx, task in enumerate(tasks):
         results.append(await run_one(idx, task))
     return results
 
 
-def _write_report(bench_report: OpenClawBenchmarkReport, out_path: Path) -> None:
-    bench_report.write_json(out_path)
+def _write_report(eval_report: EvalReport, out_path: Path) -> None:
+    eval_report.write_json(out_path)
     LOGGER.info("Wrote benchmark report: %s", out_path)
 
 
-async def replay_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> None:
+async def replay_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None:
     OpenClawAgent.initialize_environment(
         ensure_config_fields=True, # 确保model的compat字段存在，并且langfuse-plugin的hooks存在
         restart_gateway=True, # 更改插件时是否重启gateway
     )
 
-    if args.run_id:
-        run_id = f"evobench-runid-{args.run_id}"
-    else:
-        run_id = f"evobench-runid-{datetime.now().strftime('%Y%m%d')}-{short_id()}"
+    run_id = make_run_id(args.run_id)
     report_root = Path.cwd() / "evobench-reports"
-    bench_report = OpenClawBenchmarkReport(run_id=run_id)
+    eval_report = EvalReport(run_id=run_id)
 
     for repeat_index in range(args.repeat):
         LOGGER.info("Starting benchmark suite run %d/%d", repeat_index + 1, args.repeat)
-        suite_run = OpenClawBenchmarkRun()
-        bench_report.runs.append(suite_run)
+        repeat_run = EvalRepeat()
+        eval_report.runs.append(repeat_run)
 
-        for benchmark_path in benchmark_paths:
-            benchmark = BenchmarkSpec.from_json_file(benchmark_path)
-            if not benchmark.tasks:
-                raise ValueError(f"No tasks found in {benchmark_path}")
+        for suite_path in suite_paths:
+            suite = SuiteSpec.from_json_file(suite_path)
+            if not suite.tasks:
+                raise ValueError(f"No tasks found in {suite_path}")
 
-            category_name = benchmark.category
-            if category_name not in bench_report.categories:
-                bench_report.categories.append(category_name)
-            benchmark_run = OpenClawBenchmarkRunBenchmark(
-                benchmark_name=benchmark.name,
-                benchmark_path=str(benchmark_path.resolve()),
+            category_name = suite.category
+            if category_name not in eval_report.categories:
+                eval_report.categories.append(category_name)
+            suite_run = SuiteRun(
+                suite_name=suite.name,
+                suite_path=str(suite_path.resolve()),
                 category=category_name,
                 tasks=[],
             )
-            suite_run.benchmarks.append(benchmark_run)
-            baseline_workspace = openclaw_workspace(run_id, repeat_index, "baseline", category_name)
-            evolved_workspace = openclaw_workspace(run_id, repeat_index, "evolved", category_name)
+            repeat_run.suites.append(suite_run)
+            baseline_workspace = outcome_workspace(run_id, repeat_index, "baseline", category_name)
+            evolved_workspace = outcome_workspace(run_id, repeat_index, "evolved", category_name)
 
-            LOGGER.info("Running benchmark: %s (suite run %d)", benchmark_path, repeat_index)
+            LOGGER.info("Running benchmark: %s (suite run %d)", suite_path, repeat_index)
 
-            baseline_tasks = benchmark.tasks[:1] if args.test else benchmark.tasks
+            baseline_tasks = suite.tasks[:1] if args.test else suite.tasks
             baseline_results = await run_openclaw_task_phase_batch(
                 tasks=baseline_tasks,
                 run_id=run_id,
@@ -343,8 +273,8 @@ async def replay_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> 
                 log_label="task",
             )
             for task, baseline_result in zip(baseline_tasks, baseline_results):
-                benchmark_run.tasks.append(
-                    OpenClawBenchmarkTaskRun(
+                suite_run.tasks.append(
+                    TaskRun(
                         task_name=task.name,
                         category=category_name,
                         baseline=baseline_result,
@@ -361,7 +291,7 @@ async def replay_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> 
             # openclaw_copy_evolved_skills(baseline_workspace, evolved_workspace)
 
             evolved_results = await run_openclaw_task_phase_batch(
-                tasks=benchmark.tasks,
+                tasks=suite.tasks,
                 run_id=run_id,
                 repeat_index=repeat_index,
                 phase="evolved",
@@ -371,29 +301,29 @@ async def replay_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> 
                 log_label="task",
             )
             for idx, evolved_result in enumerate(evolved_results):
-                row = benchmark_run.tasks[idx]
-                benchmark_run.tasks[idx] = row.model_copy(
+                row = suite_run.tasks[idx]
+                suite_run.tasks[idx] = row.model_copy(
                     update={
                         "evolved": evolved_result
                     }
                 )
 
             reset_benchmark_evolution_state(run_id, category_name, repeat_index)
-            _write_report(bench_report, report_root / f"{run_id}.json")
+            _write_report(eval_report, report_root / f"{run_id}.json")
 
-        suite_run.completed_at = datetime.now(timezone.utc).isoformat()
+        repeat_run.completed_at = datetime.now(timezone.utc).isoformat()
         if args.test:
             break
 
-    bench_report.completed_at = datetime.now(timezone.utc).isoformat()
+    eval_report.completed_at = datetime.now(timezone.utc).isoformat()
     out_path = report_root / f"{run_id}.json"
-    _write_report(bench_report, out_path)
+    _write_report(eval_report, out_path)
 
     if args.evaluate:
-        _run_post_process_pipeline(run_id, out_path, agent_source="openclaw")
+        run_post_process_pipeline(run_id, out_path, agent_source="openclaw")
 
 
-async def exam_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> None:
+async def exam_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None:
     if args.test:
         LOGGER.info("Exam mode ignores --test and always runs the full benchmark workflow.")
 
@@ -402,40 +332,37 @@ async def exam_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> No
         restart_gateway=True,  # 更改插件时是否重启gateway
     )
 
-    if args.run_id:
-        run_id = f"evobench-runid-{args.run_id}"
-    else:
-        run_id = f"evobench-runid-{datetime.now().strftime('%Y%m%d')}-{short_id()}"
+    run_id = make_run_id(args.run_id)
     report_root = Path.cwd() / "evobench-reports"
-    bench_report = OpenClawBenchmarkReport(run_id=run_id)
+    eval_report = EvalReport(run_id=run_id)
 
     for repeat_index in range(args.repeat):
         LOGGER.info("Starting exam benchmark suite run %d/%d", repeat_index + 1, args.repeat)
-        suite_run = OpenClawBenchmarkRun()
-        bench_report.runs.append(suite_run)
+        repeat_run = EvalRepeat()
+        eval_report.runs.append(repeat_run)
 
-        for benchmark_path in benchmark_paths:
-            benchmark = BenchmarkSpec.from_json_file(benchmark_path)
-            if not benchmark.tasks:
-                raise ValueError(f"No tasks found in {benchmark_path}")
+        for suite_path in suite_paths:
+            suite = SuiteSpec.from_json_file(suite_path)
+            if not suite.tasks:
+                raise ValueError(f"No tasks found in {suite_path}")
 
-            category_name = benchmark.category
-            if category_name not in bench_report.categories:
-                bench_report.categories.append(category_name)
-            benchmark_run = OpenClawBenchmarkRunBenchmark(
-                benchmark_name=benchmark.name,
-                benchmark_path=str(benchmark_path.resolve()),
+            category_name = suite.category
+            if category_name not in eval_report.categories:
+                eval_report.categories.append(category_name)
+            suite_run = SuiteRun(
+                suite_name=suite.name,
+                suite_path=str(suite_path.resolve()),
                 category=category_name,
                 tasks=[],
             )
-            suite_run.benchmarks.append(benchmark_run)
-            baseline_workspace = openclaw_workspace(run_id, repeat_index, "baseline", category_name)
-            evolved_workspace = openclaw_workspace(run_id, repeat_index, "evolved", category_name)
+            repeat_run.suites.append(suite_run)
+            baseline_workspace = outcome_workspace(run_id, repeat_index, "baseline", category_name)
+            evolved_workspace = outcome_workspace(run_id, repeat_index, "evolved", category_name)
 
-            LOGGER.info("Running exam benchmark: %s (suite run %d)", benchmark_path, repeat_index)
+            LOGGER.info("Running exam benchmark: %s (suite run %d)", suite_path, repeat_index)
 
-            warmup_tasks = benchmark.tasks[:-1]
-            final_task = benchmark.tasks[-1]
+            warmup_tasks = suite.tasks[:-1]
+            final_task = suite.tasks[-1]
 
             warmup_results = await run_openclaw_task_phase_batch(
                 tasks=warmup_tasks,
@@ -496,8 +423,8 @@ async def exam_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> No
                 )
             )[0]
 
-            benchmark_run.tasks.append(
-                OpenClawBenchmarkTaskRun(
+            suite_run.tasks.append(
+                TaskRun(
                     task_name=final_task.name,
                     category=category_name,
                     baseline=baseline_final_result,
@@ -512,16 +439,16 @@ async def exam_mode(args: argparse.Namespace, benchmark_paths: list[Path]) -> No
             )
 
             reset_benchmark_evolution_state(run_id, category_name, repeat_index)
-            _write_report(bench_report, report_root / f"{run_id}.json")
+            _write_report(eval_report, report_root / f"{run_id}.json")
 
-        suite_run.completed_at = datetime.now(timezone.utc).isoformat()
+        repeat_run.completed_at = datetime.now(timezone.utc).isoformat()
 
-    bench_report.completed_at = datetime.now(timezone.utc).isoformat()
+    eval_report.completed_at = datetime.now(timezone.utc).isoformat()
     out_path = report_root / f"{run_id}.json"
-    _write_report(bench_report, out_path)
+    _write_report(eval_report, out_path)
 
     if args.evaluate:
-        _run_post_process_pipeline(run_id, out_path, agent_source="openclaw")
+        run_post_process_pipeline(run_id, out_path, agent_source="openclaw")
 
 
 async def openclaw_main() -> None:
@@ -533,9 +460,9 @@ async def openclaw_main() -> None:
         help="Execution mode. 'replay' runs the benchmark replay pipeline, 'exam' is the exam workflow.",
     )
     parser.add_argument(
-        "--benchmark",
+        "--benchmark_dir",
         default="assets/benchmarks",
-        help="Benchmark file or directory to run.",
+        help="Directory containing suite JSON files.",
     )
     parser.add_argument(
         "--test",
@@ -554,9 +481,9 @@ async def openclaw_main() -> None:
         help="Skip benchmark execution and only run the post-process pipeline against an existing benchmark report JSON. Requires --run_id.",
     )
     parser.add_argument(
-        "--task",
+        "--suite",
         default="all",
-        help="Comma-separated benchmark json filenames (without .json) to run, or 'all' to run every benchmark. Default: all",
+        help="Comma-separated suite JSON filenames (with or without .json), or 'all' for every file in --benchmark_dir.",
     )
     parser.add_argument(
         "--run_id",
@@ -582,15 +509,15 @@ async def openclaw_main() -> None:
         evaluate_only_mode(args)
         return
 
-    preprocess_benchmark_mds()
+    preprocess_suite_mds()
 
-    benchmark_paths = resolve_benchmark_paths(Path(args.benchmark), args.task)
+    suite_paths = resolve_suite_paths(Path(args.benchmark_dir), args.suite)
 
     if args.mode == "replay":
-        await replay_mode(args, benchmark_paths)
+        await replay_mode(args, suite_paths)
         return
     if args.mode == "exam":
-        await exam_mode(args, benchmark_paths)
+        await exam_mode(args, suite_paths)
         return
     raise ValueError(f"Unsupported mode: {args.mode}")
 

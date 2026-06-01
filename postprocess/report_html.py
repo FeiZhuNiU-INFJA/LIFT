@@ -149,7 +149,7 @@ def task_table_html(category_df: pd.DataFrame, agent_source: AgentSource) -> str
     for _, row in category_df.iterrows():
         cells = [
             f"<td>{format_number(row['run'])}</td>",
-            f"<td>{escape(str(row.get('benchmark_name', '')))}</td>",
+            f"<td>{escape(str(row.get('suite_name', '')))}</td>",
             f"<td>{escape(task_label(row))}</td>",
         ]
         for metric in metric_columns:

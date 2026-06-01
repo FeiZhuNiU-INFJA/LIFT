@@ -17,7 +17,7 @@ from src.report.langfuse_trace_merge import (
     pair_session_traces_to_agent_turns,
 )
 from src.report.langfuse_work_analytics import build_work_analytics
-from src.models import LangfuseTraceRef, OpenClawBenchmarkPhaseLangfuseBundle
+from src.models import LangfuseTraceRef, PhaseLangfuseBundle
 
 
 AgentSource = Literal["openclaw", "hermes"]
@@ -45,7 +45,7 @@ def _stitch_openclaw(
     work_session_id: str,
     judge_session_id: str,
     page_limit: int,
-) -> OpenClawBenchmarkPhaseLangfuseBundle:
+) -> PhaseLangfuseBundle:
     """OpenClaw 模式：``*_agent`` 与 ``openclaw-plugin`` 共享 work/judge session_id，
     走 session_id 路径查询并按 session_id 分组配对。"""
     by_run_tag = _list_traces_all_pages(
@@ -76,7 +76,7 @@ def _stitch_openclaw(
 
     work_turns = pair_session_traces_to_agent_turns(work_raw)
     judge_turns = pair_session_traces_to_agent_turns(judge_raw)
-    return OpenClawBenchmarkPhaseLangfuseBundle(
+    return PhaseLangfuseBundle(
         eval_run_tag=eval_run_tag,
         work_session_id=work_session_id,
         judge_session_id=judge_session_id,
@@ -93,7 +93,7 @@ def _stitch_hermes(
     work_session_id: str,
     judge_session_id: str,
     page_limit: int,
-) -> OpenClawBenchmarkPhaseLangfuseBundle:
+) -> PhaseLangfuseBundle:
     """Hermes 模式：
     - ``*_agent`` pre-chat span 的 ``session_id`` 与外部一致，走 session_id 命中。
     - ``Hermes turn`` 的 ``session_id`` 是 hermes 内部 task_id，不可用 session_id 命中；
@@ -141,7 +141,7 @@ def _stitch_hermes(
 
     work_turns = pair_hermes_traces_to_agent_turns(work_raw)
     judge_turns = pair_hermes_traces_to_agent_turns(judge_raw)
-    return OpenClawBenchmarkPhaseLangfuseBundle(
+    return PhaseLangfuseBundle(
         eval_run_tag=eval_run_tag,
         work_session_id=work_session_id,
         judge_session_id=judge_session_id,
@@ -159,7 +159,7 @@ def stitch_phase_langfuse_traces(
     judge_session_id: str,
     agent_source: AgentSource = "openclaw",
     page_limit: int = 100,
-) -> OpenClawBenchmarkPhaseLangfuseBundle:
+) -> PhaseLangfuseBundle:
     """按 ``agent_source`` 分发到 OpenClaw / Hermes 实现。默认 ``openclaw`` 保持原行为。"""
     if agent_source == "hermes":
         return _stitch_hermes(

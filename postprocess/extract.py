@@ -156,8 +156,8 @@ def make_row(
     task: dict[str, Any],
     variant_name: str,
     run_index: int,
-    benchmark_name: str | None,
-    benchmark_path: str | None,
+    suite_name: str | None,
+    suite_path: str | None,
     agent_source: AgentSource = "openclaw",
 ) -> dict[str, Any]:
     side = (task or {}).get(variant_name) or {}
@@ -171,8 +171,8 @@ def make_row(
 
     return {
         "run": run_index,
-        "benchmark_name": benchmark_name,
-        "benchmark_path": benchmark_path,
+        "suite_name": suite_name,
+        "suite_path": suite_path,
         "task_name": task.get("task_name"),
         "category": task.get("category"),
         "baseline": variant_name == "baseline",
@@ -194,7 +194,11 @@ def make_row(
     }
 
 
-def _iter_benchmarks(run: dict[str, Any]) -> list[dict[str, Any]]:
+def _iter_suites(run: dict[str, Any]) -> list[dict[str, Any]]:
+    suites = (run or {}).get("suites")
+    if isinstance(suites, list) and suites:
+        return suites
+    # legacy report JSON used "benchmarks"
     benchmarks = (run or {}).get("benchmarks")
     if isinstance(benchmarks, list) and benchmarks:
         return benchmarks
@@ -212,23 +216,23 @@ def build_extracted_dataframe(
     if not isinstance(runs, list):
         raise ValueError("Post-process expects report/enriched JSON to contain a top-level 'runs' list.")
     for run_index, run in enumerate(runs):
-        for benchmark in _iter_benchmarks(run):
-            benchmark_name = benchmark.get("benchmark_name")
-            benchmark_path = benchmark.get("benchmark_path")
-            for task in benchmark.get("tasks") or []:
+        for suite in _iter_suites(run):
+            suite_name = suite.get("suite_name") or suite.get("benchmark_name")
+            suite_path = suite.get("suite_path") or suite.get("benchmark_path")
+            for task in suite.get("tasks") or []:
                 rows.append(
-                    make_row(task, "baseline", run_index, benchmark_name, benchmark_path, agent_source)
+                    make_row(task, "baseline", run_index, suite_name, suite_path, agent_source)
                 )
                 rows.append(
-                    make_row(task, "evolved", run_index, benchmark_name, benchmark_path, agent_source)
+                    make_row(task, "evolved", run_index, suite_name, suite_path, agent_source)
                 )
 
     return pd.DataFrame(
         rows,
         columns=[
             "run",
-            "benchmark_name",
-            "benchmark_path",
+            "suite_name",
+            "suite_path",
             "task_name",
             "category",
             "baseline",
