@@ -14,7 +14,7 @@ import os
 from pydantic import BaseModel
 from src.config import CONFIG, LOGGER, _PROJECT_ROOT
 from src.report.langfuse_reporting import emit_pre_chat_state
-from src.models import FornaxUdfTags
+from src.models import CustomTags
 from src.utils import short_id
 
 GMT_PLUS_8 = timezone(timedelta(hours=8), name="GMT+8")
@@ -146,7 +146,7 @@ class Agent(ABC):
         self,
         msg: str,
         session_id: str,
-        tags: FornaxUdfTags,
+        tags: CustomTags,
         response_schema: BaseModel | None = None,
         *,
         chat_role: str = "work_agent",
@@ -403,7 +403,7 @@ class HermesAgent(Agent):
         self,
         msg: str,
         session_id: str,
-        tags: FornaxUdfTags,
+        tags: CustomTags,
         response_schema: BaseModel | None = None, # hermes agent对这个参数无感
         *,
         chat_role: str = "work_agent",
@@ -788,7 +788,7 @@ class OpenClawAgent(Agent):
         self,
         msg: str,
         session_id: str,
-        tags: FornaxUdfTags,
+        tags: CustomTags,
         response_schema: BaseModel | None = None,
         *,
         chat_role: str = "work_agent",

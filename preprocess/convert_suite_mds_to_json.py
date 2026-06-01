@@ -6,12 +6,14 @@ import re
 import sys
 from pathlib import Path
 
+from tqdm import tqdm
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.models import BenchmarkSpec  # noqa: E402
+from src.models import SuiteSpec  # noqa: E402
 
 
 TASK_DIR_RE = re.compile(r"^q(?P<index>\d+)(?:[_-].+)?$", re.IGNORECASE)
@@ -148,13 +150,16 @@ def convert_all(input_root: Path, output_root: Path) -> list[Path]:
     output_root.mkdir(parents=True, exist_ok=True)
     written_files: list[Path] = []
 
-    for scene_dir in sorted(
+    scene_dirs = sorted(
         path
         for path in input_root.iterdir()
         if path.is_dir() and path.name not in IGNORED_DIR_NAMES
-    ):
+    )
+    progress = tqdm(scene_dirs, unit="suite")
+    for scene_dir in progress:
+        progress.set_description(scene_dir.name)
         benchmark_data = build_benchmark_spec(scene_dir)
-        BenchmarkSpec.model_validate(benchmark_data)
+        SuiteSpec.model_validate(benchmark_data)
 
         output_path = output_root / f"{scene_dir.name}.json"
         output_path.write_text(
@@ -166,7 +171,7 @@ def convert_all(input_root: Path, output_root: Path) -> list[Path]:
     return written_files
 
 
-def preprocess_benchmark_mds(
+def preprocess_suite_mds(
     input_root: Path | None = None,
     output_root: Path | None = None,
 ) -> list[Path]:
@@ -191,7 +196,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    written_files = preprocess_benchmark_mds(args.input_root, args.output_root)
+    written_files = preprocess_suite_mds(args.input_root, args.output_root)
     for output_path in written_files:
         print(output_path)
 

@@ -13,7 +13,7 @@ Disable with EVAL_LANGFUSE_PRE_CHAT=0|false.
 from __future__ import annotations
 
 from src.config import CONFIG, LOGGER
-from src.models import FornaxUdfTags
+from src.models import CustomTags
 
 
 def _langfuse_credentials_present() -> bool:
@@ -27,7 +27,7 @@ def _truncate_str(value: str, max_len: int = 200) -> str:
     return value[: max_len - 15] + "...(truncated)"
 
 
-def _tags_to_full_payload(tags: FornaxUdfTags) -> dict[str, str]:
+def _tags_to_full_payload(tags: CustomTags) -> dict[str, str]:
     return {
         "run": tags.run,
         "task": tags.task,
@@ -43,7 +43,7 @@ def _tags_to_full_payload(tags: FornaxUdfTags) -> dict[str, str]:
 def emit_pre_chat_state(
     *,
     session_id: str,
-    tags: FornaxUdfTags,
+    tags: CustomTags,
     chat_role: str,
 ) -> None:
     """

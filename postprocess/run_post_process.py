@@ -13,7 +13,8 @@ from postprocess.langfuse_enrich import enrich_report, get_langfuse_client
 from postprocess.judge import attach_trajectory_scores
 from postprocess.metrics import build_comparison_dataframe, build_summary_dataframe, print_summary_to_console, validate_pairs
 from postprocess.report_html import render_report_html
-from src.models import OpenClawBenchmarkReport
+from src.config import LOGGER
+from src.models import EvalReport
 
 
 AgentSource = Literal["openclaw", "hermes"]
@@ -42,8 +43,9 @@ def is_enriched_report(data: dict) -> bool:
     if not isinstance(runs, list):
         raise ValueError("Post-process expects report/enriched JSON to contain a top-level 'runs' list.")
     for run in runs:
-        for benchmark in (run or {}).get("benchmarks") or []:
-            for task in benchmark.get("tasks") or []:
+        suites = (run or {}).get("suites") or (run or {}).get("benchmarks") or []
+        for suite in suites:
+            for task in suite.get("tasks") or []:
                 for variant_name in ("baseline", "evolved"):
                     variant = task.get(variant_name) or {}
                     if variant.get("langfuse") is not None:
@@ -59,7 +61,7 @@ def load_or_enrich_report(
     if is_enriched_report(data):
         return data, input_path.stem
 
-    report = OpenClawBenchmarkReport.from_json_file(input_path)
+    report = EvalReport.from_json_file(input_path)
     client = get_langfuse_client()
     enriched = enrich_report(report, client, agent_source)
     enriched_data = json.loads(enriched.model_dump_json())
@@ -101,6 +103,40 @@ def process_report_to_outputs(
     report_html.write_text(html_text, encoding="utf-8")
     print_summary_to_console(summary_df)
     return enriched_json, comparison_csv, summary_csv, report_html
+
+
+def post_process_results_dir(run_id: str) -> Path:
+    results_dir = Path.cwd() / "results" / run_id
+    results_dir.mkdir(parents=True, exist_ok=True)
+    return results_dir
+
+
+def run_post_process_pipeline(
+    run_id: str,
+    report_path: Path,
+    agent_source: AgentSource = "openclaw",
+) -> None:
+    """对已生成的 benchmark report JSON 执行后处理，输出 enriched JSON / CSV / HTML。"""
+    results_dir = post_process_results_dir(run_id)
+    enriched_json, comparison_csv, summary_csv, report_html = default_output_paths(
+        results_dir, run_id
+    )
+    try:
+        enriched_json, comparison_csv, summary_csv, report_html = process_report_to_outputs(
+            report_path,
+            enriched_json=enriched_json,
+            comparison_csv=comparison_csv,
+            summary_csv=summary_csv,
+            report_html=report_html,
+            agent_source=agent_source,
+        )
+        LOGGER.info("Post-process enriched JSON: %s", enriched_json)
+        LOGGER.info("Post-process comparison CSV: %s", comparison_csv)
+        LOGGER.info("Post-process summary CSV: %s", summary_csv)
+        LOGGER.info("Post-process HTML report: %s", report_html)
+    except Exception:
+        LOGGER.exception("Post-process pipeline failed.")
+        LOGGER.error("Benchmark report was still saved successfully at: %s", report_path)
 
 
 def main() -> None:

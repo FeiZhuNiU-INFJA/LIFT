@@ -32,7 +32,7 @@ class ExpectedResult(BaseModel):
         return data
 
 
-class BenchmarkTask(BaseModel):
+class SuiteTask(BaseModel):
     name: str
     query: str
     requirements: TaskRequirements
@@ -40,13 +40,13 @@ class BenchmarkTask(BaseModel):
     category_name: str | None = None
 
 
-class BenchmarkSpec(BaseModel):
+class SuiteSpec(BaseModel):
     name: str
     category: str
-    tasks: list[BenchmarkTask] = Field(default_factory=list)
+    tasks: list[SuiteTask] = Field(default_factory=list)
 
     @classmethod
-    def from_json_file(cls, file_path: str | Path) -> BenchmarkSpec:
+    def from_json_file(cls, file_path: str | Path) -> SuiteSpec:
         data = json.loads(Path(file_path).read_text(encoding="utf-8"))
         spec = cls.model_validate(data)
         for task in spec.tasks:
@@ -66,7 +66,7 @@ LANGFUSE_PLUGIN_TRACE_NAME = LANGFUSE_PLUGIN_TRACE_NAMES[0]
 
 
 class LangfuseAgentTraceInput(BaseModel):
-    """``work_agent`` / ``judge_agent`` pre-chat span 的 input（与 ``FornaxUdfTags`` / ``emit_pre_chat_state`` 一致）。"""
+    """``work_agent`` / ``judge_agent`` pre-chat span 的 input（与 ``CustomTags`` / ``emit_pre_chat_state`` 一致）。"""
 
     run: str
     task: str
@@ -163,7 +163,7 @@ class LangfuseTraceRef(BaseModel):
     )
     agent_input: LangfuseAgentTraceInput | None = Field(
         default=None,
-        description="pre-chat span：Fornax 全量字段",
+        description="pre-chat span：CustomTags 全量字段",
     )
     plugin_prompt: str | None = Field(
         default=None,
@@ -293,18 +293,18 @@ class LangfuseWorkSessionAnalytics(BaseModel):
     )
 
 
-class OpenClawBenchmarkPhaseLangfuseBundle(BaseModel):
+class PhaseLangfuseBundle(BaseModel):
     """
     单次 phase 在 Langfuse 上的 trace 串联结果。
 
     - eval 侧 pre-chat span（``langfuse_reporting.emit_pre_chat_state``）的 tags 含 ``tags.run``，
       可用 ``eval_run_tag`` 过滤；name 多为 ``work_agent`` / ``judge_agent`` 等 chat_role。
     - 插件 ``langfuse-tracer`` 上报的 trace 通常 **不带** run_id tag，用 ``session_id`` 与
-      ``OpenClawBenchmarkPhaseRun`` 里的 work/judge session 对齐。
+      ``PhaseRun`` 里的 work/judge session 对齐。
     - ``work_analytics``：对 work session 调用 ``trace.get`` 填充全链路与 chat/全局统计（可选）。
     """
 
-    eval_run_tag: str = Field(description="与 FornaxUdfTags.run / propagate tags 中 run 一致")
+    eval_run_tag: str = Field(description="与 CustomTags.run / propagate tags 中 run 一致")
     work_session_id: str
     judge_session_id: str
     work_agent_traces: list[LangfuseTraceRef] = Field(
@@ -321,8 +321,8 @@ class OpenClawBenchmarkPhaseLangfuseBundle(BaseModel):
     )
 
 
-class OpenClawBenchmarkPhaseRun(BaseModel):
-    """单个 task 在 baseline 或 evolved 阶段的一次 openclaw_run_task 执行。"""
+class PhaseRun(BaseModel):
+    """单个 task 在 baseline 或 evolved 阶段的一次 run_task 执行。"""
 
     work_session_id: str = Field(description="传给 work_agent 的 session id（user_session_id）")
     judge_session_id: str = Field(description="传给 judge_agent 的 session id")
@@ -331,47 +331,47 @@ class OpenClawBenchmarkPhaseRun(BaseModel):
         default=0.0,
         description="judge 给出的最近一次 content_score（0-1）；任务超出最大尝试次数时为最后一轮的分数",
     )
-    workspace_dir: str | None = Field(default=None, description="该 phase 使用的 OpenClaw workspace 目录")
-    langfuse: OpenClawBenchmarkPhaseLangfuseBundle | None = Field(
+    workspace_dir: str | None = Field(default=None, description="该 phase 使用的 agent workspace 目录")
+    langfuse: PhaseLangfuseBundle | None = Field(
         default=None,
         description="可选：从 Langfuse 拉取并填充的 trace 串联（见 src.langfuse_trace_stitch、src.langfuse_work_analytics）",
     )
 
 
-class OpenClawBenchmarkTaskRun(BaseModel):
-    """单个 benchmark task：进化前 baseline + 进化后 evolved（未跑 evolved 时为 null）。"""
+class TaskRun(BaseModel):
+    """单个 task：进化前 baseline + 进化后 evolved（未跑 evolved 时为 null）。"""
 
     task_name: str
     category: str
-    baseline: OpenClawBenchmarkPhaseRun
-    evolved: OpenClawBenchmarkPhaseRun | None = None
+    baseline: PhaseRun
+    evolved: PhaseRun | None = None
 
 
-class OpenClawBenchmarkRunBenchmark(BaseModel):
-    """一次完整 benchmark 运行中的单个 benchmark 文件结果。"""
+class SuiteRun(BaseModel):
+    """一次 repeat 内、单个 suite JSON 的执行结果。"""
 
-    benchmark_name: str | None = None
-    benchmark_path: str | None = None
+    suite_name: str | None = None
+    suite_path: str | None = None
     category: str | None = None
-    tasks: list[OpenClawBenchmarkTaskRun] = Field(default_factory=list)
+    tasks: list[TaskRun] = Field(default_factory=list)
 
 
-class OpenClawBenchmarkRun(BaseModel):
-    """一次完整 benchmark 套件执行的结果。"""
+class EvalRepeat(BaseModel):
+    """``--repeat`` 的一轮完整执行（所选 suite 各跑一遍）。"""
 
     started_at: str = Field(default_factory=_utc_now_iso)
     completed_at: str | None = None
-    benchmarks: list[OpenClawBenchmarkRunBenchmark] = Field(default_factory=list)
+    suites: list[SuiteRun] = Field(default_factory=list)
 
 
-class OpenClawBenchmarkReport(BaseModel):
-    """一次 evobench 运行的汇总，可 model_dump_json / write_json。"""
+class EvalReport(BaseModel):
+    """一次 evobench 评测 run 的汇总（``run_id`` 对应一份 report JSON）。"""
 
     run_id: str
     categories: list[str] = Field(default_factory=list)
     started_at: str = Field(default_factory=_utc_now_iso)
     completed_at: str | None = None
-    runs: list[OpenClawBenchmarkRun] = Field(default_factory=list)
+    runs: list[EvalRepeat] = Field(default_factory=list)
 
     def write_json(self, path: str | Path) -> None:
         p = Path(path)
@@ -379,12 +379,12 @@ class OpenClawBenchmarkReport(BaseModel):
         p.write_text(self.model_dump_json(indent=2), encoding="utf-8")
 
     @classmethod
-    def from_json_file(cls, file_path: str | Path) -> OpenClawBenchmarkReport:
+    def from_json_file(cls, file_path: str | Path) -> EvalReport:
         raw = Path(file_path).read_text(encoding="utf-8")
         return cls.model_validate_json(raw)
 
     @classmethod
-    def from_json_str(cls, text: str) -> OpenClawBenchmarkReport:
+    def from_json_str(cls, text: str) -> EvalReport:
         return cls.model_validate_json(text)
 
 
@@ -395,12 +395,12 @@ def _bool_to_tag(value: bool | None) -> str:
 
 
 def _sanitize_tag_value(value: str) -> str:
-    # FORNAX_UDF_TAGS uses comma-separated key=value pairs.
+    # CustomTags uses comma-separated key=value pairs.
     return value.replace(",", " ").replace("\n", " ").strip()
 
 
 @dataclass
-class FornaxUdfTags:
+class CustomTags:
     run: str
     task: str
     task_query: str
@@ -412,7 +412,7 @@ class FornaxUdfTags:
     agent_name: str
 
     @classmethod
-    def init_tags(cls, task: BenchmarkTask, run_id: str) -> FornaxUdfTags:
+    def init_tags(cls, task: SuiteTask, run_id: str) -> CustomTags:
         return cls(
             run=run_id,
             task=f"{task.category_name}_{task.name}",

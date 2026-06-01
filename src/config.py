@@ -40,8 +40,8 @@ class AppConfig:
     firecrawl_api_key: str | None
     api_server_enabled: bool
     api_server_key: str | None
-    judge_model_name: str
-    use_judge: bool
+    trajectory_judge_model: str
+    do_trajectory_judge: bool
 
     @property
     def langfuse_credentials_present(self) -> bool:
@@ -65,8 +65,8 @@ def load_config() -> AppConfig:
         firecrawl_api_key=os.getenv("FIRECRAWL_API_KEY"),
         api_server_enabled=_env_flag("API_SERVER_ENABLED", default=False),
         api_server_key=os.getenv("API_SERVER_KEY"),
-        judge_model_name=os.getenv("JUDGE_MODEL_NAME", "gpt-4o-mini"),
-        use_judge=_env_flag("USE_JUDGE", default=False),
+        trajectory_judge_model=os.getenv("TRAJECTORY_JUDGE_MODEL", "gpt-4o-mini"),
+        do_trajectory_judge=_env_flag("DO_TRAJECTORY_JUDGE", default=False),
     )
 
 

@@ -14,7 +14,7 @@ METRIC_COLUMNS = [
 ]
 
 KEY_COLUMNS = ["task_name", "category"]
-PAIR_KEY_COLUMNS = ["run", "benchmark_name", "benchmark_path", "task_name", "category"]
+PAIR_KEY_COLUMNS = ["run", "suite_name", "suite_path", "task_name", "category"]
 
 # Summary 计算时，``impr_trials`` / ``impr_tool_use_num`` 超过该阈值的样本视为离群（退化过强），
 # 仅在 task 详情表展示，不参与 category / global 的 mean_impr 与 mean_diff 聚合。
@@ -45,7 +45,7 @@ def compute_difference(evolved_value: Any, baseline_value: Any) -> float:
 
 def validate_pairs(df: pd.DataFrame) -> None:
     required_columns = (
-        ["run", "benchmark_name", "benchmark_path"]
+        ["run", "suite_name", "suite_path"]
         + KEY_COLUMNS
         + ["baseline", "evolved", "success", "is_final_task"]
         + METRIC_COLUMNS

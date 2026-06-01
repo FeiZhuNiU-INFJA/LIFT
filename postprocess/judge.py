@@ -2,10 +2,9 @@ import json
 import re
 from typing import Any
 from time import sleep
-from src.config import LOGGER
 import pandas as pd
 
-from postprocess.config import JUDGE_MODEL_NAME, OPENAI_API_KEY, OPENAI_BASE_URL, USE_JUDGE
+from src.config import CONFIG, LOGGER
 
 SYSTEM_PROMPT_TEMPLATE = """你是一个Agent轨迹评判高手，你会了解到目标任务、任务要求以及一个其他Agent的执行轨迹，你需要根据你对任务以及要求的理解，在脑海中构建一条最佳实现路径来完美根据要求完成任务，然后在和Agent的实际执行轨迹对比，评判实际执行的轨迹质量高低，并且输出一个得分，值在0到1之间，越高说明质量越好。你只需要关注轨迹信息，不需要在意内容质量，因此，你需要根据提供的文本轨迹信息和轨迹要求进行分析，不需要了解实际的文件内容。
 
@@ -149,14 +148,14 @@ def judge_trajectory_with_mock(_: list[dict[str, str]]) -> float:
 def judge_trajectory_with_openai(messages: list[dict[str, str]]) -> float:
     from openai import OpenAI
 
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+    client = OpenAI(api_key=CONFIG.openai_api_key, base_url=CONFIG.openai_base_url)
     last_error: Exception | None = None
 
     for _ in range(3):
         sleep(1)
         try:
             response = client.chat.completions.create(
-                model=JUDGE_MODEL_NAME,
+                model=CONFIG.trajectory_judge_model,
                 messages=messages,
                 temperature=0,
                 response_format={"type": "json_object"},
@@ -175,7 +174,7 @@ def judge_trajectory_with_openai(messages: list[dict[str, str]]) -> float:
 
 def compute_trajectory_score(row: pd.Series) -> float:
     judge_messages = build_judge_messages(row)
-    if not USE_JUDGE:
+    if not CONFIG.do_trajectory_judge:
         return judge_trajectory_with_mock(judge_messages)
     return judge_trajectory_with_openai(judge_messages)
 

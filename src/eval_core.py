@@ -7,7 +7,7 @@ from json_repair import repair_json
 from pydantic import BaseModel, Field
 
 from src.agents import Agent, HermesAgent
-from src.models import BenchmarkTask, FornaxUdfTags
+from src.models import SuiteTask, CustomTags
 from src.config import CONFIG, LOGGER
 
 
@@ -60,7 +60,7 @@ def _build_judge_prompt_retry(invalid_response: str, error_message: str) -> str:
 
 
 async def run_task(
-    task: BenchmarkTask,
+    task: SuiteTask,
     run_id: str,
     agent: HermesAgent,
     user_session_id: str,
@@ -70,7 +70,7 @@ async def run_task(
     is_final_task: bool = False,
 ) -> tuple[bool, str, str, float]:
     """Returns (success, work_session_id, judge_session_id, content_score)."""
-    tags = FornaxUdfTags.init_tags(task, run_id)
+    tags = CustomTags.init_tags(task, run_id)
     tags.is_final_task = is_final_task
     tags.is_evolve_turn = is_evolve_turn
     current_prompt = task.query + f"\n你的工作区路径是: {agent._workspace_path}"
@@ -138,7 +138,7 @@ async def run_task(
 
 
 async def openclaw_run_task(
-    task: BenchmarkTask,
+    task: SuiteTask,
     run_id: str,
     user_agent: Agent,
     judge_agent: Agent,
@@ -149,7 +149,7 @@ async def openclaw_run_task(
     is_final_task: bool = False,
 ) -> tuple[bool, str, str, float]:
     """Returns (success, work_session_id, judge_session_id, content_score)."""
-    tags = FornaxUdfTags.init_tags(task, run_id)
+    tags = CustomTags.init_tags(task, run_id)
     tags.is_final_task = is_final_task
     tags.is_evolve_turn = is_evolve_turn
     current_prompt = task.query

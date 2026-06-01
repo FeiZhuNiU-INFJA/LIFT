@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from langfuse import get_client
 
-from src.models import OpenClawBenchmarkPhaseRun, OpenClawBenchmarkReport
+from src.models import EvalReport, PhaseRun
 from src.report.langfuse_trace_stitch import stitch_phase_langfuse_traces
 
 
@@ -23,7 +23,7 @@ def get_langfuse_client():
 def enrich_phase(
     client: Any,
     run_tag: str,
-    phase: OpenClawBenchmarkPhaseRun | None,
+    phase: PhaseRun | None,
     agent_source: AgentSource = "openclaw",
 ):
     if phase is None:
@@ -39,17 +39,17 @@ def enrich_phase(
 
 
 def enrich_report(
-    report: OpenClawBenchmarkReport,
+    report: EvalReport,
     client: Any,
     agent_source: AgentSource = "openclaw",
-) -> OpenClawBenchmarkReport:
+) -> EvalReport:
     run_tag = report.run_id
     new_runs = []
-    for run in report.runs:
-        new_benchmarks = []
-        for benchmark in run.benchmarks:
+    for repeat in report.runs:
+        new_suites = []
+        for suite in repeat.suites:
             new_tasks = []
-            for task_run in benchmark.tasks:
+            for task_run in suite.tasks:
                 baseline = enrich_phase(client, run_tag, task_run.baseline, agent_source)
                 evolved = (
                     enrich_phase(client, run_tag, task_run.evolved, agent_source)
@@ -57,6 +57,6 @@ def enrich_report(
                     else None
                 )
                 new_tasks.append(task_run.model_copy(update={"baseline": baseline, "evolved": evolved}))
-            new_benchmarks.append(benchmark.model_copy(update={"tasks": new_tasks}))
-        new_runs.append(run.model_copy(update={"benchmarks": new_benchmarks}))
+            new_suites.append(suite.model_copy(update={"tasks": new_tasks}))
+        new_runs.append(repeat.model_copy(update={"suites": new_suites}))
     return report.model_copy(update={"runs": new_runs})
