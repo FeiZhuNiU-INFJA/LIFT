@@ -125,6 +125,9 @@ cython_debug/
 
 # Test files
 test*
+!src_new/lift/tests/
+!src_new/lift/tests/*.py
+
 
 # results
 results/*

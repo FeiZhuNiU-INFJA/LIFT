@@ -1,4 +1,4 @@
-# evolve\_eval
+# evolve-eval
 
 一个用于运行 benchmark task 并做循环评测的 Python 项目，当前支持 `hermes` 和 `openclaw` 两种 agent framework。目前Openclaw链路已完善
 
@@ -150,14 +150,16 @@ FIRECRAWL_API_KEY=your_firecrawl_api_key
 
 本项目里评测相关概念分层如下：
 
-| 术语 | 含义 | 示例 | CLI / 代码 |
-|------|------|------|------------|
-| **eval / benchmark run** | 一次完整评测 invocation（一个 `run_id`、一份 report） | `evobench-runid-20260529-abc` | `EvalReport`；`--run_id` |
-| **repeat** | `--repeat` 的一轮完整执行 | 第 2 次 `--repeat 3` | `EvalReport.runs[]` → `EvalRepeat` |
-| **suite** | 一份规格 JSON | `Team_Building_Planning.json` | `--suite`；`SuiteSpec`；report 里 `EvalRepeat.suites[]` → `SuiteRun` |
-| **task** | suite 内 `tasks[]` 的一条 | `Q1`、`Q2` | `SuiteRun.tasks[]` → `TaskRun` |
-| **phase** | 单个 task 的 baseline 或 evolved 执行 | baseline / evolved | `TaskRun.baseline` / `.evolved` → `PhaseRun` |
-| **benchmark_dir** | 存放多个 suite JSON 的目录 | `assets/benchmarks` | `--benchmark_dir` |
+
+| 术语                       | 含义                                       | 示例                            | CLI / 代码                                                          |
+| ------------------------ | ---------------------------------------- | ----------------------------- | ----------------------------------------------------------------- |
+| **eval / benchmark run** | 一次完整评测 invocation（一个 `run_id`、一份 report） | `evobench-runid-20260529-abc` | `EvalReport`；`--run_id`                                           |
+| **repeat**               | `--repeat` 的一轮完整执行                       | 第 2 次 `--repeat 3`            | `EvalReport.runs[]` → `EvalRepeat`                                |
+| **suite**                | 一份规格 JSON                                | `Team_Building_Planning.json` | `--suite`；`SuiteSpec`；report 里 `EvalRepeat.suites[]` → `SuiteRun` |
+| **task**                 | suite 内 `tasks[]` 的一条                    | `Q1`、`Q2`                     | `SuiteRun.tasks[]` → `TaskRun`                                    |
+| **phase**                | 单个 task 的 baseline 或 evolved 执行          | baseline / evolved            | `TaskRun.baseline` / `.evolved` → `PhaseRun`                      |
+| **benchmark_dir**        | 存放多个 suite JSON 的目录                      | `assets/benchmarks`           | `--benchmark_dir`                                                 |
+
 
 层级关系：
 
@@ -191,12 +193,12 @@ suite 源文件目录：
 - 顶层 `name / category / tasks`（对应 [src/models.py](./src/models.py) 的 `SuiteSpec`）
 - 每个 task 包含 `name / query / requirements / expected_result`
 
-
 ## 5. 运行
 
 在项目根目录执行：
 
 ### Openclaw
+
 ```bash
 python openclaw_main.py
 ```
@@ -232,6 +234,8 @@ flowchart TD
     B -->|否| O[达到最大尝试次数，结束 run_task，返回 False]
 ```
 
+
+
 ### run_task 自然语言说明（chat 表示一轮对话）
 
 `run_task` 会先初始化 `tags`、`user_session_id` 和 `current_prompt`（初始为 `task.query`），然后最多循环 `max_turns` 次。
@@ -247,8 +251,6 @@ flowchart TD
 - 如果 `success=False`：把 `reason` 作为下一轮 `current_prompt`，继续循环
 
 如果达到 `max_turns` 仍未成功，函数返回 `False`（不再发送额外的"任务失败"终结提示）。
-
-
 
 ### Hermes
 
@@ -356,7 +358,6 @@ python postprocess/run_post_process.py evobench-reports/evobench-runid-xxxx.json
 - `total_latency_seconds`
 - `trajectory_score`
 
-
 ## 7. Langfuse 串联逻辑
 
 Langfuse **trace_backfill**（轨迹回填）内核在 [postprocess/langfuse_enrich.py](./postprocess/langfuse_enrich.py)（模块名为遗留称呼）。
@@ -409,41 +410,48 @@ flowchart TD
     W --> A2[build_work_analytics 仅 work]
 ```
 
+
+
 说明：
 
-| 步骤 | 作用 |
-|------|------|
-| `trace.list` | 发现 trace id；列表接口 **无** token，仅有 latency 等粗字段 |
-| `trace.get` | 拉取 input/output/metadata、子 observation 的 **usage（token）** |
-| 1:1 合并 | 每条 `work_agent` / `judge_agent` 行吸收紧随其后的 `openclaw-plugin` |
-| `work_analytics` | 仅统计 **work** 侧（judge 模拟用户反馈，不参与全局 token 汇总） |
+
+| 步骤               | 作用                                                         |
+| ---------------- | ---------------------------------------------------------- |
+| `trace.list`     | 发现 trace id；列表接口 **无** token，仅有 latency 等粗字段               |
+| `trace.get`      | 拉取 input/output/metadata、子 observation 的 **usage（token）**  |
+| 1:1 合并           | 每条 `work_agent` / `judge_agent` 行吸收紧随其后的 `openclaw-plugin` |
+| `work_analytics` | 仅统计 **work** 侧（judge 模拟用户反馈，不参与全局 token 汇总）                |
+
 
 ### 8.2 输出结构（`phase.langfuse`）
 
 > 下表以 OpenClaw 链路（`agent_source=openclaw`）为基准；Hermes 链路（`agent_source=hermes`）下 `plugin_trace_id` / `plugin_*` 来自 hermes turn 而非 `openclaw-plugin`，但字段含义一致。
 
-**`work_agent_traces` / `judge_agent_traces`**（每轮对话一条，已合并 plugin）：
+`**work_agent_traces` / `judge_agent_traces`**（每轮对话一条，已合并 plugin）：
 
-| 字段 | 含义 |
-|------|------|
-| `id` | pre-chat agent trace id |
-| `plugin_trace_id` | 配对的 `openclaw-plugin` trace id |
-| `agent_input` | pre-chat span 全量字段（run、task、task_query、content_reqs 等） |
-| `plugin_prompt` / `plugin_response` | 当轮用户 prompt / assistant 回复 |
-| `plugin_metadata` | success、message_count、tool_roundtrips、tool_call_blocks 等 |
-| `tokens` | 来自 plugin trace 的 GENERATION usage |
-| `latency_seconds` | 来自 plugin trace 的 latency（秒） |
+
+| 字段                                  | 含义                                                       |
+| ----------------------------------- | -------------------------------------------------------- |
+| `id`                                | pre-chat agent trace id                                  |
+| `plugin_trace_id`                   | 配对的 `openclaw-plugin` trace id                           |
+| `agent_input`                       | pre-chat span 全量字段（run、task、task_query、content_reqs 等）   |
+| `plugin_prompt` / `plugin_response` | 当轮用户 prompt / assistant 回复                               |
+| `plugin_metadata`                   | success、message_count、tool_roundtrips、tool_call_blocks 等 |
+| `tokens`                            | 来自 plugin trace 的 GENERATION usage                       |
+| `latency_seconds`                   | 来自 plugin trace 的 latency（秒）                             |
+
 
 ### 8.3 代码模块（`src/report/`）
 
-| 文件 | 职责 |
-|------|------|
-| `langfuse_reporting.py` | 每次 chat 前 `emit_pre_chat_state`（`CustomTags` → span input） |
-| `langfuse_trace_stitch.py` | 入口：`stitch_phase_langfuse_traces` |
-| `langfuse_trace_fetch.py` | `trace.get`、解析 observation、生成 `LangfuseTraceRef` |
-| `langfuse_trace_merge.py` | 按时间将 agent 与 plugin 合并为单条 turn |
-| `langfuse_trace_parse.py` | 结构化 `agent_input` / `plugin_metadata` |
-| `langfuse_work_analytics.py` | 生成 `trace_chain`、`chat_turns`、`global_stats` |
+
+| 文件                           | 职责                                                         |
+| ---------------------------- | ---------------------------------------------------------- |
+| `langfuse_reporting.py`      | 每次 chat 前 `emit_pre_chat_state`（`CustomTags` → span input） |
+| `langfuse_trace_stitch.py`   | 入口：`stitch_phase_langfuse_traces`                          |
+| `langfuse_trace_fetch.py`    | `trace.get`、解析 observation、生成 `LangfuseTraceRef`           |
+| `langfuse_trace_merge.py`    | 按时间将 agent 与 plugin 合并为单条 turn                             |
+| `langfuse_trace_parse.py`    | 结构化 `agent_input` / `plugin_metadata`                      |
+| `langfuse_work_analytics.py` | 生成 `trace_chain`、`chat_turns`、`global_stats`               |
+
 
 插件实现见 [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/) 与 [langfuse-hermes/](./langfuse-hermes/)。
-
