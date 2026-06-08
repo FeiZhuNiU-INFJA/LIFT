@@ -497,9 +497,7 @@ Agent 插件约束：必须使用框架传入的 `work_session_id` / `judge_sess
 
 | 文档 | 用途 |
 |------|------|
-| [../src_new/hace/README.md](../src_new/hace/README.md) | **HACE 实现**：CLI、hold-out 配置、Docker 镜像 |
-| [prd-eval-framework-refactor-cn.md](./prd-eval-framework-refactor-cn.md) | **评测框架重构 PRD**：目标架构、功能需求、里程碑 |
-| [executive-brief-hace-framework-cn.md](./executive-brief-hace-framework-cn.md) | **管理层汇报**：论文方向 + 框架顶层设计（15 min 分镜） |
+| [hace-framework-guide-cn.md](./hace-framework-guide-cn.md) | **HACE 阅读与实操指南**（推荐首选）：目录结构、OpenClaw 适配、CLI、产出物 |
+| [../src_new/hace/README.md](../src_new/hace/README.md) | HACE 实现速查：CLI 参数、测试命令 |
 | [paper-hace-blueprint-cn.md](./paper-hace-blueprint-cn.md) | HACE 论文写作蓝图：论文须完成的论述/实验/图表清单 |
-| [paper-full-emnlp-draft.md](./paper-full-emnlp-draft.md) | 英文投稿骨架 |
 | [../assets/suite requirement.md](../assets/suite%20requirement.md) | Benchmark 收集规范 |

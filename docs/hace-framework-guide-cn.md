@@ -40,14 +40,18 @@ src_new/hace/
 │   ├── registry.py         ← --runtime 工厂注册
 │   ├── mock_adapter.py     ← 无 Docker 的单元测试替身
 │   └── openclaw/           ← OpenClaw 具体实现（见第 4 节）
+│       ├── adapter.py
+│       ├── container_session.py
+│       ├── workspace_seed.py   ← hold-out workspace 人设预置
+│       └── …
 ├── policies/           # 策略（产物如何产生、容器如何编排）
-│   ├── artifact.py         ← WarmupThenUpdatePolicy
+│   ├── artifact.py         ← ArtifactPolicy（ABC）+ WarmupThenUpdatePolicy
 │   └── container.py        ← warmup 容器策略（serial_single 等）
 ├── runtime/            # 资源生命周期
 │   ├── repeat_scope.py     ← 一次 repeat 内所有容器的清理边界
 │   ├── delta_ref.py        ← delta 镜像引用
 │   ├── environment_cleaner.py  ← docker rm / commit / rmi
-│   └── disposable.py         ← 可清理资源协议
+│   └── disposable.py         ← Disposable 抽象基类
 └── tests/              # 单元测试（理解行为的好材料）
 ```
 
@@ -74,17 +78,19 @@ src_new/hace/
 
 ### 第二步：理解适配器契约
 
-4. `adapters/base.py` — `RuntimeAdapter` 四个方法：
+4. `adapters/base.py` — `RuntimeAdapter`（ABC）四个抽象方法：
    - `open_repeat_scope` — 打开一次 repeat 的资源作用域
    - `produce_delta` — warmup + evolve → 产出 delta
    - `run_before_load` — baseline 阶段跑 hold-out
    - `run_after_load` — evolved 阶段跑 hold-out
 
+   实现类需**继承** `RuntimeAdapter`，在重写方法上加 `@override`（`typing.override`）；漏实现任一方法会在实例化时报 `TypeError`。
+
 5. `adapters/registry.py` — 目前仅注册 `openclaw`；换运行时在这里扩展
 
 ### 第三步：深入 OpenClaw 实现
 
-6. `adapters/openclaw/adapter.py` — 把协议映射到容器操作
+6. `adapters/openclaw/adapter.py` — 把抽象契约映射到容器操作
 7. `adapters/openclaw/delta_producer.py` — warmup 容器 → evolve → `docker commit`
 8. `adapters/openclaw/container_session.py` — `docker run`、端口、卷挂载
 9. `adapters/openclaw/task_runner.py` — 容器内 `docker exec openclaw …`
@@ -93,9 +99,11 @@ src_new/hace/
 ### 第四步：对照测试
 
 ```bash
-python -m src_new.hace.tests.test_holdout   # hold-out 切分
-python -m src_new.hace.tests.test_runtime    # 清理 / delta 命名
-python -m src_new.hace.tests.test_pipeline    # MockAdapter 端到端
+python -m src_new.hace.tests.test_holdout        # hold-out 切分
+python -m src_new.hace.tests.test_runtime         # 清理 / delta 命名
+python -m src_new.hace.tests.test_pipeline        # MockAdapter 端到端
+python -m src_new.hace.tests.test_abc_contracts   # ABC 不可直接实例化
+python -m src_new.hace.tests.test_workspace_seed  # hold-out workspace 预置
 ```
 
 ---
@@ -125,7 +133,7 @@ HACE **不**在宿主机直接跑 OpenClaw CLI（legacy `openclaw_main.py` 才�
 
 ### 4.2 `OpenClawAdapter` 方法 → 文件映射
 
-| 协议方法 | 实现位置 | 行为摘要 |
+| 抽象方法 | 实现位置 | 行为摘要 |
 |----------|----------|----------|
 | `open_repeat_scope` | `adapter.py` | 创建 `RepeatScope`（跟踪容器与 delta） |
 | `produce_delta` | `delta_producer.py` | 单 warmup 容器串行跑 Q1…Q_{n-1} → `evolve_in_container` → `docker commit` |
@@ -200,11 +208,35 @@ sequenceDiagram
 
 `is_evolve_turn=True`（after-load）会写入 Langfuse 标签，供后处理区分 evolved 轨迹。
 
-### 4.6 Delta 镜像命名与清理
+### 4.6 Workspace 人设预置（`workspace_seed.py`）
 
-- 命名：`evolve-eval-delta:{run_id}-r{repeat}:{suite_name}`（见 `environment_cleaner.py`）
-- `RepeatScope.cleanup()`：逆序销毁 tracked 容器，再 `docker rmi` delta 镜像
-- warmup 容器 commit 后立即删除，只保留 delta 镜像供 hold-out 使用
+hold-out 每题使用**全新空 workspace**，OpenClaw 默认会走 `BOOTSTRAP.md` 首次上线流程（问名字、emoji 等），干扰评测。
+
+| 阶段 | 是否 seed | 原因 |
+|------|-----------|------|
+| **warmup** | 否 | 避免干扰 `openclaw learn review` 的 onboard |
+| **baseline / evolved** | 是 | 从 `agents/openclaw/workspace_seed/` 复制 `IDENTITY.md` / `USER.md` / `SOUL.md`，删除 `BOOTSTRAP.md` |
+
+seed 在宿主机挂载前写入 `results/.../outcome/...`，容器启动后再从镜像内 `/opt/evolve-eval/workspace_seed` 同步一次。修改 seed 后需重建 OpenClaw 镜像。
+
+### 4.7 进化产物与 Delta 镜像
+
+**warmup 结束后**执行 `openclaw learn review`，再 `docker commit` 得到临时 **delta 镜像**：
+
+| 产物类型 | 内容 | 是否持久保留 |
+|----------|------|--------------|
+| **Delta 镜像** | 容器文件系统（主要是 `/root/.openclaw/` 下插件进化状态）；**不含** bind mount 的 `/workspace/task` | hold-out 跑完后由 `scope.cleanup()` **`docker rmi` 删除** |
+| **Warmup workspace** | 宿主机 `results/{run_id}/outcome/run-{i}/warmup/{category}/`；含 learn review 的 git 快照（`openclaw baseline` 提交） | **保留**，可调试 |
+| **Hold-out workspace** | `baseline/`、`evolved/` 各题独立目录 | **保留** |
+
+evolved 阶段从 delta 镜像起新容器，但挂载**新的** hold-out workspace（已 seed 人设）；进化状态靠镜像内插件状态传递，而非拷贝 warmup 目录。
+
+### 4.8 Delta 镜像命名与清理
+
+- 命名：`evolve-eval-delta:{run_id}-r{repeat_index}-{suite_name}`（Docker 只允许一个 `:`，见 `environment_cleaner.py`）
+  - 示例：`evolve-eval-delta:evobench-runid-hello-full-seed2-r0-Hello`
+- `RepeatScope.cleanup()`：逆序销毁 tracked 容器，再 `docker rmi -f` delta 镜像
+- warmup 容器 commit 后立即删除；delta 镜像仅在一次 repeat 的 hold-out 期间存在，**跑完后 `docker images` 里看不到是正常现象**
 
 ---
 
@@ -243,7 +275,7 @@ assets/benchmark_mds/<场景>/
   q1_xxx/q1_xxx.md + materials/
   q2_xxx/...
   skills/（可选）
-        ↓ preprocess_suite_mds()
+        ↓ python -m src_new.cli.preprocess
 assets/benchmarks/<场景>.json   ← SuiteSpec + holdout 扩展字段
 ```
 
@@ -267,10 +299,12 @@ Suite JSON 在标准 `SuiteSpec` 之外可带：
 
 ## 7. 如何扩展新运行时（非 OpenClaw）
 
-1. 在 `adapters/` 下继承 `RuntimeAdapter` 并实现四个抽象方法（可参考 `mock_adapter.py` 最小实现）
+1. 在 `adapters/` 下 **继承** `RuntimeAdapter`，用 `@override` 实现四个抽象方法（参考 `mock_adapter.py`）
 2. 在 `adapters/registry.py` 的 `SUPPORTED_RUNTIMES` 和 `create_adapter()` 中注册
 3. 若需要 Docker 镜像，在 `default_docker_image()` 增加解析逻辑
-4. 为 pipeline 行为添加测试（参照 `tests/test_pipeline.py`）
+4. 为 pipeline 行为添加测试（参照 `tests/test_pipeline.py`、`tests/test_abc_contracts.py`）
+
+相关 ABC：`ArtifactPolicy`（产物策略）、`Disposable`（容器 / delta 清理）。实现类同样继承并在重写方法上使用 `@override`。
 
 **关键约束**：HACE 只关心「能否产出一个可加载的 delta」以及「before/after 两种状态下跑 hold-out」；具体 evolve 机制由适配器决定。OpenClaw 选择 **docker commit 容器文件系统** 作为 delta 载体。
 
@@ -308,6 +342,24 @@ assets/benchmarks/<场景>.json   ← HACE CLI --suite 实际读取的文件
 
 **Workspace 人设**：镜像内 `agents/openclaw/workspace_seed/`（`IDENTITY.md` / `USER.md` / `SOUL.md`，无 `BOOTSTRAP.md`）会在 **hold-out**（baseline/evolved）阶段挂载前复制进工作区，避免 OpenClaw 首次上线问名字/emoji；warmup 不 seed，以免干扰 `openclaw learn review` 的 onboard。改 seed 后需 `bash agents/openclaw/build-image.sh` 重建镜像。
 
+### CLI 参数（`hace_main.py`）
+
+| 参数 | 默认 | 含义 |
+|------|------|------|
+| `--runtime` | **必填** | 运行时适配器（当前仅 `openclaw`） |
+| `--suite` | `all` | suite JSON 文件名，逗号分隔 |
+| `--benchmark_dir` | `assets/benchmarks` | suite JSON 目录 |
+| `--warmup-only` | off | 只跑 warmup + evolve + delta，跳过 hold-out |
+| `--run_id` | 自动生成 | 自定义 `run_id` 后缀（如 `hello-full`） |
+| `--repeat` | `1` | 重复完整 HACE 流程 N 次（写入同一 report 的 `runs[]`） |
+| `--serial-repeats` | off | repeat 串行（默认并行） |
+| `-p` / `--parallel` | off | warmup 题并行（受容器策略约束） |
+| `--warmup-container-policy` | `serial_single` | warmup 容器编排策略 |
+| `-e` / `--evaluate` | off | 评测结束后自动后处理 |
+| `--evaluate-only` | off | 仅后处理已有 report（需 `--run_id`） |
+
+> 已移除 legacy 的 `--test`；冒烟可改用 `--warmup-only`。`--runtime` 无默认值，必须显式指定。
+
 ### 运行阶段
 
 ```bash
@@ -315,10 +367,13 @@ assets/benchmarks/<场景>.json   ← HACE CLI --suite 实际读取的文件
 python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --warmup-only
 
 # 完整 HACE（warmup + hold-out baseline/evolved 对照）
-python -m src_new.cli.hace_main --runtime openclaw --suite hello.json
+python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --run_id hello-full
 
-# 评测 + 后处理
-python -m src_new.cli.hace_main --runtime openclaw --suite hello.json -e
+# 评测 + 后处理（trace_backfill、CSV、HTML）
+python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --run_id hello-full -e
+
+# 仅后处理已有 run
+python -m src_new.cli.hace_main --runtime openclaw --evaluate-only --run_id hello-full
 ```
 
 完整推荐顺序：
@@ -326,11 +381,14 @@ python -m src_new.cli.hace_main --runtime openclaw --suite hello.json -e
 ```bash
 # 准备阶段（首次或变更后执行）
 bash agents/openclaw/build-image.sh          # 1. 构建 OpenClaw 镜像
-python -m src_new.cli.preprocess             # 2. md → JSON
+python -m src_new.cli.preprocess             # 2. md → JSON（与 hace_main 解耦，需单独跑）
 
 # 运行阶段
 python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --warmup-only
+python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --run_id hello-full -e
 ```
+
+也可使用等价入口：`python -m src_new.cli`（转发到 `hace_main`）。
 
 ### 两个输出目录：`evobench-reports` 与 `results`
 
@@ -441,9 +499,11 @@ bash scripts/clean-results.sh
 |------|-------------------|------------------------------|
 | 执行位置 | 容器内 `docker exec` | 宿主机直接调 OpenClaw |
 | 产物隔离 | delta 镜像 + per-task 容器 | 宿主机 toggle 加载 |
-| 官方入口 | `python -m src_new.cli.hace_main` | `openclaw_main.py --mode exam` |
+| 官方入口 | `python -m src_new.cli.hace_main --runtime openclaw` | `openclaw_main.py --mode exam` |
+| CLI | `--warmup-only`、无 `--test` | `--mode replay` / `--test` 等遗留参数 |
+| 适配器契约 | `RuntimeAdapter`（ABC + `@override`） | 无统一抽象 |
 
-新开发与论文级复现应使用 **`src_new`** 路径。
+新开发与论文级复现应使用 **`src_new`** 路径；`openclaw_main.py` 仅作历史对照。
 
 ---
 
@@ -467,6 +527,12 @@ Warmup 需要状态连续以触发 evolve；hold-out 需要严格对照（baseli
 **Q：为什么 `results/` 删不掉（Permission denied）？**  
 容器内 root 创建的文件在宿主机上属主也是 root。新跑评测会在容器销毁前自动 `chown` 修复；历史残留用 `bash scripts/clean-results.sh` 清理。
 
+**Q：为什么 `docker images` 看不到 delta 镜像？**  
+delta 是单次评测的临时中间产物；`RepeatScope.cleanup()` 在 repeat 结束后会 `docker rmi` 删除。持久调试请看 `results/.../warmup/` 工作区。
+
+**Q：benchmark JSON 在哪？**  
+正式数据在仓库根目录 `assets/benchmarks/`（非 `src_new/assets/benchmarks/`）。`--benchmark_dir` 默认指向前者。
+
 ---
 
 ## 11. 一页纸总结
@@ -475,8 +541,8 @@ Warmup 需要状态连续以触发 evolve；hold-out 需要严格对照（baseli
 CLI (hace_main)
   → HACEPipeline：切 warmup / hold-out
   → RuntimeAdapter（OpenClawAdapter）
-       warmup：1 容器 × 多题 → learn review → docker commit → Δ
-       hold-out：每题 × (base 容器 baseline, Δ 容器 evolved)
+       warmup：1 容器 × 多题 → learn review → docker commit → Δ（临时镜像）
+       hold-out：每题 × (base 容器 baseline, Δ 容器 evolved)；workspace seed 跳过人设 onboarding
   → eval_core.openclaw_run_task：work + judge 多轮
   → evobench-reports/{run_id}.json（结构化 report）
   → results/{run_id}/outcome/...（Agent 工作区产物）
