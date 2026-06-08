@@ -10,6 +10,7 @@ load_dotenv()
 
 from src_new.preprocess.convert_suite_mds_to_json import preprocess_suite_mds
 from src_new.config import LOGGER
+from src_new.paths import report_json_path
 from src_new.utils import make_run_id, resolve_suite_paths
 
 from src_new.hace.adapters.registry import (
@@ -93,7 +94,7 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
     if not args.run_id:
         raise ValueError("--evaluate-only requires --run_id")
     run_id = make_run_id(args.run_id)
-    report_path = Path.cwd() / "evobench-reports" / f"{run_id}.json"
+    report_path = report_json_path(run_id)
     if not report_path.exists():
         raise FileNotFoundError(f"Report not found: {report_path}")
     LOGGER.info("HACE evaluate-only runtime=%s: %s", args.runtime, report_path)
@@ -128,7 +129,7 @@ async def run_hace(args: argparse.Namespace, suite_paths: list[Path]) -> None:
     if args.evaluate:
         from src_new.postprocess.run_post_process import run_post_process_pipeline
 
-        report_path = Path.cwd() / "evobench-reports" / f"{run_id}.json"
+        report_path = report_json_path(run_id)
         run_post_process_pipeline(run_id, report_path, agent_source=args.runtime)
 
 

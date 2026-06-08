@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from src_new.config import CONFIG, LOGGER, _PROJECT_ROOT
 from src_new.report.langfuse_reporting import emit_pre_chat_state
 from src_new.models import CustomTags
+from src_new.paths import outcome_root
 from src_new.utils import short_id
 
 GMT_PLUS_8 = timezone(timedelta(hours=8), name="GMT+8")
@@ -548,9 +549,7 @@ class OpenClawAgent(Agent):
         If it already exists, do nothing.
         """
         if workspace_dir is None:
-            workspace_path = (
-                Path.cwd() / "results" / str(self.run_id) / "outcome" / str(self.task_id)
-            )
+            workspace_path = outcome_root(str(self.run_id)) / str(self.task_id)
         else:
             workspace_path = Path(workspace_dir).expanduser().resolve()
         workspace_path.mkdir(parents=True, exist_ok=True)

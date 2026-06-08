@@ -12,6 +12,7 @@ from src_new.hace.policies.artifact import WarmupThenUpdatePolicy
 from src_new.hace.pipeline.run_options import RunOptions
 from src_new.hace.suite.holdout import split_suite_tasks
 from src_new.hace.suite.spec_extensions import load_hace_suite
+from src_new.paths import default_report_root
 
 
 class HACEPipeline:
@@ -22,7 +23,7 @@ class HACEPipeline:
         *,
         report_root: Path | None = None,
     ) -> None:
-        self.report_root = report_root or (Path.cwd() / "evobench-reports")
+        self.report_root = report_root or default_report_root()
         self._report_lock = asyncio.Lock()
 
     async def run(

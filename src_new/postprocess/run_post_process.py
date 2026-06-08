@@ -15,6 +15,7 @@ from src_new.postprocess.metrics import build_comparison_dataframe, build_summar
 from src_new.postprocess.report_html import render_report_html
 from src_new.config import LOGGER
 from src_new.models import EvalReport
+from src_new.paths import results_run_dir
 
 
 AgentSource = Literal["openclaw", "hermes"]
@@ -34,7 +35,7 @@ def default_results_dir(input_path: Path) -> tuple[Path, str]:
     run_id = data.get("run_id")
     if not isinstance(run_id, str) or not run_id.strip():
         run_id = input_path.stem
-    output_dir = Path.cwd() / "results" / run_id
+    output_dir = results_run_dir(run_id)
     return output_dir, run_id
 
 
@@ -116,7 +117,7 @@ def process_report_to_outputs(
 
 
 def post_process_results_dir(run_id: str) -> Path:
-    results_dir = Path.cwd() / "results" / run_id
+    results_dir = results_run_dir(run_id)
     results_dir.mkdir(parents=True, exist_ok=True)
     return results_dir
 

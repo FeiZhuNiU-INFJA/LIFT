@@ -3,6 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from src_new.models import SuiteTask
+from src_new.paths import (
+    CONTAINER_BENCHMARKS_ROOT,
+    CONTAINER_EVOBENCH_REPORTS_ROOT,
+    CONTAINER_OUTCOME_ROOT,
+    default_report_root,
+    outcome_root,
+)
 
 
 def resolve_host_path(path_value: str | None) -> Path | None:
@@ -21,17 +28,17 @@ def default_volume_binds(
 ) -> list[tuple[str, str, str]]:
     """Host paths bind-mounted into the OpenClaw container."""
     binds: list[tuple[str, str, str]] = []
-    outcome_root = Path.cwd() / "results" / run_id / "outcome"
-    if outcome_root.is_dir():
-        binds.append((str(outcome_root.resolve()), "/workspace/outcome", "rw"))
+    host_outcome = outcome_root(run_id)
+    if host_outcome.is_dir():
+        binds.append((str(host_outcome.resolve()), CONTAINER_OUTCOME_ROOT, "rw"))
 
     benchmarks = Path.cwd() / "assets" / "benchmarks"
     if benchmarks.is_dir():
-        binds.append((str(benchmarks.resolve()), "/workspace/benchmarks", "ro"))
+        binds.append((str(benchmarks.resolve()), CONTAINER_BENCHMARKS_ROOT, "ro"))
 
-    reports = Path.cwd() / "evobench-reports"
+    reports = default_report_root()
     reports.mkdir(parents=True, exist_ok=True)
-    binds.append((str(reports.resolve()), "/workspace/evobench-reports", "rw"))
+    binds.append((str(reports.resolve()), CONTAINER_EVOBENCH_REPORTS_ROOT, "rw"))
     return binds
 
 

@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from src_new.paths import outcome_root
+
 
 def short_id(n: int = 8) -> str:
     return uuid.uuid4().hex[:n]
@@ -21,10 +23,7 @@ def outcome_workspace(
     run_id: str, repeat_index: int, phase: str, category_name: str
 ) -> Path:
     workspace_dir = (
-        Path.cwd()
-        / "results"
-        / run_id
-        / "outcome"
+        outcome_root(run_id)
         / f"run-{repeat_index}"
         / phase
         / category_name
