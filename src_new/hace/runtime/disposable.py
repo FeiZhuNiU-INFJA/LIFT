@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from abc import ABC, abstractmethod
 
 
-@runtime_checkable
-class Disposable(Protocol):
+class Disposable(ABC):
+    @abstractmethod
     async def cleanup(self) -> None: ...

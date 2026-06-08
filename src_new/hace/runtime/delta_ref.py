@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import override
 
+from src_new.hace.runtime.disposable import Disposable
 from src_new.hace.runtime.environment_cleaner import EnvironmentCleaner
 
 
 @dataclass
-class DeltaRef:
+class DeltaRef(Disposable):
     """Warmup-produced artifact as a committed Docker image."""
 
     image_tag: str
@@ -14,6 +16,7 @@ class DeltaRef:
     _cleaner: EnvironmentCleaner = field(default_factory=EnvironmentCleaner)
     _cleaned: bool = field(default=False, repr=False)
 
+    @override
     async def cleanup(self) -> None:
         if self._cleaned:
             return

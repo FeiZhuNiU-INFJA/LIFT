@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import override
 
 from src_new.config import LOGGER
-from src_new.hace.adapters.base import RunContext
+from src_new.hace.adapters.base import RunContext, RuntimeAdapter
 from src_new.hace.adapters.openclaw.container_session import ContainerSession
 from src_new.hace.adapters.openclaw.delta_producer import produce_delta_from_warmup
 from src_new.hace.adapters.openclaw.task_runner import run_openclaw_task_phase
@@ -15,7 +16,7 @@ from src_new.hace.pipeline.run_options import RunOptions
 from src_new.utils import outcome_workspace, short_id
 
 
-class OpenClawAdapter:
+class OpenClawAdapter(RuntimeAdapter):
     """OpenClaw runtime: host orchestration, agent execution inside Docker."""
 
     DEFAULT_IMAGE = "evolve-eval-openclaw:latest"
@@ -24,6 +25,7 @@ class OpenClawAdapter:
         self._options = options
         self._docker_image = options.docker_image or self.DEFAULT_IMAGE
 
+    @override
     async def open_repeat_scope(self, ctx: RunContext) -> RepeatScope:
         return RepeatScope(
             run_id=ctx.run_id,
@@ -31,6 +33,7 @@ class OpenClawAdapter:
             suite_name=ctx.suite_name,
         )
 
+    @override
     async def produce_delta(
         self,
         scope: RepeatScope,
@@ -54,6 +57,7 @@ class OpenClawAdapter:
             parallel_warmup_tasks=self._options.parallel,
         )
 
+    @override
     async def run_before_load(
         self,
         task: SuiteTask,
@@ -72,6 +76,7 @@ class OpenClawAdapter:
             log_label="before-load",
         )
 
+    @override
     async def run_after_load(
         self,
         task: SuiteTask,

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from typing import override
+
 from src_new.models import PhaseRun, SuiteTask
 from src_new.utils import short_id
 
-from src_new.hace.adapters.base import RunContext
+from src_new.hace.adapters.base import RunContext, RuntimeAdapter
 from src_new.hace.policies.artifact import ArtifactPolicy
 from src_new.hace.runtime.delta_ref import DeltaRef
 from src_new.hace.runtime.repeat_scope import RepeatScope
 
 
-class MockAdapter:
+class MockAdapter(RuntimeAdapter):
     def __init__(self) -> None:
         self.produce_delta_count = 0
         self.before_load_count = 0
@@ -17,6 +19,7 @@ class MockAdapter:
         self.scopes_cleaned = 0
         self._last_warmup: list[SuiteTask] = []
 
+    @override
     async def open_repeat_scope(self, ctx: RunContext) -> RepeatScope:
         return RepeatScope(
             run_id=ctx.run_id,
@@ -24,6 +27,7 @@ class MockAdapter:
             suite_name=ctx.suite_name,
         )
 
+    @override
     async def produce_delta(
         self,
         scope: RepeatScope,
@@ -37,6 +41,7 @@ class MockAdapter:
         scope.delta = delta
         return delta
 
+    @override
     async def run_before_load(
         self,
         task: SuiteTask,
@@ -54,6 +59,7 @@ class MockAdapter:
             workspace_dir=f"/mock/{phase}/{task.name}",
         )
 
+    @override
     async def run_after_load(
         self,
         task: SuiteTask,

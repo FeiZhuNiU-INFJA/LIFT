@@ -36,7 +36,7 @@ src_new/hace/
 │   ├── spec_extensions.py  ← 读 JSON + holdout_count 等扩展字段
 │   └── holdout.py          ← warmup / hold-out 切分逻辑
 ├── adapters/           # 运行时适配层（可插拔 Agent 后端）
-│   ├── base.py             ← RuntimeAdapter 协议（接口契约）
+│   ├── base.py             ← RuntimeAdapter 抽象基类（接口契约）
 │   ├── registry.py         ← --runtime 工厂注册
 │   ├── mock_adapter.py     ← 无 Docker 的单元测试替身
 │   └── openclaw/           ← OpenClaw 具体实现（见第 4 节）
@@ -267,7 +267,7 @@ Suite JSON 在标准 `SuiteSpec` 之外可带：
 
 ## 7. 如何扩展新运行时（非 OpenClaw）
 
-1. 在 `adapters/` 下实现 `RuntimeAdapter` 四个方法（可参考 `mock_adapter.py` 最小实现）
+1. 在 `adapters/` 下继承 `RuntimeAdapter` 并实现四个抽象方法（可参考 `mock_adapter.py` 最小实现）
 2. 在 `adapters/registry.py` 的 `SUPPORTED_RUNTIMES` 和 `create_adapter()` 中注册
 3. 若需要 Docker 镜像，在 `default_docker_image()` 增加解析逻辑
 4. 为 pipeline 行为添加测试（参照 `tests/test_pipeline.py`）

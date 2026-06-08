@@ -5,6 +5,7 @@ import hashlib
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import override
 
 from src_new.config import LOGGER
 from src_new.hace.adapters.openclaw.container_env import (
@@ -77,6 +78,7 @@ class ContainerSession(Disposable):
             gateway_port=self.gateway_port,
         )
 
+    @override
     async def cleanup(self) -> None:
         if self._cleaned:
             return

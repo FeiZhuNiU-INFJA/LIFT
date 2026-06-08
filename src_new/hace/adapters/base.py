@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Protocol
 
 from src_new.models import PhaseRun, SuiteTask
 
@@ -26,9 +26,11 @@ class RunContext:
     suite_name: str
 
 
-class RuntimeAdapter(Protocol):
+class RuntimeAdapter(ABC):
+    @abstractmethod
     async def open_repeat_scope(self, ctx: RunContext) -> RepeatScope: ...
 
+    @abstractmethod
     async def produce_delta(
         self,
         scope: RepeatScope,
@@ -37,6 +39,7 @@ class RuntimeAdapter(Protocol):
         ctx: RunContext,
     ) -> DeltaRef: ...
 
+    @abstractmethod
     async def run_before_load(
         self,
         task: SuiteTask,
@@ -46,6 +49,7 @@ class RuntimeAdapter(Protocol):
         phase: str = "baseline",
     ) -> PhaseRun: ...
 
+    @abstractmethod
     async def run_after_load(
         self,
         task: SuiteTask,
