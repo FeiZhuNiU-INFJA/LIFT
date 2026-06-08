@@ -26,10 +26,9 @@ Ephemeral entrypoint variant (optional): `agents/openclaw/Dockerfile.entrypoint`
 
 ```bash
 # Canonical entry (runtime-agnostic CLI)
-python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --test
+python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --warmup-only
 
-# Shorthand (same as --runtime openclaw)
-python -m src_new.cli --suite hello.json --test
+python -m src_new.cli --runtime openclaw --suite hello.json --warmup-only
 
 # Full HACE
 python -m src_new.cli.hace_main --runtime openclaw --suite hello.json
@@ -42,7 +41,8 @@ python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --repeat 3
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--runtime` | `openclaw` | Agent adapter; also selects base Docker image via registry |
+| `--runtime` | *(required)* | Agent adapter; also selects base Docker image via registry |
+| `--warmup-only` | off | Warmup + evolve + delta only; skip hold-out contrast |
 | `--warmup-container-policy` | `serial_single` | Warmup in one container |
 | `--serial-repeats` | off | Disable parallel repeats |
 | `-p` | off | Parallel warmup tasks (within policy) |

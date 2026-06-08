@@ -8,14 +8,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src_new.preprocess.convert_suite_mds_to_json import preprocess_suite_mds
 from src_new.config import LOGGER
 from src_new.paths import report_json_path
 from src_new.utils import make_run_id, resolve_suite_paths
 
 from src_new.hace.adapters.registry import (
     SUPPORTED_RUNTIMES,
-    _DEFAULT_RUNTIME,
     create_adapter,
     default_docker_image,
 )
@@ -30,9 +28,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--runtime",
-        default=_DEFAULT_RUNTIME,
+        required=True,
         choices=list(SUPPORTED_RUNTIMES),
-        help="Agent runtime adapter (default: openclaw).",
+        help="Agent runtime adapter.",
     )
     parser.add_argument(
         "--benchmark_dir",
@@ -45,9 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated suite JSON filenames, or 'all'.",
     )
     parser.add_argument(
-        "--test",
+        "--warmup-only",
         action="store_true",
-        help="Smoke test: first hold-out only (before-load), skip warmup/contrast.",
+        help="Run warmup tasks and produce delta only; skip hold-out baseline/evolved.",
     )
     parser.add_argument(
         "-e",
@@ -107,7 +105,7 @@ async def run_hace(args: argparse.Namespace, suite_paths: list[Path]) -> None:
     docker_image = default_docker_image(args.runtime)
     options = RunOptions(
         repeat=args.repeat,
-        test=args.test,
+        warmup_only=args.warmup_only,
         evaluate=args.evaluate,
         evaluate_only=False,
         parallel=args.parallel,
@@ -118,7 +116,7 @@ async def run_hace(args: argparse.Namespace, suite_paths: list[Path]) -> None:
     )
     adapter = create_adapter(args.runtime, options)
     pipeline = HACEPipeline()
-    LOGGER.info("HACE run_id=%s runtime=%s suites=%d", run_id, args.runtime, len(suite_paths))
+    LOGGER.info(f"HACE run_id={run_id} runtime={args.runtime} suites={len(suite_paths)}")
     await pipeline.run(
         run_id=run_id,
         suite_paths=suite_paths,
@@ -141,7 +139,6 @@ def main(argv: list[str] | None = None) -> None:
         evaluate_only_mode(args)
         return
 
-    preprocess_suite_mds()
     suite_paths = resolve_suite_paths(Path(args.benchmark_dir), args.suite)
     asyncio.run(run_hace(args, suite_paths))
 

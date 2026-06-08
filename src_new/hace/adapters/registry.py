@@ -10,7 +10,6 @@ if TYPE_CHECKING:
 
 SUPPORTED_RUNTIMES = ("openclaw",)
 
-_DEFAULT_RUNTIME = "openclaw"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 

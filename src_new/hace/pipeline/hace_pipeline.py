@@ -121,52 +121,45 @@ class HACEPipeline:
                     if category_name not in eval_report.categories:
                         eval_report.categories.append(category_name)
 
-                targets = holdout_tasks[:1] if options.test else holdout_tasks
-                delta = None
-                if not options.test:
-                    policy = WarmupThenUpdatePolicy(warmup_tasks)
-                    delta = await adapter.produce_delta(
-                        scope, policy, warmup_tasks, ctx
+                if not warmup_tasks:
+                    raise ValueError(
+                        f"No warmup tasks in {suite_path}; "
+                        "produce_delta requires at least one non-hold-out task"
                     )
 
-                for holdout_task in targets:
-                    if options.test:
+                policy = WarmupThenUpdatePolicy(warmup_tasks)
+                delta = await adapter.produce_delta(
+                    scope, policy, warmup_tasks, ctx
+                )
+
+                if options.warmup_only:
+                    LOGGER.info(
+                        "HACE warmup-only %s: delta committed as %s",
+                        suite.name,
+                        delta.image_tag,
+                    )
+                else:
+                    for holdout_task in holdout_tasks:
                         baseline = await adapter.run_before_load(
-                            holdout_task,
-                            scope,
-                            ctx,
-                            phase="test",
+                            holdout_task, scope, ctx, phase="baseline"
+                        )
+                        evolved = await adapter.run_after_load(
+                            holdout_task, scope, delta, ctx
                         )
                         suite_run.tasks.append(
                             TaskRun(
                                 task_name=holdout_task.name,
                                 category=category_name,
                                 baseline=baseline,
-                                evolved=None,
+                                evolved=evolved,
                             )
                         )
-                        continue
-
-                    baseline = await adapter.run_before_load(
-                        holdout_task, scope, ctx, phase="baseline"
-                    )
-                    evolved = await adapter.run_after_load(
-                        holdout_task, scope, delta, ctx
-                    )
-                    suite_run.tasks.append(
-                        TaskRun(
-                            task_name=holdout_task.name,
-                            category=category_name,
-                            baseline=baseline,
-                            evolved=evolved,
+                        LOGGER.info(
+                            "HACE hold-out %s: baseline_success=%s evolved_success=%s",
+                            holdout_task.name,
+                            baseline.success,
+                            evolved.success,
                         )
-                    )
-                    LOGGER.info(
-                        "HACE hold-out %s: baseline_success=%s evolved_success=%s",
-                        holdout_task.name,
-                        baseline.success,
-                        evolved.success,
-                    )
 
                 if options.incremental_report:
                     async with self._report_lock:

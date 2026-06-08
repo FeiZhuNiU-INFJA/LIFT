@@ -7,7 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from src_new.config import LOGGER
-from src_new.hace.adapters.openclaw.container_env import container_runtime_env
+from src_new.hace.adapters.openclaw.container_env import (
+    container_reclaim_ownership_script,
+    container_runtime_env,
+    host_user_ids,
+)
 from src_new.hace.adapters.openclaw.container_exec import (
     OpenClawContainerContext,
     exec_shell_async,
@@ -74,8 +78,24 @@ class ContainerSession(Disposable):
             return
         # Allow langfuse-tracer ingestion to finish before the gateway process exits.
         await asyncio.sleep(2)
+        await self._reclaim_volume_ownership()
         await self._cleaner.remove_container(self.container_name)
         self._cleaned = True
+
+    async def _reclaim_volume_ownership(self) -> None:
+        """OpenClaw runs as root in-container; chown bind mounts back to the host user."""
+        uid, gid = host_user_ids()
+        try:
+            await exec_shell_async(
+                self.container_name,
+                container_reclaim_ownership_script(uid, gid),
+            )
+        except Exception as exc:
+            LOGGER.warning(
+                "Failed to reclaim workspace ownership for %s: %s",
+                self.container_name,
+                exc,
+            )
 
     @classmethod
     async def start(
@@ -189,6 +209,6 @@ class ContainerSession(Disposable):
         """Drop stale workspace attestations when mounting a fresh task workspace."""
         await exec_shell_async(
             self.container_name,
-            "rm -rf /root/.openclaw/workspace-attestations 2>/dev/null || true",
+            "rm -rf \"${OPENCLAW_STATE_DIR:-/root/.openclaw}\"/workspace-attestations 2>/dev/null || true",
             extra_env=container_runtime_env(),
         )

@@ -219,18 +219,18 @@ for suite_path in suite_paths:
 
     scope = await adapter.open_repeat_scope(ctx)
     try:
-        if not options.test:
-            delta = await adapter.produce_delta(scope, policy, warmup_tasks, ctx)
+        delta = await adapter.produce_delta(scope, policy, warmup_tasks, ctx)
 
-        for holdout_task in targets:   # --test 时只取第一题且只跑 baseline
-            baseline = await adapter.run_before_load(...)
-            evolved  = await adapter.run_after_load(...)   # --test 时跳过
-            suite_run.tasks.append(TaskRun(baseline=..., evolved=...))
+        if not options.warmup_only:
+            for holdout_task in holdout_tasks:
+                baseline = await adapter.run_before_load(...)
+                evolved  = await adapter.run_after_load(...)
+                suite_run.tasks.append(TaskRun(baseline=..., evolved=...))
     finally:
         await scope.cleanup()
 ```
 
-**`--test` 模式**：跳过 warmup、evolve、after-load，只对第一个 hold-out 跑单次 before-load，用于冒烟联通。
+**`--warmup-only` 模式**：只跑 warmup 题 + evolve + `docker commit` 产 delta，**跳过** hold-out 的 baseline/evolved 对照；report 里 `tasks[]` 为空。
 
 ---
 
@@ -278,23 +278,56 @@ Suite JSON 在标准 `SuiteSpec` 之外可带：
 
 ## 8. 快速运行与产出物
 
-### 构建镜像
+### 准备阶段（跑 HACE CLI 之前）
+
+以下属于**环境/数据准备**，HACE 主流程本身不负责 build 镜像，也不会在没有 JSON 的情况下凭空造 benchmark：
+
+| 步骤 | 命令 / 产物 | 说明 |
+|------|-------------|------|
+| **1. Build OpenClaw 镜像** | `bash agents/openclaw/build-image.sh` | 产出 `evolve-eval-openclaw:latest`；HACE 运行时直接 `docker run` 该镜像，不存在则失败 |
+| **2. 配置 `.env`** | 仓库根目录 | 模型 API、Langfuse 等；容器启动时 `--env-file` 挂载 |
+| **3. 转换 benchmark** | 见下方 | 将 `assets/benchmark_mds/` 下的 md 场景转为 `assets/benchmarks/*.json` |
+
+**Benchmark 预处理**把人类可读的 md 任务目录转成机器可读的 suite JSON（现在已与评测 CLI 解耦，需单独运行）：
 
 ```bash
-bash agents/openclaw/build-image.sh
+python -m src_new.cli.preprocess
+# 或指定目录
+python -m src_new.cli.preprocess --input-root assets/benchmark_mds --output-root assets/benchmarks
 ```
 
-### 运行
+```text
+assets/benchmark_mds/<场景>/q1_xxx/*.md
+        ↓ preprocess
+assets/benchmarks/<场景>.json   ← HACE CLI --suite 实际读取的文件
+```
+
+只需在**首次使用**或 **md 有改动**后重新运行一次；JSON 未变时重复跑是幂等的。
+
+**Delta 镜像**（`evolve-eval-delta:...`）**不需要**提前准备——warmup 结束后由 `docker commit` 在运行期动态生成。
+
+### 运行阶段
 
 ```bash
-# 冒烟：只跑第一个 hold-out 的 before-load
-python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --test
+# 只跑 warmup（如 hello.json 的 Q1）+ evolve，不跑 hold-out 终测
+python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --warmup-only
 
-# 完整 HACE
+# 完整 HACE（warmup + hold-out baseline/evolved 对照）
 python -m src_new.cli.hace_main --runtime openclaw --suite hello.json
 
 # 评测 + 后处理
 python -m src_new.cli.hace_main --runtime openclaw --suite hello.json -e
+```
+
+完整推荐顺序：
+
+```bash
+# 准备阶段（首次或变更后执行）
+bash agents/openclaw/build-image.sh          # 1. 构建 OpenClaw 镜像
+python -m src_new.cli.preprocess             # 2. md → JSON
+
+# 运行阶段
+python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --warmup-only
 ```
 
 ### 两个输出目录：`evobench-reports` 与 `results`
@@ -353,7 +386,6 @@ results/{run_id}/outcome/
     warmup/{category}/              ← warmup 阶段共用工作区
     baseline/{category}/{task}/   ← hold-out baseline 产物
     evolved/{category}/{task}/    ← hold-out evolved 产物
-    test/{category}/{task}/       ← --test 模式
 ```
 
 - 挂载进容器为 `/workspace/task`（见 `adapters/openclaw/container_session.py`）
@@ -391,6 +423,14 @@ results/{run_id}/outcome/
 
 两个目录均在 `.gitignore` 中，属于运行时产物，一般不提交 git。更完整的 report 字段说明见 [eval-flow.md §8](./eval-flow.md#8-目录与-report-内容)。
 
+**文件属主**：OpenClaw 容器内以 root 写挂载目录（`.git`、`.openclaw` 等）。`ContainerSession.cleanup()` 会在销毁容器前对 `/workspace/task`、`/workspace/outcome` 执行 `chown` 回宿主机用户，正常跑完后应可直接 `rm -rf results/*`。
+
+若仍有历史 root 文件删不掉：
+
+```bash
+bash scripts/clean-results.sh
+```
+
 ---
 
 ## 9. 与 legacy 的关系
@@ -421,6 +461,9 @@ Warmup 需要状态连续以触发 evolve；hold-out 需要严格对照（baseli
 
 **Q：`evobench-reports` 和 `results` 有什么区别？**  
 `evobench-reports` 存结构化 report（分数、session、树形结构）；`results` 存 Agent 实际工作区文件（`outcome/`）和后处理分析（CSV/HTML）。通过 `run_id` 与 `PhaseRun.workspace_dir` 关联。详见本文 §8。
+
+**Q：为什么 `results/` 删不掉（Permission denied）？**  
+容器内 root 创建的文件在宿主机上属主也是 root。新跑评测会在容器销毁前自动 `chown` 修复；历史残留用 `bash scripts/clean-results.sh` 清理。
 
 ---
 

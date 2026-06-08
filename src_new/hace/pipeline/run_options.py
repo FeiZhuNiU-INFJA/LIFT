@@ -8,7 +8,7 @@ from src_new.hace.policies.container import WarmupContainerPolicy
 @dataclass
 class RunOptions:
     repeat: int = 1
-    test: bool = False
+    warmup_only: bool = False
     evaluate: bool = False
     evaluate_only: bool = False
     parallel: bool = False

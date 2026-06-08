@@ -54,7 +54,7 @@ Copy [`.env.docker.example`](.env.docker.example) into the repo root `.env`:
 
 ```bash
 bash agents/openclaw/build-image.sh
-python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --test
+python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --warmup-only
 python -m src_new.cli.hace_main --runtime openclaw --suite hello.json
 ```
 

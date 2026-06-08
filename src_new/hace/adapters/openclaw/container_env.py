@@ -14,6 +14,24 @@ def _normalize_langfuse_base_url(raw: str | None) -> str:
     return raw.strip()
 
 
+def host_user_ids() -> tuple[int, int]:
+    """Host uid/gid for reclaiming bind-mounted workspace files after container runs."""
+    import os
+
+    return os.getuid(), os.getgid()
+
+
+def container_reclaim_ownership_script(uid: int, gid: int) -> str:
+    """Shell run inside container (as root) to fix host ownership on volume mounts."""
+    return f"""
+for d in /workspace/task /workspace/outcome; do
+  if [[ -d "$d" ]]; then
+    chown -R {uid}:{gid} "$d" 2>/dev/null || true
+  fi
+done
+""".strip()
+
+
 def container_runtime_env() -> dict[str, str]:
     """Env vars passed into OpenClaw containers (overrides repo .env where needed)."""
     env: dict[str, str] = {}
