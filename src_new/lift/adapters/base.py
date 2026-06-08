@@ -144,3 +144,28 @@ class RuntimeAdapter(ABC):
         返回:
             写入 ``TaskRun.evolved`` 的 ``PhaseRun``。
         """
+
+
+class ContainerRuntimeAdapter(RuntimeAdapter):
+    """基于容器的 runtime 基类。
+
+    需要 Docker 镜像的 adapter 继承本类，在 ``agents/<runtime>/`` 下声明镜像配置，
+    并通过 ``resolve_docker_image()`` 解析；非容器 runtime（如测试替身）直接继承
+    ``RuntimeAdapter`` 即可。
+    """
+
+    @classmethod
+    @abstractmethod
+    def resolve_docker_image(cls, *, override: str | None = None) -> str:
+        """从 agent 配置解析 base 镜像。
+
+        参数:
+            override: CLI 或调用方显式覆盖的镜像名；为 None 时读取 agent 配置。
+
+        返回:
+            用于 warmup / before-load 的 base 容器镜像 tag。
+
+        异常:
+            FileNotFoundError: agent 配置文件不存在。
+            ValueError: 配置文件中缺少 ``docker_image`` 字段。
+        """

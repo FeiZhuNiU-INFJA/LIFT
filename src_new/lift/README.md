@@ -1,6 +1,6 @@
 # LIFT (`src_new`)
 
-Load-state Isolated Final-task Test — container-per-task implementation.
+Loaded Impact on Final Task — container-per-task implementation.
 
 **中文阅读指南（目录结构、OpenClaw 适配、推荐阅读顺序）**：[docs/lift-framework-guide-cn.md](../../docs/lift-framework-guide-cn.md)
 

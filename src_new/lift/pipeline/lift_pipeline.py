@@ -16,7 +16,7 @@ from src_new.paths import default_report_root
 
 
 class LIFTPipeline:
-    """Load-state Isolated Final-task Test orchestration."""
+    """Loaded Impact on Final Task orchestration."""
 
     def __init__(
         self,

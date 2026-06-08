@@ -5,7 +5,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from src_new.lift.adapters.mock_adapter import MockAdapter
+from src_new.lift.tests.mock_adapter import MockAdapter
 from src_new.lift.pipeline.lift_pipeline import LIFTPipeline
 from src_new.lift.pipeline.run_options import RunOptions
 

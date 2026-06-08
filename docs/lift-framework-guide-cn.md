@@ -8,9 +8,11 @@
 
 ## 1. LIFT 在测什么？
 
-**LIFT** = Load-state Isolated Final-task Test（加载态隔离终测对照）。
+**LIFT** = Loaded Impact on Final Task（终测加载效应评测）。
 
-核心问题：**Agent 在前序任务中学到的「产物」（偏好、规则、技能更新等），能否在最终测试题上带来可衡量的提升？**
+核心问题：**加载能力产物后，hold-out 终测题的表现有没有被抬起来（LIFT）？**
+
+协议实现上，通过在 hold-out final task 上做**隔离的配对加载态对照**（before-load / after-load，每题独立容器与 workspace）来度量该效应。
 
 做法是对比同一道 **hold-out 题** 在两种状态下的表现：
 
@@ -36,9 +38,8 @@ src_new/lift/
 │   ├── lift_suite.py       ← 读 JSON + holdout_count 等扩展字段
 │   └── holdout.py          ← warmup / hold-out 切分逻辑
 ├── adapters/           # 运行时适配层（可插拔 Agent 后端）
-│   ├── base.py             ← RuntimeAdapter 抽象基类（接口契约）
+│   ├── base.py             ← RuntimeAdapter / ContainerRuntimeAdapter 抽象基类
 │   ├── registry.py         ← --runtime 工厂注册
-│   ├── mock_adapter.py     ← 无 Docker 的单元测试替身
 │   └── openclaw/           ← OpenClaw 具体实现（见第 4 节）
 │       ├── adapter.py
 │       ├── container_session.py
@@ -53,6 +54,7 @@ src_new/lift/
 │   ├── environment_cleaner.py  ← docker rm / commit / rmi
 │   └── disposable.py         ← Disposable 抽象基类
 └── tests/              # 单元测试（理解行为的好材料）
+    ├── mock_adapter.py     ← 无 Docker 的测试替身（参考 RuntimeAdapter 最小实现）
 ```
 
 **不在 `lift/` 内、但强相关的包：**
@@ -78,7 +80,7 @@ src_new/lift/
 
 ### 第二步：理解适配器契约
 
-4. `adapters/base.py` — `RuntimeAdapter`（ABC）四个抽象方法：
+4. `adapters/base.py` — `RuntimeAdapter`（ABC）四个抽象方法；需 Docker 的 runtime 再继承 `ContainerRuntimeAdapter` 并实现 `resolve_docker_image()`：
    - `create_suite_run_resources` — 创建单次 suite 评测的资源登记簿
    - `produce_delta` — warmup + evolve → 产出 delta
    - `run_before_load` — baseline 阶段跑 hold-out
@@ -299,9 +301,9 @@ Suite JSON 在标准 `Suite` 之外可带：
 
 ## 7. 如何扩展新运行时（非 OpenClaw）
 
-1. 在 `adapters/` 下 **继承** `RuntimeAdapter`，用 `@override` 实现四个抽象方法（参考 `mock_adapter.py`）
+1. 在 `adapters/` 下 **继承** `RuntimeAdapter`，用 `@override` 实现四个抽象方法（参考 `tests/mock_adapter.py`）
 2. 在 `adapters/registry.py` 的 `SUPPORTED_RUNTIMES` 和 `create_adapter()` 中注册
-3. 若需要 Docker 镜像，在 `default_docker_image()` 增加解析逻辑
+3. 若需要 Docker 镜像，继承 `ContainerRuntimeAdapter` 并实现 `resolve_docker_image()`（参考 `OpenClawAdapter`）
 4. 为 pipeline 行为添加测试（参照 `tests/test_pipeline.py`、`tests/test_abc_contracts.py`）
 
 相关 ABC：`ArtifactPolicy`（产物策略）、`Disposable`（容器 / delta 清理）。实现类同样继承并在重写方法上使用 `@override`。
@@ -513,7 +515,7 @@ bash scripts/clean-results.sh
 Warmup 需要状态连续以触发 evolve；hold-out 需要严格对照（baseline 必须「无产物」），且每题 workspace 独立，故每 phase 起新容器。
 
 **Q：`MockAdapter` 生产环境会用吗？**  
-不会。仅用于 `test_pipeline.py` 验证编排逻辑，不依赖 Docker。
+不会。位于 `tests/mock_adapter.py`，仅用于 `test_pipeline.py` 验证编排逻辑，不依赖 Docker。
 
 **Q：轨迹评分在哪？**  
 执行期 `PhaseRun` 主要记录 success/score/session；轨迹相关指标在 **postprocess**（`src_new/postprocess/`）结合 Langfuse trace 计算，需 `-e` 触发。

@@ -91,7 +91,7 @@
 
 ---
 
-## 2. 方法：LIFT（Load-state Isolated Final-task Test）
+## 2. 方法：LIFT（Loaded Impact on Final Task）
 
 ### 2.1 研究问题（写入 §3 开头）
 
@@ -337,7 +337,7 @@ LIFT 可作为 lifelong 流水线中的**终点对照模块**，而非替代全�
 
 ## 9. 摘要草稿（可直接改写入英文稿）
 
-现有大模型 Agent 评测多聚焦单次任务完成率，难以回答 Agent 在持续使用与能力更新后是否「变得更好」。本文提出实现无关的评测范式 **LIFT**（Load-state Isolated Final-task Test）：在 hold-out final task 上，对 **before-artifact-load** 与 **after-artifact-load** 两种状态进行配对对照，衡量能力产物加载带来的可度量增益。产物由可扩展的 **ArtifactPolicy** 产生（默认通过前导任务 warmup 触发更新，亦支持外部注入与异步产物）。方法通过统一 Adapter 契约与 SuiteSpec 规范支持异构运行时接入，并以框架 pre-chat 与运行时插件双通道观测、**trace_backfill** 轨迹回填保证可复现与可追溯。实验采用 20 个 suites、每配置 repeat=3，报告任务完成、效率成本、轨迹质量及配对改进率，并在 OpenClaw 与 Hermes 上验证协议可移植性；同时讨论 judge 设定边界与模拟用户反馈机制的作用。
+现有大模型 Agent 评测多聚焦单次任务完成率，难以回答 Agent 在持续使用与能力更新后是否「变得更好」。本文提出实现无关的评测范式 **LIFT**（Loaded Impact on Final Task）：在 hold-out final task 上，对 **before-artifact-load** 与 **after-artifact-load** 两种状态进行隔离配对对照，衡量能力产物加载带来的可度量增益。产物由可扩展的 **ArtifactPolicy** 产生（默认通过前导任务 warmup 触发更新，亦支持外部注入与异步产物）。方法通过统一 Adapter 契约与 SuiteSpec 规范支持异构运行时接入，并以框架 pre-chat 与运行时插件双通道观测、**trace_backfill** 轨迹回填保证可复现与可追溯。实验采用 20 个 suites、每配置 repeat=3，报告任务完成、效率成本、轨迹质量及配对改进率，并在 OpenClaw 与 Hermes 上验证协议可移植性；同时讨论 judge 设定边界与模拟用户反馈机制的作用。
 
 **关键词**：LLM Agent 评测；hold-out 产物对照；持续学习；可复现性；轨迹回填；Benchmark 规范化
 
@@ -353,7 +353,7 @@ LIFT 可作为 lifelong 流水线中的**终点对照模块**，而非替代全�
 
 1. **LIFT：面向可演进 Agent 的实现无关 hold-out 产物对照评测**  
 2. **从静态正确率到加载对照：评估 Agent 能力产物净增益的可复现协议**  
-3. **Load-state Isolated Final-task Test for Self-Evolving Agents**
+3. **Loaded Impact on Final Task for Self-Evolving Agents**
 
 ---
 

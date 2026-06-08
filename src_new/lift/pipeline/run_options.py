@@ -24,7 +24,7 @@ class RunOptions(BaseModel):
     )
     docker_image: str | None = Field(
         default=None,
-        description="覆盖默认 base 镜像（None 时由 registry 解析）",
+        description="覆盖 agent 配置的 base 镜像（None 时由 ContainerRuntimeAdapter 解析）",
     )
     incremental_report: bool = Field(
         default=True,

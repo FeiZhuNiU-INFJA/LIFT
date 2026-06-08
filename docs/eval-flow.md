@@ -75,7 +75,7 @@ flowchart LR
 
 ---
 
-## 4. 主流程：LIFT（Load-state Isolated Final-task Test）
+## 4. 主流程：LIFT（Loaded Impact on Final Task）
 
 框架的**目标评测协议**是 LIFT：在 hold-out final task 上，比较 **产物未加载** 与 **产物已加载** 两种状态下 agent 的表现。实现无关细节见第 12 章。
 
@@ -370,7 +370,7 @@ flowchart LR
 
 ## 12. 实现无关抽象：LIFT
 
-**LIFT**（Load-state Isolated Final-task Test）：在 hold-out final task 上，对比 **before-artifact-load** 与 **after-artifact-load**。不限定 agent 运行时（OpenClaw、Hermes、Claude Code…）与产物生产方式（evolve、dreaming、外部注入等）。
+**LIFT**（Loaded Impact on Final Task）：度量能力产物加载对 hold-out final task 表现的影响；通过在终测题上对比 **before-artifact-load** 与 **after-artifact-load** 的配对结果实现（隔离容器与 workspace）。不限定 agent 运行时（OpenClaw、Hermes、Claude Code…）与产物生产方式（evolve、dreaming、外部注入等）。
 
 ### 12.1 三层与部署假设
 

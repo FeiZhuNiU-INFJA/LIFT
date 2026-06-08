@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import override
 
 from src_new.config import LOGGER
-from src_new.lift.adapters.base import RunContext, RuntimeAdapter
+from src_new.lift.adapters.base import ContainerRuntimeAdapter, RunContext
 from src_new.lift.adapters.openclaw.container_session import ContainerSession
 from src_new.lift.adapters.openclaw.delta_producer import produce_delta_from_warmup
 from src_new.lift.adapters.openclaw.task_runner import run_openclaw_task_phase
@@ -16,14 +16,36 @@ from src_new.lift.pipeline.run_options import RunOptions
 from src_new.utils import outcome_workspace, short_id
 
 
-class OpenClawAdapter(RuntimeAdapter):
+class OpenClawAdapter(ContainerRuntimeAdapter):
     """OpenClaw runtime: host orchestration, agent execution inside Docker."""
-
-    DEFAULT_IMAGE = "evolve-eval-openclaw:latest"
 
     def __init__(self, options: RunOptions) -> None:
         self._options = options
-        self._docker_image = options.docker_image or self.DEFAULT_IMAGE
+        self._docker_image = self.resolve_docker_image(override=options.docker_image)
+
+    @classmethod
+    @override
+    def resolve_docker_image(cls, *, override: str | None = None) -> str:
+        if override:
+            return override
+        config_path = cls._agent_config_path()
+        if not config_path.is_file():
+            raise FileNotFoundError(
+                f"OpenClaw agent config not found: {config_path}. "
+                "Build the image and ensure agents/openclaw/container_defaults.yaml exists."
+            )
+        for line in config_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("docker_image:"):
+                image = line.split(":", 1)[1].strip().strip('"').strip("'")
+                if image:
+                    return image
+                break
+        raise ValueError(f"docker_image not set in {config_path}")
+
+    @staticmethod
+    def _agent_config_path() -> Path:
+        return Path(__file__).resolve().parents[4] / "agents" / "openclaw" / "container_defaults.yaml"
 
     @override
     async def create_suite_run_resources(self, ctx: RunContext) -> SuiteRunResources:

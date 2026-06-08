@@ -12,11 +12,7 @@ from src_new.config import LOGGER
 from src_new.paths import report_json_path
 from src_new.utils import make_run_id, resolve_suite_paths
 
-from src_new.lift.adapters.registry import (
-    SUPPORTED_RUNTIMES,
-    create_adapter,
-    default_docker_image,
-)
+from src_new.lift.adapters.registry import SUPPORTED_RUNTIMES, create_adapter
 from src_new.lift.pipeline.lift_pipeline import LIFTPipeline
 from src_new.lift.pipeline.run_options import RunOptions
 from src_new.lift.policies.container import WarmupContainerPolicy
@@ -24,7 +20,7 @@ from src_new.lift.policies.container import WarmupContainerPolicy
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="LIFT evaluation (Load-state Isolated Final-task Test, src_new)."
+        description="LIFT evaluation (Loaded Impact on Final Task, src_new)."
     )
     parser.add_argument(
         "--runtime",
@@ -102,14 +98,12 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
 async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
     run_id = make_run_id(args.run_id)
     warmup_policy = WarmupContainerPolicy(args.warmup_container_policy)
-    docker_image = default_docker_image(args.runtime)
     options = RunOptions(
         repeat=args.repeat,
         warmup_only=args.warmup_only,
         evaluate=args.evaluate,
         evaluate_only=False,
         parallel=args.parallel,
-        docker_image=docker_image,
         warmup_container_policy=warmup_policy,
         parallel_repeats=not args.serial_repeats,
         max_parallel_repeats=args.max_parallel_repeats,
