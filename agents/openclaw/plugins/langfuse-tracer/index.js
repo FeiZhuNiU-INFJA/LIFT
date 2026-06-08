@@ -16,7 +16,7 @@
  * registerTypedHook + CONVERSATION_HOOK_NAMES) — you will see before_agent_start
  * logs but never agent_end / Langfuse traces.
  *
- * File log (append): repo root `langfuse-tracer-plugin.log` (parent of this plugin folder).
+ * File log (append): `langfuse-tracer-plugin.log` next to this plugin (override via LANGFUSE_TRACER_LOG_FILE).
  * Override with LANGFUSE_TRACER_LOG_FILE=/abs/path.log or a path relative to repo root.
  *
  * Optional: LANGFUSE_TRACER_DEBUG_MESSAGES=1 — append full messages JSON (truncated) to file log.
@@ -31,7 +31,7 @@ import { appendFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
 
 export function register(api) {
   const publicKey = process.env.LANGFUSE_PUBLIC_KEY?.trim();
@@ -47,8 +47,8 @@ export function register(api) {
   const logFilePath = rawLogFile
     ? isAbsolute(rawLogFile)
       ? rawLogFile
-      : resolve(REPO_ROOT, rawLogFile)
-    : join(REPO_ROOT, 'langfuse-tracer-plugin.log');
+      : resolve(PLUGIN_ROOT, rawLogFile)
+    : join(PLUGIN_ROOT, 'langfuse-tracer-plugin.log');
 
   const appendLog = (body) => {
     const stamp = new Date().toISOString();
@@ -259,6 +259,8 @@ function pickTrimmedString(v) {
 /** Langfuse trace tags: fixed markers + ctx.runId / ctx.sessionId when present (raw values, no key prefix). */
 function buildTraceTags({ agentId, runId, sessionId }) {
   const tags = ['openclaw', agentId ?? 'unknown'];
+  const evalRunTag = pickTrimmedString(process.env.EVOBENCH_EVAL_RUN_TAG);
+  if (evalRunTag) tags.push(evalRunTag);
   if (runId) tags.push(runId);
   if (sessionId && sessionId !== runId) tags.push(sessionId);
   return tags;

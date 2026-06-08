@@ -1,0 +1,71 @@
+# HACE (`src_new`)
+
+Hold-out Artifact-Contrast Evaluation — container-per-task implementation.
+
+**中文阅读指南（目录结构、OpenClaw 适配、推荐阅读顺序）**：[docs/hace-framework-guide-cn.md](../../docs/hace-framework-guide-cn.md)
+
+## Architecture
+
+- **Host**: `HACEPipeline`, report JSON, preprocess/postprocess (`src_new`)
+- **Container**: OpenClaw agent only ([`agents/openclaw/`](../../agents/openclaw/))
+- **before-load**: fresh container from base image (`evolve-eval-openclaw:latest`)
+- **after-load**: fresh container from **delta image** (`docker commit` after warmup)
+- **Isolation**: each hold-out task gets its own before/after containers; shared delta, per-task workspace
+- **Cleanup**: `RepeatScope.cleanup()` removes containers and delta images
+
+## Build image
+
+```bash
+bash agents/openclaw/build-image.sh
+# or: docker build -f agents/openclaw/Dockerfile -t evolve-eval-openclaw:latest agents/openclaw
+```
+
+Ephemeral entrypoint variant (optional): `agents/openclaw/Dockerfile.entrypoint`
+
+## Run
+
+```bash
+# Canonical entry (runtime-agnostic CLI)
+python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --test
+
+# Shorthand (same as --runtime openclaw)
+python -m src_new.cli --suite hello.json --test
+
+# Full HACE
+python -m src_new.cli.hace_main --runtime openclaw --suite hello.json
+
+# Parallel repeats (default)
+python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --repeat 3
+```
+
+## Options
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--runtime` | `openclaw` | Agent adapter; also selects base Docker image via registry |
+| `--warmup-container-policy` | `serial_single` | Warmup in one container |
+| `--serial-repeats` | off | Disable parallel repeats |
+| `-p` | off | Parallel warmup tasks (within policy) |
+
+## Post-process outputs (`-e` / `--evaluate-only`)
+
+Under `results/{run_id}/`:
+
+| File | Meaning |
+|------|---------|
+| `{run_id}_backfilled.json` | Report after trace_backfill |
+| `{run_id}_comparison_metrics.csv` | Per-task baseline vs evolved |
+| `{run_id}_summary_metrics.csv` | Category / global summary |
+| `{run_id}_metrics_report.html` | HTML report |
+
+## Tests
+
+```bash
+python -m src_new.hace.tests.test_holdout
+python -m src_new.hace.tests.test_runtime
+python -m src_new.hace.tests.test_pipeline
+```
+
+## Delta image naming
+
+`evolve-eval-delta:{run_id}:r{repeat}:{suite_name}` — removed by `RepeatScope.cleanup()` after each repeat.

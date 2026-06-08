@@ -1,0 +1,15 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "/workspace/task",
+      "model": {
+        "primary": "custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215"
+      },
+      "models": {
+        "custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215": {
+          "alias": "doubao-seed2-pro"
+        }
+      }
+    }
+  }
+}

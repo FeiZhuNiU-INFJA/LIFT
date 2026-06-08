@@ -1,0 +1,26 @@
+# Ephemeral entrypoint variant (dev / long-lived gateway with on-start plugin install).
+#
+# Build:
+#   docker build -f agents/openclaw/Dockerfile.entrypoint -t evolve-eval-openclaw:entrypoint agents/openclaw
+
+ARG OPENCLAW_BASE_IMAGE=ghcr.io/openclaw/openclaw:latest
+FROM ${OPENCLAW_BASE_IMAGE}
+
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl python3 util-linux jq openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY plugins/langfuse-tracer /opt/plugins/langfuse-tracer
+COPY config /opt/openclaw-config
+COPY entrypoint.sh /usr/local/bin/openclaw-evolve-entrypoint.sh
+RUN chmod +x /usr/local/bin/openclaw-evolve-entrypoint.sh
+
+USER node
+ENV HOME=/home/node
+ENV OPENCLAW_STATE_DIR=/home/node/.openclaw
+ENV OPENCLAW_GATEWAY_PORT=18789
+
+EXPOSE 18789 18090
+
+ENTRYPOINT ["/usr/local/bin/openclaw-evolve-entrypoint.sh"]

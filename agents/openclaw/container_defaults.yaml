@@ -1,0 +1,5 @@
+# Default OpenClaw container image for src_new (--runtime openclaw reads this).
+
+docker_image: "evolve-eval-openclaw:latest"
+gateway_port: 18789
+openclaw_base_image: "ghcr.io/openclaw/openclaw:latest"

@@ -1,8 +1,7 @@
 """Langfuse trace backfill (轨迹回填) for eval reports.
 
 Loads traces from Langfuse, stitches them with framework pre-chat spans, and
-writes ``PhaseRun.langfuse``. The historical module name ``langfuse_enrich`` and
-the word "enrich" in some CLI paths are legacy; see docs/eval-flow.md §9.
+writes ``PhaseRun.langfuse``.
 """
 
 from __future__ import annotations
@@ -11,8 +10,8 @@ from typing import Any, Literal
 
 from langfuse import get_client
 
-from src.models import EvalReport, PhaseRun
-from src.report.langfuse_trace_stitch import stitch_phase_langfuse_traces
+from src_new.models import EvalReport, PhaseRun
+from src_new.report.langfuse_trace_stitch import stitch_phase_langfuse_traces
 
 
 AgentSource = Literal["openclaw", "hermes"]
@@ -22,12 +21,13 @@ def get_langfuse_client():
     client = get_client()
     if not hasattr(client, "api"):
         raise RuntimeError(
-            "Langfuse client is unavailable. Configure LANGFUSE_PUBLIC_KEY and related Langfuse settings before running report enrichment."
+            "Langfuse client is unavailable. Configure LANGFUSE_PUBLIC_KEY and "
+            "related Langfuse settings before running trace backfill."
         )
     return client
 
 
-def enrich_phase(
+def backfill_phase(
     client: Any,
     run_tag: str,
     phase: PhaseRun | None,
@@ -45,7 +45,7 @@ def enrich_phase(
     return phase.model_copy(update={"langfuse": bundle})
 
 
-def enrich_report(
+def backfill_report(
     report: EvalReport,
     client: Any,
     agent_source: AgentSource = "openclaw",
@@ -57,13 +57,15 @@ def enrich_report(
         for suite in repeat.suites:
             new_tasks = []
             for task_run in suite.tasks:
-                baseline = enrich_phase(client, run_tag, task_run.baseline, agent_source)
+                baseline = backfill_phase(client, run_tag, task_run.baseline, agent_source)
                 evolved = (
-                    enrich_phase(client, run_tag, task_run.evolved, agent_source)
+                    backfill_phase(client, run_tag, task_run.evolved, agent_source)
                     if task_run.evolved
                     else None
                 )
-                new_tasks.append(task_run.model_copy(update={"baseline": baseline, "evolved": evolved}))
+                new_tasks.append(
+                    task_run.model_copy(update={"baseline": baseline, "evolved": evolved})
+                )
             new_suites.append(suite.model_copy(update={"tasks": new_tasks}))
         new_runs.append(repeat.model_copy(update={"suites": new_suites}))
     return report.model_copy(update={"runs": new_runs})

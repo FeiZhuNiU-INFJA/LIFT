@@ -1,0 +1,31 @@
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "custom-ark-cn-beijing-volces-com": {
+        "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+        "api": "openai-completions",
+        "apiKey": "__ARK_API_KEY__",
+        "models": [
+          {
+            "id": "doubao-seed-2-0-pro-260215",
+            "name": "doubao-seed-2-0-pro-260215 (Custom Provider)",
+            "contextWindow": 200000,
+            "maxTokens": 8192,
+            "input": ["text"],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "reasoning": false,
+            "compat": {
+              "supportsUsageInStreaming": true
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+# Optional: run OpenClaw gateway for local HACE debugging.
+# Usage (from repo root): docker compose -f agents/openclaw/compose.openclaw.yml up -d
+
+services:
+  openclaw:
+    image: ${OPENCLAW_IMAGE:-evolve-eval-openclaw:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        OPENCLAW_BASE_IMAGE: ${OPENCLAW_BASE_IMAGE:-ghcr.io/openclaw/openclaw:latest}
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+    env_file:
+      - ../../.env
+    volumes:
+      - ../../results:/workspace/outcome
+      - ../../assets/benchmarks:/workspace/benchmarks:ro
+      - ../../evobench-reports:/workspace/evobench-reports
+    command: ["openclaw", "gateway", "run", "--bind", "lan", "--allow-unconfigured"]

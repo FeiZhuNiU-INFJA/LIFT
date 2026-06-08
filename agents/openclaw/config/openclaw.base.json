@@ -1,0 +1,44 @@
+{
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "__GATEWAY_TOKEN__"
+    },
+    "mode": "local",
+    "port": 18789,
+    "bind": "lan",
+    "controlUi": {
+      "allowInsecureAuth": true
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/home/node/.openclaw/workspace",
+      "model": {
+        "primary": "custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215"
+      },
+      "models": {
+        "custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215": {
+          "alias": "doubao-seed2-pro"
+        }
+      }
+    },
+    "list": [
+      {
+        "id": "main"
+      }
+    ]
+  },
+  "models": {
+    "mode": "merge"
+  },
+  "plugins": {
+    "entries": {},
+    "allow": [
+      "memory-core",
+      "self-evolving-plugin-pro",
+      "langfuse-tracer"
+    ],
+    "bundledDiscovery": "compat"
+  }
+}

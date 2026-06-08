@@ -1,0 +1,32 @@
+{
+  "plugins": {
+    "entries": {
+      "langfuse-tracer": {
+        "enabled": true,
+        "hooks": {
+          "allowConversationAccess": true
+        }
+      },
+      "self-evolving-plugin-pro": {
+        "enabled": true,
+        "config": {
+          "serviceEndpoint": "http://127.0.0.1:18090",
+          "listenHost": "0.0.0.0",
+          "autoDailyReviewEnabled": true,
+          "autoDailyReviewIntervalHours": 24,
+          "sessionStartReviewEnabled": true,
+          "sessionStartReviewIntervalHours": 4,
+          "sessionStartReviewWindow": "6h",
+          "sessionStartReviewLimit": 5,
+          "timerReviewWindow": "24h",
+          "timerReviewLimit": 20
+        }
+      }
+    },
+    "allow": [
+      "memory-core",
+      "self-evolving-plugin-pro",
+      "langfuse-tracer"
+    ]
+  }
+}

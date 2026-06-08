@@ -1,0 +1,18 @@
+{
+  "models": {
+    "providers": {}
+  },
+  "plugins": {
+    "entries": {
+      "langfuse-tracer": {
+        "enabled": true,
+        "hooks": {
+          "allowConversationAccess": true
+        }
+      },
+      "self-evolving-plugin-pro": {
+        "enabled": true
+      }
+    }
+  }
+}

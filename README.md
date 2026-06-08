@@ -5,7 +5,7 @@
 当前稳定主链路是：
 
 1. 用 [openclaw_main.py](./openclaw_main.py) 或 [hermes_main.py](./hermes_main.py) 跑 benchmark，产出轻量 report JSON
-2. 用 [postprocess/run_post_process.py](./postprocess/run_post_process.py) 统一完成 enrich、抽取、打分、指标统计和 HTML 展示
+2. 用 [postprocess/run_post_process.py](./postprocess/run_post_process.py) 统一完成 trace_backfill（轨迹回填）、抽取、打分、指标统计和 HTML 展示
 3. 或者直接在 `openclaw_main.py --evaluate` / `main.py --evaluate` 中一键完成整条流水线
 
 ## 1. 环境准备
@@ -35,14 +35,14 @@ pip install -r requirements.txt
 
 仓库根目录提供了两份 langfuse 插件源码：
 
-- [langfuse-tracer/](./langfuse-tracer/)：OpenClaw 用的 Node.js 插件
+- [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/)：OpenClaw 用的 Node.js 插件
 - [langfuse-hermes/](./langfuse-hermes/)：Hermes 用的 Python 插件
 
 #### OpenClaw
 
 ```bash
 # 1. 把插件源码放到 OpenClaw 扩展目录
-cp -r langfuse-tracer/ ~/.openclaw/extensions/
+cp -r agents/openclaw/plugins/langfuse-tracer/ ~/.openclaw/extensions/
 
 # 2. 在 ~/.openclaw/openclaw.json 的 plugins 字段中加入：
 #       "langfuse-tracer": {
@@ -55,6 +55,28 @@ cp -r langfuse-tracer/ ~/.openclaw/extensions/
 
 # 3. 重启网关让插件生效
 openclaw gateway restart
+```
+
+### 安装自进化插件
+
+执行以下命令安装插件：
+
+```bash
+unzip agents/openclaw/plugins/self-evolving-plugin-pro-2026.4.23.zip
+cd assets
+bash self-evolving-plugin-pro/scripts/install-openclaw-plugin.sh
+```
+
+如遇 `ModuleNotFoundError: No module named '_sqlite3'` 错误，请依次执行以下操作进行修复：
+
+```bash
+sudo apt install libsqlite3-dev
+
+openclaw plugins uninstall self-evolving-plugin-pro
+openclaw gateway restart
+rm -rf ~/.openclaw/extensions/self-evolving-plugin-pro/
+
+bash self-evolving-plugin-pro/scripts/install-openclaw-plugin.sh
 ```
 
 注：`OpenClawAgent.initialize_environment` 会自动执行 `openclaw plugins enable langfuse-tracer`，所以只要扩展目录与 `openclaw.json` 配置就位即可。
@@ -286,8 +308,8 @@ python postprocess/run_post_process.py evobench-reports/evobench-runid-xxxx.json
 
 它会一次性完成：
 
-1. 判断输入是否已 enrich
-2. 必要时从 Langfuse 拉 trace 并生成 enriched JSON 数据
+1. 判断输入是否已完成 trace_backfill
+2. 必要时从 Langfuse 拉 trace 并生成回填后的 JSON（文件名仍可为 `*_enriched.json`）
 3. 抽取 task 粒度指标
 4. 计算 trajectory score
 5. 生成 comparison CSV
@@ -337,7 +359,7 @@ python postprocess/run_post_process.py evobench-reports/evobench-runid-xxxx.json
 
 ## 7. Langfuse 串联逻辑
 
-Langfuse enrich 内核已经收敛到 [postprocess/langfuse_enrich.py](./postprocess/langfuse_enrich.py)。
+Langfuse **trace_backfill**（轨迹回填）内核在 [postprocess/langfuse_enrich.py](./postprocess/langfuse_enrich.py)（模块名为遗留称呼）。
 
 真正的 trace stitching 入口是：
 
@@ -351,7 +373,7 @@ Langfuse enrich 内核已经收敛到 [postprocess/langfuse_enrich.py](./postpro
 4. 生成 `work_agent_traces` / `judge_agent_traces`
 5. 仅基于 work 侧生成 `work_analytics`
 
-插件实现见 [langfuse-tracer/](./langfuse-tracer/) 与 [langfuse-hermes/](./langfuse-hermes/)。
+插件实现见 [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/) 与 [langfuse-hermes/](./langfuse-hermes/)。
 
 ## 8. Langfuse拉取trace数据链路
 
@@ -423,5 +445,5 @@ flowchart TD
 | `langfuse_trace_parse.py` | 结构化 `agent_input` / `plugin_metadata` |
 | `langfuse_work_analytics.py` | 生成 `trace_chain`、`chat_turns`、`global_stats` |
 
-插件实现见仓库根目录 [langfuse-tracer/](./langfuse-tracer/) 与 [langfuse-hermes/](./langfuse-hermes/)。
+插件实现见 [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/) 与 [langfuse-hermes/](./langfuse-hermes/)。
 
