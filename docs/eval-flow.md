@@ -6,7 +6,7 @@
 
 ## 1. 概述
 
-evolve_eval 用于评测 **self-evolving agent**：在 hold-out final task 上对比 **产物未加载 / 已加载**（HACE），由 judge 模拟用户反馈驱动多轮执行；report 中 `baseline` / `evolved` 表示加载状态对照，而非某种固定进化实现名称。
+evolve_eval 用于评测 **self-evolving agent**：在 hold-out final task 上对比 **产物未加载 / 已加载**（LIFT），由 judge 模拟用户反馈驱动多轮执行；report 中 `baseline` / `evolved` 表示加载状态对照，而非某种固定进化实现名称。
 
 一次命令行 invocation 对应一次 **eval run**：
 
@@ -67,7 +67,7 @@ flowchart LR
 | 阶段 | 做什么 | 入口 |
 |------|--------|------|
 | **数据准备** | 将 markdown 场景目录转为 suite JSON | `preprocess/convert_suite_mds_to_json.py` → `preprocess_suite_mds()` |
-| **评测执行** | HACE 编排：产生产物 → hold-out 对照 → 写 report | **`python -m src_new.cli.hace_main --runtime openclaw`**；legacy：根目录 `openclaw_main.py` |
+| **评测执行** | LIFT 编排：产生产物 → hold-out 对照 → 写 report | **`python -m src_new.cli.lift_main --runtime openclaw`**；legacy：根目录 `openclaw_main.py` |
 | **Report 落盘** | 执行期 JSON（先填 success/score/session 等；trace 后填） | `EvalReport.write_json` → `evobench-reports/` |
 | **后处理** | trace_backfill、抽指标、trajectory 打分、出报告 | `postprocess/run_post_process.py` |
 
@@ -75,9 +75,9 @@ flowchart LR
 
 ---
 
-## 4. 主流程：HACE（Hold-out Artifact-Contrast Evaluation）
+## 4. 主流程：LIFT（Load-state Isolated Final-task Test）
 
-框架的**目标评测协议**是 HACE：在 hold-out final task 上，比较 **产物未加载** 与 **产物已加载** 两种状态下 agent 的表现。实现无关细节见第 12 章。
+框架的**目标评测协议**是 LIFT：在 hold-out final task 上，比较 **产物未加载** 与 **产物已加载** 两种状态下 agent 的表现。实现无关细节见第 12 章。
 
 ```text
 ArtifactPolicy（默认：跑 Q1..Q_{n-1} 产生产物）→ UpdateArtifact
@@ -86,7 +86,7 @@ final @ before-load（control）  → PhaseRun  → report.baseline
 final @ after-load（treatment） → PhaseRun  → report.evolved
 ```
 
-- **写入 report**：每个 **hold-out 题** 各一条 `TaskRun`（`baseline` + `evolved` 两个 `PhaseRun`）。默认 `holdout_count=1`（仅最后一题）；可在 suite JSON 设为最后 N 题或 `holdout_task_names`（见 [src_new/hace/README.md](../src_new/hace/README.md)）。
+- **写入 report**：每个 **hold-out 题** 各一条 `TaskRun`（`baseline` + `evolved` 两个 `PhaseRun`）。默认 `holdout_count=1`（仅最后一题）；可在 suite JSON 设为最后 N 题或 `holdout_task_names`（见 [src_new/lift/README.md](../src_new/lift/README.md)）。
 - **warmup 结果**：`Q1..Q_{n-1}` 用于产生产物，一般**不进 report**（仅日志）；产物也可通过非 warmup 策略获得（见 12.2）。
 - **final 的 before-load**：干净 base 镜像起**新容器**（无 Δ）。
 - **final 的 after-load**：从 warmup 后 `docker commit` 的 **Δ 镜像**起**新容器**；多道 hold-out **共用 Δ、workspace 按题隔离**。
@@ -102,25 +102,25 @@ warmup（单容器串行）→ evolve → docker commit → DeltaRef (Δ 镜像)
 repeat 之间默认并行；每 suite 独立 Δ 与 `SuiteRunResources` 登记簿。
 ```
 
-入口：`python -m src_new.cli.hace_main --runtime openclaw`（见 [src_new/hace/README.md](../src_new/hace/README.md)）。
+入口：`python -m src_new.cli.lift_main --runtime openclaw`（见 [src_new/lift/README.md](../src_new/lift/README.md)）。
 
 ### 4.2 CLI 与历史模式
 
 | CLI | 含义 |
 |-----|------|
-| `--mode exam` | 当前代码入口，语义即 **HACE**（名称保留兼容） |
+| `--mode exam` | 当前代码入口，语义即 **LIFT**（名称保留兼容） |
 | `--mode replay` | **遗留模式**：全 suite 先跑一遍 → evolve → 再跑一遍；**不作为目标架构**，后续移除 |
-| `--repeat` | 重复完整 HACE 流程，写入 `EvalReport.runs[]` |
+| `--repeat` | 重复完整 LIFT 流程，写入 `EvalReport.runs[]` |
 | `-e` / `--evaluate-only` | 执行后或仅做 **trace_backfill** 与指标后处理 |
 | `--test` | **仅跑 final 一次**：只对 `tasks[-1]` 执行单次 task（冒烟/联通）；跳过 warmup、产物更新与 before/after 双对照 |
 
 Benchmark 收集规范见 [assets/suite requirement.md](../assets/suite%20requirement.md)；机器可读规格为 `SuiteSpec` JSON。
 
-> **实现说明**：`src_new` 已实现上表 HACE 目标语义（容器 per task、commit Δ）；legacy 根目录 `openclaw_main.py` 仍为宿主机 toggle 模式。
+> **实现说明**：`src_new` 已实现上表 LIFT 目标语义（容器 per task、commit Δ）；legacy 根目录 `openclaw_main.py` 仍为宿主机 toggle 模式。
 
-**HACE vs 遗留 `replay`（勿混淆）：**
+**LIFT vs 遗留 `replay`（勿混淆）：**
 
-| | **HACE（目标）** | **replay（遗留）** |
+| | **LIFT（目标）** | **replay（遗留）** |
 |---|------------------|-------------------|
 | 评测焦点 | 仅 hold-out **final** 的加载对照 | **全部** task 进化前后各跑一遍 |
 | 产物阶段 | `Q1..Q_{n-1}` 产生产物（默认 ArtifactPolicy） | 全 suite baseline 后一次 evolve |
@@ -189,7 +189,7 @@ flowchart TD
   C --> D{repeat 0..N-1}
   D --> E[新建 EvalRepeat]
   E --> F{每个 suite}
-  F --> G[HACE pipeline]
+  F --> G[LIFT pipeline]
   G --> H[ArtifactPolicy + final before/after load]
   H --> I[写入/更新 EvalReport JSON]
   I --> F
@@ -202,7 +202,7 @@ flowchart TD
 
 **始终串行的约束：**
 
-- 同一 suite 内：**产生产物（ArtifactPolicy）→ final before-load → final after-load**（HACE）；遗留 `replay` 模式见 4.1
+- 同一 suite 内：**产生产物（ArtifactPolicy）→ final before-load → final after-load**（LIFT）；遗留 `replay` 模式见 4.1
 - `--repeat` 各轮：按 repeat_index 顺序执行
 - 同一 eval run：只有一个 `run_id`、一份 report 文件
 
@@ -235,7 +235,7 @@ flowchart TD
 EvalReport（run_id）
   └── runs[]                    ← --repeat 的第 1/2/3 轮
         └── suites[]            ← 本轮跑过的每个 suite JSON
-              └── tasks[]       ← TaskRun（HACE 下通常每 suite 只有 final 一条）
+              └── tasks[]       ← TaskRun（LIFT 下通常每 suite 只有 final 一条）
                     ├── baseline: PhaseRun   ← 该题 before-load 的一次 run_task
                     └── evolved:  PhaseRun   ← 该题 after-load 的一次 run_task
 ```
@@ -243,12 +243,12 @@ EvalReport（run_id）
 | 层级 | 含义 | 谁产生 |
 |------|------|--------|
 | **eval run** | 整次 `python *_main.py` | 顶层 `EvalReport` |
-| **repeat** | `--repeat` 的一轮完整 HACE | `EvalReport.runs[i]`（`EvalRepeat`） |
+| **repeat** | `--repeat` 的一轮完整 LIFT | `EvalReport.runs[i]`（`EvalRepeat`） |
 | **suite** | 一个 `*.json` 规格 | `SuiteRun` |
-| **task（进 report）** | 写入 report 的题；HACE 多为 **final 一题** | `TaskRun` |
+| **task（进 report）** | 写入 report 的题；LIFT 多为 **final 一题** | `TaskRun` |
 | **phase** | 单题、单加载状态的一次执行 | `PhaseRun`（`baseline` 或 `evolved`） |
 
-**HACE（exam）注意**：`Q1..Q(n-1)` warmup 会 `run_task`，但 **一般不写入** `suite_run.tasks[]`，只打日志；进 report 的是 final 的 `baseline` + `evolved` 两个 `PhaseRun`（见 `openclaw_main.py` `exam_mode`）。
+**LIFT（exam）注意**：`Q1..Q(n-1)` warmup 会 `run_task`，但 **一般不写入** `suite_run.tasks[]`，只打日志；进 report 的是 final 的 `baseline` + `evolved` 两个 `PhaseRun`（见 `openclaw_main.py` `exam_mode`）。
 
 **replay（遗留）**：每题一条 `TaskRun`（baseline 必有，evolved 在进化后再填）。
 
@@ -346,7 +346,7 @@ flowchart LR
 |------|------|
 | `--benchmark_dir` | suite JSON 所在目录 |
 | `--suite` | 逗号分隔 suite 文件名，或 `all` |
-| `--mode` | 代码层 `exam` = HACE；`replay` 为遗留 |
+| `--mode` | 代码层 `exam` = LIFT；`replay` 为遗留 |
 | `--repeat` | 完整跑几遍所选 suite，写入 `EvalReport.runs[]` |
 | `--test` | 仅跑 final 一次（见 4.1；目标语义，代码待对齐） |
 | `--run_id` | 自定义 eval run 后缀 |
@@ -368,15 +368,15 @@ flowchart LR
 
 ---
 
-## 12. 实现无关抽象：HACE
+## 12. 实现无关抽象：LIFT
 
-**HACE**（Hold-out Artifact-Contrast Evaluation）：在 hold-out final task 上，对比 **before-artifact-load** 与 **after-artifact-load**。不限定 agent 运行时（OpenClaw、Hermes、Claude Code…）与产物生产方式（evolve、dreaming、外部注入等）。
+**LIFT**（Load-state Isolated Final-task Test）：在 hold-out final task 上，对比 **before-artifact-load** 与 **after-artifact-load**。不限定 agent 运行时（OpenClaw、Hermes、Claude Code…）与产物生产方式（evolve、dreaming、外部注入等）。
 
 ### 12.1 三层与部署假设
 
 | 层 | 职责 |
 |----|------|
-| **协议层** | HACE 对照语义、report schema、`ArtifactPolicy` |
+| **协议层** | LIFT 对照语义、report schema、`ArtifactPolicy` |
 | **执行层** | Docker 内 `AgentRuntime`：跑 task、挂载素材、切换加载状态 |
 | **观测层** | pre-chat + runtime trace → **trace_backfill** |
 
@@ -396,11 +396,11 @@ flowchart LR
 
 | 容易产生的误解 | 实际含义 |
 |----------------|----------|
-| Loader = 从磁盘读文件，Controller = 管状态机 | **同一件事**：为 HACE 的 final 准备两种可对照的「加载状态」 |
+| Loader = 从磁盘读文件，Controller = 管状态机 | **同一件事**：为 LIFT 的 final 准备两种可对照的「加载状态」 |
 | 两个类要分别实现 | Adapter 只需在跑 final 前切到正确状态，通常体现为**一个** `setLoadState(...)` 或等价调用序列 |
 | `ArtifactLoader` 负责产生产物 | **产生产物**属于 **`ArtifactPolicy`**；Loader 只负责 **before/after 时产物是否生效** |
 
-**在 HACE 里它具体做什么：**
+**在 LIFT 里它具体做什么：**
 
 1. 产物已由 `ArtifactPolicy` 生成（`UpdateArtifact` 已存在，例如 evolve 后的 workspace / 记忆 / 规则）。
 2. 对同一 hold-out final \(Q_n\) 跑两次 `runTask`：
@@ -425,9 +425,9 @@ flowchart LR
   post --> report["TaskRun baseline/evolved"]
 ```
 
-### 12.3 HACE Pipeline（编排）
+### 12.3 LIFT Pipeline（编排）
 
-多 task 如何组织属于 **HACE pipeline**，不是 task 语义的一部分（无需泛化多种「mode」产品形态；CLI 运行开关含 `repeat`、`evaluate-only`、**`test`（仅 final 单次）** 等）。
+多 task 如何组织属于 **LIFT pipeline**，不是 task 语义的一部分（无需泛化多种「mode」产品形态；CLI 运行开关含 `repeat`、`evaluate-only`、**`test`（仅 final 单次）** 等）。
 
 ```text
 1. produceArtifact(ArtifactPolicy)     # 默认 warmup Q1..Qn-1 + triggerUpdate
@@ -489,7 +489,7 @@ Agent 插件约束：必须使用框架传入的 `work_session_id` / `judge_sess
 
 ### 12.8 扩展：Claude Code（dreaming）
 
-产物来自 **dreaming** 时：warmup 后 `triggerArtifactUpdate` → **`awaitArtifactReady`**，再跑 final post-load。常是**同一项目目录**，靠 `load_profile` + `artifact_digest` 保证对照公平；HACE 协议与 pipeline **不变**，只换 Adapter 与 `agent_source=claude_code`。
+产物来自 **dreaming** 时：warmup 后 `triggerArtifactUpdate` → **`awaitArtifactReady`**，再跑 final post-load。常是**同一项目目录**，靠 `load_profile` + `artifact_digest` 保证对照公平；LIFT 协议与 pipeline **不变**，只换 Adapter 与 `agent_source=claude_code`。
 
 ---
 
@@ -497,7 +497,7 @@ Agent 插件约束：必须使用框架传入的 `work_session_id` / `judge_sess
 
 | 文档 | 用途 |
 |------|------|
-| [hace-framework-guide-cn.md](./hace-framework-guide-cn.md) | **HACE 阅读与实操指南**（推荐首选）：目录结构、OpenClaw 适配、CLI、产出物 |
-| [../src_new/hace/README.md](../src_new/hace/README.md) | HACE 实现速查：CLI 参数、测试命令 |
-| [paper-hace-blueprint-cn.md](./paper-hace-blueprint-cn.md) | HACE 论文写作蓝图：论文须完成的论述/实验/图表清单 |
+| [lift-framework-guide-cn.md](./lift-framework-guide-cn.md) | **LIFT 阅读与实操指南**（推荐首选）：目录结构、OpenClaw 适配、CLI、产出物 |
+| [../src_new/lift/README.md](../src_new/lift/README.md) | LIFT 实现速查：CLI 参数、测试命令 |
+| [paper-lift-blueprint-cn.md](./paper-lift-blueprint-cn.md) | LIFT 论文写作蓝图：论文须完成的论述/实验/图表清单 |
 | [../assets/suite requirement.md](../assets/suite%20requirement.md) | Benchmark 收集规范 |

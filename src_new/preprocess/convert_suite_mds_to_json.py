@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src_new.models import SuiteSpec  # noqa: E402
+from src_new.models import Suite  # noqa: E402
 
 
 TASK_DIR_RE = re.compile(r"^q(?P<index>\d+)(?:[_-].+)?$", re.IGNORECASE)
@@ -159,7 +159,7 @@ def convert_all(input_root: Path, output_root: Path) -> list[Path]:
     for scene_dir in progress:
         progress.set_description(scene_dir.name)
         benchmark_data = build_benchmark_spec(scene_dir)
-        SuiteSpec.model_validate(benchmark_data)
+        Suite.model_validate(benchmark_data)
 
         output_path = output_root / f"{scene_dir.name}.json"
         output_path.write_text(

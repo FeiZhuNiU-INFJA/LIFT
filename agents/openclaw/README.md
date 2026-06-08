@@ -1,6 +1,6 @@
 # OpenClaw agent (`agents/openclaw`)
 
-Gateway image with **self-evolving-plugin-pro** and **langfuse-tracer** pre-installed. HACE (`src_new`) runs agents via **`docker exec … openclaw`** inside ephemeral per-task containers.
+Gateway image with **self-evolving-plugin-pro** and **langfuse-tracer** pre-installed. LIFT (`src_new`) runs agents via **`docker exec … openclaw`** inside ephemeral per-task containers.
 
 ## Layout
 
@@ -29,7 +29,7 @@ bash agents/openclaw/build-image.sh
 
 Produces `evolve-eval-openclaw:latest` (includes `workspace_seed` at `/opt/evolve-eval/workspace_seed`).
 
-HACE copies this seed into each task workspace before mount so agents skip first-run onboarding.
+LIFT copies this seed into each task workspace before mount so agents skip first-run onboarding.
 
 Verify:
 
@@ -51,14 +51,14 @@ Copy [`.env.docker.example`](.env.docker.example) into the repo root `.env`:
 - `MODEL_NAME` — host/src_new agent model id
 - `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` — runtime
 - `LANGFUSE_BASE_URL` — use `http://host.docker.internal:3000` inside containers
-- HACE `ContainerSession` adds `--add-host=host.docker.internal:host-gateway` (required on Linux for langfuse-tracer ingestion)
+- LIFT `ContainerSession` adds `--add-host=host.docker.internal:host-gateway` (required on Linux for langfuse-tracer ingestion)
 
-## HACE integration (`src_new`)
+## LIFT integration (`src_new`)
 
 ```bash
 bash agents/openclaw/build-image.sh
-python -m src_new.cli.hace_main --runtime openclaw --suite hello.json --warmup-only
-python -m src_new.cli.hace_main --runtime openclaw --suite hello.json
+python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --warmup-only
+python -m src_new.cli.lift_main --runtime openclaw --suite hello.json
 ```
 
 Default image: `evolve-eval-openclaw:latest` (see `container_defaults.yaml`).

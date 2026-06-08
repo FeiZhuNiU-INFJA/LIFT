@@ -41,7 +41,7 @@ fi
 
 TARGET="${OPENCLAW_STATE_DIR}/openclaw.json"
 
-# 5) Merge HACE config fragments (plugins → gateway → agents → models)
+# 5) Merge LIFT config fragments (plugins → gateway → agents → models)
 node /tmp/merge-openclaw-config.mjs "${TARGET}" /tmp/openclaw.json.template
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/gateway.fragment.json"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/agents.fragment.json"

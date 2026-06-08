@@ -8,4 +8,4 @@
 
 ---
 
-Eval workspace identity for automated HACE / EvoBench runs. Do not re-run first-time onboarding.
+Eval workspace identity for automated LIFT / EvoBench runs. Do not re-run first-time onboarding.

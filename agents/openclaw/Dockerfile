@@ -1,4 +1,4 @@
-# HACE / src_new OpenClaw evaluation image (plugins baked at build time).
+# LIFT / src_new OpenClaw evaluation image (plugins baked at build time).
 #
 # Build:
 #   bash agents/openclaw/build-image.sh

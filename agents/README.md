@@ -6,4 +6,4 @@ Each subdirectory owns **one agent runtime's** Docker image, plugins, and contai
 |-----------|---------|-------|
 | [`openclaw/`](openclaw/) | OpenClaw gateway + plugins | `evolve-eval-openclaw:latest` |
 
-Host-side orchestration lives in `src_new/hace/adapters/<runtime>/`.
+Host-side orchestration lives in `src_new/lift/adapters/<runtime>/`.

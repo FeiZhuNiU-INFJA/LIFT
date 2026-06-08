@@ -40,18 +40,18 @@ class SuiteTask(BaseModel):
     category_name: str | None = None
 
 
-class SuiteSpec(BaseModel):
+class Suite(BaseModel):
     name: str
     category: str
     tasks: list[SuiteTask] = Field(default_factory=list)
 
     @classmethod
-    def from_json_file(cls, file_path: str | Path) -> SuiteSpec:
+    def from_json_file(cls, file_path: str | Path) -> Suite:
         data = json.loads(Path(file_path).read_text(encoding="utf-8"))
-        spec = cls.model_validate(data)
-        for task in spec.tasks:
-            task.category_name = spec.category
-        return spec
+        suite = cls.model_validate(data)
+        for task in suite.tasks:
+            task.category_name = suite.category
+        return suite
 
 
 def _utc_now_iso() -> str:

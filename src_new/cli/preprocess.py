@@ -1,6 +1,6 @@
 """Standalone CLI: convert benchmark_mds markdown dirs to suite JSON.
 
-Run before `python -m src_new.cli.hace_main` whenever benchmark sources change:
+Run before `python -m src_new.cli.lift_main` whenever benchmark sources change:
 
     python -m src_new.cli.preprocess
     python -m src_new.cli.preprocess --input-root assets/benchmark_mds --output-root assets/benchmarks

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quick check that HACE OpenClaw image has required plugins.
+# Quick check that LIFT OpenClaw image has required plugins.
 set -euo pipefail
 
 IMAGE="${1:-evolve-eval-openclaw:latest}"

@@ -1,4 +1,4 @@
-# Optional: run OpenClaw gateway for local HACE debugging.
+# Optional: run OpenClaw gateway for local LIFT debugging.
 # Usage (from repo root): docker compose -f agents/openclaw/compose.openclaw.yml up -d
 
 services:
