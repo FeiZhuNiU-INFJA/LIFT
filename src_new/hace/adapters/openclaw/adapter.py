@@ -110,6 +110,7 @@ class OpenClawAdapter:
             run_id=ctx.run_id,
             repeat_index=ctx.repeat_index,
             workspace_dir=workspace,
+            seed_workspace=True,
             task=task,
         )
         scope.track(session)

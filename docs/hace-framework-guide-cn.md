@@ -306,6 +306,8 @@ assets/benchmarks/<场景>.json   ← HACE CLI --suite 实际读取的文件
 
 **Delta 镜像**（`evolve-eval-delta:...`）**不需要**提前准备——warmup 结束后由 `docker commit` 在运行期动态生成。
 
+**Workspace 人设**：镜像内 `agents/openclaw/workspace_seed/`（`IDENTITY.md` / `USER.md` / `SOUL.md`，无 `BOOTSTRAP.md`）会在 **hold-out**（baseline/evolved）阶段挂载前复制进工作区，避免 OpenClaw 首次上线问名字/emoji；warmup 不 seed，以免干扰 `openclaw learn review` 的 onboard。改 seed 后需 `bash agents/openclaw/build-image.sh` 重建镜像。
+
 ### 运行阶段
 
 ```bash

@@ -33,6 +33,7 @@ COPY config /tmp/config
 COPY openclaw.json.template /tmp/openclaw.json.template
 COPY merge-openclaw-config.mjs /tmp/merge-openclaw-config.mjs
 COPY install-plugins-in-image.sh /tmp/install-plugins-in-image.sh
+COPY workspace_seed /opt/evolve-eval/workspace_seed
 
 ARG ARK_API_KEY=
 ENV ARK_API_KEY=${ARK_API_KEY}

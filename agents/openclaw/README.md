@@ -11,6 +11,7 @@ agents/openclaw/
 ├── build-image.sh
 ├── container_defaults.yaml
 ├── config/                # openclaw.json fragments
+├── workspace_seed/        # pre-filled IDENTITY/USER/SOUL (no BOOTSTRAP.md)
 ├── plugins/
 │   ├── langfuse-tracer/
 │   └── self-evolving-plugin-pro-2026.4.23.zip
@@ -26,7 +27,9 @@ From the **repository root**:
 bash agents/openclaw/build-image.sh
 ```
 
-Produces `evolve-eval-openclaw:latest`.
+Produces `evolve-eval-openclaw:latest` (includes `workspace_seed` at `/opt/evolve-eval/workspace_seed`).
+
+HACE copies this seed into each task workspace before mount so agents skip first-run onboarding.
 
 Verify:
 

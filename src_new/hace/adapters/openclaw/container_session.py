@@ -21,6 +21,10 @@ from src_new.hace.adapters.openclaw.material_mount import (
     resolve_host_path,
     task_volume_binds,
 )
+from src_new.hace.adapters.openclaw.workspace_seed import (
+    container_workspace_seed_shell,
+    seed_eval_workspace,
+)
 from src_new.hace.runtime.disposable import Disposable
 from src_new.hace.runtime.environment_cleaner import EnvironmentCleaner
 from src_new.models import SuiteTask
@@ -106,6 +110,7 @@ class ContainerSession(Disposable):
         run_id: str,
         repeat_index: int,
         workspace_dir: Path | None = None,
+        seed_workspace: bool = False,
         task: SuiteTask | None = None,
         extra_binds: list[tuple[str, str, str]] | None = None,
     ) -> ContainerSession:
@@ -118,7 +123,8 @@ class ContainerSession(Disposable):
 
         binds = default_volume_binds(run_id=run_id, repeat_index=repeat_index)
         if workspace_dir is not None:
-            workspace_dir.mkdir(parents=True, exist_ok=True)
+            if seed_workspace:
+                seed_eval_workspace(workspace_dir)
             binds.append((str(workspace_dir.resolve()), "/workspace/task", "rw"))
         if task is not None:
             binds.extend(task_volume_binds(task))
@@ -178,6 +184,8 @@ class ContainerSession(Disposable):
         await session._wait_gateway()
         if workspace_dir is not None:
             await session._reset_workspace_attestations()
+            if seed_workspace:
+                await session._ensure_workspace_seed()
         return session
 
     async def _wait_gateway(self, tries: int = 90) -> None:
@@ -212,3 +220,18 @@ class ContainerSession(Disposable):
             "rm -rf \"${OPENCLAW_STATE_DIR:-/root/.openclaw}\"/workspace-attestations 2>/dev/null || true",
             extra_env=container_runtime_env(),
         )
+
+    async def _ensure_workspace_seed(self) -> None:
+        """Re-apply image workspace seed and remove BOOTSTRAP before agent runs."""
+        try:
+            await exec_shell_async(
+                self.container_name,
+                container_workspace_seed_shell(),
+                extra_env=container_runtime_env(),
+            )
+        except Exception as exc:
+            LOGGER.warning(
+                "Failed to apply workspace seed in %s: %s",
+                self.container_name,
+                exc,
+            )
