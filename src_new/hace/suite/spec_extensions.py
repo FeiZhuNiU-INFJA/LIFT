@@ -1,19 +1,27 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from src_new.models import SuiteSpec
 
 
-@dataclass(frozen=True)
-class HaceSuiteConfig:
-    """Suite JSON plus hold-out settings (hace-only fields, not in src.models.SuiteSpec)."""
+class HaceSuiteConfig(BaseModel):
+    """Suite JSON 解析结果：标准 SuiteSpec + HACE hold-out 扩展字段。"""
 
-    spec: SuiteSpec
-    holdout_count: int = 1
-    holdout_task_names: tuple[str, ...] | None = None
+    model_config = ConfigDict(frozen=True)
+
+    spec: SuiteSpec = Field(description="标准评测集（name、category、tasks 等）")
+    holdout_count: int = Field(
+        default=1,
+        description="从 tasks 尾部留出几道题作为 hold-out（默认 1）",
+    )
+    holdout_task_names: tuple[str, ...] | None = Field(
+        default=None,
+        description="显式指定 hold-out 题名；为 None 时按 holdout_count 从尾部切",
+    )
 
 
 def load_hace_suite(file_path: str | Path) -> HaceSuiteConfig:

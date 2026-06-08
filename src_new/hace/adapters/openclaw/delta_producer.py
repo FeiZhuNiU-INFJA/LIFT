@@ -11,14 +11,14 @@ from src_new.hace.adapters.openclaw.task_runner import (
 from src_new.hace.policies.container import WarmupContainerPolicy
 from src_new.hace.runtime.delta_ref import DeltaRef
 from src_new.hace.runtime.environment_cleaner import EnvironmentCleaner, delta_image_tag
-from src_new.hace.runtime.repeat_scope import RepeatScope
+from src_new.hace.runtime.suite_run_resources import SuiteRunResources
 from src_new.models import SuiteTask
 from src_new.utils import outcome_workspace
 
 
 async def produce_delta_from_warmup(
     *,
-    scope: RepeatScope,
+    resources: SuiteRunResources,
     warmup_tasks: list[SuiteTask],
     run_id: str,
     repeat_index: int,
@@ -42,7 +42,7 @@ async def produce_delta_from_warmup(
             repeat_index=repeat_index,
             workspace_dir=workspace,
         )
-        scope.track(session)
+        resources.track(session)
         await run_openclaw_task_phase_batch(
             tasks=warmup_tasks,
             run_id=run_id,
@@ -67,7 +67,7 @@ async def produce_delta_from_warmup(
         cleaner = EnvironmentCleaner()
         await cleaner.commit_container(session.container_name, image_tag)
         await session.cleanup()
-        scope.delta = delta
+        resources.delta = delta
         LOGGER.info("Delta committed: %s", image_tag)
         return delta
 

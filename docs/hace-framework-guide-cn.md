@@ -48,7 +48,7 @@ src_new/hace/
 │   ├── artifact.py         ← ArtifactPolicy（ABC）+ WarmupThenUpdatePolicy
 │   └── container.py        ← warmup 容器策略（serial_single 等）
 ├── runtime/            # 资源生命周期
-│   ├── repeat_scope.py     ← 一次 repeat 内所有容器的清理边界
+│   ├── suite_run_resources.py  ← 单次 suite 评测的资源登记与释放
 │   ├── delta_ref.py        ← delta 镜像引用
 │   ├── environment_cleaner.py  ← docker rm / commit / rmi
 │   └── disposable.py         ← Disposable 抽象基类
@@ -79,7 +79,7 @@ src_new/hace/
 ### 第二步：理解适配器契约
 
 4. `adapters/base.py` — `RuntimeAdapter`（ABC）四个抽象方法：
-   - `open_repeat_scope` — 打开一次 repeat 的资源作用域
+   - `create_suite_run_resources` — 创建单次 suite 评测的资源登记簿
    - `produce_delta` — warmup + evolve → 产出 delta
    - `run_before_load` — baseline 阶段跑 hold-out
    - `run_after_load` — evolved 阶段跑 hold-out
@@ -135,7 +135,7 @@ HACE **不**在宿主机直接跑 OpenClaw CLI（legacy `openclaw_main.py` 才�
 
 | 抽象方法 | 实现位置 | 行为摘要 |
 |----------|----------|----------|
-| `open_repeat_scope` | `adapter.py` | 创建 `RepeatScope`（跟踪容器与 delta） |
+| `create_suite_run_resources` | `adapter.py` | 创建 `SuiteRunResources`（登记容器与 delta） |
 | `produce_delta` | `delta_producer.py` | 单 warmup 容器串行跑 Q1…Q_{n-1} → `evolve_in_container` → `docker commit` |
 | `run_before_load` | `adapter.py` → `task_runner.py` | base 镜像 + 独立 workspace → 跑 hold-out → 销毁容器 |
 | `run_after_load` | 同上 | delta 镜像 + 独立 workspace → 跑 hold-out → 销毁容器 |
@@ -152,7 +152,7 @@ sequenceDiagram
     participant A as After-load Container
 
     CLI->>Pipe: run(suite, adapter)
-    Pipe->>Adp: open_repeat_scope()
+    Pipe->>Adp: create_suite_run_resources()
     Pipe->>Adp: produce_delta(warmup_tasks)
     Adp->>W: docker run base_image
     W->>W: 串行执行 warmup 各题
@@ -172,7 +172,7 @@ sequenceDiagram
         Adp->>A: cleanup
     end
 
-    Pipe->>Adp: scope.cleanup() (删 delta 镜像)
+    Pipe->>Adp: resources.cleanup() (删 delta 镜像)
 ```
 
 要点：
@@ -225,7 +225,7 @@ seed 在宿主机挂载前写入 `results/.../outcome/...`，容器启动后再�
 
 | 产物类型 | 内容 | 是否持久保留 |
 |----------|------|--------------|
-| **Delta 镜像** | 容器文件系统（主要是 `/root/.openclaw/` 下插件进化状态）；**不含** bind mount 的 `/workspace/task` | hold-out 跑完后由 `scope.cleanup()` **`docker rmi` 删除** |
+| **Delta 镜像** | 容器文件系统（主要是 `/root/.openclaw/` 下插件进化状态）；**不含** bind mount 的 `/workspace/task` | suite 跑完后由 `resources.cleanup()` **`docker rmi` 删除** |
 | **Warmup workspace** | 宿主机 `results/{run_id}/outcome/run-{i}/warmup/{category}/`；含 learn review 的 git 快照（`openclaw baseline` 提交） | **保留**，可调试 |
 | **Hold-out workspace** | `baseline/`、`evolved/` 各题独立目录 | **保留** |
 
@@ -235,7 +235,7 @@ evolved 阶段从 delta 镜像起新容器，但挂载**新的** hold-out worksp
 
 - 命名：`evolve-eval-delta:{run_id}-r{repeat_index}-{suite_name}`（Docker 只允许一个 `:`，见 `environment_cleaner.py`）
   - 示例：`evolve-eval-delta:evobench-runid-hello-full-seed2-r0-Hello`
-- `RepeatScope.cleanup()`：逆序销毁 tracked 容器，再 `docker rmi -f` delta 镜像
+- `SuiteRunResources.cleanup()`：逆序销毁已登记容器，再 `docker rmi -f` delta 镜像
 - warmup 容器 commit 后立即删除；delta 镜像仅在一次 repeat 的 hold-out 期间存在，**跑完后 `docker images` 里看不到是正常现象**
 
 ---
@@ -249,9 +249,9 @@ for suite_path in suite_paths:
     config = load_hace_suite(suite_path)
     warmup_tasks, holdout_tasks = split_suite_tasks(config)
 
-    scope = await adapter.open_repeat_scope(ctx)
+    resources = await adapter.create_suite_run_resources(ctx)
     try:
-        delta = await adapter.produce_delta(scope, policy, warmup_tasks, ctx)
+        delta = await adapter.produce_delta(resources, policy, warmup_tasks, ctx)
 
         if not options.warmup_only:
             for holdout_task in holdout_tasks:
@@ -259,7 +259,7 @@ for suite_path in suite_paths:
                 evolved  = await adapter.run_after_load(...)
                 suite_run.tasks.append(TaskRun(baseline=..., evolved=...))
     finally:
-        await scope.cleanup()
+        await resources.cleanup()
 ```
 
 **`--warmup-only` 模式**：只跑 warmup 题 + evolve + `docker commit` 产 delta，**跳过** hold-out 的 baseline/evolved 对照；report 里 `tasks[]` 为空。
@@ -528,7 +528,7 @@ Warmup 需要状态连续以触发 evolve；hold-out 需要严格对照（baseli
 容器内 root 创建的文件在宿主机上属主也是 root。新跑评测会在容器销毁前自动 `chown` 修复；历史残留用 `bash scripts/clean-results.sh` 清理。
 
 **Q：为什么 `docker images` 看不到 delta 镜像？**  
-delta 是单次评测的临时中间产物；`RepeatScope.cleanup()` 在 repeat 结束后会 `docker rmi` 删除。持久调试请看 `results/.../warmup/` 工作区。
+delta 是单次评测的临时中间产物；`SuiteRunResources.cleanup()` 在每个 suite 跑完后会 `docker rmi` 删除。持久调试请看 `results/.../warmup/` 工作区。
 
 **Q：benchmark JSON 在哪？**  
 正式数据在仓库根目录 `assets/benchmarks/`（非 `src_new/assets/benchmarks/`）。`--benchmark_dir` 默认指向前者。

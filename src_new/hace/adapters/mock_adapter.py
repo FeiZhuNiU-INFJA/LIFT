@@ -8,7 +8,7 @@ from src_new.utils import short_id
 from src_new.hace.adapters.base import RunContext, RuntimeAdapter
 from src_new.hace.policies.artifact import ArtifactPolicy
 from src_new.hace.runtime.delta_ref import DeltaRef
-from src_new.hace.runtime.repeat_scope import RepeatScope
+from src_new.hace.runtime.suite_run_resources import SuiteRunResources
 
 
 class MockAdapter(RuntimeAdapter):
@@ -16,12 +16,11 @@ class MockAdapter(RuntimeAdapter):
         self.produce_delta_count = 0
         self.before_load_count = 0
         self.after_load_count = 0
-        self.scopes_cleaned = 0
         self._last_warmup: list[SuiteTask] = []
 
     @override
-    async def open_repeat_scope(self, ctx: RunContext) -> RepeatScope:
-        return RepeatScope(
+    async def create_suite_run_resources(self, ctx: RunContext) -> SuiteRunResources:
+        return SuiteRunResources(
             run_id=ctx.run_id,
             repeat_index=ctx.repeat_index,
             suite_name=ctx.suite_name,
@@ -30,7 +29,7 @@ class MockAdapter(RuntimeAdapter):
     @override
     async def produce_delta(
         self,
-        scope: RepeatScope,
+        resources: SuiteRunResources,
         policy: ArtifactPolicy,
         warmup_tasks: list[SuiteTask],
         ctx: RunContext,
@@ -38,14 +37,14 @@ class MockAdapter(RuntimeAdapter):
         self.produce_delta_count += 1
         self._last_warmup = list(warmup_tasks)
         delta = DeltaRef(image_tag=f"mock-delta:{ctx.run_id}:r{ctx.repeat_index}")
-        scope.delta = delta
+        resources.delta = delta
         return delta
 
     @override
     async def run_before_load(
         self,
         task: SuiteTask,
-        scope: RepeatScope,
+        resources: SuiteRunResources,
         ctx: RunContext,
         *,
         phase: str = "baseline",
@@ -63,7 +62,7 @@ class MockAdapter(RuntimeAdapter):
     async def run_after_load(
         self,
         task: SuiteTask,
-        scope: RepeatScope,
+        resources: SuiteRunResources,
         delta: DeltaRef,
         ctx: RunContext,
     ) -> PhaseRun:

@@ -10,7 +10,7 @@ from src_new.hace.adapters.openclaw.delta_producer import produce_delta_from_war
 from src_new.hace.adapters.openclaw.task_runner import run_openclaw_task_phase
 from src_new.hace.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src_new.hace.runtime.delta_ref import DeltaRef
-from src_new.hace.runtime.repeat_scope import RepeatScope
+from src_new.hace.runtime.suite_run_resources import SuiteRunResources
 from src_new.models import PhaseRun, SuiteTask
 from src_new.hace.pipeline.run_options import RunOptions
 from src_new.utils import outcome_workspace, short_id
@@ -26,8 +26,8 @@ class OpenClawAdapter(RuntimeAdapter):
         self._docker_image = options.docker_image or self.DEFAULT_IMAGE
 
     @override
-    async def open_repeat_scope(self, ctx: RunContext) -> RepeatScope:
-        return RepeatScope(
+    async def create_suite_run_resources(self, ctx: RunContext) -> SuiteRunResources:
+        return SuiteRunResources(
             run_id=ctx.run_id,
             repeat_index=ctx.repeat_index,
             suite_name=ctx.suite_name,
@@ -36,7 +36,7 @@ class OpenClawAdapter(RuntimeAdapter):
     @override
     async def produce_delta(
         self,
-        scope: RepeatScope,
+        resources: SuiteRunResources,
         policy: ArtifactPolicy,
         warmup_tasks: list[SuiteTask],
         ctx: RunContext,
@@ -46,7 +46,7 @@ class OpenClawAdapter(RuntimeAdapter):
         if not warmup_tasks:
             raise ValueError("WarmupThenUpdatePolicy requires warmup tasks")
         return await produce_delta_from_warmup(
-            scope=scope,
+            resources=resources,
             warmup_tasks=warmup_tasks,
             run_id=ctx.run_id,
             repeat_index=ctx.repeat_index,
@@ -61,14 +61,14 @@ class OpenClawAdapter(RuntimeAdapter):
     async def run_before_load(
         self,
         task: SuiteTask,
-        scope: RepeatScope,
+        resources: SuiteRunResources,
         ctx: RunContext,
         *,
         phase: str = "baseline",
     ) -> PhaseRun:
         return await self._run_holdout_phase(
             task=task,
-            scope=scope,
+            resources=resources,
             ctx=ctx,
             image=self._docker_image,
             phase=phase,
@@ -80,13 +80,13 @@ class OpenClawAdapter(RuntimeAdapter):
     async def run_after_load(
         self,
         task: SuiteTask,
-        scope: RepeatScope,
+        resources: SuiteRunResources,
         delta: DeltaRef,
         ctx: RunContext,
     ) -> PhaseRun:
         return await self._run_holdout_phase(
             task=task,
-            scope=scope,
+            resources=resources,
             ctx=ctx,
             image=delta.image_tag,
             phase="evolved",
@@ -98,7 +98,7 @@ class OpenClawAdapter(RuntimeAdapter):
         self,
         *,
         task: SuiteTask,
-        scope: RepeatScope,
+        resources: SuiteRunResources,
         ctx: RunContext,
         image: str,
         phase: str,
@@ -118,7 +118,7 @@ class OpenClawAdapter(RuntimeAdapter):
             seed_workspace=True,
             task=task,
         )
-        scope.track(session)
+        resources.track(session)
         try:
             return await run_openclaw_task_phase(
                 task=task,

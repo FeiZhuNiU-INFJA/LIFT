@@ -1,20 +1,28 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import override
+
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from src_new.hace.runtime.disposable import Disposable
 from src_new.hace.runtime.environment_cleaner import EnvironmentCleaner
 
 
-@dataclass
-class DeltaRef(Disposable):
-    """Warmup-produced artifact as a committed Docker image."""
+class DeltaRef(BaseModel, Disposable):
+    """warmup 进化产物的引用（OpenClaw 实现为 docker commit 出的临时镜像）。"""
 
-    image_tag: str
-    source_container: str | None = None
-    _cleaner: EnvironmentCleaner = field(default_factory=EnvironmentCleaner)
-    _cleaned: bool = field(default=False, repr=False)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    image_tag: str = Field(
+        description="delta 镜像名（如 evolve-eval-delta:{run_id}-r0-Hello），evolved 阶段 docker run 使用"
+    )
+    source_container: str | None = Field(
+        default=None,
+        description="commit 前的 warmup 容器名（可选，便于调试）",
+    )
+
+    _cleaner: EnvironmentCleaner = PrivateAttr(default_factory=EnvironmentCleaner)
+    _cleaned: bool = PrivateAttr(default=False)
 
     @override
     async def cleanup(self) -> None:

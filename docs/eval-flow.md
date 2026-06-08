@@ -90,7 +90,7 @@ final @ after-load（treatment） → PhaseRun  → report.evolved
 - **warmup 结果**：`Q1..Q_{n-1}` 用于产生产物，一般**不进 report**（仅日志）；产物也可通过非 warmup 策略获得（见 12.2）。
 - **final 的 before-load**：干净 base 镜像起**新容器**（无 Δ）。
 - **final 的 after-load**：从 warmup 后 `docker commit` 的 **Δ 镜像**起**新容器**；多道 hold-out **共用 Δ、workspace 按题隔离**。
-- **清理**：每个 repeat 结束 `RepeatScope.cleanup()` 删除容器与 Δ 镜像。
+- **清理**：每个 suite 评测结束 `SuiteRunResources.cleanup()` 删除容器与 Δ 镜像。
 
 ### 4.1 环境模型（`src_new`）
 
@@ -99,7 +99,7 @@ warmup（单容器串行）→ evolve → docker commit → DeltaRef (Δ 镜像)
 对每个 hold-out 题 Q_h：
   before-load: docker run base_image + workspace_h → PhaseRun → destroy
   after-load:  docker run Δ_image + workspace_h   → PhaseRun → destroy
-repeat 之间默认并行；每 repeat 独立 Δ 与 RepeatScope。
+repeat 之间默认并行；每 suite 独立 Δ 与 `SuiteRunResources` 登记簿。
 ```
 
 入口：`python -m src_new.cli.hace_main --runtime openclaw`（见 [src_new/hace/README.md](../src_new/hace/README.md)）。

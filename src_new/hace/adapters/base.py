@@ -1,145 +1,146 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from src_new.models import PhaseRun, SuiteTask
 
 from src_new.hace.policies.artifact import ArtifactPolicy
 from src_new.hace.runtime.delta_ref import DeltaRef
-from src_new.hace.runtime.repeat_scope import RepeatScope
+from src_new.hace.runtime.suite_run_resources import SuiteRunResources
 
 
 class LoadState(Enum):
-    BEFORE_LOAD = "before_load"
-    AFTER_LOAD = "after_load"
+    """hold-out 题评测时的产物加载状态。"""
+
+    BEFORE_LOAD = "before_load"  # baseline：不加载进化产物
+    AFTER_LOAD = "after_load"  # evolved：加载 warmup 产出的 delta
 
 
-@dataclass
-class RunContext:
-    run_id: str
-    repeat_index: int
-    suite_path: Path
-    category_name: str
-    suite_name: str
+class RunContext(BaseModel):
+    """单次 suite 评测的不可变运行坐标，由 pipeline 构造并传给 adapter 各方法。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    run_id: str = Field(description="评测批次 ID（如 evobench-runid-hello-full）")
+    repeat_index: int = Field(description="当前 repeat 序号（0 起，对应 --repeat 第几轮）")
+    suite_path: Path = Field(description="suite JSON 文件路径")
+    category_name: str = Field(description="场景分类名（来自 SuiteSpec.category）")
+    suite_name: str = Field(description="suite 名称（来自 SuiteSpec.name）")
 
 
 class RuntimeAdapter(ABC):
-    """Runtime-specific implementation of the HACE evaluation contract.
+    """HACE 评测契约的运行时实现基类。
 
-    Each agent backend (OpenClaw, Hermes, …) subclasses this ABC and wires
-    warmup → delta production → hold-out baseline/evolved execution.
-    ``HACEPipeline`` calls these four methods in a fixed order per suite/repeat.
+    各 Agent 后端（OpenClaw、Hermes 等）继承本类，串联
+    warmup → 产出 delta → hold-out baseline/evolved 执行。
+    ``HACEPipeline`` 在每个 suite/repeat 内按固定顺序调用下列四个方法。
     """
 
     @abstractmethod
-    async def open_repeat_scope(self, ctx: RunContext) -> RepeatScope:
-        """Open a resource scope for one ``--repeat`` iteration of one suite.
+    async def create_suite_run_resources(self, ctx: RunContext) -> SuiteRunResources:
+        """为单次 suite 评测创建资源登记簿（``SuiteRunResources``）。
 
-        Called once per (repeat_index, suite) before warmup or hold-out work.
-        The returned ``RepeatScope`` should be used to ``track()`` any containers
-        or sessions created during this repeat so ``scope.cleanup()`` can release
-        them when the suite finishes (including the delta image).
+        在每个 (repeat_index, suite) 开始 warmup 或 hold-out 之前调用一次。
+        返回的 ``SuiteRunResources`` 用于 ``track()`` 登记本 suite 评测中创建的
+        容器或会话，以便 suite 结束时由 ``resources.cleanup()`` 统一释放（含 delta 镜像）。
 
-        Args:
-            ctx: Immutable run coordinates (run_id, repeat_index, suite metadata).
+        参数:
+            ctx: 不可变的运行坐标（run_id、repeat_index、suite 元数据）。
 
-        Returns:
-            A fresh ``RepeatScope`` bound to ``ctx.run_id`` / ``ctx.repeat_index``
-            / ``ctx.suite_name``. Pipeline passes the same scope through
-            ``produce_delta``, ``run_before_load``, and ``run_after_load``.
+        返回:
+            绑定 ``ctx.run_id`` / ``ctx.repeat_index`` / ``ctx.suite_name`` 的
+            新 ``SuiteRunResources``。Pipeline 会将同一登记簿贯穿
+            ``produce_delta``、``run_before_load``、``run_after_load``。
         """
 
     @abstractmethod
     async def produce_delta(
         self,
-        scope: RepeatScope,
+        resources: SuiteRunResources,
         policy: ArtifactPolicy,
         warmup_tasks: list[SuiteTask],
         ctx: RunContext,
     ) -> DeltaRef:
-        """Run warmup tasks, trigger artifact update, and materialize delta.
+        """执行 warmup 题、触发产物更新，并物化为 delta。
 
-        Implements the **ArtifactPolicy** phase of HACE: execute all warmup
-        (non-hold-out) tasks, then call the runtime's evolve/update hook
-        (e.g. OpenClaw ``openclaw learn review``), and persist the resulting
-        state as a loadable artifact.
+        实现 HACE 的 **ArtifactPolicy** 阶段：跑完所有 warmup（非 hold-out）题，
+        再调用运行时的 evolve/update 钩子（如 OpenClaw 的 ``openclaw learn review``），
+        并将结果状态固化为可加载的产物。
 
-        For OpenClaw this is typically ``docker commit`` of the warmup container
-        into a temporary image tagged via ``delta_image_tag()``. The delta is
-        stored on ``scope.delta`` and later consumed by ``run_after_load``.
+        OpenClaw 典型做法是对 warmup 容器 ``docker commit`` 为临时镜像，
+        标签由 ``delta_image_tag()`` 生成；delta 写入 ``resources.delta``，
+        供后续 ``run_after_load`` 使用。
 
-        Warmup ``PhaseRun`` results are **not** written to the eval report;
-        only the delta reference is returned to the pipeline.
+        warmup 的 ``PhaseRun`` **不会**写入评测 report，仅向 pipeline 返回 delta 引用。
 
-        Args:
-            scope: Repeat scope; implementors should ``track()`` warmup containers
-                here and assign ``scope.delta`` before returning.
-            policy: How artifacts are produced (default: ``WarmupThenUpdatePolicy``).
-            warmup_tasks: Tasks from ``split_suite_tasks`` excluding hold-out.
-            ctx: Same run coordinates as ``open_repeat_scope``.
+        参数:
+            resources: suite 资源登记簿；实现方应在此 ``track()`` warmup 容器，
+                并在返回前设置 ``resources.delta``。
+            policy: 产物如何产生（默认 ``WarmupThenUpdatePolicy``）。
+            warmup_tasks: ``split_suite_tasks`` 切分后的 warmup 题列表。
+            ctx: 与 ``create_suite_run_resources`` 相同的运行坐标。
 
-        Returns:
-            ``DeltaRef`` pointing at the committed artifact (e.g. delta image tag).
+        返回:
+            指向已固化产物的 ``DeltaRef``（如 delta 镜像 tag）。
 
-        Raises:
-            ValueError: If ``warmup_tasks`` is empty or policy is unsupported.
+        异常:
+            ValueError: ``warmup_tasks`` 为空或 policy 不受支持时。
         """
 
     @abstractmethod
     async def run_before_load(
         self,
         task: SuiteTask,
-        scope: RepeatScope,
+        resources: SuiteRunResources,
         ctx: RunContext,
         *,
         phase: str = "baseline",
     ) -> PhaseRun:
-        """Evaluate one hold-out task **without** loading evolved artifacts.
+        """在**未加载**进化产物的前提下评测一道 hold-out 题。
 
-        Corresponds to HACE **before-load** / ``LoadState.BEFORE_LOAD``: a fresh
-        runtime environment (base image for OpenClaw) with an isolated per-task
-        workspace. The agent must not see warmup evolve output.
+        对应 HACE **before-load** / ``LoadState.BEFORE_LOAD``：全新运行时环境
+        （OpenClaw 为 base 镜像）+ 按题隔离的 workspace，Agent 不得看到 warmup evolve 结果。
 
-        Runs the full task loop (user agent + judge, multi-turn until success
-        or max rounds) and returns a ``PhaseRun`` for ``TaskRun.baseline``.
+        执行完整 task 回路（user agent + judge，多轮直至成功或达上限），
+        返回写入 ``TaskRun.baseline`` 的 ``PhaseRun``。
 
-        Args:
-            task: A single hold-out ``SuiteTask``.
-            scope: Repeat scope for tracking ephemeral containers.
-            ctx: Run coordinates.
-            phase: Report/workspace label (pipeline passes ``"baseline"``).
+        参数:
+            task: 单道 hold-out ``SuiteTask``。
+            resources: suite 资源登记簿，用于跟踪 hold-out 临时容器。
+            ctx: 运行坐标。
+            phase: report/workspace 标签（pipeline 传入 ``"baseline"``）。
 
-        Returns:
-            ``PhaseRun`` with success, content_score, session ids, workspace_dir.
+        返回:
+            含 success、content_score、session id、workspace_dir 的 ``PhaseRun``。
         """
 
     @abstractmethod
     async def run_after_load(
         self,
         task: SuiteTask,
-        scope: RepeatScope,
+        resources: SuiteRunResources,
         delta: DeltaRef,
         ctx: RunContext,
     ) -> PhaseRun:
-        """Evaluate the same hold-out task **with** evolved artifacts loaded.
+        """在**已加载**进化产物的前提下评测同一道 hold-out 题。
 
-        Corresponds to HACE **after-load** / ``LoadState.AFTER_LOAD``: same task
-        and judge protocol as ``run_before_load``, but the runtime starts from
-        the delta produced by ``produce_delta`` (e.g. OpenClaw delta image).
+        对应 HACE **after-load** / ``LoadState.AFTER_LOAD``：与 ``run_before_load``
+        相同的题目与 judge 协议，但运行时从 ``produce_delta`` 产出的 delta 启动
+        （如 OpenClaw 的 delta 镜像）。
 
-        Workspace must remain per-task isolated (new directory per phase) so
-        answers do not leak from baseline; only the **artifact load state**
-        differs between the two runs.
+        workspace 仍须按题隔离（每 phase 独立目录），避免与 baseline 串答案；
+        两次运行之间仅 **产物加载状态** 不同。
 
-        Args:
-            task: Same hold-out task as the paired baseline run.
-            scope: Repeat scope for tracking ephemeral containers.
-            delta: Artifact reference from ``produce_delta``.
-            ctx: Run coordinates.
+        参数:
+            task: 与配对 baseline 相同的 hold-out 题。
+            resources: suite 资源登记簿，用于跟踪 hold-out 临时容器。
+            delta: ``produce_delta`` 返回的产物引用。
+            ctx: 运行坐标。
 
-        Returns:
-            ``PhaseRun`` for ``TaskRun.evolved``.
+        返回:
+            写入 ``TaskRun.evolved`` 的 ``PhaseRun``。
         """

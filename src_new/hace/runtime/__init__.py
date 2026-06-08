@@ -4,12 +4,12 @@ from src_new.hace.runtime.environment_cleaner import (
     EnvironmentCleaner,
     delta_image_tag,
 )
-from src_new.hace.runtime.repeat_scope import RepeatScope
+from src_new.hace.runtime.suite_run_resources import SuiteRunResources
 
 __all__ = [
     "DeltaRef",
     "Disposable",
     "EnvironmentCleaner",
-    "RepeatScope",
+    "SuiteRunResources",
     "delta_image_tag",
 ]

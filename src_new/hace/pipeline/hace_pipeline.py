@@ -115,7 +115,7 @@ class HACEPipeline:
                 category_name=category_name,
                 suite_name=suite.name,
             )
-            scope = await adapter.open_repeat_scope(ctx)
+            resources = await adapter.create_suite_run_resources(ctx)
             try:
                 async with self._report_lock:
                     if category_name not in eval_report.categories:
@@ -127,9 +127,9 @@ class HACEPipeline:
                         "produce_delta requires at least one non-hold-out task"
                     )
 
-                policy = WarmupThenUpdatePolicy(warmup_tasks)
+                policy = WarmupThenUpdatePolicy(warmup_tasks=warmup_tasks)
                 delta = await adapter.produce_delta(
-                    scope, policy, warmup_tasks, ctx
+                    resources, policy, warmup_tasks, ctx
                 )
 
                 if options.warmup_only:
@@ -141,10 +141,10 @@ class HACEPipeline:
                 else:
                     for holdout_task in holdout_tasks:
                         baseline = await adapter.run_before_load(
-                            holdout_task, scope, ctx, phase="baseline"
+                            holdout_task, resources, ctx, phase="baseline"
                         )
                         evolved = await adapter.run_after_load(
-                            holdout_task, scope, delta, ctx
+                            holdout_task, resources, delta, ctx
                         )
                         suite_run.tasks.append(
                             TaskRun(
@@ -165,6 +165,6 @@ class HACEPipeline:
                     async with self._report_lock:
                         eval_report.write_json(report_path)
             finally:
-                await scope.cleanup()
+                await resources.cleanup()
 
         repeat_run.completed_at = datetime.now(timezone.utc).isoformat()

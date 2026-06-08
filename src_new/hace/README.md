@@ -11,7 +11,7 @@ Hold-out Artifact-Contrast Evaluation — container-per-task implementation.
 - **before-load**: fresh container from base image (`evolve-eval-openclaw:latest`)
 - **after-load**: fresh container from **delta image** (`docker commit` after warmup)
 - **Isolation**: each hold-out task gets its own before/after containers; shared delta, per-task workspace
-- **Cleanup**: `RepeatScope.cleanup()` removes containers and delta images
+- **Cleanup**: `SuiteRunResources.cleanup()` removes containers and delta images
 
 ## Build image
 
@@ -68,4 +68,4 @@ python -m src_new.hace.tests.test_pipeline
 
 ## Delta image naming
 
-`evolve-eval-delta:{run_id}:r{repeat}:{suite_name}` — removed by `RepeatScope.cleanup()` after each repeat.
+`evolve-eval-delta:{run_id}:r{repeat}:{suite_name}` — removed by `SuiteRunResources.cleanup()` after each suite run.
