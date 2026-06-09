@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from src_new.lift.adapters.base import ContainerRuntimeAdapter, RuntimeAdapter
+from src_new.lift.adapters.base import RuntimeAdapter
+from src_new.lift.adapters.container.adapter import ContainerRuntimeAdapter
 from src_new.lift.adapters.openclaw.adapter import OpenClawAdapter
 from src_new.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src_new.lift.runtime.disposable import Disposable

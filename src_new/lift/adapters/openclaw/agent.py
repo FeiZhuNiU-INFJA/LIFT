@@ -1,4 +1,4 @@
-"""OpenClaw-specific agent factory and container evolve hook."""
+"""OpenClaw chat implementation and agent pair factory."""
 
 from __future__ import annotations
 
@@ -10,9 +10,7 @@ from src_new.lift.adapters.openclaw.container_exec import (
     OpenClawContainerContext,
     exec_openclaw_async,
     exec_openclaw_sync,
-    exec_shell_async,
 )
-from src_new.lift.adapters.openclaw.container_env import container_runtime_env
 from src_new.lift.eval.agent_pair import TaskAgentPair, TaskAgentPairFactory
 from src_new.models import SuiteTask
 from src_new.utils import short_id
@@ -147,38 +145,3 @@ class OpenClawAgentPairFactory:
             judge_session_id=judge_session_id,
         )
 
-
-def openclaw_agent_pair_factory(
-    *,
-    container: OpenClawContainerContext,
-    run_id: str,
-    repeat_index: int,
-    phase: str,
-    workspace_dir: Path,
-) -> TaskAgentPairFactory:
-    """Return a factory bound to one OpenClaw container session."""
-    return OpenClawAgentPairFactory(
-        container=container,
-        run_id=run_id,
-        repeat_index=repeat_index,
-        phase=phase,
-        workspace_dir=workspace_dir,
-    )
-
-
-async def evolve_in_container(container: OpenClawContainerContext, session_id: str) -> None:
-    _ = session_id
-    env = container_runtime_env()
-    await exec_shell_async(
-        container.container_name,
-        """
-mkdir -p /workspace/task
-git config --global --add safe.directory /workspace/task
-WORKER_JS="${HOME}/.openclaw/extensions/self-evolving-plugin-pro/src/review/worker.js"
-if [[ -f "${WORKER_JS}" ]]; then
-  sed -i 's/"--thinking", "low"/"--thinking", "off"/g' "${WORKER_JS}" || true
-fi
-""".strip(),
-        extra_env=env,
-    )
-    await exec_openclaw_async(container, ["learn", "review"])

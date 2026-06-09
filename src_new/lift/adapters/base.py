@@ -3,21 +3,25 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
-
 from pydantic import BaseModel, ConfigDict, Field
 
-from src_new.models import PhaseRun, SuiteTask
-
-from src_new.lift.policies.artifact import ArtifactPolicy
+from src_new.config import LOGGER
+from src_new.lift.adapters.environment import ExecutionEnvironment
+from src_new.lift.eval.agent_pair import TaskAgentPairFactory
+from src_new.lift.eval.phase import execute_phase, execute_phase_batch
+from src_new.lift.pipeline.run_options import RunOptions
+from src_new.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src_new.lift.runtime.delta_ref import DeltaRef
 from src_new.lift.runtime.suite_run_resources import SuiteRunResources
+from src_new.models import PhaseRun, SuiteTask
+from src_new.utils import outcome_workspace
 
 
 class LoadState(Enum):
     """hold-out 题评测时的产物加载状态。"""
 
-    BEFORE_LOAD = "before_load"  # baseline：不加载进化产物
-    AFTER_LOAD = "after_load"  # evolved：加载 warmup 产出的 delta
+    BEFORE_LOAD = "before_load"
+    AFTER_LOAD = "after_load"
 
 
 class RunContext(BaseModel):
@@ -33,31 +37,18 @@ class RunContext(BaseModel):
 
 
 class RuntimeAdapter(ABC):
-    """LIFT 评测契约的运行时实现基类。
+    """LIFT runtime base with template methods for warmup and hold-out."""
 
-    各 Agent 后端（OpenClaw、Hermes 等）继承本类，串联
-    warmup → 产出 delta → hold-out baseline/evolved 执行。
-    ``LIFTPipeline`` 在每个 suite/repeat 内按固定顺序调用下列四个方法。
-    """
+    def __init__(self, options: RunOptions | None = None) -> None:
+        self._options = options or RunOptions()
 
-    @abstractmethod
     async def create_suite_run_resources(self, ctx: RunContext) -> SuiteRunResources:
-        """为单次 suite 评测创建资源登记簿（``SuiteRunResources``）。
+        return SuiteRunResources(
+            run_id=ctx.run_id,
+            repeat_index=ctx.repeat_index,
+            suite_name=ctx.suite_name,
+        )
 
-        在每个 (repeat_index, suite) 开始 warmup 或 hold-out 之前调用一次。
-        返回的 ``SuiteRunResources`` 用于 ``track()`` 登记本 suite 评测中创建的
-        容器或会话，以便 suite 结束时由 ``resources.cleanup()`` 统一释放（含 delta 镜像）。
-
-        参数:
-            ctx: 不可变的运行坐标（run_id、repeat_index、suite 元数据）。
-
-        返回:
-            绑定 ``ctx.run_id`` / ``ctx.repeat_index`` / ``ctx.suite_name`` 的
-            新 ``SuiteRunResources``。Pipeline 会将同一登记簿贯穿
-            ``produce_delta``、``run_before_load``、``run_after_load``。
-        """
-
-    @abstractmethod
     async def produce_delta(
         self,
         resources: SuiteRunResources,
@@ -65,33 +56,36 @@ class RuntimeAdapter(ABC):
         warmup_tasks: list[SuiteTask],
         ctx: RunContext,
     ) -> DeltaRef:
-        """执行 warmup 题、触发产物更新，并物化为 delta。
+        if not isinstance(policy, WarmupThenUpdatePolicy):
+            raise TypeError(f"Unsupported artifact policy: {type(policy)!r}")
+        if not warmup_tasks:
+            raise ValueError("WarmupThenUpdatePolicy requires warmup tasks")
 
-        实现 LIFT 的 **ArtifactPolicy** 阶段：跑完所有 warmup（非 hold-out）题，
-        再调用运行时的 evolve/update 钩子（如 OpenClaw 的 ``openclaw learn review``），
-        并将结果状态固化为可加载的产物。
+        workspace = self.warmup_workspace(ctx)
+        env = await self.start_warmup_environment(ctx, resources, workspace)
+        resources.track(env.disposable)
+        try:
+            factory = self.create_agent_pair_factory(
+                env, ctx, phase="warmup", workspace_dir=workspace
+            )
+            await execute_phase_batch(
+                tasks=warmup_tasks,
+                run_id=ctx.run_id,
+                workspace_dir=workspace,
+                factory=factory,
+                parallel=self._options.parallel,
+                phase="warmup",
+                is_final_task=False,
+                log_label="warmup",
+            )
+            await self.apply_evolve(env, ctx)
+            delta = await self.materialize_delta(env, ctx)
+            resources.delta = delta
+            LOGGER.info("Delta materialized: %s", delta.image_tag)
+            return delta
+        finally:
+            await env.disposable.cleanup()
 
-        OpenClaw 典型做法是对 warmup 容器 ``docker commit`` 为临时镜像，
-        标签由 ``delta_image_tag()`` 生成；delta 写入 ``resources.delta``，
-        供后续 ``run_after_load`` 使用。
-
-        warmup 的 ``PhaseRun`` **不会**写入评测 report，仅向 pipeline 返回 delta 引用。
-
-        参数:
-            resources: suite 资源登记簿；实现方应在此 ``track()`` warmup 容器，
-                并在返回前设置 ``resources.delta``。
-            policy: 产物如何产生（默认 ``WarmupThenUpdatePolicy``）。
-            warmup_tasks: ``split_suite_tasks`` 切分后的 warmup 题列表。
-            ctx: 与 ``create_suite_run_resources`` 相同的运行坐标。
-
-        返回:
-            指向已固化产物的 ``DeltaRef``（如 delta 镜像 tag）。
-
-        异常:
-            ValueError: ``warmup_tasks`` 为空或 policy 不受支持时。
-        """
-
-    @abstractmethod
     async def run_before_load(
         self,
         task: SuiteTask,
@@ -100,25 +94,16 @@ class RuntimeAdapter(ABC):
         *,
         phase: str = "baseline",
     ) -> PhaseRun:
-        """在**未加载**进化产物的前提下评测一道 hold-out 题。
+        return await self._run_holdout(
+            task=task,
+            resources=resources,
+            ctx=ctx,
+            image=self.baseline_image(ctx),
+            phase=phase,
+            is_evolve_turn=False,
+            log_label="before-load",
+        )
 
-        对应 LIFT **before-load** / ``LoadState.BEFORE_LOAD``：全新运行时环境
-        （OpenClaw 为 base 镜像）+ 按题隔离的 workspace，Agent 不得看到 warmup evolve 结果。
-
-        执行完整 task 回路（user agent + judge，多轮直至成功或达上限），
-        返回写入 ``TaskRun.baseline`` 的 ``PhaseRun``。
-
-        参数:
-            task: 单道 hold-out ``SuiteTask``。
-            resources: suite 资源登记簿，用于跟踪 hold-out 临时容器。
-            ctx: 运行坐标。
-            phase: report/workspace 标签（pipeline 传入 ``"baseline"``）。
-
-        返回:
-            含 success、content_score、session id、workspace_dir 的 ``PhaseRun``。
-        """
-
-    @abstractmethod
     async def run_after_load(
         self,
         task: SuiteTask,
@@ -126,46 +111,111 @@ class RuntimeAdapter(ABC):
         delta: DeltaRef,
         ctx: RunContext,
     ) -> PhaseRun:
-        """在**已加载**进化产物的前提下评测同一道 hold-out 题。
+        return await self._run_holdout(
+            task=task,
+            resources=resources,
+            ctx=ctx,
+            image=delta.image_tag,
+            phase="evolved",
+            is_evolve_turn=True,
+            log_label="after-load",
+        )
 
-        对应 LIFT **after-load** / ``LoadState.AFTER_LOAD``：与 ``run_before_load``
-        相同的题目与 judge 协议，但运行时从 ``produce_delta`` 产出的 delta 启动
-        （如 OpenClaw 的 delta 镜像）。
+    async def _run_holdout(
+        self,
+        *,
+        task: SuiteTask,
+        resources: SuiteRunResources,
+        ctx: RunContext,
+        image: str,
+        phase: str,
+        is_evolve_turn: bool,
+        log_label: str,
+    ) -> PhaseRun:
+        workspace = self.holdout_workspace(ctx, task, phase)
+        seed_workspace = phase in {"baseline", "evolved"}
+        env = await self.start_holdout_environment(
+            ctx,
+            resources,
+            task,
+            workspace,
+            image=image,
+            seed_workspace=seed_workspace,
+        )
+        resources.track(env.disposable)
+        try:
+            factory = self.create_agent_pair_factory(
+                env, ctx, phase=phase, workspace_dir=workspace
+            )
+            return await execute_phase(
+                task=task,
+                run_id=ctx.run_id,
+                workspace_dir=workspace,
+                factory=factory,
+                phase=phase,
+                is_evolve_turn=is_evolve_turn,
+                is_final_task=True,
+                log_label=log_label,
+            )
+        finally:
+            await env.disposable.cleanup()
 
-        workspace 仍须按题隔离（每 phase 独立目录），避免与 baseline 串答案；
-        两次运行之间仅 **产物加载状态** 不同。
+    def warmup_workspace(self, ctx: RunContext) -> Path:
+        return outcome_workspace(
+            ctx.run_id, ctx.repeat_index, "warmup", ctx.category_name
+        )
 
-        参数:
-            task: 与配对 baseline 相同的 hold-out 题。
-            resources: suite 资源登记簿，用于跟踪 hold-out 临时容器。
-            delta: ``produce_delta`` 返回的产物引用。
-            ctx: 运行坐标。
+    def holdout_workspace(self, ctx: RunContext, task: SuiteTask, phase: str) -> Path:
+        base = outcome_workspace(
+            ctx.run_id, ctx.repeat_index, phase, ctx.category_name
+        )
+        path = base / task.name
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
-        返回:
-            写入 ``TaskRun.evolved`` 的 ``PhaseRun``。
-        """
-
-
-class ContainerRuntimeAdapter(RuntimeAdapter):
-    """基于容器的 runtime 基类。
-
-    需要 Docker 镜像的 adapter 继承本类，在 ``agents/<runtime>/`` 下声明镜像配置，
-    并通过 ``resolve_docker_image()`` 解析；非容器 runtime（如测试替身）直接继承
-    ``RuntimeAdapter`` 即可。
-    """
-
-    @classmethod
     @abstractmethod
-    def resolve_docker_image(cls, *, override: str | None = None) -> str:
-        """从 agent 配置解析 base 镜像。
+    def create_agent_pair_factory(
+        self,
+        env: ExecutionEnvironment,
+        ctx: RunContext,
+        *,
+        phase: str,
+        workspace_dir: Path,
+    ) -> TaskAgentPairFactory:
+        """Build work/judge agents for ``run_task`` inside ``env``."""
 
-        参数:
-            override: CLI 或调用方显式覆盖的镜像名；为 None 时读取 agent 配置。
+    @abstractmethod
+    async def start_warmup_environment(
+        self,
+        ctx: RunContext,
+        resources: SuiteRunResources,
+        workspace_dir: Path,
+    ) -> ExecutionEnvironment:
+        """Start the runtime used for warmup tasks."""
 
-        返回:
-            用于 warmup / before-load 的 base 容器镜像 tag。
+    @abstractmethod
+    async def start_holdout_environment(
+        self,
+        ctx: RunContext,
+        resources: SuiteRunResources,
+        task: SuiteTask,
+        workspace_dir: Path,
+        *,
+        image: str,
+        seed_workspace: bool,
+    ) -> ExecutionEnvironment:
+        """Start the runtime used for one hold-out task."""
 
-        异常:
-            FileNotFoundError: agent 配置文件不存在。
-            ValueError: 配置文件中缺少 ``docker_image`` 字段。
-        """
+    @abstractmethod
+    async def apply_evolve(self, env: ExecutionEnvironment, ctx: RunContext) -> None:
+        """Trigger artifact update after warmup tasks complete."""
+
+    @abstractmethod
+    async def materialize_delta(
+        self, env: ExecutionEnvironment, ctx: RunContext
+    ) -> DeltaRef:
+        """Persist warmup evolve state into a loadable delta."""
+
+    @abstractmethod
+    def baseline_image(self, ctx: RunContext) -> str:
+        """Runtime image or identifier for before-load hold-out."""

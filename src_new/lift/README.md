@@ -6,11 +6,14 @@ Loaded Impact on Final Task — container-per-task implementation.
 
 ## Architecture
 
-- **Host**: `LIFTPipeline`, report JSON, preprocess/postprocess (`src_new`)
-- **Container**: OpenClaw agent only ([`agents/openclaw/`](../../agents/openclaw/))
+Three adapter layers:
+
+1. **`RuntimeAdapter`** (`adapters/base.py`) — template `produce_delta` / hold-out; calls `lift/eval`
+2. **`ContainerRuntimeAdapter`** (`adapters/container/`) — Docker lifecycle; default delta via `docker commit`
+3. **`OpenClawAdapter`** (`adapters/openclaw/`) — image config, `start_container`, chat factory, `learn review`
+
 - **before-load**: fresh container from base image (`evolve-eval-openclaw:latest`)
-- **after-load**: fresh container from **delta image** (`docker commit` after warmup)
-- **Isolation**: each hold-out task gets its own before/after containers; shared delta, per-task workspace
+- **after-load**: fresh container from **delta image** (committed after warmup)
 - **Cleanup**: `SuiteRunResources.cleanup()` removes containers and delta images
 
 ## Build image

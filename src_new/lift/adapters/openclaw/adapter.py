@@ -3,26 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import override
 
-from src_new.config import LOGGER
-from src_new.lift.adapters.base import ContainerRuntimeAdapter, RunContext
-from src_new.lift.adapters.openclaw.container_session import ContainerSession
-from src_new.lift.adapters.openclaw.delta_producer import produce_delta_from_warmup
-from src_new.lift.adapters.openclaw.task_runner import openclaw_agent_pair_factory
-from src_new.lift.eval.phase import execute_phase
-from src_new.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
-from src_new.lift.runtime.delta_ref import DeltaRef
-from src_new.lift.runtime.suite_run_resources import SuiteRunResources
-from src_new.models import PhaseRun, SuiteTask
-from src_new.lift.pipeline.run_options import RunOptions
-from src_new.utils import outcome_workspace, short_id
-
-
+from src_new.lift.adapters.base import RunContext
+from src_new.lift.adapters.container.adapter import ContainerRuntimeAdapter
+from src_new.lift.adapters.container.session import ContainerSession
+from src_new.lift.adapters.environment import ExecutionEnvironment
+from src_new.lift.adapters.openclaw.agent import OpenClawAgentPairFactory
+from src_new.lift.adapters.openclaw.evolve import openclaw_learn_review
+from src_new.lift.adapters.openclaw.session import openclaw_context, start_openclaw_container
+from src_new.lift.eval.agent_pair import TaskAgentPairFactory
+from src_new.models import SuiteTask
 class OpenClawAdapter(ContainerRuntimeAdapter):
-    """OpenClaw runtime: host orchestration, agent execution inside Docker."""
-
-    def __init__(self, options: RunOptions) -> None:
-        self._options = options
-        self._docker_image = self.resolve_docker_image(override=options.docker_image)
+    """OpenClaw: image config, container start, chat factory, and evolve hook."""
 
     @classmethod
     @override
@@ -49,128 +40,45 @@ class OpenClawAdapter(ContainerRuntimeAdapter):
         return Path(__file__).resolve().parents[4] / "agents" / "openclaw" / "container_defaults.yaml"
 
     @override
-    async def create_suite_run_resources(self, ctx: RunContext) -> SuiteRunResources:
-        return SuiteRunResources(
-            run_id=ctx.run_id,
-            repeat_index=ctx.repeat_index,
-            suite_name=ctx.suite_name,
-        )
-
-    @override
-    async def produce_delta(
-        self,
-        resources: SuiteRunResources,
-        policy: ArtifactPolicy,
-        warmup_tasks: list[SuiteTask],
-        ctx: RunContext,
-    ) -> DeltaRef:
-        if not isinstance(policy, WarmupThenUpdatePolicy):
-            raise TypeError(f"Unsupported artifact policy: {type(policy)!r}")
-        if not warmup_tasks:
-            raise ValueError("WarmupThenUpdatePolicy requires warmup tasks")
-        return await produce_delta_from_warmup(
-            resources=resources,
-            warmup_tasks=warmup_tasks,
-            run_id=ctx.run_id,
-            repeat_index=ctx.repeat_index,
-            category_name=ctx.category_name,
-            suite_name=ctx.suite_name,
-            docker_image=self._docker_image,
-            warmup_policy=self._options.warmup_container_policy,
-            parallel_warmup_tasks=self._options.parallel,
-        )
-
-    @override
-    async def run_before_load(
-        self,
-        task: SuiteTask,
-        resources: SuiteRunResources,
-        ctx: RunContext,
-        *,
-        phase: str = "baseline",
-    ) -> PhaseRun:
-        return await self._run_holdout_phase(
-            task=task,
-            resources=resources,
-            ctx=ctx,
-            image=self._docker_image,
-            phase=phase,
-            is_evolve_turn=False,
-            log_label="before-load",
-        )
-
-    @override
-    async def run_after_load(
-        self,
-        task: SuiteTask,
-        resources: SuiteRunResources,
-        delta: DeltaRef,
-        ctx: RunContext,
-    ) -> PhaseRun:
-        return await self._run_holdout_phase(
-            task=task,
-            resources=resources,
-            ctx=ctx,
-            image=delta.image_tag,
-            phase="evolved",
-            is_evolve_turn=True,
-            log_label="after-load",
-        )
-
-    async def _run_holdout_phase(
+    async def start_container(
         self,
         *,
-        task: SuiteTask,
-        resources: SuiteRunResources,
-        ctx: RunContext,
+        instance_id: str,
         image: str,
-        phase: str,
-        is_evolve_turn: bool,
-        log_label: str,
-    ) -> PhaseRun:
-        workspace = self._task_workspace(ctx, task, phase)
-        instance_id = (
-            f"{ctx.run_id}-r{ctx.repeat_index}-{task.name}-{phase}-{short_id()}"
-        )
-        session = await ContainerSession.start(
+        ctx: RunContext,
+        workspace_dir: Path,
+        seed_workspace: bool,
+        task: SuiteTask | None,
+    ) -> ContainerSession:
+        return await start_openclaw_container(
             instance_id=instance_id,
             image=image,
-            run_id=ctx.run_id,
-            repeat_index=ctx.repeat_index,
-            workspace_dir=workspace,
-            seed_workspace=True,
+            ctx=ctx,
+            workspace_dir=workspace_dir,
+            seed_workspace=seed_workspace,
             task=task,
         )
-        resources.track(session)
-        try:
-            factory = openclaw_agent_pair_factory(
-                container=session.context,
-                run_id=ctx.run_id,
-                repeat_index=ctx.repeat_index,
-                phase=phase,
-                workspace_dir=workspace,
-            )
-            return await execute_phase(
-                task=task,
-                run_id=ctx.run_id,
-                workspace_dir=workspace,
-                factory=factory,
-                phase=phase,
-                is_evolve_turn=is_evolve_turn,
-                is_final_task=True,
-                log_label=log_label,
-            )
-        finally:
-            await session.cleanup()
 
-    @staticmethod
-    def _task_workspace(ctx: RunContext, task: SuiteTask, phase: str) -> Path:
-        base = outcome_workspace(
-            ctx.run_id,
-            ctx.repeat_index,
-            phase,
-            ctx.category_name,
+    @override
+    def create_agent_pair_factory(
+        self,
+        env: ExecutionEnvironment,
+        ctx: RunContext,
+        *,
+        phase: str,
+        workspace_dir: Path,
+    ) -> TaskAgentPairFactory:
+        session: ContainerSession = env.handle
+        return OpenClawAgentPairFactory(
+            container=openclaw_context(session),
+            run_id=ctx.run_id,
+            repeat_index=ctx.repeat_index,
+            phase=phase,
+            workspace_dir=workspace_dir,
         )
-        path = base / task.name
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+
+    @override
+    async def apply_evolve(self, env: ExecutionEnvironment, ctx: RunContext) -> None:
+        _ = ctx
+        session: ContainerSession = env.handle
+        await openclaw_learn_review(openclaw_context(session))

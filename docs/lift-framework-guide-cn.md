@@ -37,14 +37,24 @@ src_new/lift/
 ├── suite/              # Suite 加载与 hold-out 切分
 │   ├── lift_suite.py       ← 读 JSON + holdout_count 等扩展字段
 │   └── holdout.py          ← warmup / hold-out 切分逻辑
-├── adapters/           # 运行时适配层（可插拔 Agent 后端）
-│   ├── base.py             ← RuntimeAdapter / ContainerRuntimeAdapter 抽象基类
+├── eval/               # 单题评测内核（runtime 无关）
+│   ├── run_task.py         ← work + judge 多轮循环
+│   └── phase.py            ← execute_phase / execute_phase_batch
+├── adapters/           # 运行时适配层（三层继承）
+│   ├── base.py             ← RuntimeAdapter 模板方法 + 抽象钩子
+│   ├── environment.py      ← ExecutionEnvironment
 │   ├── registry.py         ← --runtime 工厂注册
-│   └── openclaw/           ← OpenClaw 具体实现（见第 4 节）
+│   ├── container/          ← 通用 Docker 层
+│   │   ├── adapter.py          ← ContainerRuntimeAdapter（commit delta 默认实现）
+│   │   ├── session.py          ← 参数化 docker run / cleanup
+│   │   ├── volumes.py          ← 卷挂载
+│   │   └── delta.py            ← commit_delta_image
+│   └── openclaw/           ← OpenClaw 薄实现（镜像 / chat / evolve / 容器启动）
 │       ├── adapter.py
-│       ├── container_session.py
-│       ├── workspace_seed.py   ← hold-out workspace 人设预置
-│       └── …
+│       ├── session.py          ← gateway 端口、seed、OpenClaw entrypoint
+│       ├── agent.py            ← ContainerOpenClawAgent + factory
+│       ├── evolve.py           ← learn review
+│       └── workspace_seed.py
 ├── policies/           # 策略（产物如何产生、容器如何编排）
 │   ├── artifact.py         ← ArtifactPolicy（ABC）+ WarmupThenUpdatePolicy
 │   └── container.py        ← warmup 容器策略（serial_single 等）
@@ -79,26 +89,26 @@ src_new/lift/
 2. `pipeline/lift_pipeline.py` — 对每个 suite / repeat 的循环骨架
 3. `suite/holdout.py` + `suite/lift_suite.py` — 题目如何分成 warmup 与 hold-out
 
-### 第二步：理解适配器契约
+### 第二步：理解适配器三层继承
 
-4. `adapters/base.py` — `RuntimeAdapter`（ABC）四个抽象方法；需 Docker 的 runtime 再继承 `ContainerRuntimeAdapter` 并实现 `resolve_docker_image()`：
-   - `create_suite_run_resources` — 创建单次 suite 评测的资源登记簿
-   - `produce_delta` — warmup + evolve → 产出 delta
-   - `run_before_load` — baseline 阶段跑 hold-out
-   - `run_after_load` — evolved 阶段跑 hold-out
+4. `adapters/base.py` — **`RuntimeAdapter` 模板方法**（已实现 `produce_delta` / `_run_holdout`），子类只需实现钩子：
+   - `create_agent_pair_factory` — 如何 chat
+   - `start_warmup_environment` / `start_holdout_environment` — 执行环境
+   - `apply_evolve` — warmup 后进化
+   - `materialize_delta` — 产物物化
+   - `baseline_image` — before-load 运行时标识
 
-   实现类需**继承** `RuntimeAdapter`，在重写方法上加 `@override`（`typing.override`）；漏实现任一方法会在实例化时报 `TypeError`。
+5. `adapters/container/adapter.py` — **`ContainerRuntimeAdapter`**：容器启停 + **默认 docker commit** 物化 delta；抽象 `start_container` + `resolve_docker_image`
 
-5. `adapters/registry.py` — 目前仅注册 `openclaw`；换运行时在这里扩展
+6. `adapters/openclaw/adapter.py` — **OpenClaw 仅 4 件事**：读镜像配置、`start_container`、`create_agent_pair_factory`、`apply_evolve`
 
-### 第三步：深入 OpenClaw 实现
+7. `adapters/registry.py` — 目前仅注册 `openclaw`
 
-6. `adapters/openclaw/adapter.py` — 把抽象契约映射到容器操作
-7. `adapters/openclaw/delta_producer.py` — warmup 容器 → evolve → `docker commit`
-8. `adapters/openclaw/container_session.py` — `docker run`、端口、卷挂载
-9. `adapters/openclaw/task_runner.py` — `OpenClawAgentPairFactory`（容器内 agent 创建）
-10. `lift/eval/run_task.py` — 单题 work/judge 多轮循环（runtime 无关）
-11. `lift/eval/phase.py` — `execute_phase` / `execute_phase_batch`（多题串并行）
+### 第三步：评测内核与 OpenClaw 细节
+
+8. `lift/eval/run_task.py` + `phase.py` — 单题 / 多题执行（与 runtime 无关）
+9. `openclaw/session.py` — OpenClaw gateway 启动、端口、workspace seed
+10. `openclaw/agent.py` — 容器内 `docker exec openclaw` 实现 chat
 
 ### 第四步：对照测试
 
@@ -132,14 +142,15 @@ python -m pytest src_new/lift/tests -q
 
 LIFT **不**在宿主机直接跑 OpenClaw CLI（legacy `openclaw_main.py` 才是旧模式）。`src_new` 通过 **`ContainerOpenClawAgent`** 把 `OpenClawAgent.chat()` 转成 `docker exec`。
 
-### 4.2 `OpenClawAdapter` 方法 → 文件映射
+### 4.2 三层职责 → 文件映射
 
-| 抽象方法 | 实现位置 | 行为摘要 |
-|----------|----------|----------|
-| `create_suite_run_resources` | `adapter.py` | 创建 `SuiteRunResources`（登记容器与 delta） |
-| `produce_delta` | `delta_producer.py` | 单 warmup 容器串行跑 Q1…Q_{n-1} → `evolve_in_container` → `docker commit` |
-| `run_before_load` | `adapter.py` → `task_runner.py` | base 镜像 + 独立 workspace → 跑 hold-out → 销毁容器 |
-| `run_after_load` | 同上 | delta 镜像 + 独立 workspace → 跑 hold-out → 销毁容器 |
+| 层 | 模块 | 职责 |
+|----|------|------|
+| **RuntimeAdapter** | `base.py` | 模板：`produce_delta`、`_run_holdout`；调 `lift/eval` |
+| **ContainerRuntimeAdapter** | `container/adapter.py` | 容器启停；默认 `materialize_delta` = docker commit |
+| **OpenClawAdapter** | `openclaw/adapter.py` | `resolve_docker_image`、`start_container`、`create_agent_pair_factory`、`apply_evolve` |
+| **OpenClaw chat** | `openclaw/agent.py` | `ContainerOpenClawAgent` + `OpenClawAgentPairFactory` |
+| **OpenClaw 容器** | `openclaw/session.py` | gateway 端口、volume、workspace seed |
 
 ### 4.3 一次 repeat 的容器时间线
 
@@ -182,7 +193,7 @@ sequenceDiagram
 - **每道 hold-out 的 baseline/evolved 各起一个全新容器**，workspace 挂载到宿主机 `results/{run_id}/outcome/...`，题间隔离。
 - **多道 hold-out 共用同一份 delta 镜像**，只换 workspace。
 
-### 4.4 卷挂载（`material_mount.py`）
+### 4.4 卷挂载（`container/volumes.py`）
 
 容器内路径约定：
 
@@ -206,7 +217,7 @@ sequenceDiagram
 | **单题内核** | `lift/eval/run_task.py` | 1 task：work chat → judge chat → 解析 → 重试 |
 | **单题包装** | `lift/eval/phase.py` `execute_phase` | factory 创建 agent pair → `run_task` → `PhaseRun` |
 | **多题编排** | `lift/eval/phase.py` `execute_phase_batch` | `parallel` 控制串行 / 并行 |
-| **OpenClaw 特化** | `task_runner.py` `OpenClawAgentPairFactory` | 容器内 `docker exec openclaw` 实现 `chat` |
+| **OpenClaw 特化** | `openclaw/agent.py` `OpenClawAgentPairFactory` | 容器内 `docker exec openclaw` 实现 `chat` |
 
 warmup 与 hold-out **共用** `run_task`；差异仅在 adapter 的容器 / workspace / evolve。
 
@@ -553,4 +564,4 @@ CLI (lift_main)
   → （可选）postprocess → results/{run_id}/*_metrics*（CSV/HTML）
 ```
 
-**读代码时记住一条线**：`lift_pipeline` 管编排，`openclaw/adapter` 管容器，`lift/eval` 管单题评测语义，`task_runner` 只管 OpenClaw agent factory。
+**读代码时记住一条线**：`lift_pipeline` 管 suite 循环 → `RuntimeAdapter` 模板 → `ContainerRuntimeAdapter` 管 Docker → `OpenClawAdapter` 只管 chat/evolve/镜像 → `lift/eval` 管单题语义。
