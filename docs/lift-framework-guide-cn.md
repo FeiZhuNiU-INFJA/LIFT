@@ -39,7 +39,8 @@ src_new/lift/
 │   └── holdout.py          ← warmup / hold-out 切分逻辑
 ├── eval/               # 单题评测内核（runtime 无关）
 │   ├── run_task.py         ← work + judge 多轮循环
-│   └── phase.py            ← execute_phase / execute_phase_batch
+│   ├── stage.py            ← SuiteStage / HoldoutLoadState / SuiteRunPhase
+│   └── task_exec.py        ← execute_task / execute_tasks
 ├── adapters/           # 运行时适配层（三层继承）
 │   ├── base.py             ← SuiteRunContext + AgentRuntimeAdapter 模板方法
 │   ├── environment.py      ← ExecutionEnvironment
@@ -72,7 +73,7 @@ src_new/lift/
 | 路径 | 作用 |
 |------|------|
 | `src_new/cli/lift_main.py` | CLI 入口：`--agent-runtime openclaw` |
-| `src_new/lift/eval/` | `worker_judger.py`（`WorkerJudgerPair`）；`run_task`（work + judge 循环）；`execute_phase` / `_batch` |
+| `src_new/lift/eval/` | `stage.py`（`SuiteStage`/`HoldoutLoadState`）；`task_exec.py`；`run_task`；`worker_judger.py` |
 | `src_new/models.py` | `Suite`、`SuiteTask`、`PhaseRun`、`EvalReport` |
 | `src_new/agents.py` | `OpenClawAgent` 基类（宿主机版） |
 | `agents/openclaw/` | Docker 镜像、插件、gateway 配置 |
@@ -105,7 +106,7 @@ src_new/lift/
 
 ### 第三步：评测内核与 OpenClaw 细节
 
-8. `lift/eval/run_task.py` + `phase.py` — 单题 / 多题执行（与 runtime 无关）
+8. `lift/eval/stage.py` + `task_exec.py` + `run_task.py` — 阶段语义 + 单题 / 多题执行（与 runtime 无关）
 9. `openclaw/session.py` — OpenClaw gateway 启动、端口、workspace seed
 10. `openclaw/agent.py` — 容器内 `docker exec openclaw` 实现 chat
 
@@ -215,8 +216,9 @@ sequenceDiagram
 | 层 | 模块 | 粒度 |
 |----|------|------|
 | **单题内核** | `lift/eval/run_task.py` | 1 task：work chat → judge chat → 解析 → 重试 |
-| **单题包装** | `lift/eval/phase.py` `execute_phase` | factory 创建 agent pair → `run_task` → `PhaseRun` |
-| **多题编排** | `lift/eval/phase.py` `execute_phase_batch` | `parallel` 控制串行 / 并行 |
+| **阶段语义** | `lift/eval/stage.py` | `SuiteStage`（warmup/holdout）+ `HoldoutLoadState`（baseline/evolved）→ `SuiteRunPhase` |
+| **单题包装** | `lift/eval/task_exec.py` `execute_task` | factory → `run_task` → `PhaseRun` |
+| **多题编排** | `lift/eval/task_exec.py` `execute_tasks` | `parallel` 控制串行 / 并行 |
 | **OpenClaw 特化** | `openclaw/agent.py` `OpenClawWorkerJudgerPairFactory` | 容器内 `docker exec openclaw` 实现 `chat` |
 
 warmup 与 hold-out **共用** `run_task`；差异仅在 adapter 的容器 / workspace / evolve。

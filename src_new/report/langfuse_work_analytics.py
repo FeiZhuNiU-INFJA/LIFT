@@ -14,6 +14,7 @@ from src_new.models import (
 
 
 def _stats_from_turn_ref(ref: LangfuseTraceRef) -> LangfuseTokenToolStats:
+    """Build per-turn token/tool stats from a merged agent+plugin trace ref."""
     meta = ref.plugin_metadata
     if ref.tokens is not None:
         return LangfuseTokenToolStats(
@@ -36,6 +37,7 @@ def _dialogue_io(ref: LangfuseTraceRef) -> tuple[Any, Any]:
 
 
 def _dialogue_turn(turn_index: int, ref: LangfuseTraceRef) -> LangfuseDialogueTurn:
+    """Build one ``LangfuseDialogueTurn`` from a trace ref at *turn_index*."""
     inp, out = _dialogue_io(ref)
     return LangfuseDialogueTurn(
         turn_index=turn_index,

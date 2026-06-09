@@ -1,3 +1,5 @@
+"""Agent 抽象与实现：OpenClaw CLI agent 与 Hermes profile agent 的 chat / 进化 / workspace 管理。"""
+
 from __future__ import annotations
 import asyncio
 from copy import deepcopy
@@ -19,12 +21,16 @@ from src_new.paths import outcome_root
 from src_new.utils import short_id
 
 GMT_PLUS_8 = timezone(timedelta(hours=8), name="GMT+8")
+"""东八区时区，用于 chat 消息时间戳前缀。"""
+
 WEEKDAY_ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+"""星期缩写（英文），用于消息时间戳格式化。"""
 
 
 
 
 def _upsert_env_var(file_path: str | Path, key: str, value: str) -> None:
+    """在 ``.env`` 文件中插入或更新 ``key=value`` 行。"""
     path = Path(file_path).expanduser().resolve()
     lines: list[str] = []
     if path.exists():
@@ -44,10 +50,7 @@ def _upsert_env_var(file_path: str | Path, key: str, value: str) -> None:
 
 
 def _parse_json_loose(raw: str) -> dict:
-    """
-    `openclaw ... --json` may still print a non-JSON prefix line.
-    Parse the last JSON object from output robustly.
-    """
+    """宽松解析 JSON：``openclaw ... --json`` 输出可能含非 JSON 前缀，取最后一个 ``{...}`` 对象。"""
     # LOGGER.info("Raw output: %s", raw)
     text = (raw or "").strip()
     if not text:
@@ -70,12 +73,14 @@ def _parse_json_loose(raw: str) -> dict:
 
 
 def _format_message_timestamp() -> str:
+    """生成 chat 消息前缀时间戳（东八区，如 ``[Mon 2026-06-10 12:00:00 GMT+8]``）。"""
     now = datetime.now(GMT_PLUS_8)
     weekday = WEEKDAY_ABBR[now.weekday()]
     return f"[{weekday} {now.strftime('%Y-%m-%d %H:%M:%S')} GMT+8]"
 
 
 def _resolve_project_path(path_value: str | Path) -> Path:
+    """将相对路径解析为相对项目根的绝对路径。"""
     path = Path(path_value).expanduser()
     if not path.is_absolute():
         path = _PROJECT_ROOT / path
@@ -111,31 +116,35 @@ def copy_material_dir_to(workspace_dir: Path, material_path: str | Path) -> Path
 
 
 class Agent(ABC):
+    """Agent 运行时抽象基类：chat、session 切换、进化与 env 配置。"""
+
     @property
     @abstractmethod
     def env_file_path(self) -> str | None:
-        """返回agent的env文件路径"""
+        """返回 agent 的 ``.env`` 文件路径。"""
         pass
 
     @abstractmethod
     async def _restart_gateway(self) -> None:
-        """重启agent的gateway"""
+        """重启 agent 的 gateway 进程。"""
         pass
-    
+
     @staticmethod
     @abstractmethod
     async def evolve(session_id: str) -> None:
-        """启动agent进化"""
+        """触发 agent 进化（warmup 完成后调用）。"""
         pass
 
     @staticmethod
     def disable_evolve() -> None:
+        """禁用自进化插件（hold-out baseline 阶段）。"""
         pass
 
     @staticmethod
     def enable_evolve() -> None:
+        """启用自进化插件（warmup 阶段）。"""
         pass
-    
+
     @staticmethod
     @abstractmethod
     def reset_evolve(run_id: str, category: str, repeat_index: int) -> None:
@@ -143,16 +152,16 @@ class Agent(ABC):
         pass
 
     async def activate_session(self, session_id: str) -> None:
-        """Switch runtime session before chat; default no-op (OpenClaw uses separate agents)."""
+        """chat 前切换 runtime session；默认 no-op（OpenClaw 使用独立 agent）。"""
         _ = session_id
 
     def augment_work_prompt(self, task: SuiteTask, prompt: str) -> str:
-        """Optional suffix for the work-agent initial/retry prompt."""
+        """可选：为 work agent 初始/重试 prompt 追加后缀。"""
         _ = task
         return prompt
 
     def augment_judge_user_prompt(self, task: SuiteTask, prompt: str) -> str:
-        """Optional augmentation of the user prompt shown to the judge."""
+        """可选：为 judge 侧用户 prompt 追加内容。"""
         _ = task
         return prompt
 
@@ -166,43 +175,69 @@ class Agent(ABC):
         *,
         chat_role: str = "work_agent",
     ) -> str:
+        """发送一条消息并返回 assistant 文本回复。
+
+        Args:
+            msg: 用户消息正文。
+            session_id: Langfuse / 对话 session id。
+            tags: 评测上下文标签（pre-chat span 与 env 传播）。
+            response_schema: 可选 Pydantic schema，约束 judge 结构化输出。
+            chat_role: ``work_agent`` 或 ``judge_agent``。
+        """
         pass
 
 
 class HermesAgent(Agent):
+    """Hermes profile agent：独立 gateway 子进程 + OpenAI 兼容 API chat。"""
+
     _next_agent_id: int = 0
+    """全局递增的 Hermes profile 实例 id（类级别计数器）。"""
+
     # 每个 HermesAgent profile 的 API server 监听端口起点。Hermes 默认是 8642，
     # 在并发 / 串行多 profile 场景会冲突，因此为每个实例分配一个独立端口
     # ``_BASE_API_SERVER_PORT + _agent_id``。50000 起步落在 IANA 动态端口范围
     # （49152-65535）内，对千级别 agent 数仍然安全。
     _BASE_API_SERVER_PORT: int = 50000
+    """Hermes API server 端口分配起点。"""
 
     @property
     def env_file_path(self) -> str | None:
+        """Hermes profile 的 ``.env`` 路径（来自 ``CONFIG.hermes_env_file``）。"""
         return CONFIG.hermes_env_file
 
     def __init__(
         self,
         workspace_path: str | Path,
     ) -> None:
+        """构造 HermesAgent（不启动 gateway；请使用 ``create`` 工厂方法）。"""
         self._workspace_path = Path(workspace_path)
+        """当前 phase 的 workspace 目录。"""
         self._agent_id = HermesAgent._next_agent_id
+        """本实例的全局 profile id。"""
         HermesAgent._next_agent_id += 1
         self._profile_name = f"hermes-{self._agent_id}"
+        """Hermes CLI profile 名称（如 ``hermes-0``）。"""
         self._port = HermesAgent._BASE_API_SERVER_PORT + self._agent_id
+        """本 profile API server 监听端口。"""
         self.client = AsyncOpenAI(
             base_url=f"http://localhost:{self._port}/v1",
             api_key=CONFIG.hermes_api_key,
             timeout=3600.0,
             max_retries=5,
         )
+        """OpenAI 兼容 async client，指向本 profile gateway。"""
         self._gateway_proc: asyncio.subprocess.Process | None = None
+        """后台 ``<profile> gateway run`` 子进程。"""
         self._gateway_ready: bool = False
+        """gateway TCP 端口是否已就绪。"""
         self.has_emitted_work_pre_span: bool = False
+        """是否已上报 work_agent pre-chat span（每 phase 仅一次）。"""
         self.has_emitted_judge_pre_span: bool = False
+        """是否已上报 judge_agent pre-chat span（每 phase 仅一次）。"""
 
     @property
     def workspace_dir(self) -> Path:
+        """当前 phase workspace 目录。"""
         return self._workspace_path
 
     def copy_task_assets(
@@ -222,6 +257,7 @@ class HermesAgent(Agent):
         cls,
         workspace_path: str | Path,
     ) -> HermesAgent:
+        """创建 HermesAgent：ensure profile → 初始化 env → 启动 gateway。"""
         instance = cls(workspace_path)
         await instance._ensure_profile()
         instance._init_env()
@@ -281,6 +317,7 @@ class HermesAgent(Agent):
         self._gateway_ready = False
 
     async def _ensure_profile(self) -> None:
+        """创建 Hermes profile（已存在则 delete 后重建）。"""
         try:
             await self._run_cmd_checked(
                 ["hermes", "profile", "create", self._profile_name, "--clone"]
@@ -294,6 +331,7 @@ class HermesAgent(Agent):
             )
 
     def _init_env(self) -> None:
+        """将 Langfuse / Firecrawl / API server 等配置写入 profile ``.env``。"""
         env = self._env_file
         if CONFIG.langfuse_public_key:
             _upsert_env_var(env, "HERMES_LANGFUSE_PUBLIC_KEY", CONFIG.langfuse_public_key)
@@ -312,9 +350,11 @@ class HermesAgent(Agent):
 
     @property
     def _env_file(self) -> Path:
+        """本 profile 的 ``~/.hermes/profiles/{profile}/.env`` 路径。"""
         return Path.home() / ".hermes" / "profiles" / self._profile_name / ".env"
 
     async def switch_session(self, session_id: str) -> None:
+        """切换 Hermes session：写入 ``SESSION_ID`` 并重启 gateway。"""
         if hasattr(self, "_current_session_id") and self._current_session_id == session_id:
             return
         self._current_session_id = session_id
@@ -322,43 +362,52 @@ class HermesAgent(Agent):
         await self._restart_gateway()
 
     async def activate_session(self, session_id: str) -> None:
+        """实现 ``Agent.activate_session``：委托 ``switch_session``。"""
         await self.switch_session(session_id)
 
     def _workspace_hint(self) -> str:
+        """返回追加到 prompt 的 workspace 路径提示。"""
         return f"\n你的工作区路径是: {self._workspace_path}"
 
     def augment_work_prompt(self, task: SuiteTask, prompt: str) -> str:
+        """为 work prompt 追加 workspace 路径提示。"""
         _ = task
         return prompt + self._workspace_hint()
 
     def augment_judge_user_prompt(self, task: SuiteTask, prompt: str) -> str:
+        """为 judge 用户 prompt 追加 workspace 路径提示。"""
         _ = task
         return prompt + self._workspace_hint()
 
     def reset_pre_chat_state(self) -> None:
+        """重置 pre-chat span 上报标记（新 phase 开始时调用）。"""
         self.has_emitted_work_pre_span = False
         self.has_emitted_judge_pre_span = False
 
     @staticmethod
     async def evolve(session_id: str) -> None:
-        """Hermes无需主动触发进化"""
+        """Hermes 无需主动触发进化（no-op）。"""
         _ = session_id
         pass
 
     @staticmethod
     def disable_evolve() -> None:
+        """Hermes 无自进化插件（no-op）。"""
         pass
 
     @staticmethod
     def enable_evolve() -> None:
+        """Hermes 无自进化插件（no-op）。"""
         pass
 
     @staticmethod
     def reset_evolve(run_id: str, category: str, repeat_index: int) -> None:
+        """Hermes 无进化状态重置（no-op）。"""
         _ = (run_id, category, repeat_index)
         pass
 
     async def _run_cmd_checked(self, args: list[str]) -> None:
+        """异步执行 CLI 命令，非零退出码时抛出 ``CalledProcessError``。"""
         LOGGER.info("Running command: %s", " ".join(args))
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -378,6 +427,7 @@ class HermesAgent(Agent):
     async def _wait_for_tcp_ready(
         self, host: str, port: int, timeout_s: float = 60.0
     ) -> None:
+        """轮询 TCP 连接直至 ``host:port`` 可连或超时。"""
         deadline = time.monotonic() + timeout_s
         last_exc: Exception | None = None
         delay_s = 0.2
@@ -396,6 +446,7 @@ class HermesAgent(Agent):
         ) from last_exc
 
     async def _restart_gateway(self) -> None:
+        """终止现有 gateway 子进程并重新拉起（使 profile env 生效）。"""
         LOGGER.info(
             "Restarting gateway for profile: %s", self._profile_name
         )
@@ -437,6 +488,7 @@ class HermesAgent(Agent):
         *,
         chat_role: str = "work_agent",
     ) -> str:
+        """通过 Hermes OpenAI 兼容 API 发送消息并返回 assistant 文本。"""
         if chat_role == "work_agent" and not self.has_emitted_work_pre_span:
             emit_pre_chat_state(session_id=session_id, tags=tags, chat_role=chat_role)
             self.has_emitted_work_pre_span = True
@@ -479,6 +531,8 @@ class HermesAgent(Agent):
 
 
 class OpenClawAgent(Agent):
+    """OpenClaw CLI agent：通过 ``openclaw agent`` 子命令 chat，支持自进化插件。"""
+
     def __init__(
         self,
         run_id: str,
@@ -488,15 +542,24 @@ class OpenClawAgent(Agent):
         material_dir: str | None = None,
         workspace_dir: str | Path | None = None,
     ) -> None:
+        """构造 OpenClawAgent（需调用 ``initialize`` 创建 workspace 与 agent）。"""
         self.run_id = run_id
+        """评测批次 ID。"""
         self.task_id = task_id
+        """task / phase 标识（如 baseline-xxx、evolved-xxx）。"""
         self.agent_name = agent_name
+        """OpenClaw agent 名称（``openclaw agents add`` 注册名）。"""
         self._skills_dir = skills_dir
+        """待拷贝的 skills 目录路径（``initialize`` 时使用）。"""
         self._material_dir = material_dir
+        """待拷贝的 materials 目录路径（``initialize`` 时使用）。"""
         self._workspace_dir_arg = workspace_dir
+        """显式指定的 workspace 路径（``None`` 时按 run_id/task_id 推导）。"""
         self.workspace_dir: Path | None = None
+        """当前 phase 的 workspace 目录（``initialize`` 后赋值）。"""
 
     def initialize(self) -> None:
+        """创建 workspace、拷贝 skills/materials 并注册 OpenClaw agent。"""
         self.workspace_dir = self._mk_workspace(self._workspace_dir_arg)
         if self._skills_dir:
             self.copy_skill_dir(self._skills_dir)
@@ -505,6 +568,7 @@ class OpenClawAgent(Agent):
         self._create_agent()
 
     def _openclaw_env(self, extra_env: dict[str, str] | None = None) -> dict[str, str]:
+        """合并进程环境、OpenClaw ``.env`` 文件与 ``extra_env``。"""
         env = os.environ.copy()
         env_file_path = self.env_file_path
         if env_file_path:
@@ -521,7 +585,9 @@ class OpenClawAgent(Agent):
         return env
 
     def _create_agent(self, max_retries: int = 3) -> None:
+        """通过 ``openclaw agents add`` 注册 agent；名称冲突时自动重试新名。"""
         def chk_existance():
+            """检查 ``self.agent_name`` 是否已在 openclaw 注册。"""
             result = subprocess.run(["openclaw", "agents", "list"], check=False, capture_output=True)
             if result.returncode == 1:
                 LOGGER.info(f"Error when executing openclaw agents list: {result.stderr.decode()}")
@@ -567,14 +633,15 @@ class OpenClawAgent(Agent):
     
     @property
     def env_file_path(self) -> str | None:
+        """OpenClaw ``.env`` 路径（来自 ``CONFIG.openclaw_env_file``）。"""
         return CONFIG.openclaw_env_file
-    
+
     def _mk_workspace(self, workspace_dir: str | Path | None = None) -> Path:
-        """
-        Create workspace directory at ``<cwd>/results/<run_id>/outcome/<task_id>``.
-        If task id starts with "baseline-", then it is a baseline run.
-        If it starts with "evolved-", then it is an evolved run.
-        If it already exists, do nothing.
+        """创建 workspace 目录。
+
+        默认路径 ``results/{run_id}/outcome/{task_id}``；
+        task_id 以 ``baseline-`` / ``evolved-`` 开头分别表示 baseline / evolved phase。
+        目录已存在时不重复创建。
         """
         if workspace_dir is None:
             workspace_path = outcome_root(str(self.run_id)) / str(self.task_id)
@@ -584,15 +651,19 @@ class OpenClawAgent(Agent):
         return workspace_path
 
     def _resolve_project_path(self, path_value: str | Path) -> Path:
+        """将相对路径解析为相对项目根的绝对路径。"""
         return _resolve_project_path(path_value)
 
     def copy_skill_dir(self, skill_path: str | Path) -> Path:
+        """将 skills 目录拷贝到 ``workspace_dir``。"""
         return copy_skill_dir_to(self.workspace_dir, skill_path)
 
     def copy_material_dir(self, material_path: str | Path) -> Path:
+        """将 materials 目录拷贝到 ``workspace_dir``。"""
         return copy_material_dir_to(self.workspace_dir, material_path)
 
     async def _run_cmd_checked_capture(self, args: list[str]) -> str:
+        """异步执行 OpenClaw CLI 命令并返回 stdout（非零退出码时抛错）。"""
         LOGGER.info("Running command: %s", " ".join(args))
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -618,10 +689,12 @@ class OpenClawAgent(Agent):
 
     @staticmethod
     def _openclaw_config_path() -> Path:
+        """OpenClaw 全局配置文件路径（``~/.openclaw/openclaw.json``）。"""
         return Path("~/.openclaw/openclaw.json").expanduser().resolve()
 
     @staticmethod
     def _load_openclaw_json(path: Path) -> dict:
+        """从 JSON 文件加载 OpenClaw 配置（顶层必须为 object）。"""
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
@@ -630,12 +703,14 @@ class OpenClawAgent(Agent):
 
     @staticmethod
     def _dump_openclaw_json(path: Path, data: dict) -> None:
+        """将 OpenClaw 配置写入 JSON 文件。"""
         with path.open("w", encoding="utf-8", newline="\n") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
             f.write("\n")
 
     @staticmethod
     def _add_openclaw_config_fields(data: dict) -> tuple[dict, dict[str, int]]:
+        """为 OpenClaw 配置补充 streaming usage 与 langfuse hooks 字段；返回 (patched, stats)。"""
         patched = deepcopy(data)
         stats = {
             "model_compat_added": 0,
@@ -677,6 +752,7 @@ class OpenClawAgent(Agent):
 
     @staticmethod
     def _remove_openclaw_config_fields(data: dict) -> tuple[dict, dict[str, int]]:
+        """从 OpenClaw 配置移除 evolve 前临时添加的字段；返回 (patched, stats)。"""
         patched = deepcopy(data)
         stats = {
             "model_compat_removed": 0,
@@ -721,6 +797,7 @@ class OpenClawAgent(Agent):
         restart_gateway: bool = True,
         rebuild_runtime: bool = True,
     ) -> None:
+        """评测启动前初始化 OpenClaw 环境：重建 runtime、补配置、启用插件、重启 gateway。"""
         if rebuild_runtime:
             OpenClawAgent.rebuild_evolution_runtime()
 
@@ -738,6 +815,7 @@ class OpenClawAgent(Agent):
 
     @staticmethod
     def remove_fields_from_openclaw_config() -> dict[str, int]:
+        """从 ``openclaw.json`` 移除 evolve 前临时字段；返回变更统计。"""
         config_path = OpenClawAgent._openclaw_config_path()
         LOGGER.info("Loading OpenClaw config: %s", config_path)
         data = OpenClawAgent._load_openclaw_json(config_path)
@@ -751,6 +829,7 @@ class OpenClawAgent(Agent):
 
     @staticmethod
     def add_fields_to_openclaw_config() -> dict[str, int]:
+        """向 ``openclaw.json`` 补充 streaming usage 与 langfuse hooks；返回变更统计。"""
         config_path = OpenClawAgent._openclaw_config_path()
         LOGGER.info("Loading OpenClaw config: %s", config_path)
         data = OpenClawAgent._load_openclaw_json(config_path)
@@ -764,17 +843,20 @@ class OpenClawAgent(Agent):
 
     @staticmethod
     def rebuild_evolution_runtime() -> None:
+        """执行 ``scripts/rebuild-evolution-runtime.sh`` 重建自进化 runtime。"""
         script_path = _PROJECT_ROOT / "scripts" / "rebuild-evolution-runtime.sh"
         LOGGER.info("Running command: bash %s", script_path)
         subprocess.run(["bash", str(script_path)], check=True)
 
     @staticmethod
     def _run_review_command() -> None:
+        """执行 ``openclaw learn review`` 触发进化回顾。"""
         LOGGER.info("Running command: openclaw learn review")
         subprocess.run(["openclaw", "learn", "review"], check=True)
 
     @staticmethod
     async def evolve(session_id: str) -> None:
+        """触发 OpenClaw 进化：临时移除 config 字段 → learn review → 恢复字段。"""
         _ = session_id
         await asyncio.to_thread(OpenClawAgent.remove_fields_from_openclaw_config)
         try:
@@ -784,6 +866,7 @@ class OpenClawAgent(Agent):
 
     @staticmethod
     def disable_evolve() -> None:
+        """禁用 ``self-evolving-plugin-pro`` 并重启 gateway（hold-out baseline 阶段）。"""
         subprocess.run(["openclaw", "plugins", "disable", "self-evolving-plugin-pro"], check=True)
         LOGGER.info("Running command: openclaw plugins disable self-evolving-plugin-pro")
         subprocess.run(["openclaw", "gateway", "restart"], check=True)
@@ -791,6 +874,7 @@ class OpenClawAgent(Agent):
 
     @staticmethod
     def enable_evolve() -> None:
+        """启用 ``self-evolving-plugin-pro`` 并重启 gateway（warmup 阶段）。"""
         subprocess.run(["openclaw", "plugins", "enable", "self-evolving-plugin-pro"], check=True)
         LOGGER.info("Running command: openclaw plugins enable self-evolving-plugin-pro")
         subprocess.run(["openclaw", "gateway", "restart"], check=True)
@@ -798,6 +882,7 @@ class OpenClawAgent(Agent):
     
     @staticmethod
     def reset_evolve(run_id: str, category: str, repeat_index: int) -> None:
+        """执行 ``scripts/reset-evolution.sh`` 重置进化状态并按 run/category 归档。"""
         script_path = _PROJECT_ROOT / "scripts" / "reset-evolution.sh"
         LOGGER.info(
             "Running command: bash %s %s %s %s",
@@ -820,6 +905,7 @@ class OpenClawAgent(Agent):
         *,
         chat_role: str = "work_agent",
     ) -> str:
+        """通过 ``openclaw agent --json --local`` 发送消息并解析 payloads 文本。"""
         tags.agent_name = self.agent_name
         emit_pre_chat_state(session_id=session_id, tags=tags, chat_role=chat_role)
         _ = response_schema  # OpenClaw CLI mode currently ignores schema output control.
@@ -872,5 +958,6 @@ class OpenClawAgent(Agent):
         return "\n".join(texts)
 
     async def _restart_gateway(self) -> None:
+        """重启 OpenClaw gateway（``openclaw gateway restart``）。"""
         await self._run_cmd_checked_capture(["openclaw", "gateway", "restart"])
-    
+

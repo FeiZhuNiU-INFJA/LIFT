@@ -1,3 +1,8 @@
+"""Unit tests for ``run_task`` work/judge turn loop.
+
+``run_task`` 工作/评判轮次循环的单元测试。
+"""
+
 from __future__ import annotations
 
 import json
@@ -10,19 +15,28 @@ from src_new.models import CustomTags, ExpectedResult, SuiteTask, TaskRequiremen
 
 
 class _FakeAgent:
+    """Stub agent that returns scripted chat responses and records calls.
+
+    返回预设 chat 响应并记录调用参数的桩 agent。
+    """
+
     def __init__(self, *, responses: list[str]) -> None:
-        self._responses = list(responses)
-        self.chat_calls: list[tuple[str, str, str]] = []
-        self.activate_calls: list[str] = []
+        """``responses``: FIFO 队列，每次 ``chat`` 弹出一条返回值。"""
+        self._responses = list(responses)  # 预设 chat 响应队列
+        self.chat_calls: list[tuple[str, str, str]] = []  # (role, session_id, msg)
+        self.activate_calls: list[str] = []  # 已 activate 的 session id
 
     async def activate_session(self, session_id: str) -> None:
+        """记录 session 激活（无实际操作）。"""
         self.activate_calls.append(session_id)
 
     def augment_work_prompt(self, task: SuiteTask, prompt: str) -> str:
+        """透传 work prompt。"""
         _ = task
         return prompt
 
     def augment_judge_user_prompt(self, task: SuiteTask, prompt: str) -> str:
+        """透传 judge user prompt。"""
         _ = task
         return prompt
 
@@ -35,6 +49,7 @@ class _FakeAgent:
         *,
         chat_role: str = "work_agent",
     ) -> str:
+        """弹出下一条预设响应并记录调用参数。"""
         _ = tags
         _ = response_schema
         self.chat_calls.append((chat_role, session_id, msg))
@@ -44,6 +59,7 @@ class _FakeAgent:
 
 
 def _task() -> SuiteTask:
+    """构造最小合法 ``SuiteTask`` 供单测复用。"""
     return SuiteTask(
         name="Q1",
         query="say hello",
@@ -54,6 +70,10 @@ def _task() -> SuiteTask:
 
 
 async def test_run_task_success_on_first_turn() -> None:
+    """Verify success when work and judge pass on the first turn.
+
+    验证首轮 work 与 judge 均通过时任务成功返回。
+    """
     judge_json = json.dumps({"success": True, "reason": "", "score": 1.0})
     work = _FakeAgent(responses=["hello"])
     judge = _FakeAgent(responses=[judge_json])
@@ -82,6 +102,10 @@ async def test_run_task_success_on_first_turn() -> None:
 
 
 async def test_run_task_retries_work_after_judge_failure() -> None:
+    """Verify work is retried with judge feedback after a failed judgment.
+
+    验证 judge 失败后携带反馈重试 work agent。
+    """
     fail_json = json.dumps(
         {"success": False, "reason": "missing greeting", "score": 0.0}
     )
@@ -104,6 +128,10 @@ async def test_run_task_retries_work_after_judge_failure() -> None:
 
 
 async def test_run_task_judge_parse_retry() -> None:
+    """Verify judge retries when its first response is invalid JSON.
+
+    验证 judge 首次返回非 JSON 时会重试解析。
+    """
     ok_json = json.dumps({"success": True, "reason": "", "score": 1.0})
     work = _FakeAgent(responses=["hello"])
     judge = _FakeAgent(responses=["not json", ok_json])

@@ -1,3 +1,5 @@
+"""LIFTPipeline 与 adapter 共享的运行时选项（由 CLI 解析传入）。"""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
@@ -52,6 +54,7 @@ class RunOptions(BaseModel):
 
     @model_validator(mode="after")
     def _normalize_options(self) -> RunOptions:
+        """校验 repeat 下限并补全 ``max_parallel_repeats`` 默认值。"""
         if self.repeat < 1:
             raise ValueError("--repeat must be at least 1")
         if self.max_parallel_repeats is None:

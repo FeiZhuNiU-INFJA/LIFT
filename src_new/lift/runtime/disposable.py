@@ -1,3 +1,5 @@
+"""Disposable 抽象：LIFT 阶段/suite 结束后须显式释放的资源。"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

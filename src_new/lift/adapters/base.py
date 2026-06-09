@@ -1,27 +1,22 @@
+"""AgentRuntimeAdapter 模板方法与 SuiteRunContext（LIFT 适配层核心）。"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from enum import Enum
 from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from src_new.config import LOGGER
 from src_new.lift.adapters.environment import ExecutionEnvironment
+from src_new.lift.eval.stage import HoldoutLoadState, SuiteRunPhase
+from src_new.lift.eval.task_exec import execute_task, execute_tasks
 from src_new.lift.eval.worker_judger import WorkerJudgerPairFactory
-from src_new.lift.eval.phase import execute_phase, execute_phase_batch
 from src_new.lift.pipeline.run_options import RunOptions
 from src_new.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src_new.lift.runtime.delta_ref import DeltaRef
 from src_new.lift.runtime.suite_run_resources import SuiteRunResources
 from src_new.models import PhaseRun, SuiteTask
 from src_new.utils import outcome_workspace
-
-
-class LoadState(Enum):
-    """hold-out 题评测时的产物加载状态。"""
-
-    BEFORE_LOAD = "before_load"
-    AFTER_LOAD = "after_load"
 
 
 class SuiteRunContext(BaseModel):
@@ -40,7 +35,8 @@ class AgentRuntimeAdapter(ABC):
     """Agent execution runtime base with template methods for warmup and hold-out."""
 
     def __init__(self, options: RunOptions | None = None) -> None:
-        self._options = options or RunOptions()
+        """初始化 adapter，``options`` 为 None 时使用默认 ``RunOptions``。"""
+        self._options = options or RunOptions()  # CLI 解析后的运行时配置
 
     async def create_suite_run_resources(self, ctx: SuiteRunContext) -> SuiteRunResources:
         """为当前 suite 创建资源登记簿，供本 suite 内 warmup / hold-out 共用。
@@ -65,27 +61,27 @@ class AgentRuntimeAdapter(ABC):
         warmup_tasks: list[SuiteTask],
         ctx: SuiteRunContext,
     ) -> DeltaRef:
+        """执行 warmup 题 → evolve → 物化 delta 的完整产物生产流程。"""
         if not isinstance(policy, WarmupThenUpdatePolicy):
             raise TypeError(f"Unsupported artifact policy: {type(policy)!r}")
         if not warmup_tasks:
             raise ValueError("WarmupThenUpdatePolicy requires warmup tasks")
 
+        run_phase = SuiteRunPhase.warmup()
         workspace = self.warmup_workspace(ctx)
         env = await self.start_warmup_environment(ctx, resources, workspace)
         resources.track(env.disposable)
         try:
             factory = self.worker_judger_factory(
-                env, ctx, phase="warmup", workspace_dir=workspace
+                env, ctx, run_phase=run_phase, workspace_dir=workspace
             )
-            await execute_phase_batch(
+            await execute_tasks(
                 tasks=warmup_tasks,
                 run_id=ctx.run_id,
                 workspace_dir=workspace,
                 factory=factory,
+                run_phase=run_phase,
                 parallel=self._options.parallel,
-                phase="warmup",
-                is_final_task=False,
-                log_label="warmup",
             )
             await self.apply_evolve(env, ctx)
             delta = await self.materialize_delta(env, ctx)
@@ -100,17 +96,14 @@ class AgentRuntimeAdapter(ABC):
         task: SuiteTask,
         resources: SuiteRunResources,
         ctx: SuiteRunContext,
-        *,
-        phase: str = "baseline",
     ) -> PhaseRun:
+        """Hold-out before-load 对照：干净 baseline 镜像上跑单题。"""
         return await self._run_holdout(
             task=task,
             resources=resources,
             ctx=ctx,
             image=self.baseline_image(ctx),
-            phase=phase,
-            is_evolve_turn=False,
-            log_label="before-load",
+            load_state=HoldoutLoadState.BASELINE,
         )
 
     async def run_after_load(
@@ -120,14 +113,13 @@ class AgentRuntimeAdapter(ABC):
         delta: DeltaRef,
         ctx: SuiteRunContext,
     ) -> PhaseRun:
+        """Hold-out after-load 对照：加载 warmup delta 镜像后跑单题。"""
         return await self._run_holdout(
             task=task,
             resources=resources,
             ctx=ctx,
             image=delta.image_tag,
-            phase="evolved",
-            is_evolve_turn=True,
-            log_label="after-load",
+            load_state=HoldoutLoadState.EVOLVED,
         )
 
     async def _run_holdout(
@@ -137,46 +129,49 @@ class AgentRuntimeAdapter(ABC):
         resources: SuiteRunResources,
         ctx: SuiteRunContext,
         image: str,
-        phase: str,
-        is_evolve_turn: bool,
-        log_label: str,
+        load_state: HoldoutLoadState,
     ) -> PhaseRun:
-        workspace = self.holdout_workspace(ctx, task, phase)
-        seed_workspace = phase in {"baseline", "evolved"}
+        """Hold-out 单题执行内核：起容器 → factory → execute_task。"""
+        run_phase = SuiteRunPhase.holdout(load_state)
+        workspace = self.holdout_workspace(ctx, task, load_state)
         env = await self.start_holdout_environment(
             ctx,
             resources,
             task,
             workspace,
             image=image,
-            seed_workspace=seed_workspace,
+            seed_workspace=True,
         )
         resources.track(env.disposable)
         try:
             factory = self.worker_judger_factory(
-                env, ctx, phase=phase, workspace_dir=workspace
+                env, ctx, run_phase=run_phase, workspace_dir=workspace
             )
-            return await execute_phase(
+            return await execute_task(
                 task=task,
                 run_id=ctx.run_id,
                 workspace_dir=workspace,
                 factory=factory,
-                phase=phase,
-                is_evolve_turn=is_evolve_turn,
-                is_final_task=True,
-                log_label=log_label,
+                run_phase=run_phase,
             )
         finally:
             await env.disposable.cleanup()
 
     def warmup_workspace(self, ctx: SuiteRunContext) -> Path:
+        """warmup 阶段 outcome 目录（多题共享同一 workspace）。"""
         return outcome_workspace(
-            ctx.run_id, ctx.repeat_index, "warmup", ctx.category_name
+            ctx.run_id, ctx.repeat_index, SuiteRunPhase.warmup().workspace_segment, ctx.category_name
         )
 
-    def holdout_workspace(self, ctx: SuiteRunContext, task: SuiteTask, phase: str) -> Path:
+    def holdout_workspace(
+        self, ctx: SuiteRunContext, task: SuiteTask, load_state: HoldoutLoadState
+    ) -> Path:
+        """Hold-out 单题隔离 workspace（``.../holdout/{task.name}/``）。"""
         base = outcome_workspace(
-            ctx.run_id, ctx.repeat_index, phase, ctx.category_name
+            ctx.run_id,
+            ctx.repeat_index,
+            SuiteRunPhase.holdout(load_state).workspace_segment,
+            ctx.category_name,
         )
         path = base / task.name
         path.mkdir(parents=True, exist_ok=True)
@@ -188,7 +183,7 @@ class AgentRuntimeAdapter(ABC):
         env: ExecutionEnvironment,
         ctx: SuiteRunContext,
         *,
-        phase: str,
+        run_phase: SuiteRunPhase,
         workspace_dir: Path,
     ) -> WorkerJudgerPairFactory:
         """Return a ``WorkerJudgerPairFactory`` bound to ``env`` for ``run_task``."""

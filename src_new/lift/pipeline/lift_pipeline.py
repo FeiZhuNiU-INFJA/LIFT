@@ -1,3 +1,5 @@
+"""LIFT 主流程编排：repeat × suite → warmup/delta → hold-out 对照。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,8 +25,9 @@ class LIFTPipeline:
         *,
         report_root: Path | None = None,
     ) -> None:
+        """``report_root`` 为 None 时使用默认 report 目录。"""
         self.report_root = report_root or default_report_root()
-        self._report_lock = asyncio.Lock()
+        self._report_lock = asyncio.Lock()  # 并行 repeat 时保护 report 增量写入
 
     async def run(
         self,
@@ -34,6 +37,7 @@ class LIFTPipeline:
         adapter: AgentRuntimeAdapter,
         options: RunOptions,
     ) -> EvalReport:
+        """执行完整 LIFT 流程并写出 ``EvalReport`` JSON。"""
         eval_report = EvalReport(run_id=run_id)
         report_path = self.report_root / f"{run_id}.json"
         self.report_root.mkdir(parents=True, exist_ok=True)
@@ -83,6 +87,7 @@ class LIFTPipeline:
         eval_report: EvalReport,
         report_path: Path,
     ) -> None:
+        """单轮 repeat 内依次跑所有 suite（warmup → hold-out）。"""
         LOGGER.info(
             "LIFT repeat %d/%d run_id=%s",
             repeat_index + 1,
@@ -141,7 +146,7 @@ class LIFTPipeline:
                 else:
                     for holdout_task in holdout_tasks:
                         baseline = await adapter.run_before_load(
-                            holdout_task, resources, ctx, phase="baseline"
+                            holdout_task, resources, ctx
                         )
                         evolved = await adapter.run_after_load(
                             holdout_task, resources, delta, ctx

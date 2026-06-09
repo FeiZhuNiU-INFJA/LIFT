@@ -1,3 +1,5 @@
+"""warmup 阶段容器编排策略枚举。"""
+
 from __future__ import annotations
 
 from enum import Enum

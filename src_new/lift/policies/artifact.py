@@ -1,3 +1,5 @@
+"""产物（Artifact）更新策略：warmup 题与 evolve 钩子如何产生产物。"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -43,4 +45,5 @@ class WarmupThenUpdatePolicy(BaseModel, ArtifactPolicy):
     @property
     @override
     def warmup_tasks(self) -> list[SuiteTask]:
+        """返回 ``tasks`` 字段（``warmup_tasks`` alias）。"""
         return self.tasks

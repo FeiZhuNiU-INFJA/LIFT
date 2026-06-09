@@ -13,12 +13,15 @@ from src_new.models import CustomTags, SuiteTask
 
 
 class EvalJudgeResult(BaseModel):
+    """Judge agent 输出的结构化评测结果（JSON 解析目标）。"""
+
     success: bool = Field(description="是否成功")
     reason: str = Field(description="失败原因")
     score: float = Field(description="任务完成率，0-1的分数，成功的时候应该是1")
 
 
 def _extract_judge_result(raw_text: str) -> EvalJudgeResult:
+    """从 judge 原始回复中提取并解析 JSON 为 ``EvalJudgeResult``。"""
     try:
         start_idx = raw_text.find("{")
         end_idx = raw_text.rfind("}")
@@ -33,6 +36,7 @@ def _extract_judge_result(raw_text: str) -> EvalJudgeResult:
 
 
 def _build_judge_prompt(user_prompt: str, agent_result: str, content_reqs: str) -> str:
+    """构造 judge 首轮 prompt（含用户题面、期望结果与 agent 输出）。"""
     return (
         "你是严格评测器。请根据【用户提示词】和【任务期望结果】判定当前任务是否已经完成。\n"
         "你必须只输出一个 JSON 对象，不要输出任何其他文字、解释或 markdown。\n"
@@ -50,6 +54,7 @@ def _build_judge_prompt(user_prompt: str, agent_result: str, content_reqs: str) 
 
 
 def _build_judge_prompt_retry(invalid_response: str, error_message: str) -> str:
+    """构造 judge JSON 解析失败后的重试 prompt。"""
     return (
         "你上一轮作为评测器的输出无法被程序正确解析，请严格修复并重新输出。\n"
         "你必须只输出一个 JSON 对象，不要输出任何其他文字、解释或 markdown。\n"
@@ -67,6 +72,7 @@ async def _judge_with_retry(
     tags: CustomTags,
     agent_result: str,
 ) -> EvalJudgeResult:
+    """调用 judge chat 并带重试地解析 ``EvalJudgeResult``。"""
     judge_user_prompt = pair.judge_agent.augment_judge_user_prompt(task, task.query)
     judge_prompt = _build_judge_prompt(
         user_prompt=judge_user_prompt,
@@ -119,7 +125,7 @@ async def run_task(
     """Run one task: work chat + judge loop until success or ``max_turns``.
 
     Returns ``(success, work_session_id, judge_session_id, content_score)``.
-    Does not schedule multiple tasks; use ``execute_phase_batch`` for that.
+    Does not schedule multiple tasks; use ``execute_tasks`` for that.
     """
     tags = CustomTags.init_tags(task, run_id)
     tags.is_final_task = is_final_task

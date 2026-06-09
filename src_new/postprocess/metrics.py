@@ -1,7 +1,14 @@
+"""Baseline vs evolved metric comparison and summary aggregation.
+
+Pairs task rows, computes improvement ratios and absolute diffs, and builds
+category/global summary statistics with outlier exclusion for trials/tool_use.
+"""
+
 from typing import Any
 
 import pandas as pd
 
+# Metric columns compared between baseline and evolved variants.
 METRIC_COLUMNS = [
     "trials",
     "tool_use_num",
@@ -13,7 +20,10 @@ METRIC_COLUMNS = [
     "trajectory_score",
 ]
 
+# Columns that identify a task within a suite.
 KEY_COLUMNS = ["task_name", "category"]
+
+# Columns that uniquely identify a baseline/evolved pair.
 PAIR_KEY_COLUMNS = ["run", "suite_name", "suite_path", "task_name", "category"]
 
 # Summary 计算时，``impr_trials`` / ``impr_tool_use_num`` 超过该阈值的样本视为离群（退化过强），
@@ -44,6 +54,7 @@ def compute_difference(evolved_value: Any, baseline_value: Any) -> float:
 
 
 def validate_pairs(df: pd.DataFrame) -> None:
+    """Raise if required columns are missing or duplicate baseline/evolved rows exist."""
     required_columns = (
         ["run", "suite_name", "suite_path"]
         + KEY_COLUMNS
@@ -61,6 +72,7 @@ def validate_pairs(df: pd.DataFrame) -> None:
 
 
 def build_comparison_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Inner-join baseline and evolved rows and attach per-metric impr/diff columns."""
     baseline_df = df[df["baseline"] == True].copy()
     evolved_df = df[df["evolved"] == True].copy()
 
@@ -122,6 +134,7 @@ def build_summary_row(
     comparison_df: pd.DataFrame,
     original_df: pd.DataFrame,
 ) -> dict[str, Any]:
+    """Build one summary dict for a category or global scope, excluding outlier tasks."""
     # Summary 聚合：剔除 impr_trials / impr_tool_use_num > 阈值的离群样本。
     outlier_mask = _outlier_mask(comparison_df)
     aggregate_df = comparison_df.loc[~outlier_mask] if not comparison_df.empty else comparison_df
@@ -160,6 +173,7 @@ def build_summary_row(
 
 
 def build_summary_dataframe(comparison_df: pd.DataFrame, original_df: pd.DataFrame) -> pd.DataFrame:
+    """Build per-category and global summary rows from comparison and original DataFrames."""
     rows: list[dict[str, Any]] = []
 
     for category, category_comparison_df in comparison_df.groupby("category", dropna=False):
@@ -186,10 +200,12 @@ def build_summary_dataframe(comparison_df: pd.DataFrame, original_df: pd.DataFra
 
 
 def print_summary_to_console(summary_df: pd.DataFrame) -> None:
+    """Print category and global summary metrics to stdout for quick inspection."""
     category_rows = summary_df[summary_df["scope"] == "category"]
     global_rows = summary_df[summary_df["scope"] == "global"]
 
     def _print_block(title: str, row: pd.Series) -> None:
+        """Print one summary row's mean improvement/diff and success rates."""
         print(f"=== {title} ===")
         excluded = int(row.get("task_count_excluded", 0) or 0)
         if excluded:

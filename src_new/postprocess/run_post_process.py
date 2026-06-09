@@ -1,9 +1,16 @@
+"""CLI and pipeline entry points for post-processing eval report JSON.
+
+Orchestrates trace backfill, metric extraction, trajectory judging, CSV export,
+and HTML report generation from a benchmark report or pre-backfilled JSON.
+"""
+
 import argparse
 import json
 from pathlib import Path
 import sys
 from typing import Literal
 
+# Project root added to ``sys.path`` so the module can be run as a script.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -18,10 +25,12 @@ from src_new.models import EvalReport
 from src_new.paths import results_run_dir
 
 
+# Agent backend for trace stitching and metric derivation.
 AgentSource = Literal["openclaw", "hermes"]
 
 
 def default_output_paths(output_dir: Path, output_prefix: str) -> tuple[Path, Path, Path, Path]:
+    """Create *output_dir* and return default paths for backfilled JSON, CSVs, and HTML."""
     output_dir.mkdir(parents=True, exist_ok=True)
     backfilled_json = output_dir / f"{output_prefix}_backfilled.json"
     comparison_csv = output_dir / f"{output_prefix}_comparison_metrics.csv"
@@ -31,6 +40,7 @@ def default_output_paths(output_dir: Path, output_prefix: str) -> tuple[Path, Pa
 
 
 def default_results_dir(input_path: Path) -> tuple[Path, str]:
+    """Resolve the results output directory and run-id prefix from *input_path*."""
     data = load_json(input_path)
     run_id = data.get("run_id")
     if not isinstance(run_id, str) or not run_id.strip():
@@ -40,6 +50,7 @@ def default_results_dir(input_path: Path) -> tuple[Path, str]:
 
 
 def is_backfilled_report(data: dict) -> bool:
+    """Return True if any task variant in *data* already has Langfuse traces attached."""
     runs = data.get("runs")
     if not isinstance(runs, list):
         raise ValueError(
@@ -57,13 +68,14 @@ def is_backfilled_report(data: dict) -> bool:
 
 
 # Legacy alias
-is_enriched_report = is_backfilled_report
+is_enriched_report = is_backfilled_report  # Deprecated alias for is_backfilled_report.
 
 
 def load_or_backfill_report(
     input_path: Path,
     agent_source: AgentSource = "openclaw",
 ) -> tuple[dict, str]:
+    """Load report JSON from disk, backfilling Langfuse traces when not already present."""
     data = load_json(input_path)
     if is_backfilled_report(data):
         return data, data.get("run_id") or input_path.stem
@@ -76,7 +88,7 @@ def load_or_backfill_report(
 
 
 # Legacy alias
-load_or_enrich_report = load_or_backfill_report
+load_or_enrich_report = load_or_backfill_report  # Deprecated alias for load_or_backfill_report.
 
 
 def process_report_to_outputs(
@@ -88,6 +100,7 @@ def process_report_to_outputs(
     report_html: Path,
     agent_source: AgentSource = "openclaw",
 ) -> tuple[Path | None, Path, Path, Path]:
+    """Run the full post-process pipeline and write CSV/HTML (and optional backfilled JSON)."""
     data, title_stem = load_or_backfill_report(input_path, agent_source)
     extracted_df = build_extracted_dataframe(data, agent_source)
     scored_df = attach_trajectory_scores(extracted_df)
@@ -117,6 +130,7 @@ def process_report_to_outputs(
 
 
 def post_process_results_dir(run_id: str) -> Path:
+    """Return (and create) the results directory for *run_id*."""
     results_dir = results_run_dir(run_id)
     results_dir.mkdir(parents=True, exist_ok=True)
     return results_dir
@@ -151,6 +165,7 @@ def run_post_process_pipeline(
 
 
 def main() -> None:
+    """Parse CLI arguments and run the post-process pipeline on the input report JSON."""
     parser = argparse.ArgumentParser(
         description="Post-process a benchmark report JSON (trace_backfill + metrics CSVs + HTML)."
     )

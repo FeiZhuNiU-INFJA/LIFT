@@ -1,3 +1,5 @@
+"""OpenClaw runtime adapter：镜像解析、容器启动、chat factory 与 evolve 钩子。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,14 +12,18 @@ from src_new.lift.adapters.environment import ExecutionEnvironment
 from src_new.lift.adapters.openclaw.agent import OpenClawWorkerJudgerPairFactory
 from src_new.lift.adapters.openclaw.evolve import openclaw_learn_review
 from src_new.lift.adapters.openclaw.session import openclaw_context, start_openclaw_container
+from src_new.lift.eval.stage import SuiteRunPhase
 from src_new.lift.eval.worker_judger import WorkerJudgerPairFactory
 from src_new.models import SuiteTask
+
+
 class OpenClawAdapter(ContainerAgentRuntimeAdapter):
-    """OpenClaw: image config, container start, chat factory, and evolve hook."""
+    """OpenClaw：镜像配置、容器启动、chat factory 与 evolve 钩子。"""
 
     @classmethod
     @override
     def resolve_docker_image(cls, *, override: str | None = None) -> str:
+        """CLI override 优先，否则从 ``container_defaults.yaml`` 读取 ``docker_image``。"""
         if override:
             return override
         config_path = cls._agent_config_path()
@@ -37,6 +43,7 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
 
     @staticmethod
     def _agent_config_path() -> Path:
+        """OpenClaw 容器默认配置 YAML 的仓库内路径。"""
         return Path(__file__).resolve().parents[4] / "agents" / "openclaw" / "container_defaults.yaml"
 
     @override
@@ -50,6 +57,7 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
         seed_workspace: bool,
         task: SuiteTask | None,
     ) -> ContainerSession:
+        """委托 ``start_openclaw_container`` 启动 gateway 容器。"""
         return await start_openclaw_container(
             instance_id=instance_id,
             image=image,
@@ -65,20 +73,22 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
         env: ExecutionEnvironment,
         ctx: SuiteRunContext,
         *,
-        phase: str,
+        run_phase: SuiteRunPhase,
         workspace_dir: Path,
     ) -> WorkerJudgerPairFactory:
+        """绑定 OpenClaw 容器上下文，返回 ``OpenClawWorkerJudgerPairFactory``。"""
         session: ContainerSession = env.handle
         return OpenClawWorkerJudgerPairFactory(
             container=openclaw_context(session),
             run_id=ctx.run_id,
             repeat_index=ctx.repeat_index,
-            phase=phase,
+            run_phase=run_phase,
             workspace_dir=workspace_dir,
         )
 
     @override
     async def apply_evolve(self, env: ExecutionEnvironment, ctx: SuiteRunContext) -> None:
+        """warmup 完成后在容器内执行 ``openclaw learn review``。"""
         _ = ctx
         session: ContainerSession = env.handle
         await openclaw_learn_review(openclaw_context(session))

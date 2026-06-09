@@ -8,12 +8,13 @@ from pathlib import Path
 from src_new.config import LOGGER
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-HOST_WORKSPACE_SEED_DIR = _REPO_ROOT / "agents" / "openclaw" / "workspace_seed"
-CONTAINER_WORKSPACE_SEED_DIR = "/opt/evolve-eval/workspace_seed"
-WORKSPACE_READY_MARKER = ".evobench-workspace-ready"
+HOST_WORKSPACE_SEED_DIR = _REPO_ROOT / "agents" / "openclaw" / "workspace_seed"  # 宿主机 seed 源
+CONTAINER_WORKSPACE_SEED_DIR = "/opt/evolve-eval/workspace_seed"  # 镜像内 seed 路径
+WORKSPACE_READY_MARKER = ".evobench-workspace-ready"  # seed 完成标记文件
 
 
 def default_workspace_seed_dir() -> Path:
+    """默认 OpenClaw eval workspace seed 目录路径。"""
     return HOST_WORKSPACE_SEED_DIR
 
 

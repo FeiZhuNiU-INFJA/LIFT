@@ -1,4 +1,4 @@
-"""OpenClaw chat implementation and agent pair factory."""
+"""OpenClaw 容器内 chat 实现与 WorkerJudgerPair 工厂。"""
 
 from __future__ import annotations
 
@@ -11,15 +11,16 @@ from src_new.lift.adapters.openclaw.container_exec import (
     exec_openclaw_async,
     exec_openclaw_sync,
 )
+from src_new.lift.eval.stage import SuiteRunPhase
 from src_new.lift.eval.worker_judger import WorkerJudgerPair
 from src_new.models import SuiteTask
 from src_new.utils import short_id
 
-CONTAINER_WORKSPACE = "/workspace/task"
+CONTAINER_WORKSPACE = "/workspace/task"  # 容器内 agent workspace 根路径
 
 
 class ContainerOpenClawAgent(OpenClawAgent):
-    """OpenClaw agent that runs CLI via docker exec."""
+    """通过 ``docker exec openclaw`` 在容器内运行的 OpenClaw agent。"""
 
     def __init__(
         self,
@@ -32,6 +33,7 @@ class ContainerOpenClawAgent(OpenClawAgent):
         skills_dir: str | None = None,
         material_dir: str | None = None,
     ) -> None:
+        """绑定容器上下文；``workspace_dir`` 为宿主机 bind mount 路径。"""
         super().__init__(
             run_id=run_id,
             task_id=task_id,
@@ -40,15 +42,18 @@ class ContainerOpenClawAgent(OpenClawAgent):
             material_dir=material_dir,
             workspace_dir=workspace_dir,
         )
-        self._container = container
+        self._container = container  # docker exec 目标容器
 
     def initialize(self) -> None:
+        """确保宿主机 workspace 存在并在容器内注册 OpenClaw agent。"""
         self.workspace_dir = Path(self._workspace_dir_arg).expanduser().resolve()
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
         self._create_agent_in_container()
 
     def _create_agent_in_container(self, max_retries: int = 3) -> None:
+        """在容器内 ``openclaw agents add``，失败时换 agent_name 重试。"""
         def exists() -> bool:
+            """检查容器内是否已存在当前 ``agent_name``。"""
             result = exec_openclaw_sync(
                 self._container,
                 ["agents", "list"],
@@ -90,6 +95,7 @@ class ContainerOpenClawAgent(OpenClawAgent):
         raise ValueError("Failed to create container agent")
 
     async def _run_cmd_checked_capture(self, args: list[str]) -> str:
+        """异步执行 openclaw CLI 并返回 stdout（strip 后）。"""
         if args and args[0] == "openclaw":
             openclaw_args = args[1:]
         else:
@@ -98,7 +104,7 @@ class ContainerOpenClawAgent(OpenClawAgent):
 
 
 class OpenClawWorkerJudgerPairFactory:
-    """Build ``WorkerJudgerPair`` with ``ContainerOpenClawAgent`` for tasks in one container."""
+    """为同一容器内的多题构建 ``WorkerJudgerPair``（``ContainerOpenClawAgent``）。"""
 
     def __init__(
         self,
@@ -106,22 +112,25 @@ class OpenClawWorkerJudgerPairFactory:
         container: OpenClawContainerContext,
         run_id: str,
         repeat_index: int,
-        phase: str,
+        run_phase: SuiteRunPhase,
         workspace_dir: Path,
     ) -> None:
+        """绑定容器与 LIFT 阶段坐标，供 ``__call__`` 按题创建 agent pair。"""
         self._container = container
         self._run_id = run_id
         self._repeat_index = repeat_index
-        self._phase = phase
+        self._run_phase = run_phase
         self._workspace_dir = workspace_dir
 
     def __call__(self, task: SuiteTask) -> WorkerJudgerPair:
+        """为 ``task`` 创建并 initialize worker/judger 各一个 ``ContainerOpenClawAgent``。"""
         work_session_id = f"user-{short_id()}"
         judge_session_id = f"judge-{short_id()}"
 
         def create_agent(session_role: str) -> ContainerOpenClawAgent:
+            """按 session 角色创建 ``ContainerOpenClawAgent`` 实例。"""
             task_id = (
-                f"run-{self._repeat_index}-{self._phase}-"
+                f"run-{self._repeat_index}-{self._run_phase.workspace_segment}-"
                 f"{task.category_name}-{task.name}-{session_role}"
             )
             return ContainerOpenClawAgent(
@@ -144,4 +153,3 @@ class OpenClawWorkerJudgerPairFactory:
             work_session_id=work_session_id,
             judge_session_id=judge_session_id,
         )
-

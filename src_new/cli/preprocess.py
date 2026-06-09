@@ -1,6 +1,6 @@
-"""Standalone CLI: convert benchmark_mds markdown dirs to suite JSON.
+"""独立 CLI：将 benchmark_mds markdown 目录转换为 suite JSON。
 
-Run before `python -m src_new.cli.lift_main` whenever benchmark sources change:
+在 benchmark 源变更后、运行 ``python -m src_new.cli.lift_main`` 前执行：
 
     python -m src_new.cli.preprocess
     python -m src_new.cli.preprocess --input-root assets/benchmark_mds --output-root assets/benchmarks
@@ -15,6 +15,7 @@ from src_new.preprocess.convert_suite_mds_to_json import preprocess_suite_mds
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """构建 benchmark 预处理命令行参数解析器。"""
     parser = argparse.ArgumentParser(
         description="Convert benchmark_mds markdown directories to suite JSON files.",
     )
@@ -34,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    """CLI 入口：转换 markdown benchmark 并打印生成的 JSON 路径。"""
     args = build_parser().parse_args(argv)
     written = preprocess_suite_mds(
         input_root=args.input_root,

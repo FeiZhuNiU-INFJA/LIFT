@@ -1,3 +1,9 @@
+"""LLM-based trajectory quality scoring for post-process metric extraction.
+
+Formats agent message transcripts into judge prompts and attaches a
+``trajectory_score`` column (0–1) to the extracted metrics DataFrame.
+"""
+
 import json
 import re
 from typing import Any
@@ -6,6 +12,7 @@ import pandas as pd
 
 from src_new.config import CONFIG, LOGGER
 
+# System prompt template for the trajectory judge LLM (Chinese).
 SYSTEM_PROMPT_TEMPLATE = """你是一个Agent轨迹评判高手，你会了解到目标任务、任务要求以及一个其他Agent的执行轨迹，你需要根据你对任务以及要求的理解，在脑海中构建一条最佳实现路径来完美根据要求完成任务，然后在和Agent的实际执行轨迹对比，评判实际执行的轨迹质量高低，并且输出一个得分，值在0到1之间，越高说明质量越好。你只需要关注轨迹信息，不需要在意内容质量，因此，你需要根据提供的文本轨迹信息和轨迹要求进行分析，不需要了解实际的文件内容。
 
 目标任务:
@@ -18,12 +25,14 @@ SYSTEM_PROMPT_TEMPLATE = """你是一个Agent轨迹评判高手，你会了解�
 {{"trajectory_score": 0.0}}
 """
 
+# User prompt template wrapping the formatted agent trajectory text.
 USER_PROMPT_TEMPLATE = """Agent执行轨迹：
 {traj}
 """
 
 
 def parse_all_messages(raw: Any) -> list[dict[str, Any]]:
+    """Parse ``all_messages`` from a JSON string or list into a message dict list."""
     if isinstance(raw, list):
         return raw
     if not isinstance(raw, str) or not raw.strip():
@@ -36,6 +45,7 @@ def parse_all_messages(raw: Any) -> list[dict[str, Any]]:
 
 
 def format_content_blocks(content: Any) -> str:
+    """Render message ``content`` blocks (text, thinking, toolCall) as plain text."""
     if isinstance(content, str):
         return content
     if not isinstance(content, list):
@@ -69,6 +79,7 @@ def format_content_blocks(content: Any) -> str:
 
 
 def format_message(message: dict[str, Any]) -> str:
+    """Format a single agent message dict into a human-readable trajectory line."""
     parts = [f"role: {message.get('role', 'unknown')}"]
     if "toolName" in message:
         parts.append(f"tool_name: {message.get('toolName')}")
@@ -92,6 +103,7 @@ def format_message(message: dict[str, Any]) -> str:
 
 
 def format_trajectory(all_messages_raw: Any) -> str:
+    """Join all formatted messages into a single trajectory string for the judge."""
     messages = parse_all_messages(all_messages_raw)
     if not messages:
         return ""
@@ -99,6 +111,7 @@ def format_trajectory(all_messages_raw: Any) -> str:
 
 
 def build_judge_messages(row: pd.Series) -> list[dict[str, str]]:
+    """Build OpenAI chat messages (system + user) for trajectory judging from a DataFrame row."""
     requirements = row.get("trajectory_reqs")
     target_task = row.get("task_query", "")
     print(f"target_task: \n{target_task}")
@@ -123,10 +136,12 @@ def build_judge_messages(row: pd.Series) -> list[dict[str, str]]:
 
 
 def clamp_score(value: float) -> float:
+    """Clamp *value* to the inclusive range [0.0, 1.0]."""
     return max(0.0, min(1.0, value))
 
 
 def extract_score_from_response(response_text: str) -> float:
+    """Parse ``trajectory_score`` from JSON or a bare numeric substring in *response_text*."""
     try:
         parsed = json.loads(response_text)
         value = parsed.get("trajectory_score")
@@ -142,10 +157,12 @@ def extract_score_from_response(response_text: str) -> float:
 
 
 def judge_trajectory_with_mock(_: list[dict[str, str]]) -> float:
+    """Return a fixed score of 1.0 when trajectory judging is disabled."""
     return 1.0
 
 
 def judge_trajectory_with_openai(messages: list[dict[str, str]]) -> float:
+    """Call the configured OpenAI-compatible judge model and parse the trajectory score."""
     from openai import OpenAI
 
     client = OpenAI(api_key=CONFIG.openai_api_key, base_url=CONFIG.openai_base_url)
@@ -173,6 +190,7 @@ def judge_trajectory_with_openai(messages: list[dict[str, str]]) -> float:
 
 
 def compute_trajectory_score(row: pd.Series) -> float:
+    """Score one row's trajectory via mock or live OpenAI judge depending on config."""
     judge_messages = build_judge_messages(row)
     if not CONFIG.do_trajectory_judge:
         return judge_trajectory_with_mock(judge_messages)
@@ -180,6 +198,7 @@ def compute_trajectory_score(row: pd.Series) -> float:
 
 
 def attach_trajectory_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of *df* with a ``trajectory_score`` column computed per row."""
     out = df.copy()
     out["trajectory_score"] = out.apply(lambda row: compute_trajectory_score(row), axis=1)
     return out

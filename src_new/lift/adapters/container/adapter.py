@@ -1,3 +1,5 @@
+"""Docker 容器 runtime adapter：默认 docker-commit delta 物化。"""
+
 from __future__ import annotations
 
 from abc import abstractmethod
@@ -18,19 +20,21 @@ from src_new.utils import short_id
 
 
 class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
-    """Docker container agent runtime + default docker-commit delta materialization."""
+    """Docker 容器 agent runtime + 默认 docker commit delta 物化。"""
 
     def __init__(self, options: RunOptions) -> None:
+        """解析 base 镜像并缓存到 ``_docker_image``。"""
         super().__init__(options)
         self._docker_image = self.resolve_docker_image(override=options.docker_image)
 
     @classmethod
     @abstractmethod
     def resolve_docker_image(cls, *, override: str | None = None) -> str:
-        """Resolve base container image from agent config or CLI override."""
+        """从 agent 配置或 CLI override 解析 base 容器镜像。"""
 
     @override
     def baseline_image(self, ctx: SuiteRunContext) -> str:
+        """before-load hold-out 使用的 baseline 镜像（即 base 镜像）。"""
         _ = ctx
         return self._docker_image
 
@@ -42,6 +46,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         warmup_tasks: list[SuiteTask],
         ctx: SuiteRunContext,
     ) -> DeltaRef:
+        """按 ``warmup_container_policy`` 校验后委托父类执行 warmup → delta。"""
         policy_enum = self._options.warmup_container_policy
         if policy_enum == WarmupContainerPolicy.PARALLEL_MULTI:
             if self._options.parallel:
@@ -60,6 +65,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         resources: SuiteRunResources,
         workspace_dir,
     ) -> ExecutionEnvironment:
+        """warmup 阶段：单容器 + base 镜像，不 seed per-task workspace。"""
         _ = resources
         instance_id = f"{ctx.run_id}-r{ctx.repeat_index}-{ctx.suite_name}-warmup"
         session = await self.start_container(
@@ -87,6 +93,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         image: str,
         seed_workspace: bool,
     ) -> ExecutionEnvironment:
+        """hold-out 单题：独立容器 + 指定镜像（baseline 或 delta）。"""
         _ = resources
         instance_id = (
             f"{ctx.run_id}-r{ctx.repeat_index}-{task.name}-holdout-{short_id()}"
@@ -109,6 +116,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
     async def materialize_delta(
         self, env: ExecutionEnvironment, ctx: SuiteRunContext
     ) -> DeltaRef:
+        """将 warmup 容器 commit 为 delta 镜像并返回 ``DeltaRef``。"""
         session: ContainerSession = env.handle
         image_tag = delta_image_tag(
             run_id=ctx.run_id,
@@ -132,4 +140,4 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         seed_workspace: bool,
         task: SuiteTask | None,
     ) -> ContainerSession:
-        """Start a runtime-specific container session."""
+        """启动运行时特定的容器会话（子类实现 gateway/entrypoint 等）。"""

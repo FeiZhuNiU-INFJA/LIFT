@@ -1,3 +1,5 @@
+"""单次 suite 评测的资源登记簿（容器、delta）与统一 cleanup。"""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr

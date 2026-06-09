@@ -20,6 +20,7 @@ from src_new.report.langfuse_work_analytics import build_work_analytics
 from src_new.models import LangfuseTraceRef, PhaseLangfuseBundle
 
 
+# Agent backend whose trace pairing rules are applied during stitching.
 AgentSource = Literal["openclaw", "hermes"]
 
 
@@ -44,6 +45,7 @@ def _normalize_eval_session(
     work_session_id: str,
     judge_session_id: str,
 ) -> LangfuseTraceRef:
+    """Rewrite ``session_id`` when work/judge session id appears in trace tags."""
     tags = ref.tags or []
     if work_session_id in tags:
         return ref.model_copy(update={"session_id": work_session_id})
@@ -58,6 +60,7 @@ def _classify_openclaw_side(
     work_session_id: str,
     judge_session_id: str,
 ) -> str | None:
+    """Return ``'work'``, ``'judge'``, or None for an OpenClaw trace ref."""
     sid = ref.session_id
     tags = ref.tags or []
     if sid == work_session_id or work_session_id in tags:

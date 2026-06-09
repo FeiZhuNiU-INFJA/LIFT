@@ -1,3 +1,8 @@
+"""Integration-style tests for ``LIFTPipeline`` using ``MockAdapter``.
+
+使用 ``MockAdapter`` 对 ``LIFTPipeline`` 的集成式测试。
+"""
+
 from __future__ import annotations
 
 import json
@@ -10,6 +15,7 @@ from src_new.lift.tests.mock_adapter import MockAdapter
 
 
 def _suite_json(path: Path) -> None:
+    """写入含 3 warmup + 2 holdout 的 PipeTest suite JSON。"""
     payload = {
         "name": "PipeTest",
         "category": "PipeTest",
@@ -39,6 +45,10 @@ def _suite_json(path: Path) -> None:
 
 
 async def test_pipeline_two_holdout_task_runs() -> None:
+    """Verify full pipeline runs delta production plus before/after load for holdout tasks.
+
+    验证完整流水线为 holdout 任务执行 delta 生成及 load 前后阶段。
+    """
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         suite_path = tmp_path / "suite.json"
@@ -64,6 +74,10 @@ async def test_pipeline_two_holdout_task_runs() -> None:
 
 
 async def test_pipeline_warmup_only_skips_holdout() -> None:
+    """Verify ``warmup_only`` produces delta but skips holdout before/after load.
+
+    验证 ``warmup_only`` 仅生成 delta，跳过 holdout 的 load 前后阶段。
+    """
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         suite_path = tmp_path / "suite.json"

@@ -11,7 +11,14 @@ from src_new.models import SuiteTask
 
 @dataclass(frozen=True)
 class WorkerJudgerPair:
-    """Worker agent, judger agent, and their Langfuse session ids for one task."""
+    """单题 ``run_task`` 所需的 worker/judger agent 及其 Langfuse session id。
+
+    Attributes:
+        work_agent: 做题 agent。
+        judge_agent: 评测 agent。
+        work_session_id: worker 的 Langfuse session id。
+        judge_session_id: judger 的 Langfuse session id。
+    """
 
     work_agent: Agent
     judge_agent: Agent

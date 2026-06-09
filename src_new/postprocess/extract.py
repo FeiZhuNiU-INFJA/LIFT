@@ -1,3 +1,9 @@
+"""Extract per-task metric rows from backfilled eval report JSON.
+
+Flattens nested run/suite/task structure into a DataFrame with baseline and
+evolved rows, applying OpenClaw- or Hermes-specific metric derivation rules.
+"""
+
 import json
 from pathlib import Path
 from typing import Any, Literal
@@ -5,19 +11,23 @@ from typing import Any, Literal
 import pandas as pd
 
 
+# Agent backend used when deriving metrics from Langfuse work analytics.
 AgentSource = Literal["openclaw", "hermes"]
 
 
 def load_json(path: Path) -> dict[str, Any]:
+    """Load and parse a UTF-8 JSON file at *path*."""
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def dumps_json(value: Any) -> str:
+    """Serialize *value* to a JSON string without ASCII escaping."""
     return json.dumps(value, ensure_ascii=False)
 
 
 def extract_last_agent_input(side: dict[str, Any]) -> dict[str, Any]:
+    """Return ``agent_input`` from the last entry in ``work_agent_traces``."""
     traces = (((side or {}).get("langfuse") or {}).get("work_agent_traces")) or []
     if not traces:
         return {}
@@ -25,10 +35,12 @@ def extract_last_agent_input(side: dict[str, Any]) -> dict[str, Any]:
 
 
 def extract_work_analytics(side: dict[str, Any]) -> dict[str, Any]:
+    """Return the ``work_analytics`` dict nested under ``langfuse`` on *side*."""
     return (((side or {}).get("langfuse") or {}).get("work_analytics")) or {}
 
 
 def int_value(value: Any) -> int:
+    """Coerce *value* to int; return 0 on None or conversion failure."""
     try:
         return int(value or 0)
     except (TypeError, ValueError):
@@ -36,6 +48,7 @@ def int_value(value: Any) -> int:
 
 
 def aggregate_message_tokens(all_messages: list[dict[str, Any]]) -> tuple[int, int]:
+    """Sum ``totalTokens`` and ``cacheRead`` across message usage dicts."""
     total_tokens = 0
     cached_tokens = 0
 
@@ -50,6 +63,7 @@ def aggregate_message_tokens(all_messages: list[dict[str, Any]]) -> tuple[int, i
 
 
 def _should_ignore_tool_call_block(block: dict[str, Any]) -> bool:
+    """Return True for OpenClaw self-evolution ``exec`` calls to the local signal port."""
     if block.get("type") != "toolCall" or block.get("name") != "exec":
         return False
     command = (block.get("arguments") or {}).get("command", "")
@@ -160,6 +174,7 @@ def make_row(
     suite_path: str | None,
     agent_source: AgentSource = "openclaw",
 ) -> dict[str, Any]:
+    """Build one flat metric row for a single task variant (baseline or evolved)."""
     side = (task or {}).get(variant_name) or {}
     agent_input = extract_last_agent_input(side)
     work_analytics = extract_work_analytics(side)
@@ -195,6 +210,7 @@ def make_row(
 
 
 def _iter_suites(run: dict[str, Any]) -> list[dict[str, Any]]:
+    """Yield suite dicts from a run, supporting legacy ``benchmarks`` key."""
     suites = (run or {}).get("suites")
     if isinstance(suites, list) and suites:
         return suites
@@ -211,6 +227,7 @@ def build_extracted_dataframe(
     data: dict[str, Any],
     agent_source: AgentSource = "openclaw",
 ) -> pd.DataFrame:
+    """Flatten report JSON into a DataFrame with one row per task variant."""
     rows: list[dict[str, Any]] = []
     runs = data.get("runs")
     if not isinstance(runs, list):

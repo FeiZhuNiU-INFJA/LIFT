@@ -1,3 +1,5 @@
+"""Suite 题目切分：warmup（产物生产）与 hold-out（LIFT 终测对照）。"""
+
 from __future__ import annotations
 
 from src_new.models import SuiteTask
@@ -6,7 +8,7 @@ from src_new.lift.suite.lift_suite import LiftSuiteConfig
 
 
 def split_suite_tasks(config: LiftSuiteConfig) -> tuple[list[SuiteTask], list[SuiteTask]]:
-    """Split suite tasks into warmup (artifact production) and hold-out (LIFT contrast)."""
+    """将 suite 题目切分为 warmup（产物进化）与 hold-out（终测对照）两列表。"""
     tasks = config.suite.tasks
     if not tasks:
         raise ValueError(f"No tasks in suite {config.suite.name!r}")

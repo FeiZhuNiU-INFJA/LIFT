@@ -1,3 +1,9 @@
+"""Render post-process comparison metrics as an HTML report.
+
+Builds summary tables, success-rate badges, and per-task metric tables from
+comparison and summary DataFrames produced by ``metrics.py``.
+"""
+
 from html import escape
 from typing import Literal
 
@@ -5,8 +11,10 @@ import pandas as pd
 
 from src_new.postprocess.metrics import METRIC_COLUMNS
 
+# Agent backend that produced the traces; controls which metrics appear in HTML.
 AgentSource = Literal["openclaw", "hermes"]
 
+# Metrics hidden from HTML for all agent sources.
 _HTML_HIDDEN_METRICS_BASE = {"cached_token"}
 # Hermes 上报暂不提供缓存命中与每轮延迟，HTML 不展示这两项及其改进比例。
 _HTML_HIDDEN_METRICS_HERMES = _HTML_HIDDEN_METRICS_BASE | {
@@ -16,17 +24,20 @@ _HTML_HIDDEN_METRICS_HERMES = _HTML_HIDDEN_METRICS_BASE | {
 
 
 def _hidden_metrics(agent_source: AgentSource) -> set[str]:
+    """Return the set of metric column names to omit from HTML for *agent_source*."""
     if agent_source == "hermes":
         return _HTML_HIDDEN_METRICS_HERMES
     return _HTML_HIDDEN_METRICS_BASE
 
 
 def _html_summary_metrics(agent_source: AgentSource) -> list[str]:
+    """Return ``METRIC_COLUMNS`` entries visible in summary tables for *agent_source*."""
     hidden = _hidden_metrics(agent_source)
     return [m for m in METRIC_COLUMNS if m not in hidden]
 
 
 def format_number(value) -> str:
+    """Format a numeric or scalar cell value for HTML display (comma-separated, escaped)."""
     if pd.isna(value):
         return "NaN"
     if isinstance(value, bool):
@@ -53,6 +64,7 @@ def format_percent(value) -> str:
 
 
 def task_label(row: pd.Series) -> str:
+    """Build a display label with success/final-task icons and the task name."""
     icons = []
     if bool(row.get("is_final_task")):
         icons.append("🎓")
@@ -60,6 +72,7 @@ def task_label(row: pd.Series) -> str:
     return f"{' '.join(icons)} {row['task_name']}".strip()
 
 
+# Human-readable column headers keyed by internal metric name.
 _METRIC_DISPLAY_LABELS: dict[str, str] = {
     "trials": "Trials",
     "tool_use_num": "Tool Use Num",
@@ -73,10 +86,12 @@ _METRIC_DISPLAY_LABELS: dict[str, str] = {
 
 
 def _metric_label(metric: str) -> str:
+    """Return the display label for *metric*, falling back to the raw name."""
     return _METRIC_DISPLAY_LABELS.get(metric, metric)
 
 
 def summary_table_html(summary_row: pd.Series, agent_source: AgentSource) -> str:
+    """Render an HTML table of mean improvement and mean diff per metric for one summary row."""
     lines = [
         "<table class='summary-table'>",
         "<thead><tr><th>Metric</th><th>Mean Improvement</th><th>Mean Diff (evolved - baseline)</th></tr></thead>",
@@ -95,6 +110,7 @@ def summary_table_html(summary_row: pd.Series, agent_source: AgentSource) -> str
 
 
 def success_badges_html(summary_row: pd.Series) -> str:
+    """Render success-rate and task-count chips; include outlier exclusion when present."""
     chips = [
         f"<span class='chip'>Baseline Success Rate: {format_number(summary_row['baseline_success_rate'])}</span>",
         f"<span class='chip'>Evolved Success Rate: {format_number(summary_row['evolved_success_rate'])}</span>",
@@ -120,6 +136,7 @@ def success_badges_html(summary_row: pd.Series) -> str:
 
 
 def task_table_html(category_df: pd.DataFrame, agent_source: AgentSource) -> str:
+    """Render per-task evolved vs baseline metrics and improvement columns as an HTML table."""
     # 按 agent_source 决定要展示的指标列；hermes 不展示缓存命中率与延迟。
     hidden = _hidden_metrics(agent_source)
     metric_columns: list[str] = [
@@ -169,6 +186,7 @@ def render_report_html(
     title: str,
     agent_source: AgentSource = "openclaw",
 ) -> str:
+    """Assemble a full HTML metrics report with global and per-category sections."""
     global_row = summary_df[summary_df["scope"] == "global"].iloc[0]
     category_rows = summary_df[summary_df["scope"] == "category"]
 

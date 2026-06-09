@@ -14,6 +14,7 @@ from src_new.models import (
 
 
 def _latency_seconds(raw: Any) -> float | None:
+    """Coerce Langfuse latency field to float seconds, or None."""
     if raw is None:
         return None
     try:
@@ -23,6 +24,7 @@ def _latency_seconds(raw: Any) -> float | None:
 
 
 def _iso(ts: Any) -> str | None:
+    """Format a timestamp object or value as an ISO string."""
     if ts is None:
         return None
     if hasattr(ts, "isoformat"):
@@ -31,6 +33,7 @@ def _iso(ts: Any) -> str | None:
 
 
 def _usage_triplet(usage: Any) -> tuple[int, int, int]:
+    """Extract (input_tokens, output_tokens, total_tokens) from a usage dict or model."""
     if usage is None:
         return 0, 0, 0
     if hasattr(usage, "model_dump"):
@@ -53,6 +56,7 @@ def _usage_triplet(usage: Any) -> tuple[int, int, int]:
 
 
 def observation_briefs(observations: list[Any]) -> list[LangfuseObservationBrief]:
+    """Map raw Langfuse observation objects to ``LangfuseObservationBrief`` models."""
     briefs: list[LangfuseObservationBrief] = []
     for o in observations or []:
         d = o.model_dump() if hasattr(o, "model_dump") else {}
@@ -119,6 +123,7 @@ def _hermes_messages_from_observations(obs_raw: list[Any]) -> list[Any] | None:
 
 
 def trace_detail_from_api(full: Any) -> LangfuseTraceDetailRecord:
+    """Convert a Langfuse ``trace.get`` response into a ``LangfuseTraceDetailRecord``."""
     d = full.model_dump()
     obs_raw = getattr(full, "observations", None) or []
     name = d.get("name")
@@ -159,6 +164,7 @@ def trace_detail_from_api(full: Any) -> LangfuseTraceDetailRecord:
 
 
 def tokens_from_detail(detail: LangfuseTraceDetailRecord) -> LangfuseTraceTokens:
+    """Sum GENERATION observation token counts from a trace detail record."""
     inp = out = tot = 0
     for ob in detail.observations:
         if ob.type == "GENERATION":
@@ -177,6 +183,7 @@ def fetch_trace_details(
     trace_ids: list[str],
     cache: dict[str, LangfuseTraceDetailRecord] | None = None,
 ) -> dict[str, LangfuseTraceDetailRecord]:
+    """Fetch full trace details for *trace_ids*, reusing entries in *cache* when provided."""
     out = cache if cache is not None else {}
     for tid in trace_ids:
         if tid not in out:
@@ -191,7 +198,7 @@ def trace_ref_from_detail(
     user_id: str | None = None,
     include_plugin_tokens: bool = True,
 ) -> LangfuseTraceRef:
-
+    """Build a lightweight ``LangfuseTraceRef`` from a fetched trace detail."""
     tokens: LangfuseTraceTokens | None = None
     if include_plugin_tokens and is_plugin_trace(detail.name):
         tokens = tokens_from_detail(detail)

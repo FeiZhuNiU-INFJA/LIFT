@@ -1,11 +1,14 @@
+"""OpenClaw 容器运行时环境变量与 bind mount 权限回收脚本。"""
+
 from __future__ import annotations
 
 import os
 
-CONTAINER_LANGFUSE_BASE_URL = "http://host.docker.internal:3000"
+CONTAINER_LANGFUSE_BASE_URL = "http://host.docker.internal:3000"  # 容器内访问宿主机 Langfuse
 
 
 def _normalize_langfuse_base_url(raw: str | None) -> str:
+    """将 localhost Langfuse URL 映射为 ``host.docker.internal``。"""
     if not raw or not raw.strip():
         return CONTAINER_LANGFUSE_BASE_URL
     lowered = raw.strip().lower()
@@ -15,14 +18,14 @@ def _normalize_langfuse_base_url(raw: str | None) -> str:
 
 
 def host_user_ids() -> tuple[int, int]:
-    """Host uid/gid for reclaiming bind-mounted workspace files after container runs."""
+    """宿主机 uid/gid，用于容器销毁后 reclaim bind mount 文件所有权。"""
     import os
 
     return os.getuid(), os.getgid()
 
 
 def container_reclaim_ownership_script(uid: int, gid: int) -> str:
-    """Shell run inside container (as root) to fix host ownership on volume mounts."""
+    """在容器内以 root 执行，将 volume 目录 chown 回宿主机用户。"""
     return f"""
 for d in /workspace/task /workspace/outcome; do
   if [[ -d "$d" ]]; then
@@ -33,7 +36,7 @@ done
 
 
 def container_runtime_env() -> dict[str, str]:
-    """Env vars passed into OpenClaw containers (overrides repo .env where needed)."""
+    """传入 OpenClaw 容器的环境变量（覆盖/补充 repo ``.env``）。"""
     env: dict[str, str] = {}
     ark_key = os.environ.get("ARK_API_KEY")
     if ark_key:

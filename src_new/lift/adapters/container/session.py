@@ -1,3 +1,5 @@
+"""参数化 ``docker run`` 容器会话与 Disposable 生命周期。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,10 +12,11 @@ from src_new.config import LOGGER
 from src_new.lift.runtime.disposable import Disposable
 from src_new.lift.runtime.environment_cleaner import EnvironmentCleaner
 
-ContainerHook = Callable[["ContainerSession"], Awaitable[None]]
+ContainerHook = Callable[["ContainerSession"], Awaitable[None]]  # 容器启动/销毁前后钩子
 
 
 def sanitize_container_id(value: str) -> str:
+    """将 instance id sanitize 为 Docker 容器名合法字符（最长 64）。"""
     out = []
     for ch in value:
         if ch.isalnum() or ch in "._-":
@@ -26,18 +29,26 @@ def sanitize_container_id(value: str) -> str:
 
 @dataclass
 class ContainerSession(Disposable):
-    """One ephemeral Docker container used by a container runtime adapter."""
+    """容器 runtime adapter 使用的 ephemeral Docker 容器会话。
+
+    Attributes:
+        instance_id: sanitize 后的逻辑实例 id。
+        container_name: ``docker run --name`` 实际容器名。
+        image: 启动时使用的镜像 tag。
+        metadata: 运行时附加信息（如 OpenClaw gateway 端口/token）。
+    """
 
     instance_id: str
     container_name: str
     image: str
     metadata: dict[str, Any] = field(default_factory=dict)
-    _cleaner: EnvironmentCleaner = field(default_factory=EnvironmentCleaner)
-    _pre_cleanup_hooks: list[ContainerHook] = field(default_factory=list, repr=False)
-    _cleaned: bool = field(default=False, repr=False)
+    _cleaner: EnvironmentCleaner = field(default_factory=EnvironmentCleaner)  # 容器/镜像清理
+    _pre_cleanup_hooks: list[ContainerHook] = field(default_factory=list, repr=False)  # rm 前钩子
+    _cleaned: bool = field(default=False, repr=False)  # 幂等 cleanup 标记
 
     @override
     async def cleanup(self) -> None:
+        """执行 pre-cleanup 钩子后 ``docker rm -f`` 删除容器。"""
         if self._cleaned:
             return
         for hook in self._pre_cleanup_hooks:
@@ -70,6 +81,7 @@ class ContainerSession(Disposable):
         pre_cleanup_hooks: list[ContainerHook] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> ContainerSession:
+        """组装 ``docker run -d`` 命令并启动容器，可选 readiness 与 post-start 钩子。"""
         safe_id = sanitize_container_id(instance_id)
         container_name = f"{container_name_prefix}-{safe_id}"[:128]
 

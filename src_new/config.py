@@ -1,3 +1,5 @@
+"""应用配置与日志初始化：从环境变量加载 ``AppConfig``，并配置彩色控制台 + 文件日志。"""
+
 import logging
 import os
 from dataclasses import dataclass
@@ -8,6 +10,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 RESET = "\033[0m"
+"""ANSI 重置色码。"""
+
 LEVEL_COLORS = {
     logging.DEBUG: "\033[36m",
     logging.INFO: "\033[32m",
@@ -15,8 +19,11 @@ LEVEL_COLORS = {
     logging.ERROR: "\033[31m",
     logging.CRITICAL: "\033[35m",
 }
+"""日志级别到 ANSI 前景色的映射。"""
+
 
 def _env_flag(name: str, default: bool = False) -> bool:
+    """解析环境变量为布尔值（``1``/``true``/``yes``/``y``/``on`` 为 True）。"""
     raw = os.getenv(name)
     if raw is None:
         return default
@@ -25,30 +32,51 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 @dataclass(frozen=True)
 class AppConfig:
+    """从环境变量加载的不可变应用配置。"""
+
     hermes_api_key: str | None
+    """Hermes API 密钥（``HERMES_API_KEY``）。"""
     hermes_env_file: str | None
+    """Hermes profile 的 ``.env`` 文件路径（``HERMES_ENV_FILE``）。"""
     openclaw_env_file: str | None
+    """OpenClaw 的 ``.env`` 文件路径（``OPENCLAW_ENV_FILE``）。"""
     eval_max_turns: int
+    """单次 task 最大对话轮次（``EVAL_MAX_TURNS``，默认 2）。"""
     model: str
+    """OpenClaw agent 使用的模型名（``MODEL_NAME``）。"""
     log_file: str
+    """日志文件路径（``EVAL_LOG_FILE``，默认项目根下 ``evolve_eval.log``）。"""
     langfuse_pre_chat: bool
+    """是否在 chat 前上报 Langfuse pre-chat span（``EVAL_LANGFUSE_PRE_CHAT``）。"""
     langfuse_public_key: str | None
+    """Langfuse public key（``LANGFUSE_PUBLIC_KEY``）。"""
     langfuse_secret_key: str | None
+    """Langfuse secret key（``LANGFUSE_SECRET_KEY``）。"""
     langfuse_base_url: str | None
+    """Langfuse API base URL（``LANGFUSE_BASE_URL``）。"""
     openai_api_key: str | None
+    """OpenAI 兼容 API 密钥（``OPENAI_API_KEY``，judge 等使用）。"""
     openai_base_url: str | None
+    """OpenAI 兼容 API base URL（``OPENAI_BASE_URL``）。"""
     firecrawl_api_key: str | None
+    """Firecrawl API 密钥（``FIRECRAWL_API_KEY``）。"""
     api_server_enabled: bool
+    """Hermes 是否启用 API server（``API_SERVER_ENABLED``）。"""
     api_server_key: str | None
+    """Hermes API server 密钥（``API_SERVER_KEY``）。"""
     trajectory_judge_model: str
+    """轨迹评判使用的模型名（``TRAJECTORY_JUDGE_MODEL``，默认 gpt-4o-mini）。"""
     do_trajectory_judge: bool
+    """是否启用轨迹评判（``DO_TRAJECTORY_JUDGE``）。"""
 
     @property
     def langfuse_credentials_present(self) -> bool:
+        """Langfuse public/secret key 是否均已配置。"""
         return bool(self.langfuse_public_key and self.langfuse_secret_key)
 
 
 def load_config() -> AppConfig:
+    """从当前环境变量加载 ``AppConfig``。"""
     return AppConfig(
         hermes_api_key=os.getenv("HERMES_API_KEY"),
         hermes_env_file=os.getenv("HERMES_ENV_FILE"),
@@ -71,7 +99,10 @@ def load_config() -> AppConfig:
 
 
 class ColorFormatter(logging.Formatter):
+    """为控制台日志的 levelname 添加 ANSI 颜色。"""
+
     def format(self, record: logging.LogRecord) -> str:
+        """格式化日志记录，仅对 levelname 着色，不影响文件 handler。"""
         original_levelname = record.levelname
         color = LEVEL_COLORS.get(record.levelno, "")
         if color:
@@ -83,14 +114,19 @@ class ColorFormatter(logging.Formatter):
 
 
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+"""根 logger 使用的日志格式字符串。"""
+
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+"""项目根目录（``src_new`` 的上两级）。"""
 
 
 def _default_log_file() -> Path:
+    """默认日志文件路径（项目根下 ``evolve_eval.log``）。"""
     return _PROJECT_ROOT / "evolve_eval.log"
 
 
 def setup_logging() -> None:
+    """配置根 logger：INFO 级别、彩色 stdout、plain 文件 handler（幂等追加）。"""
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
 
@@ -103,12 +139,14 @@ def setup_logging() -> None:
     color_formatter = ColorFormatter(_LOG_FORMAT)
 
     def _has_stream_handler() -> bool:
+        """根 logger 是否已有 stdout/stderr StreamHandler。"""
         return any(
             isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
             for h in root_logger.handlers
         )
 
     def _has_file_handler_for_path(path: Path) -> bool:
+        """根 logger 是否已绑定指向 ``path`` 的 FileHandler。"""
         for h in root_logger.handlers:
             if isinstance(h, logging.FileHandler):
                 base = getattr(h, "baseFilename", None)
@@ -140,5 +178,9 @@ def setup_logging() -> None:
 
 
 CONFIG = load_config()
+"""模块加载时初始化的全局配置实例。"""
+
 setup_logging()
+
 LOGGER = logging.getLogger(__name__)
+"""本模块 logger（``src_new.config``）。"""

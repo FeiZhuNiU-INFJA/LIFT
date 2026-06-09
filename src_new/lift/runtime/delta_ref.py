@@ -1,3 +1,5 @@
+"""Delta 镜像引用（warmup evolve 产物）与 Disposable cleanup。"""
+
 from __future__ import annotations
 
 from typing import override
@@ -26,6 +28,7 @@ class DeltaRef(BaseModel, Disposable):
 
     @override
     async def cleanup(self) -> None:
+        """幂等删除 delta 镜像（``docker rmi``）。"""
         if self._cleaned:
             return
         await self._cleaner.remove_image(self.image_tag)

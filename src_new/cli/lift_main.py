@@ -1,3 +1,10 @@
+"""LIFT 评测 CLI 入口：warmup + hold-out baseline/evolved，可选后处理。
+
+用法示例::
+
+    python -m src_new.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks --suite all
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -19,6 +26,7 @@ from src_new.lift.policies.container import WarmupContainerPolicy
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """构建 LIFT 评测命令行参数解析器。"""
     parser = argparse.ArgumentParser(
         description="LIFT evaluation (Loaded Impact on Final Task, src_new)."
     )
@@ -87,6 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def evaluate_only_mode(args: argparse.Namespace) -> None:
+    """仅对已有 report JSON 运行后处理（``--evaluate-only``）。"""
     from src_new.postprocess.run_post_process import run_post_process_pipeline
 
     if not args.run_id:
@@ -100,6 +109,7 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
 
 
 async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
+    """执行完整 LIFT pipeline（warmup + hold-out），可选后处理。"""
     run_id = make_run_id(args.run_id)
     warmup_policy = WarmupContainerPolicy(args.warmup_container_policy)
     options = RunOptions(
@@ -136,6 +146,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    """CLI 入口：解析参数并分发到 evaluate-only 或完整 LIFT run。"""
     parser = build_parser()
     args = parser.parse_args(argv)
 

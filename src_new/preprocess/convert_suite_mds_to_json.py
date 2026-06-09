@@ -1,3 +1,9 @@
+"""Convert markdown benchmark task folders into JSON ``Suite`` specifications.
+
+Scans scene directories under ``assets/benchmark_mds``, parses per-task markdown
+sections (query, 要求, 轨迹要求), and writes validated JSON to ``assets/benchmarks``.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -9,6 +15,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 
+# Project root added to ``sys.path`` so the module can be run as a script.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -16,16 +23,23 @@ if str(PROJECT_ROOT) not in sys.path:
 from src_new.models import Suite  # noqa: E402
 
 
+# Matches task directory names like ``q1``, ``q2_foo``, or ``Q3-bar``.
 TASK_DIR_RE = re.compile(r"^q(?P<index>\d+)(?:[_-].+)?$", re.IGNORECASE)
+
+# Required markdown section headings (### ...) inside each task file.
 SECTION_NAMES = ("query", "要求", "轨迹要求")
+
+# Directory names skipped when scanning benchmark scenes.
 IGNORED_DIR_NAMES = {"__MACOSX"}
 
 
 def to_project_relative(path: Path) -> str:
+    """Return *path* as a POSIX path relative to ``PROJECT_ROOT``."""
     return path.resolve().relative_to(PROJECT_ROOT).as_posix()
 
 
 def parse_markdown_sections(markdown_text: str, source_path: Path) -> dict[str, str]:
+    """Parse required ``###`` sections from *markdown_text*; raise if any are missing."""
     sections: dict[str, list[str]] = {}
     current_section: str | None = None
 
@@ -50,6 +64,7 @@ def parse_markdown_sections(markdown_text: str, source_path: Path) -> dict[str, 
 
 
 def normalize_section_text(lines: list[str]) -> str:
+    """Strip leading/trailing blank lines and join non-empty section lines."""
     stripped_lines = [line.strip() for line in lines]
     while stripped_lines and not stripped_lines[0]:
         stripped_lines.pop(0)
@@ -59,6 +74,7 @@ def normalize_section_text(lines: list[str]) -> str:
 
 
 def find_task_markdown(task_dir: Path) -> Path:
+    """Locate the primary ``.md`` file for a task directory."""
     expected_md = task_dir / f"{task_dir.name}.md"
     if expected_md.exists():
         return expected_md
@@ -71,6 +87,7 @@ def find_task_markdown(task_dir: Path) -> Path:
 
 
 def resolve_scene_dir(scene_dir: Path) -> Path:
+    """Return the directory that directly contains task subdirectories for a scene."""
     if iter_task_dirs(scene_dir):
         return scene_dir
 
@@ -89,6 +106,7 @@ def resolve_scene_dir(scene_dir: Path) -> Path:
 
 
 def find_materials_dir(task_dir: Path, task_index: int) -> Path | None:
+    """Return the materials directory for a task, or None if not present."""
     preferred_dir = task_dir / f"q{task_index}_materials"
     if preferred_dir.exists():
         return preferred_dir
@@ -101,6 +119,7 @@ def find_materials_dir(task_dir: Path, task_index: int) -> Path | None:
 
 
 def build_task_entry(scene_dir: Path, task_dir: Path) -> dict[str, object]:
+    """Build one task dict (query, requirements, expected_result) from *task_dir*."""
     match = TASK_DIR_RE.match(task_dir.name)
     if match is None:
         raise ValueError(f"Invalid task directory name: {task_dir.name}")
@@ -127,6 +146,7 @@ def build_task_entry(scene_dir: Path, task_dir: Path) -> dict[str, object]:
 
 
 def iter_task_dirs(scene_dir: Path) -> list[Path]:
+    """Return task subdirectories under *scene_dir*, sorted by question index."""
     task_dirs = [
         path
         for path in scene_dir.iterdir()
@@ -136,6 +156,7 @@ def iter_task_dirs(scene_dir: Path) -> list[Path]:
 
 
 def build_benchmark_spec(scene_dir: Path) -> dict[str, object]:
+    """Build a full benchmark spec dict (name, category, tasks) for one scene."""
     resolved_scene_dir = resolve_scene_dir(scene_dir)
     task_dirs = iter_task_dirs(resolved_scene_dir)
 
@@ -147,6 +168,7 @@ def build_benchmark_spec(scene_dir: Path) -> dict[str, object]:
 
 
 def convert_all(input_root: Path, output_root: Path) -> list[Path]:
+    """Convert every scene under *input_root* to JSON files in *output_root*."""
     output_root.mkdir(parents=True, exist_ok=True)
     written_files: list[Path] = []
 
@@ -175,12 +197,14 @@ def preprocess_suite_mds(
     input_root: Path | None = None,
     output_root: Path | None = None,
 ) -> list[Path]:
+    """Convert default or custom markdown benchmark roots to JSON benchmark specs."""
     resolved_input_root = (input_root or (PROJECT_ROOT / "assets" / "benchmark_mds")).resolve()
     resolved_output_root = (output_root or (PROJECT_ROOT / "assets" / "benchmarks")).resolve()
     return convert_all(resolved_input_root, resolved_output_root)
 
 
 def main() -> None:
+    """CLI entry: convert markdown benchmark scenes to JSON under the output root."""
     parser = argparse.ArgumentParser(description="Convert markdown benchmarks into JSON benchmark specs.")
     parser.add_argument(
         "--input-root",

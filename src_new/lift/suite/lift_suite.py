@@ -1,3 +1,5 @@
+"""LIFT suite JSON 加载：标准 ``Suite`` + hold-out 扩展字段。"""
+
 from __future__ import annotations
 
 import json
@@ -25,6 +27,7 @@ class LiftSuiteConfig(BaseModel):
 
 
 def load_lift_suite(file_path: str | Path) -> LiftSuiteConfig:
+    """读取 suite JSON 并解析为 ``LiftSuiteConfig``（含 hold-out 切分元数据）。"""
     path = Path(file_path)
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):

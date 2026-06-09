@@ -1,3 +1,5 @@
+"""OpenClaw gateway 容器启动：端口分配、volume、readiness 与 workspace seed。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -27,13 +29,14 @@ from src_new.lift.adapters.openclaw.workspace_seed import (
 )
 from src_new.models import SuiteTask
 
-_BASE_GATEWAY_PORT = 18789
-_BASE_FASTAPI_PORT = 18090
-_PORT_STEP = 20
-_CONTAINER_PREFIX = "evolve-openclaw"
+_BASE_GATEWAY_PORT = 18789  # 宿主机 gateway 端口起始
+_BASE_FASTAPI_PORT = 18090  # 宿主机 FastAPI 端口起始
+_PORT_STEP = 20  # 每 slot 端口步进，避免冲突
+_CONTAINER_PREFIX = "evolve-openclaw"  # docker 容器名前缀
 
 
 def _instance_ports(instance_key: str) -> tuple[int, int]:
+    """按 instance_key hash 分配宿主机 gateway/fastapi 端口对。"""
     digest = hashlib.sha256(instance_key.encode()).hexdigest()
     slot = int(digest[:8], 16) % 500
     return (
@@ -43,6 +46,7 @@ def _instance_ports(instance_key: str) -> tuple[int, int]:
 
 
 async def _wait_gateway(session: ContainerSession, tries: int = 90) -> None:
+    """轮询 curl gateway health，超时仅 warning 不抛错。"""
     gateway_port = int(session.metadata["gateway_port"])
     for _ in range(tries):
         for path in ("/", "/health"):
@@ -61,6 +65,7 @@ async def _wait_gateway(session: ContainerSession, tries: int = 90) -> None:
 
 
 async def _reclaim_volume_ownership(session: ContainerSession) -> None:
+    """容器销毁前将 bind mount 目录 chown 回宿主机用户。"""
     await asyncio.sleep(2)
     uid, gid = host_user_ids()
     try:
@@ -77,6 +82,7 @@ async def _reclaim_volume_ownership(session: ContainerSession) -> None:
 
 
 async def _reset_workspace_attestations(session: ContainerSession) -> None:
+    """清除 OpenClaw workspace attestations，避免跨题状态污染。"""
     await exec_shell_async(
         session.container_name,
         "rm -rf \"${OPENCLAW_STATE_DIR:-/root/.openclaw}\"/workspace-attestations 2>/dev/null || true",
@@ -85,6 +91,7 @@ async def _reset_workspace_attestations(session: ContainerSession) -> None:
 
 
 async def _ensure_workspace_seed(session: ContainerSession) -> None:
+    """容器内同步镜像内 workspace seed 并移除 BOOTSTRAP。"""
     try:
         await exec_shell_async(
             session.container_name,
@@ -100,6 +107,7 @@ async def _ensure_workspace_seed(session: ContainerSession) -> None:
 
 
 def openclaw_context(session: ContainerSession) -> OpenClawContainerContext:
+    """从 ``ContainerSession.metadata`` 构造 ``OpenClawContainerContext``。"""
     return OpenClawContainerContext(
         container_name=session.container_name,
         gateway_token=str(session.metadata["gateway_token"]),
@@ -116,6 +124,7 @@ async def start_openclaw_container(
     seed_workspace: bool = False,
     task: SuiteTask | None = None,
 ) -> ContainerSession:
+    """启动 OpenClaw gateway 容器：端口、token、volume、readiness 与 seed 钩子。"""
     gateway_port, fastapi_port = _instance_ports(instance_id)
     token = secrets.token_hex(32)
 

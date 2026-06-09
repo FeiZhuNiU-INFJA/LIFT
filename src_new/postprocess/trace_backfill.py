@@ -14,10 +14,12 @@ from src_new.models import EvalReport, PhaseRun
 from src_new.report.langfuse_trace_stitch import stitch_phase_langfuse_traces
 
 
+# Agent backend whose traces are stitched during backfill.
 AgentSource = Literal["openclaw", "hermes"]
 
 
 def get_langfuse_client():
+    """Return a configured Langfuse client with API access, or raise ``RuntimeError``."""
     client = get_client()
     if not hasattr(client, "api"):
         raise RuntimeError(
@@ -33,6 +35,7 @@ def backfill_phase(
     phase: PhaseRun | None,
     agent_source: AgentSource = "openclaw",
 ):
+    """Attach stitched Langfuse traces to a single ``PhaseRun``, or return None if *phase* is None."""
     if phase is None:
         return None
     bundle = stitch_phase_langfuse_traces(
@@ -50,6 +53,7 @@ def backfill_report(
     client: Any,
     agent_source: AgentSource = "openclaw",
 ) -> EvalReport:
+    """Backfill Langfuse data for every baseline/evolved phase in *report*."""
     run_tag = report.run_id
     new_runs = []
     for repeat in report.runs:

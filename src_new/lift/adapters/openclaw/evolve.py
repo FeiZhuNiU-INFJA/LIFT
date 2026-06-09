@@ -1,3 +1,5 @@
+"""OpenClaw warmup 后 evolve 钩子：``openclaw learn review``。"""
+
 from __future__ import annotations
 
 from src_new.lift.adapters.openclaw.container_env import container_runtime_env
@@ -9,7 +11,7 @@ from src_new.lift.adapters.openclaw.container_exec import (
 
 
 async def openclaw_learn_review(container: OpenClawContainerContext) -> None:
-    """Run OpenClaw evolve hook after warmup tasks."""
+    """warmup 题完成后在容器内执行 evolve（learn review + worker 配置）。"""
     env = container_runtime_env()
     await exec_shell_async(
         container.container_name,

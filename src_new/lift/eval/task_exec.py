@@ -6,28 +6,26 @@ import asyncio
 from pathlib import Path
 
 from src_new.config import LOGGER
+from src_new.lift.eval.stage import SuiteRunPhase
 from src_new.lift.eval.worker_judger import WorkerJudgerPairFactory
 from src_new.lift.eval.run_task import run_task
 from src_new.models import PhaseRun, SuiteTask
 
 
-async def execute_phase(
+async def execute_task(
     *,
     task: SuiteTask,
     run_id: str,
     workspace_dir: Path,
     factory: WorkerJudgerPairFactory,
-    phase: str = "task",
-    is_evolve_turn: bool = False,
-    is_final_task: bool = False,
-    log_label: str = "task",
+    run_phase: SuiteRunPhase,
 ) -> PhaseRun:
     """Run a single task via ``factory`` → ``run_task`` → ``PhaseRun``."""
     pair = factory(task)
     LOGGER.info(
         "Running %s %s: %s run_id=%s workspace=%s",
-        phase,
-        log_label,
+        run_phase.stage.value,
+        run_phase.log_label,
         task.name,
         run_id,
         workspace_dir,
@@ -36,8 +34,8 @@ async def execute_phase(
         task,
         run_id,
         pair,
-        is_evolve_turn=is_evolve_turn,
-        is_final_task=is_final_task,
+        is_evolve_turn=run_phase.is_evolve_turn,
+        is_final_task=run_phase.is_final_task,
     )
     return PhaseRun(
         work_session_id=work_sid,
@@ -48,32 +46,27 @@ async def execute_phase(
     )
 
 
-async def execute_phase_batch(
+async def execute_tasks(
     *,
     tasks: list[SuiteTask],
     run_id: str,
     workspace_dir: Path,
     factory: WorkerJudgerPairFactory,
+    run_phase: SuiteRunPhase,
     parallel: bool,
-    phase: str = "task",
-    is_evolve_turn: bool = False,
-    is_final_task: bool = False,
-    log_label: str = "task",
 ) -> list[PhaseRun]:
     """Run multiple tasks; ``parallel`` selects serial ``for`` vs ``asyncio.gather``."""
     if not tasks:
         return []
 
     async def run_one(task: SuiteTask) -> PhaseRun:
-        return await execute_phase(
+        """单题包装：委托 ``execute_task``。"""
+        return await execute_task(
             task=task,
             run_id=run_id,
             workspace_dir=workspace_dir,
             factory=factory,
-            phase=phase,
-            is_evolve_turn=is_evolve_turn,
-            is_final_task=is_final_task,
-            log_label=log_label,
+            run_phase=run_phase,
         )
 
     if parallel:
