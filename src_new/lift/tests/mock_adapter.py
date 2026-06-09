@@ -8,7 +8,7 @@ from src_new.utils import short_id
 
 from src_new.lift.adapters.base import AgentRuntimeAdapter, RunContext
 from src_new.lift.adapters.environment import ExecutionEnvironment
-from src_new.lift.eval.agent_pair import TaskAgentPairFactory
+from src_new.lift.eval.worker_judger import WorkerJudgerPairFactory
 from src_new.lift.policies.artifact import ArtifactPolicy
 from src_new.lift.runtime.delta_ref import DeltaRef
 from src_new.lift.runtime.suite_run_resources import SuiteRunResources
@@ -23,14 +23,14 @@ class MockAdapter(AgentRuntimeAdapter):
         self._last_warmup: list[SuiteTask] = []
 
     @override
-    def create_agent_pair_factory(
+    def worker_judger_factory(
         self,
         env: ExecutionEnvironment,
         ctx: RunContext,
         *,
         phase: str,
         workspace_dir: Path,
-    ) -> TaskAgentPairFactory:
+    ) -> WorkerJudgerPairFactory:
         _ = (env, ctx, phase, workspace_dir)
         raise NotImplementedError("MockAdapter does not run tasks")
 

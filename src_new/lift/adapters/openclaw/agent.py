@@ -11,7 +11,7 @@ from src_new.lift.adapters.openclaw.container_exec import (
     exec_openclaw_async,
     exec_openclaw_sync,
 )
-from src_new.lift.eval.agent_pair import TaskAgentPair, TaskAgentPairFactory
+from src_new.lift.eval.worker_judger import WorkerJudgerPair
 from src_new.models import SuiteTask
 from src_new.utils import short_id
 
@@ -97,8 +97,8 @@ class ContainerOpenClawAgent(OpenClawAgent):
         return (await exec_openclaw_async(self._container, openclaw_args)).strip()
 
 
-class OpenClawAgentPairFactory:
-    """Build work/judge ``ContainerOpenClawAgent`` pairs for tasks in one container."""
+class OpenClawWorkerJudgerPairFactory:
+    """Build ``WorkerJudgerPair`` with ``ContainerOpenClawAgent`` for tasks in one container."""
 
     def __init__(
         self,
@@ -115,7 +115,7 @@ class OpenClawAgentPairFactory:
         self._phase = phase
         self._workspace_dir = workspace_dir
 
-    def __call__(self, task: SuiteTask) -> TaskAgentPair:
+    def __call__(self, task: SuiteTask) -> WorkerJudgerPair:
         work_session_id = f"user-{short_id()}"
         judge_session_id = f"judge-{short_id()}"
 
@@ -138,7 +138,7 @@ class OpenClawAgentPairFactory:
         judge_agent = create_agent(f"judge-{judge_session_id}")
         work_agent.initialize()
         judge_agent.initialize()
-        return TaskAgentPair(
+        return WorkerJudgerPair(
             work_agent=work_agent,
             judge_agent=judge_agent,
             work_session_id=work_session_id,

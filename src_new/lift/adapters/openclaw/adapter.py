@@ -7,10 +7,10 @@ from src_new.lift.adapters.base import RunContext
 from src_new.lift.adapters.container.adapter import ContainerAgentRuntimeAdapter
 from src_new.lift.adapters.container.session import ContainerSession
 from src_new.lift.adapters.environment import ExecutionEnvironment
-from src_new.lift.adapters.openclaw.agent import OpenClawAgentPairFactory
+from src_new.lift.adapters.openclaw.agent import OpenClawWorkerJudgerPairFactory
 from src_new.lift.adapters.openclaw.evolve import openclaw_learn_review
 from src_new.lift.adapters.openclaw.session import openclaw_context, start_openclaw_container
-from src_new.lift.eval.agent_pair import TaskAgentPairFactory
+from src_new.lift.eval.worker_judger import WorkerJudgerPairFactory
 from src_new.models import SuiteTask
 class OpenClawAdapter(ContainerAgentRuntimeAdapter):
     """OpenClaw: image config, container start, chat factory, and evolve hook."""
@@ -60,16 +60,16 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
         )
 
     @override
-    def create_agent_pair_factory(
+    def worker_judger_factory(
         self,
         env: ExecutionEnvironment,
         ctx: RunContext,
         *,
         phase: str,
         workspace_dir: Path,
-    ) -> TaskAgentPairFactory:
+    ) -> WorkerJudgerPairFactory:
         session: ContainerSession = env.handle
-        return OpenClawAgentPairFactory(
+        return OpenClawWorkerJudgerPairFactory(
             container=openclaw_context(session),
             run_id=ctx.run_id,
             repeat_index=ctx.repeat_index,

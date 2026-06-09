@@ -72,8 +72,7 @@ src_new/lift/
 | 路径 | 作用 |
 |------|------|
 | `src_new/cli/lift_main.py` | CLI 入口：`--agent-runtime openclaw` |
-| `src_new/lift/eval/` | 单题多轮执行：`run_task`（work + judge）；多题编排：`execute_phase` / `execute_phase_batch` |
-| `src_new/eval_core.py` | **Deprecated shim**，兼容旧 `openclaw_run_task` / Hermes `run_task` 签名 |
+| `src_new/lift/eval/` | `worker_judger.py`（`WorkerJudgerPair`）；`run_task`（work + judge 循环）；`execute_phase` / `_batch` |
 | `src_new/models.py` | `Suite`、`SuiteTask`、`PhaseRun`、`EvalReport` |
 | `src_new/agents.py` | `OpenClawAgent` 基类（宿主机版） |
 | `agents/openclaw/` | Docker 镜像、插件、gateway 配置 |
@@ -92,7 +91,7 @@ src_new/lift/
 ### 第二步：理解适配器三层继承
 
 4. `adapters/base.py` — **`AgentRuntimeAdapter` 模板方法**（已实现 `produce_delta` / `_run_holdout`），子类只需实现钩子：
-   - `create_agent_pair_factory` — 如何 chat
+   - `worker_judger_factory` — 如何 chat
    - `start_warmup_environment` / `start_holdout_environment` — 执行环境
    - `apply_evolve` — warmup 后进化
    - `materialize_delta` — 产物物化
@@ -100,7 +99,7 @@ src_new/lift/
 
 5. `adapters/container/adapter.py` — **`ContainerAgentRuntimeAdapter`**：容器启停 + **默认 docker commit** 物化 delta；抽象 `start_container` + `resolve_docker_image`
 
-6. `adapters/openclaw/adapter.py` — **OpenClaw 仅 4 件事**：读镜像配置、`start_container`、`create_agent_pair_factory`、`apply_evolve`
+6. `adapters/openclaw/adapter.py` — **OpenClaw 仅 4 件事**：读镜像配置、`start_container`、`worker_judger_factory`、`apply_evolve`
 
 7. `adapters/registry.py` — 目前仅注册 `openclaw`
 
@@ -148,8 +147,8 @@ LIFT **不**在宿主机直接跑 OpenClaw CLI（legacy `openclaw_main.py` 才�
 |----|------|------|
 | **AgentRuntimeAdapter** | `base.py` | 模板：`produce_delta`、`_run_holdout`；调 `lift/eval` |
 | **ContainerAgentRuntimeAdapter** | `container/adapter.py` | 容器启停；默认 `materialize_delta` = docker commit |
-| **OpenClawAdapter** | `openclaw/adapter.py` | `resolve_docker_image`、`start_container`、`create_agent_pair_factory`、`apply_evolve` |
-| **OpenClaw chat** | `openclaw/agent.py` | `ContainerOpenClawAgent` + `OpenClawAgentPairFactory` |
+| **OpenClawAdapter** | `openclaw/adapter.py` | `resolve_docker_image`、`start_container`、`worker_judger_factory`、`apply_evolve` |
+| **OpenClaw chat** | `openclaw/agent.py` | `ContainerOpenClawAgent` + `OpenClawWorkerJudgerPairFactory` |
 | **OpenClaw 容器** | `openclaw/session.py` | gateway 端口、volume、workspace seed |
 
 ### 4.3 一次 repeat 的容器时间线
@@ -217,7 +216,7 @@ sequenceDiagram
 | **单题内核** | `lift/eval/run_task.py` | 1 task：work chat → judge chat → 解析 → 重试 |
 | **单题包装** | `lift/eval/phase.py` `execute_phase` | factory 创建 agent pair → `run_task` → `PhaseRun` |
 | **多题编排** | `lift/eval/phase.py` `execute_phase_batch` | `parallel` 控制串行 / 并行 |
-| **OpenClaw 特化** | `openclaw/agent.py` `OpenClawAgentPairFactory` | 容器内 `docker exec openclaw` 实现 `chat` |
+| **OpenClaw 特化** | `openclaw/agent.py` `OpenClawWorkerJudgerPairFactory` | 容器内 `docker exec openclaw` 实现 `chat` |
 
 warmup 与 hold-out **共用** `run_task`；差异仅在 adapter 的容器 / workspace / evolve。
 

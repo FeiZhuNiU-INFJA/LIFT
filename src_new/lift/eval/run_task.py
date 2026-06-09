@@ -8,7 +8,7 @@ from json_repair import repair_json
 from pydantic import BaseModel, Field
 
 from src_new.config import CONFIG, LOGGER
-from src_new.lift.eval.agent_pair import TaskAgentPair
+from src_new.lift.eval.worker_judger import WorkerJudgerPair
 from src_new.models import CustomTags, SuiteTask
 
 
@@ -63,7 +63,7 @@ async def _judge_with_retry(
     *,
     task: SuiteTask,
     run_id: str,
-    pair: TaskAgentPair,
+    pair: WorkerJudgerPair,
     tags: CustomTags,
     agent_result: str,
 ) -> EvalJudgeResult:
@@ -110,7 +110,7 @@ async def _judge_with_retry(
 async def run_task(
     task: SuiteTask,
     run_id: str,
-    pair: TaskAgentPair,
+    pair: WorkerJudgerPair,
     *,
     max_turns: int = CONFIG.eval_max_turns,
     is_evolve_turn: bool = False,

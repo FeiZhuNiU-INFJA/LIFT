@@ -4,7 +4,7 @@ import json
 
 from pydantic import BaseModel
 
-from src_new.lift.eval.agent_pair import TaskAgentPair
+from src_new.lift.eval.worker_judger import WorkerJudgerPair
 from src_new.lift.eval.run_task import run_task
 from src_new.models import CustomTags, ExpectedResult, SuiteTask, TaskRequirements
 
@@ -57,7 +57,7 @@ async def test_run_task_success_on_first_turn() -> None:
     judge_json = json.dumps({"success": True, "reason": "", "score": 1.0})
     work = _FakeAgent(responses=["hello"])
     judge = _FakeAgent(responses=[judge_json])
-    pair = TaskAgentPair(
+    pair = WorkerJudgerPair(
         work_agent=work,  # type: ignore[arg-type]
         judge_agent=judge,  # type: ignore[arg-type]
         work_session_id="work-1",
@@ -88,7 +88,7 @@ async def test_run_task_retries_work_after_judge_failure() -> None:
     ok_json = json.dumps({"success": True, "reason": "", "score": 1.0})
     work = _FakeAgent(responses=["hi", "hello there"])
     judge = _FakeAgent(responses=[fail_json, ok_json])
-    pair = TaskAgentPair(
+    pair = WorkerJudgerPair(
         work_agent=work,  # type: ignore[arg-type]
         judge_agent=judge,  # type: ignore[arg-type]
         work_session_id="work-1",
@@ -107,7 +107,7 @@ async def test_run_task_judge_parse_retry() -> None:
     ok_json = json.dumps({"success": True, "reason": "", "score": 1.0})
     work = _FakeAgent(responses=["hello"])
     judge = _FakeAgent(responses=["not json", ok_json])
-    pair = TaskAgentPair(
+    pair = WorkerJudgerPair(
         work_agent=work,  # type: ignore[arg-type]
         judge_agent=judge,  # type: ignore[arg-type]
         work_session_id="work-1",

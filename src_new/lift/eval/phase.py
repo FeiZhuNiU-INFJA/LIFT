@@ -6,7 +6,7 @@ import asyncio
 from pathlib import Path
 
 from src_new.config import LOGGER
-from src_new.lift.eval.agent_pair import TaskAgentPairFactory
+from src_new.lift.eval.worker_judger import WorkerJudgerPairFactory
 from src_new.lift.eval.run_task import run_task
 from src_new.models import PhaseRun, SuiteTask
 
@@ -16,7 +16,7 @@ async def execute_phase(
     task: SuiteTask,
     run_id: str,
     workspace_dir: Path,
-    factory: TaskAgentPairFactory,
+    factory: WorkerJudgerPairFactory,
     phase: str = "task",
     is_evolve_turn: bool = False,
     is_final_task: bool = False,
@@ -53,7 +53,7 @@ async def execute_phase_batch(
     tasks: list[SuiteTask],
     run_id: str,
     workspace_dir: Path,
-    factory: TaskAgentPairFactory,
+    factory: WorkerJudgerPairFactory,
     parallel: bool,
     phase: str = "task",
     is_evolve_turn: bool = False,

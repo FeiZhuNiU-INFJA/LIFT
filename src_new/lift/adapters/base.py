@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src_new.config import LOGGER
 from src_new.lift.adapters.environment import ExecutionEnvironment
-from src_new.lift.eval.agent_pair import TaskAgentPairFactory
+from src_new.lift.eval.worker_judger import WorkerJudgerPairFactory
 from src_new.lift.eval.phase import execute_phase, execute_phase_batch
 from src_new.lift.pipeline.run_options import RunOptions
 from src_new.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
@@ -74,7 +74,7 @@ class AgentRuntimeAdapter(ABC):
         env = await self.start_warmup_environment(ctx, resources, workspace)
         resources.track(env.disposable)
         try:
-            factory = self.create_agent_pair_factory(
+            factory = self.worker_judger_factory(
                 env, ctx, phase="warmup", workspace_dir=workspace
             )
             await execute_phase_batch(
@@ -153,7 +153,7 @@ class AgentRuntimeAdapter(ABC):
         )
         resources.track(env.disposable)
         try:
-            factory = self.create_agent_pair_factory(
+            factory = self.worker_judger_factory(
                 env, ctx, phase=phase, workspace_dir=workspace
             )
             return await execute_phase(
@@ -183,15 +183,15 @@ class AgentRuntimeAdapter(ABC):
         return path
 
     @abstractmethod
-    def create_agent_pair_factory(
+    def worker_judger_factory(
         self,
         env: ExecutionEnvironment,
         ctx: RunContext,
         *,
         phase: str,
         workspace_dir: Path,
-    ) -> TaskAgentPairFactory:
-        """Build work/judge agents for ``run_task`` inside ``env``."""
+    ) -> WorkerJudgerPairFactory:
+        """Return a ``WorkerJudgerPairFactory`` bound to ``env`` for ``run_task``."""
 
     @abstractmethod
     async def start_warmup_environment(
