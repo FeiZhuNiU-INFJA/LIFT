@@ -4,6 +4,8 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from src_new.lift.suite.holdout import split_suite_tasks
 from src_new.lift.suite.lift_suite import load_lift_suite
 
@@ -65,20 +67,5 @@ def test_holdout_count_exceeds_tasks() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "suite.json"
         _write_suite(path, _minimal_suite_payload(holdout_count=5))
-        try:
+        with pytest.raises(ValueError, match="holdout_count"):
             split_suite_tasks(load_lift_suite(path))
-            raise AssertionError("expected ValueError")
-        except ValueError as e:
-            assert "holdout_count" in str(e)
-
-
-def _run_all() -> None:
-    test_holdout_count_default_one()
-    test_holdout_count_two()
-    test_holdout_task_names()
-    test_holdout_count_exceeds_tasks()
-    print("holdout tests ok")
-
-
-if __name__ == "__main__":
-    _run_all()

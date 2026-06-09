@@ -6,8 +6,9 @@ from src_new.config import LOGGER
 from src_new.lift.adapters.openclaw.container_session import ContainerSession
 from src_new.lift.adapters.openclaw.task_runner import (
     evolve_in_container,
-    run_openclaw_task_phase_batch,
+    openclaw_agent_pair_factory,
 )
+from src_new.lift.eval.phase import execute_phase_batch
 from src_new.lift.policies.container import WarmupContainerPolicy
 from src_new.lift.runtime.delta_ref import DeltaRef
 from src_new.lift.runtime.environment_cleaner import EnvironmentCleaner, delta_image_tag
@@ -43,14 +44,20 @@ async def produce_delta_from_warmup(
             workspace_dir=workspace,
         )
         resources.track(session)
-        await run_openclaw_task_phase_batch(
-            tasks=warmup_tasks,
+        factory = openclaw_agent_pair_factory(
+            container=session.context,
             run_id=run_id,
             repeat_index=repeat_index,
             phase="warmup",
             workspace_dir=workspace,
-            container=session.context,
-            parallel=False,
+        )
+        await execute_phase_batch(
+            tasks=warmup_tasks,
+            run_id=run_id,
+            workspace_dir=workspace,
+            factory=factory,
+            parallel=parallel_warmup_tasks,
+            phase="warmup",
             is_final_task=False,
             log_label="warmup",
         )

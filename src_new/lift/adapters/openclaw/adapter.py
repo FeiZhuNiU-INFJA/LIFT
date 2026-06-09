@@ -7,7 +7,8 @@ from src_new.config import LOGGER
 from src_new.lift.adapters.base import ContainerRuntimeAdapter, RunContext
 from src_new.lift.adapters.openclaw.container_session import ContainerSession
 from src_new.lift.adapters.openclaw.delta_producer import produce_delta_from_warmup
-from src_new.lift.adapters.openclaw.task_runner import run_openclaw_task_phase
+from src_new.lift.adapters.openclaw.task_runner import openclaw_agent_pair_factory
+from src_new.lift.eval.phase import execute_phase
 from src_new.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src_new.lift.runtime.delta_ref import DeltaRef
 from src_new.lift.runtime.suite_run_resources import SuiteRunResources
@@ -142,13 +143,19 @@ class OpenClawAdapter(ContainerRuntimeAdapter):
         )
         resources.track(session)
         try:
-            return await run_openclaw_task_phase(
-                task=task,
+            factory = openclaw_agent_pair_factory(
+                container=session.context,
                 run_id=ctx.run_id,
                 repeat_index=ctx.repeat_index,
                 phase=phase,
                 workspace_dir=workspace,
-                container=session.context,
+            )
+            return await execute_phase(
+                task=task,
+                run_id=ctx.run_id,
+                workspace_dir=workspace,
+                factory=factory,
+                phase=phase,
                 is_evolve_turn=is_evolve_turn,
                 is_final_task=True,
                 log_label=log_label,

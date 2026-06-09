@@ -133,6 +133,7 @@ def main(argv: list[str] | None = None) -> None:
         evaluate_only_mode(args)
         return
 
+    # Map --benchmark_dir + --suite (all or comma-separated JSON names) → suite file paths
     suite_paths = resolve_suite_paths(Path(args.benchmark_dir), args.suite)
     asyncio.run(run_lift(args, suite_paths))
 

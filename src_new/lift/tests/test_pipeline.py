@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import tempfile
 from pathlib import Path
 
-from src_new.lift.tests.mock_adapter import MockAdapter
 from src_new.lift.pipeline.lift_pipeline import LIFTPipeline
 from src_new.lift.pipeline.run_options import RunOptions
+from src_new.lift.tests.mock_adapter import MockAdapter
 
 
 def _suite_json(path: Path) -> None:
@@ -39,11 +38,7 @@ def _suite_json(path: Path) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_pipeline_two_holdout_task_runs() -> None:
-    asyncio.run(_test_pipeline_two_holdout_task_runs())
-
-
-async def _test_pipeline_two_holdout_task_runs() -> None:
+async def test_pipeline_two_holdout_task_runs() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         suite_path = tmp_path / "suite.json"
@@ -68,11 +63,7 @@ async def _test_pipeline_two_holdout_task_runs() -> None:
         assert suite_run.tasks[0].evolved is not None
 
 
-def test_pipeline_warmup_only_skips_holdout() -> None:
-    asyncio.run(_test_pipeline_warmup_only())
-
-
-async def _test_pipeline_warmup_only() -> None:
+async def test_pipeline_warmup_only_skips_holdout() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         suite_path = tmp_path / "suite.json"
@@ -90,13 +81,3 @@ async def _test_pipeline_warmup_only() -> None:
         assert adapter.after_load_count == 0
         tasks = report.runs[0].suites[0].tasks
         assert len(tasks) == 0
-
-
-def _run_all() -> None:
-    test_pipeline_two_holdout_task_runs()
-    test_pipeline_warmup_only_skips_holdout()
-    print("pipeline tests ok")
-
-
-if __name__ == "__main__":
-    _run_all()

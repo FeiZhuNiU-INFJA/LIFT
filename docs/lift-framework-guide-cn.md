@@ -62,7 +62,8 @@ src_new/lift/
 | 路径 | 作用 |
 |------|------|
 | `src_new/cli/lift_main.py` | CLI 入口：`--runtime openclaw` |
-| `src_new/eval_core.py` | 单题多轮执行：`openclaw_run_task`（work agent + judge） |
+| `src_new/lift/eval/` | 单题多轮执行：`run_task`（work + judge）；多题编排：`execute_phase` / `execute_phase_batch` |
+| `src_new/eval_core.py` | **Deprecated shim**，兼容旧 `openclaw_run_task` / Hermes `run_task` 签名 |
 | `src_new/models.py` | `Suite`、`SuiteTask`、`PhaseRun`、`EvalReport` |
 | `src_new/agents.py` | `OpenClawAgent` 基类（宿主机版） |
 | `agents/openclaw/` | Docker 镜像、插件、gateway 配置 |
@@ -95,17 +96,15 @@ src_new/lift/
 6. `adapters/openclaw/adapter.py` — 把抽象契约映射到容器操作
 7. `adapters/openclaw/delta_producer.py` — warmup 容器 → evolve → `docker commit`
 8. `adapters/openclaw/container_session.py` — `docker run`、端口、卷挂载
-9. `adapters/openclaw/task_runner.py` — 容器内 `docker exec openclaw …`
-10. `src_new/eval_core.py` — `openclaw_run_task`：多轮 work/judge 循环
+9. `adapters/openclaw/task_runner.py` — `OpenClawAgentPairFactory`（容器内 agent 创建）
+10. `lift/eval/run_task.py` — 单题 work/judge 多轮循环（runtime 无关）
+11. `lift/eval/phase.py` — `execute_phase` / `execute_phase_batch`（多题串并行）
 
 ### 第四步：对照测试
 
 ```bash
-python -m src_new.lift.tests.test_holdout        # hold-out 切分
-python -m src_new.lift.tests.test_runtime         # 清理 / delta 命名
-python -m src_new.lift.tests.test_pipeline        # MockAdapter 端到端
-python -m src_new.lift.tests.test_abc_contracts   # ABC 不可直接实例化
-python -m src_new.lift.tests.test_workspace_seed  # hold-out workspace 预置
+python -m pytest src_new/lift/tests -q
+# 或按文件：pytest src_new/lift/tests/test_holdout.py
 ```
 
 ---
@@ -198,15 +197,18 @@ sequenceDiagram
 
 任务 markdown 里写的 `materials/`、`result/` 路径，对应容器内 `/workspace/materials` 与 `/workspace/task/result/`。
 
-### 4.5 单题执行（`task_runner.py` + `eval_core.py`）
+### 4.5 单题执行（`lift/eval/` + adapter factory）
 
-每道题在容器内会：
+职责分层：
 
-1. **`create_agents_for_task`** — 创建两个 OpenClaw agent：
-   - **work agent**：执行用户 query
-   - **judge agent**：按 `content_reqs` 打分，失败则反馈「你再试一次…」
-2. **`openclaw_run_task`** — 最多 `eval_max_turns` 轮，直到 judge 判定 success 或耗尽轮次
-3. 返回 **`PhaseRun`**：`success`、`content_score`、`work_session_id`、`judge_session_id`、`workspace_dir`
+| 层 | 模块 | 粒度 |
+|----|------|------|
+| **单题内核** | `lift/eval/run_task.py` | 1 task：work chat → judge chat → 解析 → 重试 |
+| **单题包装** | `lift/eval/phase.py` `execute_phase` | factory 创建 agent pair → `run_task` → `PhaseRun` |
+| **多题编排** | `lift/eval/phase.py` `execute_phase_batch` | `parallel` 控制串行 / 并行 |
+| **OpenClaw 特化** | `task_runner.py` `OpenClawAgentPairFactory` | 容器内 `docker exec openclaw` 实现 `chat` |
+
+warmup 与 hold-out **共用** `run_task`；差异仅在 adapter 的容器 / workspace / evolve。
 
 `is_evolve_turn=True`（after-load）会写入 Langfuse 标签，供后处理区分 evolved 轨迹。
 
@@ -545,10 +547,10 @@ CLI (lift_main)
   → RuntimeAdapter（OpenClawAdapter）
        warmup：1 容器 × 多题 → learn review → docker commit → Δ（临时镜像）
        hold-out：每题 × (base 容器 baseline, Δ 容器 evolved)；workspace seed 跳过人设 onboarding
-  → eval_core.openclaw_run_task：work + judge 多轮
+  → lift/eval.run_task：单题 work + judge 多轮（runtime 无关）
   → evobench-reports/{run_id}.json（结构化 report）
   → results/{run_id}/outcome/...（Agent 工作区产物）
   → （可选）postprocess → results/{run_id}/*_metrics*（CSV/HTML）
 ```
 
-**读代码时记住一条线**：`lift_pipeline` 管编排，`openclaw/adapter` 管容器，`task_runner` 管单题，`eval_core` 管评测语义。
+**读代码时记住一条线**：`lift_pipeline` 管编排，`openclaw/adapter` 管容器，`lift/eval` 管单题评测语义，`task_runner` 只管 OpenClaw agent factory。

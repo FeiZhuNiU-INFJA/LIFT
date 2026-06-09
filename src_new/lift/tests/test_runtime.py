@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import override
 
 from src_new.lift.runtime.disposable import Disposable
@@ -36,11 +35,7 @@ def test_delta_image_tag_sanitizes() -> None:
     assert tag.count(":") == 1
 
 
-def test_suite_run_resources_cleanup_order() -> None:
-    asyncio.run(_test_suite_run_resources_cleanup_order())
-
-
-async def _test_suite_run_resources_cleanup_order() -> None:
+async def test_suite_run_resources_cleanup_order() -> None:
     cleaner = _FakeCleaner()
     delta = DeltaRef(image_tag="evolve-eval-delta:test:r0:suite")
     delta._cleaner = cleaner
@@ -58,13 +53,3 @@ async def _test_suite_run_resources_cleanup_order() -> None:
     assert second.cleaned
     assert first.cleaned
     assert cleaner.removed_images == ["evolve-eval-delta:test:r0:suite"]
-
-
-def _run_all() -> None:
-    test_delta_image_tag_sanitizes()
-    test_suite_run_resources_cleanup_order()
-    print("runtime tests ok")
-
-
-if __name__ == "__main__":
-    _run_all()

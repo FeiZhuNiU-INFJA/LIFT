@@ -1,14 +1,11 @@
-"""OpenClaw task execution inside Docker containers."""
+"""OpenClaw-specific agent factory and container evolve hook."""
 
 from __future__ import annotations
 
-import asyncio
-import subprocess
 from pathlib import Path
 
 from src_new.agents import OpenClawAgent
 from src_new.config import CONFIG, LOGGER
-from src_new.eval_core import openclaw_run_task
 from src_new.lift.adapters.openclaw.container_exec import (
     OpenClawContainerContext,
     exec_openclaw_async,
@@ -16,7 +13,8 @@ from src_new.lift.adapters.openclaw.container_exec import (
     exec_shell_async,
 )
 from src_new.lift.adapters.openclaw.container_env import container_runtime_env
-from src_new.models import PhaseRun, SuiteTask
+from src_new.lift.eval.agent_pair import TaskAgentPair, TaskAgentPairFactory
+from src_new.models import SuiteTask
 from src_new.utils import short_id
 
 CONTAINER_WORKSPACE = "/workspace/task"
@@ -101,143 +99,71 @@ class ContainerOpenClawAgent(OpenClawAgent):
         return (await exec_openclaw_async(self._container, openclaw_args)).strip()
 
 
-def create_agents_for_task(
+class OpenClawAgentPairFactory:
+    """Build work/judge ``ContainerOpenClawAgent`` pairs for tasks in one container."""
+
+    def __init__(
+        self,
+        *,
+        container: OpenClawContainerContext,
+        run_id: str,
+        repeat_index: int,
+        phase: str,
+        workspace_dir: Path,
+    ) -> None:
+        self._container = container
+        self._run_id = run_id
+        self._repeat_index = repeat_index
+        self._phase = phase
+        self._workspace_dir = workspace_dir
+
+    def __call__(self, task: SuiteTask) -> TaskAgentPair:
+        work_session_id = f"user-{short_id()}"
+        judge_session_id = f"judge-{short_id()}"
+
+        def create_agent(session_role: str) -> ContainerOpenClawAgent:
+            task_id = (
+                f"run-{self._repeat_index}-{self._phase}-"
+                f"{task.category_name}-{task.name}-{session_role}"
+            )
+            return ContainerOpenClawAgent(
+                container=self._container,
+                run_id=self._run_id,
+                task_id=task_id,
+                agent_name=f"evobench-agent_name-{short_id()}",
+                workspace_dir=self._workspace_dir,
+                skills_dir=task.requirements.extra_skills_dir,
+                material_dir=task.requirements.material_dir,
+            )
+
+        work_agent = create_agent(f"user-{work_session_id}")
+        judge_agent = create_agent(f"judge-{judge_session_id}")
+        work_agent.initialize()
+        judge_agent.initialize()
+        return TaskAgentPair(
+            work_agent=work_agent,
+            judge_agent=judge_agent,
+            work_session_id=work_session_id,
+            judge_session_id=judge_session_id,
+        )
+
+
+def openclaw_agent_pair_factory(
     *,
-    task: SuiteTask,
+    container: OpenClawContainerContext,
     run_id: str,
     repeat_index: int,
     phase: str,
     workspace_dir: Path,
-    container: OpenClawContainerContext,
-) -> tuple[ContainerOpenClawAgent, ContainerOpenClawAgent, str, str]:
-    factory = _agent_factory(
+) -> TaskAgentPairFactory:
+    """Return a factory bound to one OpenClaw container session."""
+    return OpenClawAgentPairFactory(
+        container=container,
         run_id=run_id,
         repeat_index=repeat_index,
         phase=phase,
-        task=task,
         workspace_dir=workspace_dir,
-        container=container,
     )
-    user_session_id = f"user-{short_id()}"
-    judge_session_id = f"judge-{short_id()}"
-    user_agent = factory(f"user-{user_session_id}")
-    judge_agent = factory(f"judge-{judge_session_id}")
-    user_agent.initialize()
-    judge_agent.initialize()
-    return user_agent, judge_agent, user_session_id, judge_session_id
-
-
-def _agent_factory(
-    *,
-    run_id: str,
-    repeat_index: int,
-    phase: str,
-    task: SuiteTask,
-    workspace_dir: Path,
-    container: OpenClawContainerContext,
-):
-    def create_agent(session_role: str) -> ContainerOpenClawAgent:
-        task_id = f"run-{repeat_index}-{phase}-{task.category_name}-{task.name}-{session_role}"
-        return ContainerOpenClawAgent(
-            container=container,
-            run_id=run_id,
-            task_id=task_id,
-            agent_name=f"evobench-agent_name-{short_id()}",
-            workspace_dir=workspace_dir,
-            skills_dir=task.requirements.extra_skills_dir,
-            material_dir=task.requirements.material_dir,
-        )
-
-    return create_agent
-
-
-async def run_openclaw_task_phase(
-    *,
-    task: SuiteTask,
-    run_id: str,
-    repeat_index: int,
-    phase: str,
-    workspace_dir: Path,
-    container: OpenClawContainerContext,
-    is_evolve_turn: bool = False,
-    is_final_task: bool = False,
-    log_label: str = "task",
-    agents: tuple[ContainerOpenClawAgent, ContainerOpenClawAgent, str, str] | None = None,
-) -> PhaseRun:
-    if agents is None:
-        agents = create_agents_for_task(
-            task=task,
-            run_id=run_id,
-            repeat_index=repeat_index,
-            phase=phase,
-            workspace_dir=workspace_dir,
-            container=container,
-        )
-    user_agent, judge_agent, user_session_id, judge_session_id = agents
-    LOGGER.info(
-        "Running %s %s: %s run_id=%s repeat=%d workspace=%s container=%s",
-        phase,
-        log_label,
-        task.name,
-        run_id,
-        repeat_index,
-        workspace_dir,
-        container.container_name,
-    )
-    success, work_sid, judge_sid, content_score = await openclaw_run_task(
-        task,
-        run_id,
-        user_agent=user_agent,
-        judge_agent=judge_agent,
-        user_session_id=user_session_id,
-        judge_session_id=judge_session_id,
-        is_evolve_turn=is_evolve_turn,
-        is_final_task=is_final_task,
-    )
-    return PhaseRun(
-        work_session_id=work_sid,
-        judge_session_id=judge_sid,
-        success=success,
-        content_score=content_score,
-        workspace_dir=str(workspace_dir.resolve()),
-    )
-
-
-async def run_openclaw_task_phase_batch(
-    *,
-    tasks: list[SuiteTask],
-    run_id: str,
-    repeat_index: int,
-    phase: str,
-    workspace_dir: Path,
-    container: OpenClawContainerContext,
-    parallel: bool,
-    is_evolve_turn: bool = False,
-    is_final_task: bool = False,
-    log_label: str = "task",
-) -> list[PhaseRun]:
-    if not tasks:
-        return []
-
-    async def run_one(task: SuiteTask) -> PhaseRun:
-        return await run_openclaw_task_phase(
-            task=task,
-            run_id=run_id,
-            repeat_index=repeat_index,
-            phase=phase,
-            workspace_dir=workspace_dir,
-            container=container,
-            is_evolve_turn=is_evolve_turn,
-            is_final_task=is_final_task,
-            log_label=log_label,
-        )
-
-    if parallel:
-        return list(await asyncio.gather(*[run_one(t) for t in tasks]))
-    results: list[PhaseRun] = []
-    for task in tasks:
-        results.append(await run_one(task))
-    return results
 
 
 async def evolve_in_container(container: OpenClawContainerContext, session_id: str) -> None:

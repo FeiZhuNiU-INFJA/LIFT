@@ -61,9 +61,7 @@ Under `results/{run_id}/`:
 ## Tests
 
 ```bash
-python -m src_new.lift.tests.test_holdout
-python -m src_new.lift.tests.test_runtime
-python -m src_new.lift.tests.test_pipeline
+python -m pytest src_new/lift/tests -q
 ```
 
 ## Delta image naming

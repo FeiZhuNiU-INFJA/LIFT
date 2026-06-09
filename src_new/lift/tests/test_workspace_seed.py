@@ -17,12 +17,3 @@ def test_seed_eval_workspace_copies_identity_and_removes_bootstrap() -> None:
         assert "EvoBench Assistant" in (workspace / "IDENTITY.md").read_text(encoding="utf-8")
         assert not (workspace / "BOOTSTRAP.md").exists()
         assert (workspace / WORKSPACE_READY_MARKER).is_file()
-
-
-def _run_all() -> None:
-    test_seed_eval_workspace_copies_identity_and_removes_bootstrap()
-    print("workspace_seed tests ok")
-
-
-if __name__ == "__main__":
-    _run_all()

@@ -14,7 +14,7 @@ import os
 from pydantic import BaseModel
 from src_new.config import CONFIG, LOGGER, _PROJECT_ROOT
 from src_new.report.langfuse_reporting import emit_pre_chat_state
-from src_new.models import CustomTags
+from src_new.models import CustomTags, SuiteTask
 from src_new.paths import outcome_root
 from src_new.utils import short_id
 
@@ -141,6 +141,20 @@ class Agent(ABC):
     def reset_evolve(run_id: str, category: str, repeat_index: int) -> None:
         """重置当前 benchmark 闭环后的进化状态，并按 run/category 归档备份。"""
         pass
+
+    async def activate_session(self, session_id: str) -> None:
+        """Switch runtime session before chat; default no-op (OpenClaw uses separate agents)."""
+        _ = session_id
+
+    def augment_work_prompt(self, task: SuiteTask, prompt: str) -> str:
+        """Optional suffix for the work-agent initial/retry prompt."""
+        _ = task
+        return prompt
+
+    def augment_judge_user_prompt(self, task: SuiteTask, prompt: str) -> str:
+        """Optional augmentation of the user prompt shown to the judge."""
+        _ = task
+        return prompt
 
     @abstractmethod
     async def chat(
@@ -306,6 +320,20 @@ class HermesAgent(Agent):
         self._current_session_id = session_id
         _upsert_env_var(self._env_file, "SESSION_ID", session_id)
         await self._restart_gateway()
+
+    async def activate_session(self, session_id: str) -> None:
+        await self.switch_session(session_id)
+
+    def _workspace_hint(self) -> str:
+        return f"\n你的工作区路径是: {self._workspace_path}"
+
+    def augment_work_prompt(self, task: SuiteTask, prompt: str) -> str:
+        _ = task
+        return prompt + self._workspace_hint()
+
+    def augment_judge_user_prompt(self, task: SuiteTask, prompt: str) -> str:
+        _ = task
+        return prompt + self._workspace_hint()
 
     def reset_pre_chat_state(self) -> None:
         self.has_emitted_work_pre_span = False
