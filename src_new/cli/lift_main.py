@@ -46,8 +46,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-e",
         "--evaluate",
-        action="store_true",
-        help="Run post-process after evaluation.",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run post-process after evaluation (default: on). Use --no-evaluate to skip.",
     )
     parser.add_argument(
         "--evaluate-only",
@@ -122,6 +123,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         from src_new.postprocess.run_post_process import run_post_process_pipeline
 
         report_path = report_json_path(run_id)
+        LOGGER.info("LIFT post-process run_id=%s", run_id)
         run_post_process_pipeline(run_id, report_path, agent_source=args.runtime)
 
 

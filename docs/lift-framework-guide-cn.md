@@ -370,7 +370,8 @@ assets/benchmarks/<场景>.json   ← LIFT CLI --suite 实际读取的文件
 | `--serial-repeats` | off | repeat 串行（默认并行） |
 | `-p` / `--parallel` | off | warmup 题并行（受容器策略约束） |
 | `--warmup-container-policy` | `serial_single` | warmup 容器编排策略 |
-| `-e` / `--evaluate` | off | 评测结束后自动后处理 |
+| `-e` / `--evaluate` | **on** | 评测结束后自动后处理（默认开启） |
+| `--no-evaluate` | — | 跳过后处理（调试或 Langfuse 不可用时） |
 | `--evaluate-only` | off | 仅后处理已有 report（需 `--run_id`） |
 
 > 已移除 legacy 的 `--test`；冒烟可改用 `--warmup-only`。`--runtime` 无默认值，必须显式指定。
@@ -381,11 +382,11 @@ assets/benchmarks/<场景>.json   ← LIFT CLI --suite 实际读取的文件
 # 只跑 warmup（如 hello.json 的 Q1）+ evolve，不跑 hold-out 终测
 python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --warmup-only
 
-# 完整 LIFT（warmup + hold-out baseline/evolved 对照）
+# 完整 LIFT（warmup + hold-out 对照 + 默认后处理：trace_backfill、CSV、HTML）
 python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --run_id hello-full
 
-# 评测 + 后处理（trace_backfill、CSV、HTML）
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --run_id hello-full -e
+# 跳过后处理（调试长跑、或 Langfuse 未配置时）
+python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --run_id hello-full --no-evaluate
 
 # 仅后处理已有 run
 python -m src_new.cli.lift_main --runtime openclaw --evaluate-only --run_id hello-full
@@ -400,7 +401,7 @@ python -m src_new.cli.preprocess             # 2. md → JSON（与 lift_main �
 
 # 运行阶段
 python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --warmup-only
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --run_id hello-full -e
+python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --run_id hello-full
 ```
 
 也可使用等价入口：`python -m src_new.cli`（转发到 `lift_main`）。
@@ -426,7 +427,7 @@ flowchart LR
         Pipe -->|记录 workspace_dir| Report
     end
 
-    subgraph post [后处理 -e]
+    subgraph post [后处理（默认）]
         Report -->|读| PP[postprocess]
         PP -->|写| Metrics["results/{run_id}/*_metrics*"]
     end
@@ -447,7 +448,7 @@ EvalReport（run_id）
                     └── evolved:  PhaseRun
 ```
 
-每个 `PhaseRun` 含：`success`、`content_score`、`work_session_id`、`judge_session_id`、`workspace_dir`；后处理 `-e` 后再填 `langfuse` trace。
+每个 `PhaseRun` 含：`success`、`content_score`、`work_session_id`、`judge_session_id`、`workspace_dir`；后处理（默认自动）后再填 `langfuse` trace。
 
 **特点**：一次命令 = **一个** JSON 文件；`--repeat N` 也在同一文件内，用 `runs[0..N-1]` 区分各轮。
 
@@ -467,7 +468,7 @@ results/{run_id}/outcome/
 - 任务 md 里要求的 `result/result_q{n}/` 等文件会落在此目录下
 - warmup 题**不进 report**，但产物会写在 `warmup/` 子目录（并参与 evolve / delta commit）
 
-#### `results/{run_id}/` — 后处理产物（`-e` / `--evaluate-only`）
+#### `results/{run_id}/` — 后处理产物（默认 / `--evaluate-only`）
 
 后处理读 `evobench-reports/{run_id}.json`，结合 Langfuse trace，输出到同 `run_id` 下的 `results/`：
 
@@ -494,7 +495,7 @@ results/{run_id}/outcome/
 |-----------|------|
 | 某题是否通过、分数多少 | `evobench-reports/{run_id}.json` |
 | Agent 生成的文件（代码、报告、PPT 等） | `results/{run_id}/outcome/...`，或 report 里该 `PhaseRun.workspace_dir` |
-| baseline vs evolved 对比表、HTML 报告 | `results/{run_id}/` 下后处理文件（需 `-e`） |
+| baseline vs evolved 对比表、HTML 报告 | `results/{run_id}/` 下后处理文件（默认生成；`--no-evaluate` 跳过） |
 
 两个目录均在 `.gitignore` 中，属于运行时产物，一般不提交 git。更完整的 report 字段说明见 [eval-flow.md §8](./eval-flow.md#8-目录与-report-内容)。
 
@@ -531,7 +532,7 @@ Warmup 需要状态连续以触发 evolve；hold-out 需要严格对照（baseli
 不会。位于 `tests/mock_adapter.py`，仅用于 `test_pipeline.py` 验证编排逻辑，不依赖 Docker。
 
 **Q：轨迹评分在哪？**  
-执行期 `PhaseRun` 主要记录 success/score/session；轨迹相关指标在 **postprocess**（`src_new/postprocess/`）结合 Langfuse trace 计算，需 `-e` 触发。
+执行期 `PhaseRun` 主要记录 success/score/session；轨迹相关指标在 **postprocess**（`src_new/postprocess/`）结合 Langfuse trace 计算，评测结束后**默认**自动触发（`--no-evaluate` 可跳过）。
 
 **Q：OpenClaw 镜像里有什么？**  
 见 `agents/openclaw/`：`self-evolving-plugin-pro`（evolve）、`langfuse-tracer`（观测）、gateway 配置片段。构建与环境变量见 [agents/openclaw/README.md](../agents/openclaw/README.md)。

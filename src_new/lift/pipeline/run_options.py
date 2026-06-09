@@ -13,7 +13,10 @@ class RunOptions(BaseModel):
         default=False,
         description="仅 warmup + evolve + delta，跳过 hold-out 对照",
     )
-    evaluate: bool = Field(default=False, description="评测结束后是否执行后处理（-e）")
+    evaluate: bool = Field(
+        default=True,
+        description="评测结束后是否执行后处理（默认开启，--no-evaluate 关闭）",
+    )
     evaluate_only: bool = Field(
         default=False,
         description="仅后处理已有 report（--evaluate-only）",
