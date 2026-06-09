@@ -8,8 +8,8 @@ Loaded Impact on Final Task — container-per-task implementation.
 
 Three adapter layers:
 
-1. **`RuntimeAdapter`** (`adapters/base.py`) — template `produce_delta` / hold-out; calls `lift/eval`
-2. **`ContainerRuntimeAdapter`** (`adapters/container/`) — Docker lifecycle; default delta via `docker commit`
+1. **`AgentRuntimeAdapter`** (`adapters/base.py`) — template `produce_delta` / hold-out; calls `lift/eval`
+2. **`ContainerAgentRuntimeAdapter`** (`adapters/container/`) — Docker lifecycle; default delta via `docker commit`
 3. **`OpenClawAdapter`** (`adapters/openclaw/`) — image config, `start_container`, chat factory, `learn review`
 
 - **before-load**: fresh container from base image (`evolve-eval-openclaw:latest`)
@@ -29,22 +29,22 @@ Ephemeral entrypoint variant (optional): `agents/openclaw/Dockerfile.entrypoint`
 
 ```bash
 # Canonical entry (runtime-agnostic CLI)
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --warmup-only
+python -m src_new.cli.lift_main -r / --agent-runtime openclaw --suite hello.json --warmup-only
 
-python -m src_new.cli --runtime openclaw --suite hello.json --warmup-only
+python -m src_new.cli -r / --agent-runtime openclaw --suite hello.json --warmup-only
 
 # Full LIFT
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json
+python -m src_new.cli.lift_main -r / --agent-runtime openclaw --suite hello.json
 
 # Parallel repeats (default)
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --repeat 3
+python -m src_new.cli.lift_main -r / --agent-runtime openclaw --suite hello.json --repeat 3
 ```
 
 ## Options
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--runtime` | *(required)* | Agent adapter; also selects base Docker image via registry |
+| `-r / --agent-runtime` | *(required)* | Agent adapter; also selects base Docker image via registry |
 | `--warmup-only` | off | Warmup + evolve + delta only; skip hold-out contrast |
 | `--warmup-container-policy` | `serial_single` | Warmup in one container |
 | `--serial-repeats` | off | Disable parallel repeats |

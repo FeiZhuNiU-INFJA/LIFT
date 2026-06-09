@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING
 from src_new.lift.pipeline.run_options import RunOptions
 
 if TYPE_CHECKING:
-    from src_new.lift.adapters.base import RuntimeAdapter
+    from src_new.lift.adapters.base import AgentRuntimeAdapter
 
 SUPPORTED_RUNTIMES = ("openclaw",)
 
 
-def create_adapter(runtime: str, options: RunOptions) -> RuntimeAdapter:
+def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
     normalized = runtime.strip().lower()
     if normalized == "openclaw":
         from src_new.lift.adapters.openclaw.adapter import OpenClawAdapter

@@ -7,7 +7,7 @@ from pathlib import Path
 from src_new.config import LOGGER
 from src_new.models import EvalRepeat, EvalReport, SuiteRun, TaskRun
 
-from src_new.lift.adapters.base import RunContext, RuntimeAdapter
+from src_new.lift.adapters.base import AgentRuntimeAdapter, RunContext
 from src_new.lift.policies.artifact import WarmupThenUpdatePolicy
 from src_new.lift.pipeline.run_options import RunOptions
 from src_new.lift.suite.holdout import split_suite_tasks
@@ -31,7 +31,7 @@ class LIFTPipeline:
         *,
         run_id: str,
         suite_paths: list[Path],
-        adapter: RuntimeAdapter,
+        adapter: AgentRuntimeAdapter,
         options: RunOptions,
     ) -> EvalReport:
         eval_report = EvalReport(run_id=run_id)
@@ -42,7 +42,7 @@ class LIFTPipeline:
         if options.parallel_repeats and options.repeat > 1:
             await asyncio.gather(
                 *[
-                    self._run_repeat(
+                    self._run_suites(
                         repeat_index=i,
                         run_id=run_id,
                         suite_paths=suite_paths,
@@ -56,7 +56,7 @@ class LIFTPipeline:
             )
         else:
             for repeat_index in range(options.repeat):
-                await self._run_repeat(
+                await self._run_suites(
                     repeat_index=repeat_index,
                     run_id=run_id,
                     suite_paths=suite_paths,
@@ -72,13 +72,13 @@ class LIFTPipeline:
         LOGGER.info("LIFT report written: %s", report_path)
         return eval_report
 
-    async def _run_repeat(
+    async def _run_suites(
         self,
         *,
         repeat_index: int,
         run_id: str,
         suite_paths: list[Path],
-        adapter: RuntimeAdapter,
+        adapter: AgentRuntimeAdapter,
         options: RunOptions,
         eval_report: EvalReport,
         report_path: Path,

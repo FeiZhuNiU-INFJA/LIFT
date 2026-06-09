@@ -57,8 +57,8 @@ Copy [`.env.docker.example`](.env.docker.example) into the repo root `.env`:
 
 ```bash
 bash agents/openclaw/build-image.sh
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --warmup-only
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json
+python -m src_new.cli.lift_main -r openclaw --suite hello.json --warmup-only
+python -m src_new.cli.lift_main -r openclaw --suite hello.json
 ```
 
 Default image: `evolve-eval-openclaw:latest` (see `container_defaults.yaml`).

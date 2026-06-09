@@ -67,7 +67,7 @@ flowchart LR
 | 阶段 | 做什么 | 入口 |
 |------|--------|------|
 | **数据准备** | 将 markdown 场景目录转为 suite JSON | `preprocess/convert_suite_mds_to_json.py` → `preprocess_suite_mds()` |
-| **评测执行** | LIFT 编排：产生产物 → hold-out 对照 → 写 report | **`python -m src_new.cli.lift_main --runtime openclaw`**；legacy：根目录 `openclaw_main.py` |
+| **评测执行** | LIFT 编排：产生产物 → hold-out 对照 → 写 report | **`python -m src_new.cli.lift_main -r openclaw`**；legacy：根目录 `openclaw_main.py` |
 | **Report 落盘** | 执行期 JSON（先填 success/score/session 等；trace 后填） | `EvalReport.write_json` → `evobench-reports/` |
 | **后处理** | trace_backfill、抽指标、trajectory 打分、出报告 | `postprocess/run_post_process.py` |
 
@@ -102,7 +102,7 @@ warmup（单容器串行）→ evolve → docker commit → DeltaRef (Δ 镜像)
 repeat 之间默认并行；每 suite 独立 Δ 与 `SuiteRunResources` 登记簿。
 ```
 
-入口：`python -m src_new.cli.lift_main --runtime openclaw`（见 [src_new/lift/README.md](../src_new/lift/README.md)）。
+入口：`python -m src_new.cli.lift_main -r openclaw`（见 [src_new/lift/README.md](../src_new/lift/README.md)）。
 
 ### 4.2 CLI 与历史模式
 

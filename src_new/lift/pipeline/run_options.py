@@ -6,7 +6,7 @@ from src_new.lift.policies.container import WarmupContainerPolicy
 
 
 class RunOptions(BaseModel):
-    """LIFTPipeline 与 RuntimeAdapter 的运行时配置（由 CLI 解析后传入）。"""
+    """LIFTPipeline 与 AgentRuntimeAdapter 的运行时配置（由 CLI 解析后传入）。"""
 
     repeat: int = Field(default=1, description="完整 LIFT 流程重复次数（同一 run_id 内多轮）")
     warmup_only: bool = Field(
@@ -27,7 +27,7 @@ class RunOptions(BaseModel):
     )
     docker_image: str | None = Field(
         default=None,
-        description="覆盖 agent 配置的 base 镜像（None 时由 ContainerRuntimeAdapter 解析）",
+        description="覆盖 agent 配置的 base 镜像（None 时由 ContainerAgentRuntimeAdapter 解析）",
     )
     incremental_report: bool = Field(
         default=True,

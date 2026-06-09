@@ -4,7 +4,7 @@ from abc import abstractmethod
 
 from typing import override
 
-from src_new.lift.adapters.base import RunContext, RuntimeAdapter
+from src_new.lift.adapters.base import AgentRuntimeAdapter, RunContext
 from src_new.lift.adapters.container.delta import commit_delta_image
 from src_new.lift.adapters.container.session import ContainerSession
 from src_new.lift.adapters.environment import ExecutionEnvironment
@@ -17,8 +17,8 @@ from src_new.lift.pipeline.run_options import RunOptions
 from src_new.utils import short_id
 
 
-class ContainerRuntimeAdapter(RuntimeAdapter):
-    """Container lifecycle + default docker-commit delta materialization."""
+class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
+    """Docker container agent runtime + default docker-commit delta materialization."""
 
     def __init__(self, options: RunOptions) -> None:
         super().__init__(options)

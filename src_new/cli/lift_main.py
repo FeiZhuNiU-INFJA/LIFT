@@ -23,10 +23,13 @@ def build_parser() -> argparse.ArgumentParser:
         description="LIFT evaluation (Loaded Impact on Final Task, src_new)."
     )
     parser.add_argument(
-        "--runtime",
+        "-r",
+        "--agent-runtime",
         required=True,
         choices=list(SUPPORTED_RUNTIMES),
-        help="Agent runtime adapter.",
+        dest="agent_runtime",
+        metavar="RUNTIME",
+        help="Agent runtime adapter (e.g. openclaw → OpenClawAdapter).",
     )
     parser.add_argument(
         "--benchmark_dir",
@@ -92,8 +95,8 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
     report_path = report_json_path(run_id)
     if not report_path.exists():
         raise FileNotFoundError(f"Report not found: {report_path}")
-    LOGGER.info("LIFT evaluate-only runtime=%s: %s", args.runtime, report_path)
-    run_post_process_pipeline(run_id, report_path, agent_source=args.runtime)
+    LOGGER.info("LIFT evaluate-only agent_runtime=%s: %s", args.agent_runtime, report_path)
+    run_post_process_pipeline(run_id, report_path, agent_source=args.agent_runtime)
 
 
 async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
@@ -109,9 +112,14 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         parallel_repeats=not args.serial_repeats,
         max_parallel_repeats=args.max_parallel_repeats,
     )
-    adapter = create_adapter(args.runtime, options)
+    adapter = create_adapter(args.agent_runtime, options)
     pipeline = LIFTPipeline()
-    LOGGER.info(f"LIFT run_id={run_id} runtime={args.runtime} suites={len(suite_paths)}")
+    LOGGER.info(
+        "LIFT run_id=%s agent_runtime=%s suites=%d",
+        run_id,
+        args.agent_runtime,
+        len(suite_paths),
+    )
     await pipeline.run(
         run_id=run_id,
         suite_paths=suite_paths,
@@ -124,7 +132,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
 
         report_path = report_json_path(run_id)
         LOGGER.info("LIFT post-process run_id=%s", run_id)
-        run_post_process_pipeline(run_id, report_path, agent_source=args.runtime)
+        run_post_process_pipeline(run_id, report_path, agent_source=args.agent_runtime)
 
 
 def main(argv: list[str] | None = None) -> None:

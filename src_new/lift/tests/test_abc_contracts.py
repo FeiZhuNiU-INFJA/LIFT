@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from src_new.lift.adapters.base import RuntimeAdapter
-from src_new.lift.adapters.container.adapter import ContainerRuntimeAdapter
+from src_new.lift.adapters.base import AgentRuntimeAdapter
+from src_new.lift.adapters.container.adapter import ContainerAgentRuntimeAdapter
 from src_new.lift.adapters.openclaw.adapter import OpenClawAdapter
 from src_new.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src_new.lift.runtime.disposable import Disposable
@@ -12,12 +12,12 @@ from src_new.models import SuiteTask
 
 def test_runtime_adapter_cannot_instantiate_without_impl() -> None:
     with pytest.raises(TypeError):
-        RuntimeAdapter()  # type: ignore[abstract]
+        AgentRuntimeAdapter()  # type: ignore[abstract]
 
 
 def test_container_runtime_adapter_cannot_instantiate_without_impl() -> None:
     with pytest.raises(TypeError):
-        ContainerRuntimeAdapter()  # type: ignore[abstract]
+        ContainerAgentRuntimeAdapter()  # type: ignore[abstract]
 
 
 def test_openclaw_resolve_docker_image_from_agent_config() -> None:

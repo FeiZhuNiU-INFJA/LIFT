@@ -6,7 +6,7 @@ from typing import override
 from src_new.models import PhaseRun, SuiteTask
 from src_new.utils import short_id
 
-from src_new.lift.adapters.base import RunContext, RuntimeAdapter
+from src_new.lift.adapters.base import AgentRuntimeAdapter, RunContext
 from src_new.lift.adapters.environment import ExecutionEnvironment
 from src_new.lift.eval.agent_pair import TaskAgentPairFactory
 from src_new.lift.policies.artifact import ArtifactPolicy
@@ -14,7 +14,7 @@ from src_new.lift.runtime.delta_ref import DeltaRef
 from src_new.lift.runtime.suite_run_resources import SuiteRunResources
 
 
-class MockAdapter(RuntimeAdapter):
+class MockAdapter(AgentRuntimeAdapter):
     def __init__(self) -> None:
         super().__init__()
         self.produce_delta_count = 0

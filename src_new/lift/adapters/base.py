@@ -36,13 +36,22 @@ class RunContext(BaseModel):
     suite_name: str = Field(description="suite 名称（来自 Suite.name）")
 
 
-class RuntimeAdapter(ABC):
-    """LIFT runtime base with template methods for warmup and hold-out."""
+class AgentRuntimeAdapter(ABC):
+    """Agent execution runtime base with template methods for warmup and hold-out."""
 
     def __init__(self, options: RunOptions | None = None) -> None:
         self._options = options or RunOptions()
 
     async def create_suite_run_resources(self, ctx: RunContext) -> SuiteRunResources:
+        """为当前 suite 创建资源登记簿，供本 suite 内 warmup / hold-out 共用。
+
+        pipeline 在每个 ``(repeat_index, suite)`` 开始时调用一次；adapter 在后续
+        ``produce_delta`` / ``run_before_load`` / ``run_after_load`` 中通过
+        ``resources.track()`` 登记容器，并在 ``produce_delta`` 后写入 ``delta``。
+        suite 结束时由 pipeline 调用 ``resources.cleanup()`` 统一释放。
+
+        子类可覆盖以注入额外状态；默认仅按 ``ctx`` 构造空的 ``SuiteRunResources``。
+        """
         return SuiteRunResources(
             run_id=ctx.run_id,
             repeat_index=ctx.repeat_index,

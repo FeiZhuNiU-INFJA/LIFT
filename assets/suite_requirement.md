@@ -39,7 +39,7 @@
 - **warmup**：非 hold-out 题目，用于产生产物（默认前导题 + evolve）。
 - **hold-out**：每题在 report 中各一条 `TaskRun`（`baseline` / `evolved`）。
 
-官方评测入口：[src_new/lift/README.md](../src_new/lift/README.md)（`python -m src_new.cli.lift_main --runtime openclaw`）；legacy 仍为根目录 `openclaw_main.py --mode exam`。
+官方评测入口：[src_new/lift/README.md](../src_new/lift/README.md)（`python -m src_new.cli.lift_main -r openclaw`）；legacy 仍为根目录 `openclaw_main.py --mode exam`。
 
 ---
 

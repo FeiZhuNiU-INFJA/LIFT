@@ -41,11 +41,11 @@ src_new/lift/
 │   ├── run_task.py         ← work + judge 多轮循环
 │   └── phase.py            ← execute_phase / execute_phase_batch
 ├── adapters/           # 运行时适配层（三层继承）
-│   ├── base.py             ← RuntimeAdapter 模板方法 + 抽象钩子
+│   ├── base.py             ← AgentRuntimeAdapter 模板方法 + 抽象钩子
 │   ├── environment.py      ← ExecutionEnvironment
-│   ├── registry.py         ← --runtime 工厂注册
+│   ├── registry.py         ← --agent-runtime 工厂注册
 │   ├── container/          ← 通用 Docker 层
-│   │   ├── adapter.py          ← ContainerRuntimeAdapter（commit delta 默认实现）
+│   │   ├── adapter.py          ← ContainerAgentRuntimeAdapter（commit delta 默认实现）
 │   │   ├── session.py          ← 参数化 docker run / cleanup
 │   │   ├── volumes.py          ← 卷挂载
 │   │   └── delta.py            ← commit_delta_image
@@ -64,14 +64,14 @@ src_new/lift/
 │   ├── environment_cleaner.py  ← docker rm / commit / rmi
 │   └── disposable.py         ← Disposable 抽象基类
 └── tests/              # 单元测试（理解行为的好材料）
-    ├── mock_adapter.py     ← 无 Docker 的测试替身（参考 RuntimeAdapter 最小实现）
+    ├── mock_adapter.py     ← 无 Docker 的测试替身（参考 AgentRuntimeAdapter 最小实现）
 ```
 
 **不在 `lift/` 内、但强相关的包：**
 
 | 路径 | 作用 |
 |------|------|
-| `src_new/cli/lift_main.py` | CLI 入口：`--runtime openclaw` |
+| `src_new/cli/lift_main.py` | CLI 入口：`--agent-runtime openclaw` |
 | `src_new/lift/eval/` | 单题多轮执行：`run_task`（work + judge）；多题编排：`execute_phase` / `execute_phase_batch` |
 | `src_new/eval_core.py` | **Deprecated shim**，兼容旧 `openclaw_run_task` / Hermes `run_task` 签名 |
 | `src_new/models.py` | `Suite`、`SuiteTask`、`PhaseRun`、`EvalReport` |
@@ -91,14 +91,14 @@ src_new/lift/
 
 ### 第二步：理解适配器三层继承
 
-4. `adapters/base.py` — **`RuntimeAdapter` 模板方法**（已实现 `produce_delta` / `_run_holdout`），子类只需实现钩子：
+4. `adapters/base.py` — **`AgentRuntimeAdapter` 模板方法**（已实现 `produce_delta` / `_run_holdout`），子类只需实现钩子：
    - `create_agent_pair_factory` — 如何 chat
    - `start_warmup_environment` / `start_holdout_environment` — 执行环境
    - `apply_evolve` — warmup 后进化
    - `materialize_delta` — 产物物化
    - `baseline_image` — before-load 运行时标识
 
-5. `adapters/container/adapter.py` — **`ContainerRuntimeAdapter`**：容器启停 + **默认 docker commit** 物化 delta；抽象 `start_container` + `resolve_docker_image`
+5. `adapters/container/adapter.py` — **`ContainerAgentRuntimeAdapter`**：容器启停 + **默认 docker commit** 物化 delta；抽象 `start_container` + `resolve_docker_image`
 
 6. `adapters/openclaw/adapter.py` — **OpenClaw 仅 4 件事**：读镜像配置、`start_container`、`create_agent_pair_factory`、`apply_evolve`
 
@@ -146,8 +146,8 @@ LIFT **不**在宿主机直接跑 OpenClaw CLI（legacy `openclaw_main.py` 才�
 
 | 层 | 模块 | 职责 |
 |----|------|------|
-| **RuntimeAdapter** | `base.py` | 模板：`produce_delta`、`_run_holdout`；调 `lift/eval` |
-| **ContainerRuntimeAdapter** | `container/adapter.py` | 容器启停；默认 `materialize_delta` = docker commit |
+| **AgentRuntimeAdapter** | `base.py` | 模板：`produce_delta`、`_run_holdout`；调 `lift/eval` |
+| **ContainerAgentRuntimeAdapter** | `container/adapter.py` | 容器启停；默认 `materialize_delta` = docker commit |
 | **OpenClawAdapter** | `openclaw/adapter.py` | `resolve_docker_image`、`start_container`、`create_agent_pair_factory`、`apply_evolve` |
 | **OpenClaw chat** | `openclaw/agent.py` | `ContainerOpenClawAgent` + `OpenClawAgentPairFactory` |
 | **OpenClaw 容器** | `openclaw/session.py` | gateway 端口、volume、workspace seed |
@@ -257,7 +257,7 @@ evolved 阶段从 delta 镜像起新容器，但挂载**新的** hold-out worksp
 
 ## 5. `LIFTPipeline` 主流程（代码级）
 
-`pipeline/lift_pipeline.py` 的 `_run_repeat` 是核心：
+`pipeline/lift_pipeline.py` 的 `_run_suites` 是核心：
 
 ```text
 for suite_path in suite_paths:
@@ -314,9 +314,9 @@ Suite JSON 在标准 `Suite` 之外可带：
 
 ## 7. 如何扩展新运行时（非 OpenClaw）
 
-1. 在 `adapters/` 下 **继承** `RuntimeAdapter`，用 `@override` 实现四个抽象方法（参考 `tests/mock_adapter.py`）
+1. 在 `adapters/` 下 **继承** `AgentRuntimeAdapter`，用 `@override` 实现四个抽象方法（参考 `tests/mock_adapter.py`）
 2. 在 `adapters/registry.py` 的 `SUPPORTED_RUNTIMES` 和 `create_adapter()` 中注册
-3. 若需要 Docker 镜像，继承 `ContainerRuntimeAdapter` 并实现 `resolve_docker_image()`（参考 `OpenClawAdapter`）
+3. 若需要 Docker 镜像，继承 `ContainerAgentRuntimeAdapter` 并实现 `resolve_docker_image()`（参考 `OpenClawAdapter`）
 4. 为 pipeline 行为添加测试（参照 `tests/test_pipeline.py`、`tests/test_abc_contracts.py`）
 
 相关 ABC：`ArtifactPolicy`（产物策略）、`Disposable`（容器 / delta 清理）。实现类同样继承并在重写方法上使用 `@override`。
@@ -361,7 +361,7 @@ assets/benchmarks/<场景>.json   ← LIFT CLI --suite 实际读取的文件
 
 | 参数 | 默认 | 含义 |
 |------|------|------|
-| `--runtime` | **必填** | 运行时适配器（当前仅 `openclaw`） |
+| `-r` / `--agent-runtime` | **必填** | Agent 运行时适配器（当前仅 `openclaw`） |
 | `--suite` | `all` | suite JSON 文件名，逗号分隔 |
 | `--benchmark_dir` | `assets/benchmarks` | suite JSON 目录 |
 | `--warmup-only` | off | 只跑 warmup + evolve + delta，跳过 hold-out |
@@ -374,22 +374,22 @@ assets/benchmarks/<场景>.json   ← LIFT CLI --suite 实际读取的文件
 | `--no-evaluate` | — | 跳过后处理（调试或 Langfuse 不可用时） |
 | `--evaluate-only` | off | 仅后处理已有 report（需 `--run_id`） |
 
-> 已移除 legacy 的 `--test`；冒烟可改用 `--warmup-only`。`--runtime` 无默认值，必须显式指定。
+> 已移除 legacy 的 `--test`；冒烟可改用 `--warmup-only`。`--agent-runtime` 无默认值，必须显式指定。
 
 ### 运行阶段
 
 ```bash
 # 只跑 warmup（如 hello.json 的 Q1）+ evolve，不跑 hold-out 终测
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --warmup-only
+python -m src_new.cli.lift_main --agent-runtime openclaw --suite hello.json --warmup-only
 
 # 完整 LIFT（warmup + hold-out 对照 + 默认后处理：trace_backfill、CSV、HTML）
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --run_id hello-full
+python -m src_new.cli.lift_main --agent-runtime openclaw --suite hello.json --run_id hello-full
 
 # 跳过后处理（调试长跑、或 Langfuse 未配置时）
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --run_id hello-full --no-evaluate
+python -m src_new.cli.lift_main --agent-runtime openclaw --suite hello.json --run_id hello-full --no-evaluate
 
 # 仅后处理已有 run
-python -m src_new.cli.lift_main --runtime openclaw --evaluate-only --run_id hello-full
+python -m src_new.cli.lift_main --agent-runtime openclaw --evaluate-only --run_id hello-full
 ```
 
 完整推荐顺序：
@@ -400,8 +400,8 @@ bash agents/openclaw/build-image.sh          # 1. 构建 OpenClaw 镜像
 python -m src_new.cli.preprocess             # 2. md → JSON（与 lift_main 解耦，需单独跑）
 
 # 运行阶段
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --warmup-only
-python -m src_new.cli.lift_main --runtime openclaw --suite hello.json --run_id hello-full
+python -m src_new.cli.lift_main --agent-runtime openclaw --suite hello.json --warmup-only
+python -m src_new.cli.lift_main --agent-runtime openclaw --suite hello.json --run_id hello-full
 ```
 
 也可使用等价入口：`python -m src_new.cli`（转发到 `lift_main`）。
@@ -515,9 +515,9 @@ bash scripts/clean-results.sh
 |------|-------------------|------------------------------|
 | 执行位置 | 容器内 `docker exec` | 宿主机直接调 OpenClaw |
 | 产物隔离 | delta 镜像 + per-task 容器 | 宿主机 toggle 加载 |
-| 官方入口 | `python -m src_new.cli.lift_main --runtime openclaw` | `openclaw_main.py --mode exam` |
+| 官方入口 | `python -m src_new.cli.lift_main --agent-runtime openclaw` | `openclaw_main.py --mode exam` |
 | CLI | `--warmup-only`、无 `--test` | `--mode replay` / `--test` 等遗留参数 |
-| 适配器契约 | `RuntimeAdapter`（ABC + `@override`） | 无统一抽象 |
+| 适配器契约 | `AgentRuntimeAdapter`（ABC + `@override`） | 无统一抽象 |
 
 新开发与论文级复现应使用 **`src_new`** 路径；`openclaw_main.py` 仅作历史对照。
 
@@ -556,7 +556,7 @@ delta 是单次评测的临时中间产物；`SuiteRunResources.cleanup()` 在�
 ```text
 CLI (lift_main)
   → LIFTPipeline：切 warmup / hold-out
-  → RuntimeAdapter（OpenClawAdapter）
+  → AgentRuntimeAdapter（OpenClawAdapter）
        warmup：1 容器 × 多题 → learn review → docker commit → Δ（临时镜像）
        hold-out：每题 × (base 容器 baseline, Δ 容器 evolved)；workspace seed 跳过人设 onboarding
   → lift/eval.run_task：单题 work + judge 多轮（runtime 无关）
@@ -565,4 +565,4 @@ CLI (lift_main)
   → （可选）postprocess → results/{run_id}/*_metrics*（CSV/HTML）
 ```
 
-**读代码时记住一条线**：`lift_pipeline` 管 suite 循环 → `RuntimeAdapter` 模板 → `ContainerRuntimeAdapter` 管 Docker → `OpenClawAdapter` 只管 chat/evolve/镜像 → `lift/eval` 管单题语义。
+**读代码时记住一条线**：`lift_pipeline` 管 suite 循环 → `AgentRuntimeAdapter` 模板 → `ContainerAgentRuntimeAdapter` 管 Docker → `OpenClawAdapter` 只管 chat/evolve/镜像 → `lift/eval` 管单题语义。
