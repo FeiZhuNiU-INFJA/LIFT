@@ -4,7 +4,7 @@ from abc import abstractmethod
 
 from typing import override
 
-from src_new.lift.adapters.base import AgentRuntimeAdapter, RunContext
+from src_new.lift.adapters.base import AgentRuntimeAdapter, SuiteRunContext
 from src_new.lift.adapters.container.delta import commit_delta_image
 from src_new.lift.adapters.container.session import ContainerSession
 from src_new.lift.adapters.environment import ExecutionEnvironment
@@ -30,7 +30,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         """Resolve base container image from agent config or CLI override."""
 
     @override
-    def baseline_image(self, ctx: RunContext) -> str:
+    def baseline_image(self, ctx: SuiteRunContext) -> str:
         _ = ctx
         return self._docker_image
 
@@ -40,7 +40,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         resources: SuiteRunResources,
         policy,
         warmup_tasks: list[SuiteTask],
-        ctx: RunContext,
+        ctx: SuiteRunContext,
     ) -> DeltaRef:
         policy_enum = self._options.warmup_container_policy
         if policy_enum == WarmupContainerPolicy.PARALLEL_MULTI:
@@ -56,7 +56,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
     @override
     async def start_warmup_environment(
         self,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         resources: SuiteRunResources,
         workspace_dir,
     ) -> ExecutionEnvironment:
@@ -79,7 +79,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
     @override
     async def start_holdout_environment(
         self,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         resources: SuiteRunResources,
         task: SuiteTask,
         workspace_dir,
@@ -107,7 +107,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
 
     @override
     async def materialize_delta(
-        self, env: ExecutionEnvironment, ctx: RunContext
+        self, env: ExecutionEnvironment, ctx: SuiteRunContext
     ) -> DeltaRef:
         session: ContainerSession = env.handle
         image_tag = delta_image_tag(
@@ -127,7 +127,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         *,
         instance_id: str,
         image: str,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         workspace_dir,
         seed_workspace: bool,
         task: SuiteTask | None,

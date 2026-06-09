@@ -6,7 +6,7 @@ import secrets
 from pathlib import Path
 
 from src_new.config import LOGGER
-from src_new.lift.adapters.base import RunContext
+from src_new.lift.adapters.base import SuiteRunContext
 from src_new.lift.adapters.container.session import ContainerSession
 from src_new.lift.adapters.container.volumes import (
     default_volume_binds,
@@ -111,7 +111,7 @@ async def start_openclaw_container(
     *,
     instance_id: str,
     image: str,
-    ctx: RunContext,
+    ctx: SuiteRunContext,
     workspace_dir: Path | None = None,
     seed_workspace: bool = False,
     task: SuiteTask | None = None,

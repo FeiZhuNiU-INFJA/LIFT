@@ -6,7 +6,7 @@ from typing import override
 from src_new.models import PhaseRun, SuiteTask
 from src_new.utils import short_id
 
-from src_new.lift.adapters.base import AgentRuntimeAdapter, RunContext
+from src_new.lift.adapters.base import AgentRuntimeAdapter, SuiteRunContext
 from src_new.lift.adapters.environment import ExecutionEnvironment
 from src_new.lift.eval.worker_judger import WorkerJudgerPairFactory
 from src_new.lift.policies.artifact import ArtifactPolicy
@@ -26,7 +26,7 @@ class MockAdapter(AgentRuntimeAdapter):
     def worker_judger_factory(
         self,
         env: ExecutionEnvironment,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         *,
         phase: str,
         workspace_dir: Path,
@@ -37,7 +37,7 @@ class MockAdapter(AgentRuntimeAdapter):
     @override
     async def start_warmup_environment(
         self,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         resources: SuiteRunResources,
         workspace_dir: Path,
     ) -> ExecutionEnvironment:
@@ -47,7 +47,7 @@ class MockAdapter(AgentRuntimeAdapter):
     @override
     async def start_holdout_environment(
         self,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         resources: SuiteRunResources,
         task: SuiteTask,
         workspace_dir: Path,
@@ -59,19 +59,19 @@ class MockAdapter(AgentRuntimeAdapter):
         raise NotImplementedError("MockAdapter does not run tasks")
 
     @override
-    async def apply_evolve(self, env: ExecutionEnvironment, ctx: RunContext) -> None:
+    async def apply_evolve(self, env: ExecutionEnvironment, ctx: SuiteRunContext) -> None:
         _ = (env, ctx)
         raise NotImplementedError("MockAdapter does not run tasks")
 
     @override
     async def materialize_delta(
-        self, env: ExecutionEnvironment, ctx: RunContext
+        self, env: ExecutionEnvironment, ctx: SuiteRunContext
     ) -> DeltaRef:
         _ = (env, ctx)
         raise NotImplementedError("MockAdapter does not run tasks")
 
     @override
-    def baseline_image(self, ctx: RunContext) -> str:
+    def baseline_image(self, ctx: SuiteRunContext) -> str:
         _ = ctx
         return "mock:base"
 
@@ -81,7 +81,7 @@ class MockAdapter(AgentRuntimeAdapter):
         resources: SuiteRunResources,
         policy: ArtifactPolicy,
         warmup_tasks: list[SuiteTask],
-        ctx: RunContext,
+        ctx: SuiteRunContext,
     ) -> DeltaRef:
         self.produce_delta_count += 1
         self._last_warmup = list(warmup_tasks)
@@ -94,7 +94,7 @@ class MockAdapter(AgentRuntimeAdapter):
         self,
         task: SuiteTask,
         resources: SuiteRunResources,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         *,
         phase: str = "baseline",
     ) -> PhaseRun:
@@ -114,7 +114,7 @@ class MockAdapter(AgentRuntimeAdapter):
         task: SuiteTask,
         resources: SuiteRunResources,
         delta: DeltaRef,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
     ) -> PhaseRun:
         _ = (resources, delta, ctx)
         self.after_load_count += 1

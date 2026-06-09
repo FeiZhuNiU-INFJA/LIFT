@@ -41,7 +41,7 @@ src_new/lift/
 │   ├── run_task.py         ← work + judge 多轮循环
 │   └── phase.py            ← execute_phase / execute_phase_batch
 ├── adapters/           # 运行时适配层（三层继承）
-│   ├── base.py             ← AgentRuntimeAdapter 模板方法 + 抽象钩子
+│   ├── base.py             ← SuiteRunContext + AgentRuntimeAdapter 模板方法
 │   ├── environment.py      ← ExecutionEnvironment
 │   ├── registry.py         ← --agent-runtime 工厂注册
 │   ├── container/          ← 通用 Docker 层
@@ -90,7 +90,7 @@ src_new/lift/
 
 ### 第二步：理解适配器三层继承
 
-4. `adapters/base.py` — **`AgentRuntimeAdapter` 模板方法**（已实现 `produce_delta` / `_run_holdout`），子类只需实现钩子：
+4. `adapters/base.py` — **`SuiteRunContext`**（单次 `(repeat, suite)` 坐标）+ **`AgentRuntimeAdapter` 模板方法**（已实现 `produce_delta` / `_run_holdout`），子类只需实现钩子：
    - `worker_judger_factory` — 如何 chat
    - `start_warmup_environment` / `start_holdout_environment` — 执行环境
    - `apply_evolve` — warmup 后进化
@@ -145,6 +145,7 @@ LIFT **不**在宿主机直接跑 OpenClaw CLI（legacy `openclaw_main.py` 才�
 
 | 层 | 模块 | 职责 |
 |----|------|------|
+| **SuiteRunContext** | `base.py` | 单次 suite run 坐标：`run_id`、`repeat_index`、`suite_path`、`category_name`、`suite_name` |
 | **AgentRuntimeAdapter** | `base.py` | 模板：`produce_delta`、`_run_holdout`；调 `lift/eval` |
 | **ContainerAgentRuntimeAdapter** | `container/adapter.py` | 容器启停；默认 `materialize_delta` = docker commit |
 | **OpenClawAdapter** | `openclaw/adapter.py` | `resolve_docker_image`、`start_container`、`worker_judger_factory`、`apply_evolve` |
@@ -263,6 +264,7 @@ for suite_path in suite_paths:
     config = load_lift_suite(suite_path)
     warmup_tasks, holdout_tasks = split_suite_tasks(config)
 
+    ctx = SuiteRunContext(run_id, repeat_index, suite_path, category_name, suite_name)
     resources = await adapter.create_suite_run_resources(ctx)
     try:
         delta = await adapter.produce_delta(resources, policy, warmup_tasks, ctx)

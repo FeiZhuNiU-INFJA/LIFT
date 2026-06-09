@@ -7,7 +7,7 @@ from pathlib import Path
 from src_new.config import LOGGER
 from src_new.models import EvalRepeat, EvalReport, SuiteRun, TaskRun
 
-from src_new.lift.adapters.base import AgentRuntimeAdapter, RunContext
+from src_new.lift.adapters.base import AgentRuntimeAdapter, SuiteRunContext
 from src_new.lift.policies.artifact import WarmupThenUpdatePolicy
 from src_new.lift.pipeline.run_options import RunOptions
 from src_new.lift.suite.holdout import split_suite_tasks
@@ -108,7 +108,7 @@ class LIFTPipeline:
             )
             repeat_run.suites.append(suite_run)
 
-            ctx = RunContext(
+            ctx = SuiteRunContext(
                 run_id=run_id,
                 repeat_index=repeat_index,
                 suite_path=suite_path,

@@ -8,7 +8,7 @@ Loaded Impact on Final Task — container-per-task implementation.
 
 Three adapter layers:
 
-1. **`AgentRuntimeAdapter`** (`adapters/base.py`) — template `produce_delta` / hold-out; calls `lift/eval`
+1. **`SuiteRunContext`** + **`AgentRuntimeAdapter`** (`adapters/base.py`) — per `(repeat, suite)` coordinates; template `produce_delta` / hold-out; calls `lift/eval`
 2. **`ContainerAgentRuntimeAdapter`** (`adapters/container/`) — Docker lifecycle; default delta via `docker commit`
 3. **`OpenClawAdapter`** (`adapters/openclaw/`) — image config, `start_container`, chat factory, `learn review`
 

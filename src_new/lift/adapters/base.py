@@ -24,7 +24,7 @@ class LoadState(Enum):
     AFTER_LOAD = "after_load"
 
 
-class RunContext(BaseModel):
+class SuiteRunContext(BaseModel):
     """单次 suite 评测的不可变运行坐标，由 pipeline 构造并传给 adapter 各方法。"""
 
     model_config = ConfigDict(frozen=True)
@@ -42,7 +42,7 @@ class AgentRuntimeAdapter(ABC):
     def __init__(self, options: RunOptions | None = None) -> None:
         self._options = options or RunOptions()
 
-    async def create_suite_run_resources(self, ctx: RunContext) -> SuiteRunResources:
+    async def create_suite_run_resources(self, ctx: SuiteRunContext) -> SuiteRunResources:
         """为当前 suite 创建资源登记簿，供本 suite 内 warmup / hold-out 共用。
 
         pipeline 在每个 ``(repeat_index, suite)`` 开始时调用一次；adapter 在后续
@@ -63,7 +63,7 @@ class AgentRuntimeAdapter(ABC):
         resources: SuiteRunResources,
         policy: ArtifactPolicy,
         warmup_tasks: list[SuiteTask],
-        ctx: RunContext,
+        ctx: SuiteRunContext,
     ) -> DeltaRef:
         if not isinstance(policy, WarmupThenUpdatePolicy):
             raise TypeError(f"Unsupported artifact policy: {type(policy)!r}")
@@ -99,7 +99,7 @@ class AgentRuntimeAdapter(ABC):
         self,
         task: SuiteTask,
         resources: SuiteRunResources,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         *,
         phase: str = "baseline",
     ) -> PhaseRun:
@@ -118,7 +118,7 @@ class AgentRuntimeAdapter(ABC):
         task: SuiteTask,
         resources: SuiteRunResources,
         delta: DeltaRef,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
     ) -> PhaseRun:
         return await self._run_holdout(
             task=task,
@@ -135,7 +135,7 @@ class AgentRuntimeAdapter(ABC):
         *,
         task: SuiteTask,
         resources: SuiteRunResources,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         image: str,
         phase: str,
         is_evolve_turn: bool,
@@ -169,12 +169,12 @@ class AgentRuntimeAdapter(ABC):
         finally:
             await env.disposable.cleanup()
 
-    def warmup_workspace(self, ctx: RunContext) -> Path:
+    def warmup_workspace(self, ctx: SuiteRunContext) -> Path:
         return outcome_workspace(
             ctx.run_id, ctx.repeat_index, "warmup", ctx.category_name
         )
 
-    def holdout_workspace(self, ctx: RunContext, task: SuiteTask, phase: str) -> Path:
+    def holdout_workspace(self, ctx: SuiteRunContext, task: SuiteTask, phase: str) -> Path:
         base = outcome_workspace(
             ctx.run_id, ctx.repeat_index, phase, ctx.category_name
         )
@@ -186,7 +186,7 @@ class AgentRuntimeAdapter(ABC):
     def worker_judger_factory(
         self,
         env: ExecutionEnvironment,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         *,
         phase: str,
         workspace_dir: Path,
@@ -196,7 +196,7 @@ class AgentRuntimeAdapter(ABC):
     @abstractmethod
     async def start_warmup_environment(
         self,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         resources: SuiteRunResources,
         workspace_dir: Path,
     ) -> ExecutionEnvironment:
@@ -205,7 +205,7 @@ class AgentRuntimeAdapter(ABC):
     @abstractmethod
     async def start_holdout_environment(
         self,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         resources: SuiteRunResources,
         task: SuiteTask,
         workspace_dir: Path,
@@ -216,15 +216,15 @@ class AgentRuntimeAdapter(ABC):
         """Start the runtime used for one hold-out task."""
 
     @abstractmethod
-    async def apply_evolve(self, env: ExecutionEnvironment, ctx: RunContext) -> None:
+    async def apply_evolve(self, env: ExecutionEnvironment, ctx: SuiteRunContext) -> None:
         """Trigger artifact update after warmup tasks complete."""
 
     @abstractmethod
     async def materialize_delta(
-        self, env: ExecutionEnvironment, ctx: RunContext
+        self, env: ExecutionEnvironment, ctx: SuiteRunContext
     ) -> DeltaRef:
         """Persist warmup evolve state into a loadable delta."""
 
     @abstractmethod
-    def baseline_image(self, ctx: RunContext) -> str:
+    def baseline_image(self, ctx: SuiteRunContext) -> str:
         """Runtime image or identifier for before-load hold-out."""

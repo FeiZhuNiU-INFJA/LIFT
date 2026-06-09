@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import override
 
-from src_new.lift.adapters.base import RunContext
+from src_new.lift.adapters.base import SuiteRunContext
 from src_new.lift.adapters.container.adapter import ContainerAgentRuntimeAdapter
 from src_new.lift.adapters.container.session import ContainerSession
 from src_new.lift.adapters.environment import ExecutionEnvironment
@@ -45,7 +45,7 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
         *,
         instance_id: str,
         image: str,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         workspace_dir: Path,
         seed_workspace: bool,
         task: SuiteTask | None,
@@ -63,7 +63,7 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
     def worker_judger_factory(
         self,
         env: ExecutionEnvironment,
-        ctx: RunContext,
+        ctx: SuiteRunContext,
         *,
         phase: str,
         workspace_dir: Path,
@@ -78,7 +78,7 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
         )
 
     @override
-    async def apply_evolve(self, env: ExecutionEnvironment, ctx: RunContext) -> None:
+    async def apply_evolve(self, env: ExecutionEnvironment, ctx: SuiteRunContext) -> None:
         _ = ctx
         session: ContainerSession = env.handle
         await openclaw_learn_review(openclaw_context(session))

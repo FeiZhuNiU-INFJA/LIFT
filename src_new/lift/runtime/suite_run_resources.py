@@ -18,9 +18,9 @@ class SuiteRunResources(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    run_id: str = Field(description="与 RunContext.run_id 一致")
-    repeat_index: int = Field(description="与 RunContext.repeat_index 一致")
-    suite_name: str = Field(description="与 RunContext.suite_name 一致")
+    run_id: str = Field(description="与 SuiteRunContext.run_id 一致")
+    repeat_index: int = Field(description="与 SuiteRunContext.repeat_index 一致")
+    suite_name: str = Field(description="与 SuiteRunContext.suite_name 一致")
     delta: DeltaRef | None = Field(
         default=None,
         description="warmup + evolve 完成后写入；供 run_after_load 使用",
