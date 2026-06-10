@@ -51,6 +51,15 @@ Copy [`.env.docker.example`](.env.docker.example) into the repo root `.env`:
 - `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` — runtime
 - `LANGFUSE_BASE_URL` — use `http://host.docker.internal:3000` inside containers
 - LIFT `ContainerSession` adds `--add-host=host.docker.internal:host-gateway` (required on Linux for langfuse-tracer ingestion)
+- `EVOBENCH_EVAL_RUN_TAG` — set by LIFT to `run_id`; plugin adds it to trace tags (pairs with framework pre-chat `tags.run`)
+
+### Langfuse correlation with LIFT pre-chat
+
+Each chat turn produces two Langfuse traces: framework **`emit_pre_chat_state`** (`work_agent` / `judge_agent`) on the host, and **`langfuse-tracer`** (`openclaw-plugin`) inside the container. Postprocess stitches them by **`session_id`** (same value as `openclaw agent --session-id`).
+
+Plugin requirements: same Langfuse project keys, trace name `openclaw-plugin`, `hooks.allowConversationAccess: true` in `openclaw.json`, and `sessionId` on the trace must match LIFT’s `--session-id`.
+
+Full write / fetch / pairing contract: [docs/eval-flow.md §12.5](../../docs/eval-flow.md#125-trace_backfill观测).
 
 ## LIFT integration (`src`)
 

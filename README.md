@@ -201,6 +201,7 @@ python -m src.cli.lift_main -r openclaw --evaluate-only --run_id my-run
 - **容器内插件**： [agent-runtimes/openclaw/plugins/langfuse-tracer/](./agent-runtimes/openclaw/plugins/langfuse-tracer/)（镜像已内置）
 - **框架 pre-chat**：[src/report/langfuse_reporting.py](./src/report/langfuse_reporting.py) 的 `emit_pre_chat_state`
 - **回填入口**：[src/report/langfuse_trace_stitch.py](./src/report/langfuse_trace_stitch.py) 的 `stitch_phase_langfuse_traces`
+- **关联契约（pre-chat ↔ 插件 trace）**：[docs/eval-flow.md §12.5](./docs/eval-flow.md#125-trace_backfill观测) — `session_id`、`openclaw-plugin` 命名、`agent_end` 等写入/检索/配对规则
 
 流程：`trace.list`（按 `run_id` / session）→ `trace.get` → 合并 `*_agent` 与 `openclaw-plugin` → 写入 `PhaseRun.langfuse`。
 

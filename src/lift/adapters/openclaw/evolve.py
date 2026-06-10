@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 from src.lift.adapters.openclaw.container_env import container_runtime_env
+from src.lift.adapters.container.exec import docker_exec_shell_async
 from src.lift.adapters.openclaw.container_exec import (
     OpenClawContainerContext,
     exec_openclaw_async,
-    exec_shell_async,
 )
 
 
 async def openclaw_learn_review(container: OpenClawContainerContext) -> None:
     """warmup 题完成后在容器内执行 evolve（learn review + worker 配置）。"""
     env = container_runtime_env()
-    await exec_shell_async(
+    await docker_exec_shell_async(
         container.container_name,
         """
 mkdir -p /workspace/task

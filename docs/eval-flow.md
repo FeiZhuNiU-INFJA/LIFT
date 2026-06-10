@@ -172,6 +172,8 @@ flowchart TD
 
 每次 chat 前会通过 `emit_pre_chat_state`（[`src/report/langfuse_reporting.py`](../src/report/langfuse_reporting.py)）上报 run、task、content_score、是否 final task / evolve turn 等字段，供 Langfuse 链路追踪；**不参与**任务成败判定逻辑。
 
+与容器内 runtime trace 的**关联契约**（写入 / 检索 / 配对规则）见 [§12.5 trace_backfill](#125-trace_backfill观测)。
+
 ---
 
 ## 6. 一次 eval run 的编排顺序
@@ -405,12 +407,80 @@ baseline_image()                  # before-load 运行时标识
 
 ### 12.5 trace_backfill（观测）
 
-| 通道 | 写入方 | 关联键 |
-|------|--------|--------|
-| Pre-chat | `emit_pre_chat_state` | `session_id` + `run_id` |
-| Runtime | 容器内 Langfuse 插件 | **同一 `session_id`** |
+每一轮 chat 在 Langfuse 上通常产生**两条** trace，后处理再合并为一条「完整轮次」：
 
-实现入口：`stitch_phase_langfuse_traces`（`src/report/langfuse_trace_stitch.py`）。
+| 来源 | 写入方 | trace `name` | 主要 payload |
+|------|--------|--------------|--------------|
+| eval 框架（宿主机） | `emit_pre_chat_state` | `work_agent` / `judge_agent`（以 `_agent` 结尾） | run、task、content_score、是否 final / evolve 等（`CustomTags`） |
+| agent runtime（容器内） | `langfuse-tracer` 等插件 | `openclaw-plugin`（OpenClaw）或 `Hermes turn`（Hermes） | prompt、回复、`metadata.messages`、token、工具统计 |
+
+实现入口：`stitch_phase_langfuse_traces`（[`src/report/langfuse_trace_stitch.py`](../src/report/langfuse_trace_stitch.py)）→ `pair_session_traces_to_agent_turns`（[`src/report/langfuse_trace_merge.py`](../src/report/langfuse_trace_merge.py)）。
+
+#### 12.5.1 写入契约（runtime 插件必须满足）
+
+**同一 Langfuse 项目**
+
+- 宿主机：`LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST`（`emit_pre_chat_state` 用 Python SDK）
+- 容器：同名 key + `LANGFUSE_BASE_URL` 能访问宿主机 Langfuse（Linux 需 `host.docker.internal:host-gateway`）
+- 容器启动时通过 `--env-file` 挂载仓库根 `.env`
+
+**`session_id` 必须一致（最关键）**
+
+LIFT 为 work / judge 各生成独立 session id（如 `user-…`、`judge-…`），并同时用于：
+
+1. `emit_pre_chat_state` 的 `propagate_attributes(session_id=…)`
+2. OpenClaw `openclaw agent --session-id …`（见 [`chat_agent.py`](../src/lift/adapters/openclaw/chat_agent.py)）
+
+容器内 `langfuse-tracer` 上报 trace 时，`sessionId` 须与上述字符串相同。插件优先取 hook `ctx.sessionId`，否则回退 `ctx.sessionKey`；若回退值与 `--session-id` 不一致，**配对会断裂**。
+
+**trace `name` 须符合约定**
+
+| 侧 | 识别规则 | 实现 |
+|----|----------|------|
+| pre-chat | name 以 `_agent` 结尾 | `is_agent_trace()` in [`langfuse_trace_parse.py`](../src/report/langfuse_trace_parse.py) |
+| plugin | name 为 `openclaw-plugin` 或 `Hermes turn` | `is_plugin_trace()`；常量见 `LANGFUSE_PLUGIN_TRACE_NAMES` in [`models.py`](../src/models.py) |
+
+**插件须成功触发 `agent_end`**
+
+OpenClaw 须在 `openclaw.json` 为 `langfuse-tracer` 配置 `hooks.allowConversationAccess: true`，否则只有 `before_agent_start` 日志、没有 `openclaw-plugin` trace，pre-chat 会变成孤儿。
+
+#### 12.5.2 检索契约（backfill 如何找到两边数据）
+
+`stitch_phase_langfuse_traces`（OpenClaw 模式）对单次 phase 会查询：
+
+1. `tags = eval_run_tag`（= `CustomTags.run`）→ 定位 pre-chat span
+2. `session_id = work_session_id` / `judge_session_id` → 定位 work / judge 两侧 trace
+3. `tags = work_session_id` / `judge_session_id` → 兜底（插件会把 session id 写入 tags）
+
+OpenClaw 容器启动时注入 `EVOBENCH_EVAL_RUN_TAG=run_id`，插件将其加入 trace tags，与 pre-chat 的 `tags.run` 对齐，便于按 run 过滤。插件**不强制**带 run tag 也能配对，主要靠 `session_id`。
+
+#### 12.5.3 配对契约（两条 trace 如何合成一轮）
+
+同一 `session_id` 内按时间排序后（[`pair_session_traces_to_agent_turns`](../src/report/langfuse_trace_merge.py)）：
+
+1. 遇到 `work_agent` / `judge_agent` → 暂存为 pending
+2. 下一条若是 `openclaw-plugin` → 合并进上一条 pre-chat（`plugin_prompt`、`metadata.messages`、`tokens` 等写入 `LangfuseTraceRef`）
+3. plugin 的 timestamp 应**晚于** pre-chat（顺序：先 `emit_pre_chat_state`，再 `openclaw agent`）
+
+**Join key 是 `session_id` + 时间顺序 + trace name 模式**，不是两边 `input` 字段对齐。
+
+#### 12.5.4 刻意不要求对齐的字段
+
+| 字段 | pre-chat | plugin | 说明 |
+|------|----------|--------|------|
+| `user_id` | `tags.run`（run_id） | `agentId`（OpenClaw agent 名） | 语义不同，配对不用 |
+| `input` | `CustomTags` 全量 dict | 用户 prompt 文本 | 合并后分别为 `agent_input` / `plugin_prompt` |
+| `tags` | run、task、agent_name、session_id | `openclaw`、agentId、可选 run / session tag | 检索兜底；配对主要靠 session |
+
+#### 12.5.5 一句话总结
+
+> 插件能与 `emit_pre_chat_state` 对应上的条件：**同一 Langfuse 项目** + **同一 `session_id`（`--session-id`）** + plugin trace 名为 **`openclaw-plugin`** + **`agent_end` 成功上报** + 时间落在对应 **`*_agent`** 之后。
+
+评测上下文在 pre-chat 的 `input`；轨迹与 token 在 plugin 的 `metadata`；`trace_backfill` 负责拼接。
+
+**脆弱点**：OpenClaw 升级后若 `ctx.sessionKey` 与 `--session-id` 分叉，需在容器内查 `langfuse-tracer-plugin.log` 或设 `LANGFUSE_TRACER_DEBUG_MESSAGES=1` 核对 hook ctx。
+
+**Hermes 差异**：`Hermes turn` 的 `session_id` 为内部 task id，与外部 work/judge session 不一致，但 tags 中带外部 session id；配对走 `pair_hermes_traces_to_agent_turns`（见 [`langfuse_trace_stitch.py`](../src/report/langfuse_trace_stitch.py) `_stitch_hermes`）。
 
 ### 12.6 当前实现映射
 

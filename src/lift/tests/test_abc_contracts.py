@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from src.lift.adapters.base import AgentRuntimeAdapter
+from src.lift.eval.chat_agent import ChatAgent
 from src.lift.adapters.container.adapter import ContainerAgentRuntimeAdapter
 from src.lift.adapters.openclaw.adapter import OpenClawAdapter
 from src.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
@@ -56,6 +57,12 @@ def test_artifact_policy_cannot_instantiate_without_impl() -> None:
     """
     with pytest.raises(TypeError):
         ArtifactPolicy()  # type: ignore[abstract]
+
+
+def test_chat_agent_cannot_instantiate_without_impl() -> None:
+    """Verify ``ChatAgent`` cannot be instantiated without ``agent_name`` / ``chat``."""
+    with pytest.raises(TypeError):
+        ChatAgent()  # type: ignore[abstract]
 
 
 def test_disposable_cannot_instantiate_without_impl() -> None:

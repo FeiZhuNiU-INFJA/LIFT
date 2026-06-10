@@ -7,15 +7,14 @@ from __future__ import annotations
 
 import json
 
-from src.lift.eval.worker_judger import WorkerJudgerPair
+from src.lift.eval.chat_agent import ChatAgent
 from src.lift.eval.run_task import run_task
+from src.lift.eval.worker_judger import WorkerJudgerPair
 from src.models import ExpectedResult, SuiteTask, TaskRequirements
 
 
-class _FakeAgent:
+class _FakeAgent(ChatAgent):
     """Stub agent that returns scripted chat responses and records calls."""
-
-    agent_name = "fake-agent"
 
     def __init__(self, *, responses: list[str]) -> None:
         """``responses``: FIFO 队列，每次 ``chat`` 弹出一条返回值。"""
@@ -23,16 +22,13 @@ class _FakeAgent:
         self.chat_calls: list[tuple[str, str]] = []  # (session_id, msg)
         self.activate_calls: list[str] = []
 
+    @property
+    def agent_name(self) -> str:
+        return "fake-agent"
+
     async def activate_session(self, session_id: str) -> None:
+        await super().activate_session(session_id)
         self.activate_calls.append(session_id)
-
-    def augment_work_prompt(self, task: SuiteTask, prompt: str) -> str:
-        _ = task
-        return prompt
-
-    def augment_judge_user_prompt(self, task: SuiteTask, prompt: str) -> str:
-        _ = task
-        return prompt
 
     async def chat(self, message: str, *, session_id: str) -> str:
         self.chat_calls.append((session_id, message))

@@ -39,7 +39,7 @@ src/lift/
 │   └── holdout.py          ← warmup / hold-out 切分逻辑
 ├── eval/               # 单题评测内核（runtime 无关）
 │   ├── run_task.py         ← work + judge 多轮循环（含 Langfuse pre-chat）
-│   ├── chat_agent.py       ← ChatAgent 协议 + 出站消息时间戳
+│   ├── chat_agent.py       ← ChatAgent ABC + 出站消息时间戳
 │   ├── stage.py            ← SuiteStage / HoldoutLoadState / SuiteRunPhase
 │   ├── worker_judger.py    ← WorkerJudgerPair / Factory
 │   └── task_exec.py        ← execute_task / execute_tasks
@@ -112,7 +112,7 @@ src/lift/
 8. `lift/eval/stage.py` + `task_exec.py` + `run_task.py` — 阶段语义 + 单题 / 多题执行（与 runtime 无关）
 9. `openclaw/session.py` — OpenClaw gateway 启动、端口、workspace seed
 10. `openclaw/chat_agent.py` — 容器内 `docker exec openclaw` 实现 chat
-11. `eval/chat_agent.py` — `ChatAgent` 协议（框架与 runtime 边界）
+11. `eval/chat_agent.py` — `ChatAgent` ABC（框架与 runtime 边界；子类须实现 `agent_name`、`chat`）
 
 ### 第四步：对照测试
 
@@ -154,7 +154,7 @@ LIFT **不**在宿主机直接跑 OpenClaw CLI。`run_task` 统一处理 Langfus
 | **AgentRuntimeAdapter** | `base.py` | 模板：`produce_delta`、`_run_holdout`；调 `lift/eval` |
 | **ContainerAgentRuntimeAdapter** | `container/adapter.py` | 容器启停；默认 `materialize_delta` = docker commit |
 | **OpenClawAdapter** | `openclaw/adapter.py` | `resolve_docker_image`、`start_container`、`worker_judger_factory`、`apply_evolve` |
-| **ChatAgent 协议** | `eval/chat_agent.py` | `chat(message, session_id) -> message`；与 agent 产品无关 |
+| **ChatAgent ABC** | `eval/chat_agent.py` | 继承并实现 `agent_name`、`chat`；`activate_session` / `augment_*` 有默认实现 |
 | **OpenClaw chat** | `openclaw/chat_agent.py` | `OpenClawContainerAgent` + `OpenClawWorkerJudgerPairFactory` |
 | **OpenClaw 容器** | `openclaw/session.py` | gateway 端口、volume、workspace seed |
 
@@ -539,6 +539,9 @@ Warmup 需要状态连续以触发 evolve；hold-out 需要严格对照（baseli
 
 **Q：轨迹评分在哪？**  
 执行期 `PhaseRun` 主要记录 success/score/session；轨迹相关指标在 **postprocess**（`src/postprocess/`）结合 Langfuse trace 计算，评测结束后**默认**自动触发（`--no-evaluate` 可跳过）。
+
+**Q：pre-chat 和容器内 `langfuse-tracer` 怎么对上？**  
+每轮 chat 各写一条 trace：宿主机 `emit_pre_chat_state`（`work_agent` / `judge_agent`）与容器 `openclaw-plugin`。后处理按**同一 `session_id`**（即 `--session-id`）+ 时间顺序 1:1 合并。完整契约见 [eval-flow.md §12.5](./eval-flow.md#125-trace_backfill观测)。
 
 **Q：OpenClaw 镜像里有什么？**  
 见 `agent-runtimes/openclaw/`：`self-evolving-plugin-pro`（evolve）、`langfuse-tracer`（观测）、gateway 配置片段。构建与环境变量见 [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)。

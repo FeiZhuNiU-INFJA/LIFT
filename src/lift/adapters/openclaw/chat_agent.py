@@ -11,6 +11,7 @@ from src.lift.adapters.openclaw.container_exec import (
     exec_openclaw_sync,
 )
 from src.lift.adapters.openclaw.json_output import extract_agent_text
+from src.lift.eval.chat_agent import ChatAgent
 from src.lift.eval.worker_judger import WorkerJudgerPair
 from src.models import SuiteTask
 from src.utils import short_id
@@ -18,7 +19,7 @@ from src.utils import short_id
 CONTAINER_WORKSPACE = "/workspace/task"
 
 
-class OpenClawContainerAgent:
+class OpenClawContainerAgent(ChatAgent):
     """容器内 OpenClaw chat：``docker exec openclaw agent --local``。"""
 
     def __init__(
@@ -29,25 +30,17 @@ class OpenClawContainerAgent:
         workspace_dir: Path,
     ) -> None:
         self._container = container
-        self.agent_name = agent_name
+        self._agent_name = agent_name
         self._workspace_dir = workspace_dir
+
+    @property
+    def agent_name(self) -> str:
+        return self._agent_name
 
     def initialize(self) -> None:
         """确保宿主机 workspace 存在并在容器内 ``openclaw agents add``。"""
         self._workspace_dir.mkdir(parents=True, exist_ok=True)
         self._register_agent_in_container()
-
-    async def activate_session(self, session_id: str) -> None:
-        """OpenClaw 以 ``--session-id`` 区分对话，无需额外 activate。"""
-        _ = session_id
-
-    def augment_work_prompt(self, task: SuiteTask, prompt: str) -> str:
-        _ = task
-        return prompt
-
-    def augment_judge_user_prompt(self, task: SuiteTask, prompt: str) -> str:
-        _ = task
-        return prompt
 
     async def chat(self, message: str, *, session_id: str) -> str:
         """``openclaw agent --json --local`` → 解析 payloads 文本。"""
@@ -76,11 +69,11 @@ class OpenClawContainerAgent:
             )
             if result.returncode != 0:
                 raise ValueError("Failed to list agents in container")
-            return self.agent_name in (result.stdout or "")
+            return self._agent_name in (result.stdout or "")
 
         for attempt in range(max_retries):
             if exists():
-                LOGGER.info("Container agent %s already exists", self.agent_name)
+                LOGGER.info("Container agent %s already exists", self._agent_name)
                 return
             try:
                 exec_openclaw_sync(
@@ -88,7 +81,7 @@ class OpenClawContainerAgent:
                     [
                         "agents",
                         "add",
-                        self.agent_name,
+                        self._agent_name,
                         "--model",
                         CONFIG.model,
                         "--workspace",
@@ -102,11 +95,11 @@ class OpenClawContainerAgent:
                 return
             LOGGER.warning(
                 "Retry container agent create %s (%d/%d)",
-                self.agent_name,
+                self._agent_name,
                 attempt + 1,
                 max_retries,
             )
-            self.agent_name = f"evobench-agent_name-{short_id()}"
+            self._agent_name = f"evobench-agent_name-{short_id()}"
         raise ValueError("Failed to create container agent")
 
 

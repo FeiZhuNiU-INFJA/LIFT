@@ -19,10 +19,8 @@ from src.lift.adapters.openclaw.container_env import (
     container_runtime_env,
     host_user_ids,
 )
-from src.lift.adapters.openclaw.container_exec import (
-    OpenClawContainerContext,
-    exec_shell_async,
-)
+from src.lift.adapters.container.exec import docker_exec_shell_async
+from src.lift.adapters.openclaw.container_exec import OpenClawContainerContext
 from src.lift.adapters.openclaw.workspace_seed import (
     container_workspace_seed_shell,
     seed_eval_workspace,
@@ -69,7 +67,7 @@ async def _reclaim_volume_ownership(session: ContainerSession) -> None:
     await asyncio.sleep(2)
     uid, gid = host_user_ids()
     try:
-        await exec_shell_async(
+        await docker_exec_shell_async(
             session.container_name,
             container_reclaim_ownership_script(uid, gid),
         )
@@ -83,7 +81,7 @@ async def _reclaim_volume_ownership(session: ContainerSession) -> None:
 
 async def _reset_workspace_attestations(session: ContainerSession) -> None:
     """清除 OpenClaw workspace attestations，避免跨题状态污染。"""
-    await exec_shell_async(
+    await docker_exec_shell_async(
         session.container_name,
         "rm -rf \"${OPENCLAW_STATE_DIR:-/root/.openclaw}\"/workspace-attestations 2>/dev/null || true",
         extra_env=container_runtime_env(),
@@ -93,7 +91,7 @@ async def _reset_workspace_attestations(session: ContainerSession) -> None:
 async def _ensure_workspace_seed(session: ContainerSession) -> None:
     """容器内同步镜像内 workspace seed 并移除 BOOTSTRAP。"""
     try:
-        await exec_shell_async(
+        await docker_exec_shell_async(
             session.container_name,
             container_workspace_seed_shell(),
             extra_env=container_runtime_env(),
