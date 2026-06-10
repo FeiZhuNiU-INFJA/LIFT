@@ -9,6 +9,5 @@
 相关文档（仓库其他位置）：
 
 - [src/lift/README.md](../src/lift/README.md) — LIFT 实现速查与测试命令
-- [legacy/README.md](../legacy/README.md) — 宿主机直跑旧栈（非主入口）
 - [assets/suite_requirement.md](../assets/suite_requirement.md) — Benchmark 收集规范
 - [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md) — OpenClaw 镜像构建
