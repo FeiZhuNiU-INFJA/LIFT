@@ -15,7 +15,7 @@ from src.lift.adapters.openclaw.session import openclaw_context, start_openclaw_
 from src.lift.eval.stage import SuiteRunPhase
 from src.lift.eval.worker_judger import WorkerJudgerPairFactory
 from src.models import SuiteTask
-from src.paths import OPENCLAW_CONTAINER_DEFAULTS_PATH
+from src.paths import OPENCLAW_DOCKER_IMAGE
 
 
 class OpenClawAdapter(ContainerAgentRuntimeAdapter):
@@ -24,28 +24,8 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
     @classmethod
     @override
     def resolve_docker_image(cls, *, override: str | None = None) -> str:
-        """CLI override 优先，否则从 ``container_defaults.yaml`` 读取 ``docker_image``。"""
-        if override:
-            return override
-        config_path = cls._agent_config_path()
-        if not config_path.is_file():
-            raise FileNotFoundError(
-                f"OpenClaw agent config not found: {config_path}. "
-                "Build the image and ensure agent-runtimes/openclaw/container_defaults.yaml exists."
-            )
-        for line in config_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith("docker_image:"):
-                image = line.split(":", 1)[1].strip().strip('"').strip("'")
-                if image:
-                    return image
-                break
-        raise ValueError(f"docker_image not set in {config_path}")
-
-    @staticmethod
-    def _agent_config_path():
-        """OpenClaw 容器默认配置 YAML 的仓库内路径。"""
-        return OPENCLAW_CONTAINER_DEFAULTS_PATH
+        """``RunOptions.docker_image`` 覆盖优先，否则 ``OPENCLAW_DOCKER_IMAGE``。"""
+        return override or OPENCLAW_DOCKER_IMAGE
 
     @override
     async def start_container(

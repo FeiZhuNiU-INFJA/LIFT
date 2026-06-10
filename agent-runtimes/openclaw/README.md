@@ -9,7 +9,6 @@ agent-runtimes/openclaw/
 ├── .dockerignore          # build context excludes (context = this directory)
 ├── Dockerfile
 ├── build-image.sh
-├── container_defaults.yaml
 ├── config/                # openclaw.json fragments
 ├── workspace_seed/        # pre-filled IDENTITY/USER/SOUL (no BOOTSTRAP.md)
 ├── plugins/
@@ -61,7 +60,7 @@ python -m src.cli.lift_main -r openclaw --suite hello.json --warmup-only
 python -m src.cli.lift_main -r openclaw --suite hello.json
 ```
 
-Default image: `evolve-eval-openclaw:latest` (see `container_defaults.yaml`).
+Default image: `evolve-eval-openclaw:latest` (constant `OPENCLAW_DOCKER_IMAGE` in `src/paths.py`).
 
 ## Instance lifecycle (manual debugging)
 

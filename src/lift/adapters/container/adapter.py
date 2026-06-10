@@ -65,7 +65,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         resources: SuiteRunResources,
         workspace_dir,
     ) -> ExecutionEnvironment:
-        """warmup 阶段：单容器 + base 镜像，不 seed per-task workspace。"""
+        """warmup 阶段：单容器 + base 镜像；``seed_workspace=False`` 以免干扰 evolve/onboard。"""
         _ = resources
         instance_id = f"{ctx.run_id}-r{ctx.repeat_index}-{ctx.suite_name}-warmup"
         session = await self.start_container(
@@ -93,7 +93,10 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         image: str,
         seed_workspace: bool,
     ) -> ExecutionEnvironment:
-        """hold-out 单题：独立容器 + 指定镜像（baseline 或 delta）。"""
+        """hold-out 单题：独立容器 + 指定镜像（baseline 或 delta）。
+
+        ``seed_workspace`` 原样传给 ``start_container``（见该方法的文档）。
+        """
         _ = resources
         instance_id = (
             f"{ctx.run_id}-r{ctx.repeat_index}-{task.name}-holdout-{short_id()}"
@@ -140,4 +143,10 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         seed_workspace: bool,
         task: SuiteTask | None,
     ) -> ContainerSession:
-        """启动运行时特定的容器会话（子类实现 gateway/entrypoint 等）。"""
+        """启动运行时特定的容器会话（子类实现 gateway/entrypoint 等）。
+
+        ``seed_workspace``: 挂载 ``workspace_dir`` 之前是否预置工作区内容。
+        - **OpenClaw**（``True``）：``workspace_seed/`` → 跳过 BOOTSTRAP 首次上线。
+        - **其他 runtime**：可实现为写入 AGENTS.md / 规则 / 空操作；框架不规定文件格式。
+        - **Warmup** 路径始终传 ``False``，由调用方保证。
+        """

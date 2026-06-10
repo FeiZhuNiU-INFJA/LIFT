@@ -10,8 +10,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OPENCLAW_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "openclaw"
 """OpenClaw 镜像与容器配置目录（``agent-runtimes/openclaw/``）。"""
 
-OPENCLAW_CONTAINER_DEFAULTS_PATH = OPENCLAW_AGENT_DIR / "container_defaults.yaml"
-"""OpenClaw 默认容器镜像名配置。"""
+OPENCLAW_DOCKER_IMAGE = "evolve-eval-openclaw:latest"
+"""LIFT 运行时 warmup / hold-out baseline 使用的 OpenClaw 评测镜像（``build-image.sh`` 默认 tag）。"""
 
 OPENCLAW_WORKSPACE_SEED_DIR = OPENCLAW_AGENT_DIR / "workspace_seed"
 """宿主机 OpenClaw eval workspace seed 源目录。"""

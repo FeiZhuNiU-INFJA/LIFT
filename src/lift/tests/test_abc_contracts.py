@@ -33,10 +33,10 @@ def test_container_runtime_adapter_cannot_instantiate_without_impl() -> None:
         ContainerAgentRuntimeAdapter()  # type: ignore[abstract]
 
 
-def test_openclaw_resolve_docker_image_from_agent_config() -> None:
-    """Verify default OpenClaw Docker image comes from agent config.
+def test_openclaw_resolve_docker_image_default() -> None:
+    """Verify default OpenClaw Docker image is the built evaluate image tag.
 
-    验证 OpenClaw 默认 Docker 镜像来自 agent 配置。
+    验证 OpenClaw 默认 Docker 镜像为评测镜像 tag。
     """
     assert OpenClawAdapter.resolve_docker_image() == "evolve-eval-openclaw:latest"
 

@@ -471,7 +471,7 @@ classDiagram
               <td><code>resolve_docker_image</code></td>
               <td>—</td>
               <td><span class="tag tag-abstract">abstract</span></td>
-              <td><span class="tag tag-openclaw">读 container_defaults.yaml</span></td>
+              <td><span class="tag tag-openclaw">OPENCLAW_DOCKER_IMAGE</span></td>
             </tr>
             <tr>
               <td><code>start_container</code></td>
@@ -510,7 +510,7 @@ classDiagram
             <tr>
               <td><code>resolve_docker_image</code></td>
               <td><code>openclaw/adapter.py</code></td>
-              <td>确定 base 镜像：优先 <code>RunOptions.docker_image</code> 覆盖，否则读 <code>container_defaults.yaml</code>（<code>evolve-eval-openclaw:latest</code>）</td>
+              <td>确定 base 镜像：优先 <code>RunOptions.docker_image</code> 覆盖，否则 <code>OPENCLAW_DOCKER_IMAGE</code>（<code>evolve-eval-openclaw:latest</code>）</td>
             </tr>
             <tr>
               <td><code>start_container</code></td>

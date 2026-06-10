@@ -134,6 +134,7 @@ class AgentRuntimeAdapter(ABC):
         """Hold-out 单题执行内核：起容器 → factory → execute_task。"""
         run_phase = SuiteRunPhase.holdout(load_state)
         workspace = self.holdout_workspace(ctx, task, load_state)
+        # Hold-out 每题新 workspace：seed 由 runtime 解释（OpenClaw=预置人设跳过 BOOTSTRAP）
         env = await self.start_holdout_environment(
             ctx,
             resources,
@@ -208,7 +209,13 @@ class AgentRuntimeAdapter(ABC):
         image: str,
         seed_workspace: bool,
     ) -> ExecutionEnvironment:
-        """Start the runtime used for one hold-out task."""
+        """Start the runtime used for one hold-out task.
+
+        ``seed_workspace``: 是否在挂载 ``workspace_dir`` 前写入「评测用初始工作区」。
+        框架在 hold-out 传 ``True``、warmup 传 ``False``；具体文件与是否 no-op 由
+        runtime 的 ``start_container`` 实现决定（OpenClaw 复制 IDENTITY/USER/SOUL 并删
+        BOOTSTRAP；其他 agent 可注入项目指令、规则文件，或忽略该标志）。
+        """
 
     @abstractmethod
     async def apply_evolve(self, env: ExecutionEnvironment, ctx: SuiteRunContext) -> None:
