@@ -31,7 +31,7 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
         if not config_path.is_file():
             raise FileNotFoundError(
                 f"OpenClaw agent config not found: {config_path}. "
-                "Build the image and ensure agents/openclaw/container_defaults.yaml exists."
+                "Build the image and ensure agent-runtimes/openclaw/container_defaults.yaml exists."
             )
         for line in config_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()

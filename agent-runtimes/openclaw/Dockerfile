@@ -1,10 +1,10 @@
 # LIFT / src OpenClaw evaluation image (plugins baked at build time).
 #
 # Build:
-#   bash agents/openclaw/build-image.sh
+#   bash agent-runtimes/openclaw/build-image.sh
 #
 # Or:
-#   docker build -f agents/openclaw/Dockerfile -t evolve-eval-openclaw:latest agents/openclaw
+#   docker build -f agent-runtimes/openclaw/Dockerfile -t evolve-eval-openclaw:latest agent-runtimes/openclaw
 
 ARG OPENCLAW_BASE_IMAGE=ghcr.io/openclaw/openclaw:latest
 FROM ${OPENCLAW_BASE_IMAGE}

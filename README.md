@@ -43,14 +43,14 @@ pip install -r requirements.txt
 
 仓库根目录提供了两份 langfuse 插件源码：
 
-- [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/)：OpenClaw 用的 Node.js 插件
+- [agent-runtimes/openclaw/plugins/langfuse-tracer/](./agent-runtimes/openclaw/plugins/langfuse-tracer/)：OpenClaw 用的 Node.js 插件
 - [legacy/langfuse-hermes/](./legacy/langfuse-hermes/)：Hermes 用的 Python 插件（legacy）
 
 #### OpenClaw
 
 ```bash
 # 1. 把插件源码放到 OpenClaw 扩展目录
-cp -r agents/openclaw/plugins/langfuse-tracer/ ~/.openclaw/extensions/
+cp -r agent-runtimes/openclaw/plugins/langfuse-tracer/ ~/.openclaw/extensions/
 
 # 2. 在 ~/.openclaw/openclaw.json 的 plugins 字段中加入：
 #       "langfuse-tracer": {
@@ -70,7 +70,7 @@ openclaw gateway restart
 执行以下命令安装插件：
 
 ```bash
-unzip agents/openclaw/plugins/self-evolving-plugin-pro-2026.4.23.zip
+unzip agent-runtimes/openclaw/plugins/self-evolving-plugin-pro-2026.4.23.zip
 cd assets
 bash self-evolving-plugin-pro/scripts/install-openclaw-plugin.sh
 ```
@@ -223,7 +223,7 @@ python -m src.cli.lift_main -r openclaw --suite hello.json --run_id my-run
 
 等价入口：`python -m src.cli`（转发到 `lift_main`）。
 
-> OpenClaw 评测在 Docker 容器内执行，宿主机无需安装 `openclaw` CLI。镜像见 [agents/openclaw/](./agents/openclaw/README.md)。
+> OpenClaw 评测在 Docker 容器内执行，宿主机无需安装 `openclaw` CLI。镜像见 [agent-runtimes/openclaw/](./agent-runtimes/openclaw/README.md)。
 
 ### Legacy 宿主机模式
 
@@ -366,7 +366,7 @@ Langfuse **trace_backfill**（轨迹回填）内核在 [src/postprocess/trace_ba
 4. 生成 `work_agent_traces` / `judge_agent_traces`
 5. 仅基于 work 侧生成 `work_analytics`
 
-插件实现见 [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/)（容器镜像已内置）与 [legacy/langfuse-hermes/](./legacy/langfuse-hermes/)（Hermes legacy）。
+插件实现见 [agent-runtimes/openclaw/plugins/langfuse-tracer/](./agent-runtimes/openclaw/plugins/langfuse-tracer/)（容器镜像已内置）与 [legacy/langfuse-hermes/](./legacy/langfuse-hermes/)（Hermes legacy）。
 
 ## 8. Langfuse拉取trace数据链路
 
@@ -446,4 +446,4 @@ flowchart TD
 | `langfuse_work_analytics.py` | 生成 `trace_chain`、`chat_turns`、`global_stats`               |
 
 
-插件实现见 [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/)（容器镜像已内置）与 [legacy/langfuse-hermes/](./legacy/langfuse-hermes/)（Hermes legacy）。
+插件实现见 [agent-runtimes/openclaw/plugins/langfuse-tracer/](./agent-runtimes/openclaw/plugins/langfuse-tracer/)（容器镜像已内置）与 [legacy/langfuse-hermes/](./legacy/langfuse-hermes/)（Hermes legacy）。

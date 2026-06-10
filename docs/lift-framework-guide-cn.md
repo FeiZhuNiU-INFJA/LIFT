@@ -2,7 +2,7 @@
 
 本文面向第一次接触 `src/lift/` 的开发者，说明**如何阅读代码**、**OpenClaw 如何做适配**，以及一次完整评测从 CLI 到容器的执行路径。
 
-> 相关文档：[README.md](./README.md)（文档索引）、[eval-flow.md](./eval-flow.md)（抽象流程）、[suite_requirement.md](../assets/suite_requirement.md)（数据集规范）、[agents/openclaw/README.md](../agents/openclaw/README.md)（镜像构建）
+> 相关文档：[README.md](./README.md)（文档索引）、[eval-flow.md](./eval-flow.md)（抽象流程）、[suite_requirement.md](../assets/suite_requirement.md)（数据集规范）、[agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)（镜像构建）
 
 ---
 
@@ -79,7 +79,7 @@ src/lift/
 | `src/lift/eval/` | `stage.py`（`SuiteStage`/`HoldoutLoadState`）；`task_exec.py`；`run_task`；`worker_judger.py` |
 | `src/models.py` | `Suite`、`SuiteTask`、`PhaseRun`、`EvalReport` |
 | `legacy/src/agents.py` | 宿主机直跑时代代码（`legacy/openclaw_main.py`），LIFT 不依赖 |
-| `agents/openclaw/` | Docker 镜像、插件、gateway 配置 |
+| `agent-runtimes/openclaw/` | Docker 镜像、插件、gateway 配置 |
 | `assets/benchmarks/*.json` | 机器可读评测集 |
 
 ---
@@ -237,7 +237,7 @@ hold-out 每题使用**全新空 workspace**，OpenClaw 默认会走 `BOOTSTRAP.
 | 阶段 | 是否 seed | 原因 |
 |------|-----------|------|
 | **warmup** | 否 | 避免干扰 `openclaw learn review` 的 onboard |
-| **baseline / evolved** | 是 | 从 `agents/openclaw/workspace_seed/` 复制 `IDENTITY.md` / `USER.md` / `SOUL.md`，删除 `BOOTSTRAP.md` |
+| **baseline / evolved** | 是 | 从 `agent-runtimes/openclaw/workspace_seed/` 复制 `IDENTITY.md` / `USER.md` / `SOUL.md`，删除 `BOOTSTRAP.md` |
 
 seed 在宿主机挂载前写入 `results/.../outcome/...`，容器启动后再从镜像内 `/opt/evolve-eval/workspace_seed` 同步一次。修改 seed 后需重建 OpenClaw 镜像。
 
@@ -341,7 +341,7 @@ Suite JSON 在标准 `Suite` 之外可带：
 
 | 步骤 | 命令 / 产物 | 说明 |
 |------|-------------|------|
-| **1. Build OpenClaw 镜像** | `bash agents/openclaw/build-image.sh` | 产出 `evolve-eval-openclaw:latest`；LIFT 运行时直接 `docker run` 该镜像，不存在则失败 |
+| **1. Build OpenClaw 镜像** | `bash agent-runtimes/openclaw/build-image.sh` | 产出 `evolve-eval-openclaw:latest`；LIFT 运行时直接 `docker run` 该镜像，不存在则失败 |
 | **2. 配置 `.env`** | 仓库根目录 | 模型 API、Langfuse 等；容器启动时 `--env-file` 挂载 |
 | **3. 转换 benchmark** | 见下方 | 将 `assets/benchmark_mds/` 下的 md 场景转为 `assets/benchmarks/*.json` |
 
@@ -363,7 +363,7 @@ assets/benchmarks/<场景>.json   ← LIFT CLI --suite 实际读取的文件
 
 **Delta 镜像**（`evolve-eval-delta:...`）**不需要**提前准备——warmup 结束后由 `docker commit` 在运行期动态生成。
 
-**Workspace 人设**：镜像内 `agents/openclaw/workspace_seed/`（`IDENTITY.md` / `USER.md` / `SOUL.md`，无 `BOOTSTRAP.md`）会在 **hold-out**（baseline/evolved）阶段挂载前复制进工作区，避免 OpenClaw 首次上线问名字/emoji；warmup 不 seed，以免干扰 `openclaw learn review` 的 onboard。改 seed 后需 `bash agents/openclaw/build-image.sh` 重建镜像。
+**Workspace 人设**：镜像内 `agent-runtimes/openclaw/workspace_seed/`（`IDENTITY.md` / `USER.md` / `SOUL.md`，无 `BOOTSTRAP.md`）会在 **hold-out**（baseline/evolved）阶段挂载前复制进工作区，避免 OpenClaw 首次上线问名字/emoji；warmup 不 seed，以免干扰 `openclaw learn review` 的 onboard。改 seed 后需 `bash agent-runtimes/openclaw/build-image.sh` 重建镜像。
 
 ### CLI 参数（`lift_main.py`）
 
@@ -404,7 +404,7 @@ python -m src.cli.lift_main --agent-runtime openclaw --evaluate-only --run_id he
 
 ```bash
 # 准备阶段（首次或变更后执行）
-bash agents/openclaw/build-image.sh          # 1. 构建 OpenClaw 镜像
+bash agent-runtimes/openclaw/build-image.sh          # 1. 构建 OpenClaw 镜像
 python -m src.cli.preprocess             # 2. md → JSON（与 lift_main 解耦，需单独跑）
 
 # 运行阶段
@@ -543,7 +543,7 @@ Warmup 需要状态连续以触发 evolve；hold-out 需要严格对照（baseli
 执行期 `PhaseRun` 主要记录 success/score/session；轨迹相关指标在 **postprocess**（`src/postprocess/`）结合 Langfuse trace 计算，评测结束后**默认**自动触发（`--no-evaluate` 可跳过）。
 
 **Q：OpenClaw 镜像里有什么？**  
-见 `agents/openclaw/`：`self-evolving-plugin-pro`（evolve）、`langfuse-tracer`（观测）、gateway 配置片段。构建与环境变量见 [agents/openclaw/README.md](../agents/openclaw/README.md)。
+见 `agent-runtimes/openclaw/`：`self-evolving-plugin-pro`（evolve）、`langfuse-tracer`（观测）、gateway 配置片段。构建与环境变量见 [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)。
 
 **Q：`evobench-reports` 和 `results` 有什么区别？**  
 `evobench-reports` 存结构化 report（分数、session、树形结构）；`results` 存 Agent 实际工作区文件（`outcome/`）和后处理分析（CSV/HTML）。通过 `run_id` 与 `PhaseRun.workspace_dir` 关联。详见本文 §8。

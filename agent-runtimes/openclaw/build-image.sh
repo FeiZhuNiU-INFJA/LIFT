@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build evolve-eval-openclaw image from agents/openclaw build context.
+# Build evolve-eval-openclaw image from agent-runtimes/openclaw build context.
 set -euo pipefail
 
 AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"

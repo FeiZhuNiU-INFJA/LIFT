@@ -1,7 +1,7 @@
 # Ephemeral entrypoint variant (dev / long-lived gateway with on-start plugin install).
 #
 # Build:
-#   docker build -f agents/openclaw/Dockerfile.entrypoint -t evolve-eval-openclaw:entrypoint agents/openclaw
+#   docker build -f agent-runtimes/openclaw/Dockerfile.entrypoint -t evolve-eval-openclaw:entrypoint agent-runtimes/openclaw
 
 ARG OPENCLAW_BASE_IMAGE=ghcr.io/openclaw/openclaw:latest
 FROM ${OPENCLAW_BASE_IMAGE}

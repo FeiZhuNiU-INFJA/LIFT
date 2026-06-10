@@ -7,8 +7,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 """仓库根目录（``evolve_eval``）。"""
 
-OPENCLAW_AGENT_DIR = PROJECT_ROOT / "agents" / "openclaw"
-"""OpenClaw 镜像与容器配置目录（``agents/openclaw/``）。"""
+OPENCLAW_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "openclaw"
+"""OpenClaw 镜像与容器配置目录（``agent-runtimes/openclaw/``）。"""
 
 OPENCLAW_CONTAINER_DEFAULTS_PATH = OPENCLAW_AGENT_DIR / "container_defaults.yaml"
 """OpenClaw 默认容器镜像名配置。"""

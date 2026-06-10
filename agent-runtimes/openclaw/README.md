@@ -1,11 +1,11 @@
-# OpenClaw agent (`agents/openclaw`)
+# OpenClaw agent (`agent-runtimes/openclaw`)
 
 Gateway image with **self-evolving-plugin-pro** and **langfuse-tracer** pre-installed. LIFT (`src`) runs agents via **`docker exec … openclaw`** inside ephemeral per-task containers.
 
 ## Layout
 
 ```
-agents/openclaw/
+agent-runtimes/openclaw/
 ├── .dockerignore          # build context excludes (context = this directory)
 ├── Dockerfile
 ├── build-image.sh
@@ -24,7 +24,7 @@ agents/openclaw/
 From the **repository root**:
 
 ```bash
-bash agents/openclaw/build-image.sh
+bash agent-runtimes/openclaw/build-image.sh
 ```
 
 Produces `evolve-eval-openclaw:latest` (includes `workspace_seed` at `/opt/evolve-eval/workspace_seed`).
@@ -34,13 +34,13 @@ LIFT copies this seed into each task workspace before mount so agents skip first
 Verify:
 
 ```bash
-bash agents/openclaw/verify-image.sh evolve-eval-openclaw:latest
+bash agent-runtimes/openclaw/verify-image.sh evolve-eval-openclaw:latest
 ```
 
 Optional entrypoint-based image (ephemeral instances):
 
 ```bash
-docker build -f agents/openclaw/Dockerfile.entrypoint -t evolve-eval-openclaw:entrypoint agents/openclaw
+docker build -f agent-runtimes/openclaw/Dockerfile.entrypoint -t evolve-eval-openclaw:entrypoint agent-runtimes/openclaw
 ```
 
 ## Environment
@@ -56,7 +56,7 @@ Copy [`.env.docker.example`](.env.docker.example) into the repo root `.env`:
 ## LIFT integration (`src`)
 
 ```bash
-bash agents/openclaw/build-image.sh
+bash agent-runtimes/openclaw/build-image.sh
 python -m src.cli.lift_main -r openclaw --suite hello.json --warmup-only
 python -m src.cli.lift_main -r openclaw --suite hello.json
 ```
@@ -66,19 +66,19 @@ Default image: `evolve-eval-openclaw:latest` (see `container_defaults.yaml`).
 ## Instance lifecycle (manual debugging)
 
 ```bash
-./agents/openclaw/scripts/openclaw-instance.sh create --id run-a
-eval "$(./agents/openclaw/scripts/openclaw-instance.sh env run-a)"
-./agents/openclaw/scripts/openclaw-instance.sh destroy run-a
+./agent-runtimes/openclaw/scripts/openclaw-instance.sh create --id run-a
+eval "$(./agent-runtimes/openclaw/scripts/openclaw-instance.sh env run-a)"
+./agent-runtimes/openclaw/scripts/openclaw-instance.sh destroy run-a
 ```
 
 Commit warmup container to delta image:
 
 ```bash
-./agents/openclaw/scripts/openclaw-instance.sh commit run-a --tag evolve-eval-delta:my-run-r0-suite
+./agent-runtimes/openclaw/scripts/openclaw-instance.sh commit run-a --tag evolve-eval-delta:my-run-r0-suite
 ```
 
 ## Compose (optional)
 
 ```bash
-docker compose -f agents/openclaw/compose.openclaw.yml up -d --build
+docker compose -f agent-runtimes/openclaw/compose.openclaw.yml up -d --build
 ```

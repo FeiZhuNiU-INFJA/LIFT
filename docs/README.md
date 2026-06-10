@@ -11,4 +11,4 @@
 - [src/lift/README.md](../src/lift/README.md) — LIFT 实现速查与测试命令
 - [legacy/README.md](../legacy/README.md) — 宿主机直跑旧栈（非主入口）
 - [assets/suite_requirement.md](../assets/suite_requirement.md) — Benchmark 收集规范
-- [agents/openclaw/README.md](../agents/openclaw/README.md) — OpenClaw 镜像构建
+- [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md) — OpenClaw 镜像构建

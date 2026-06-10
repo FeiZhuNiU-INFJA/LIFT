@@ -3,10 +3,10 @@
 # Registry: /tmp/evolve-eval-openclaw-instances/<id>.env (not ~/.openclaw on host)
 #
 # Usage (from repo root):
-#   ./agents/openclaw/scripts/openclaw-instance.sh create --id run-a
-#   ./agents/openclaw/scripts/openclaw-instance.sh list
-#   ./agents/openclaw/scripts/openclaw-instance.sh env run-a
-#   ./agents/openclaw/scripts/openclaw-instance.sh destroy run-a
+#   ./agent-runtimes/openclaw/scripts/openclaw-instance.sh create --id run-a
+#   ./agent-runtimes/openclaw/scripts/openclaw-instance.sh list
+#   ./agent-runtimes/openclaw/scripts/openclaw-instance.sh env run-a
+#   ./agent-runtimes/openclaw/scripts/openclaw-instance.sh destroy run-a
 
 set -euo pipefail
 
@@ -300,7 +300,7 @@ Environment:
   Repo .env supplies ARK_API_KEY, LANGFUSE_*, etc.
 
 Build image first:
-  bash agents/openclaw/build-image.sh
+  bash agent-runtimes/openclaw/build-image.sh
 EOF
 }
 

@@ -1,5 +1,5 @@
 # Optional: run OpenClaw gateway for local LIFT debugging.
-# Usage (from repo root): docker compose -f agents/openclaw/compose.openclaw.yml up -d
+# Usage (from repo root): docker compose -f agent-runtimes/openclaw/compose.openclaw.yml up -d
 
 services:
   openclaw:

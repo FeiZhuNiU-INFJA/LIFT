@@ -19,11 +19,11 @@ Three adapter layers:
 ## Build image
 
 ```bash
-bash agents/openclaw/build-image.sh
-# or: docker build -f agents/openclaw/Dockerfile -t evolve-eval-openclaw:latest agents/openclaw
+bash agent-runtimes/openclaw/build-image.sh
+# or: docker build -f agent-runtimes/openclaw/Dockerfile -t evolve-eval-openclaw:latest agent-runtimes/openclaw
 ```
 
-Ephemeral entrypoint variant (optional): `agents/openclaw/Dockerfile.entrypoint`
+Ephemeral entrypoint variant (optional): `agent-runtimes/openclaw/Dockerfile.entrypoint`
 
 ## Run
 
