@@ -1,6 +1,6 @@
 # OpenClaw agent (`agents/openclaw`)
 
-Gateway image with **self-evolving-plugin-pro** and **langfuse-tracer** pre-installed. LIFT (`src_new`) runs agents via **`docker exec … openclaw`** inside ephemeral per-task containers.
+Gateway image with **self-evolving-plugin-pro** and **langfuse-tracer** pre-installed. LIFT (`src`) runs agents via **`docker exec … openclaw`** inside ephemeral per-task containers.
 
 ## Layout
 
@@ -48,17 +48,17 @@ docker build -f agents/openclaw/Dockerfile.entrypoint -t evolve-eval-openclaw:en
 Copy [`.env.docker.example`](.env.docker.example) into the repo root `.env`:
 
 - `ARK_API_KEY` — **required for image build**; injected into `config/models.fragment.json`
-- `MODEL_NAME` — host/src_new agent model id
+- `MODEL_NAME` — host/src agent model id
 - `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` — runtime
 - `LANGFUSE_BASE_URL` — use `http://host.docker.internal:3000` inside containers
 - LIFT `ContainerSession` adds `--add-host=host.docker.internal:host-gateway` (required on Linux for langfuse-tracer ingestion)
 
-## LIFT integration (`src_new`)
+## LIFT integration (`src`)
 
 ```bash
 bash agents/openclaw/build-image.sh
-python -m src_new.cli.lift_main -r openclaw --suite hello.json --warmup-only
-python -m src_new.cli.lift_main -r openclaw --suite hello.json
+python -m src.cli.lift_main -r openclaw --suite hello.json --warmup-only
+python -m src.cli.lift_main -r openclaw --suite hello.json
 ```
 
 Default image: `evolve-eval-openclaw:latest` (see `container_defaults.yaml`).

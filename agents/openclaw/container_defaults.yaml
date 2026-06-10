@@ -1,4 +1,4 @@
-# Default OpenClaw container image for src_new (-r / --agent-runtime openclaw reads this).
+# Default OpenClaw container image for src (-r / --agent-runtime openclaw reads this).
 
 docker_image: "evolve-eval-openclaw:latest"
 gateway_port: 18789

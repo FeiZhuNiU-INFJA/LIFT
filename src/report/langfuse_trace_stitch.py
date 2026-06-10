@@ -20,6 +20,7 @@ from src.report.langfuse_work_analytics import build_work_analytics
 from src.models import LangfuseTraceRef, PhaseLangfuseBundle
 
 
+# Agent backend whose trace pairing rules are applied during stitching.
 AgentSource = Literal["openclaw", "hermes"]
 
 
@@ -38,6 +39,37 @@ def _list_traces_all_pages(client: Any, *, page_limit: int = 100, **kwargs: Any)
     return out
 
 
+def _normalize_eval_session(
+    ref: LangfuseTraceRef,
+    *,
+    work_session_id: str,
+    judge_session_id: str,
+) -> LangfuseTraceRef:
+    """Rewrite ``session_id`` when work/judge session id appears in trace tags."""
+    tags = ref.tags or []
+    if work_session_id in tags:
+        return ref.model_copy(update={"session_id": work_session_id})
+    if judge_session_id in tags:
+        return ref.model_copy(update={"session_id": judge_session_id})
+    return ref
+
+
+def _classify_openclaw_side(
+    ref: LangfuseTraceRef,
+    *,
+    work_session_id: str,
+    judge_session_id: str,
+) -> str | None:
+    """Return ``'work'``, ``'judge'``, or None for an OpenClaw trace ref."""
+    sid = ref.session_id
+    tags = ref.tags or []
+    if sid == work_session_id or work_session_id in tags:
+        return "work"
+    if sid == judge_session_id or judge_session_id in tags:
+        return "judge"
+    return None
+
+
 def _stitch_openclaw(
     client: Any,
     *,
@@ -46,8 +78,7 @@ def _stitch_openclaw(
     judge_session_id: str,
     page_limit: int,
 ) -> PhaseLangfuseBundle:
-    """OpenClaw 模式：``*_agent`` 与 ``openclaw-plugin`` 共享 work/judge session_id，
-    走 session_id 路径查询并按 session_id 分组配对。"""
+    """OpenClaw：pre-chat ``*_agent`` + ``openclaw-plugin`` 按 eval session 归类并 1:1 配对。"""
     by_run_tag = _list_traces_all_pages(
         client, tags=[eval_run_tag], page_limit=page_limit, order_by="timestamp.asc"
     )
@@ -57,9 +88,15 @@ def _stitch_openclaw(
     by_judge = _list_traces_all_pages(
         client, session_id=judge_session_id, page_limit=page_limit, order_by="timestamp.asc"
     )
+    by_work_tag = _list_traces_all_pages(
+        client, tags=[work_session_id], page_limit=page_limit, order_by="timestamp.asc"
+    )
+    by_judge_tag = _list_traces_all_pages(
+        client, tags=[judge_session_id], page_limit=page_limit, order_by="timestamp.asc"
+    )
 
     merged: dict[str, Any] = {}
-    for t in (*by_run_tag, *by_work, *by_judge):
+    for t in (*by_run_tag, *by_work, *by_judge, *by_work_tag, *by_judge_tag):
         merged[str(t.id)] = t
 
     details = fetch_trace_details(client, list(merged.keys()))
@@ -67,11 +104,20 @@ def _stitch_openclaw(
     judge_raw: list[LangfuseTraceRef] = []
     for tid, list_item in merged.items():
         detail = details[tid]
-        sid = detail.session_id or list_item.model_dump().get("session_id")
         ref = trace_ref_from_detail(detail, user_id=list_item.model_dump().get("user_id"))
-        if sid == work_session_id:
+        ref = _normalize_eval_session(
+            ref,
+            work_session_id=work_session_id,
+            judge_session_id=judge_session_id,
+        )
+        side = _classify_openclaw_side(
+            ref,
+            work_session_id=work_session_id,
+            judge_session_id=judge_session_id,
+        )
+        if side == "work":
             work_raw.append(ref)
-        elif sid == judge_session_id:
+        elif side == "judge":
             judge_raw.append(ref)
 
     work_turns = pair_session_traces_to_agent_turns(work_raw)

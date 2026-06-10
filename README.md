@@ -1,12 +1,20 @@
 # evolve-eval
 
-一个用于运行 benchmark task 并做循环评测的 Python 项目，当前支持 `hermes` 和 `openclaw` 两种 agent framework。目前Openclaw链路已完善
+LIFT（Loaded Impact on Final Task）评测框架：容器内 OpenClaw agent，warmup → evolve → hold-out 对照。
 
-当前稳定主链路是：
+**主链路**（[`src/`](./src/)）：
 
-1. 用 [openclaw_main.py](./openclaw_main.py) 或 [hermes_main.py](./hermes_main.py) 跑 benchmark，产出轻量 report JSON
-2. 用 [postprocess/run_post_process.py](./postprocess/run_post_process.py) 统一完成 trace_backfill（轨迹回填）、抽取、打分、指标统计和 HTML 展示
-3. 或者直接在 `openclaw_main.py --evaluate` / `main.py --evaluate` 中一键完成整条流水线
+```bash
+# 完整 LIFT + 默认后处理（trace backfill、指标、HTML）
+python -m src.cli.lift_main -r openclaw --suite hello.json --run_id my-run
+
+# 仅后处理已有 report
+python -m src.cli.lift_main -r openclaw --evaluate-only --run_id my-run
+```
+
+详见 [docs/README.md](./docs/README.md)、[docs/lift-framework-guide-cn.md](./docs/lift-framework-guide-cn.md) 与 [src/lift/README.md](./src/lift/README.md)。
+
+**Legacy** 宿主机直跑（OpenClaw / Hermes）已归档至 [`legacy/`](./legacy/README.md)，不再维护为主入口。
 
 ## 1. 环境准备
 
@@ -36,7 +44,7 @@ pip install -r requirements.txt
 仓库根目录提供了两份 langfuse 插件源码：
 
 - [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/)：OpenClaw 用的 Node.js 插件
-- [langfuse-hermes/](./langfuse-hermes/)：Hermes 用的 Python 插件
+- [legacy/langfuse-hermes/](./legacy/langfuse-hermes/)：Hermes 用的 Python 插件（legacy）
 
 #### OpenClaw
 
@@ -93,7 +101,7 @@ Hermes 的 langfuse 插件走的是 hermes 自带的 venv，需要先在该 venv
 hermes plugins enable observability/langfuse
 
 # 3. 用本仓库的实现覆盖 Hermes 自带的 langfuse 插件目录
-cp -r langfuse-hermes/* ~/.hermes/hermes-agent/plugins/observability/langfuse
+cp -r legacy/langfuse-hermes/* ~/.hermes/hermes-agent/plugins/observability/langfuse
 ```
 
 完成后 HermesAgent 启动 gateway 时即可上报 langfuse trace。
@@ -186,36 +194,40 @@ suite 源文件目录：
 
 - `assets/benchmarks/**/*.json`
 
-每个 suite JSON 由 [preprocess/convert_suite_mds_to_json.py](./preprocess/convert_suite_mds_to_json.py) 生成，核心结构包含：
+每个 suite JSON 由 [src/preprocess/convert_suite_mds_to_json.py](./src/preprocess/convert_suite_mds_to_json.py) 生成，核心结构包含：
 
 其中至少需要：
 
 - 顶层 `name / category / tasks`（对应 [src/models.py](./src/models.py) 的 `SuiteSpec`）
 - 每个 task 包含 `name / query / requirements / expected_result`
 
-## 5. 运行
+## 5. 运行（LIFT / OpenClaw 容器）
 
 在项目根目录执行：
 
-### Openclaw
-
 ```bash
-python openclaw_main.py
+python -m src.cli.lift_main -r openclaw --suite hello.json --run_id my-run
 ```
 
 常用参数：
 
-- `--mode`：执行模式，`replay`（默认）跑常规 benchmark；`exam` 走 warmup → evolve → final-task baseline/evolved 的考试流程
-- `--benchmark_dir`：suite JSON 所在目录，默认 `assets/benchmarks`（若传 `assets` 则解析为 `assets/benchmarks`）
-- `--suite`：逗号分隔的 suite 文件名（可带或不带 `.json`），或 `all` 跑目录下全部 suite，默认 `all`
-- `--run_id`：自定义 run_id 后缀，会拼接成 `evobench-runid-{run_id}`；不传则按时间 + short_id 自动生成
-- `--test`：只跑每个 suite 的第一条 baseline task
-- `--repeat`：完整执行所选 suite N 次，每次完整执行写入 `report.runs[i]`
-- `-p` / `--parallel`：在 OpenClaw 链路下并行执行同一 suite 内的多个 task（serial 创建 agent 后再并发跑 chat）；Hermes 链路下则改为并行执行多个 suite 之间，suite 内的 task 仍串行
-- `-e` / `--evaluate`：benchmark 结束后自动执行后处理流水线
-- `--evaluate-only`：跳过 benchmark 执行，仅对已存在的 report JSON 跑后处理；需要 `--run_id` 定位 `evobench-reports/evobench-runid-{run_id}.json`
+- `-r` / `--agent-runtime`：当前支持 `openclaw`（必填）
+- `--benchmark_dir`：suite JSON 目录，默认 `assets/benchmarks`
+- `--suite`：逗号分隔的 suite 文件名或 `all`
+- `--run_id`：自定义后缀，生成 `evobench-runid-{run_id}`
+- `--warmup-only`：只跑 warmup + evolve + delta，跳过 hold-out
+- `--repeat`：完整 LIFT 流程重复 N 次
+- `-p` / `--parallel`：warmup 题并行（受容器策略约束）
+- `-e` / `--evaluate`：评测结束后自动后处理（默认开启，`--no-evaluate` 可关闭）
+- `--evaluate-only`：仅后处理已有 report，需 `--run_id`
 
-> Langfuse 插件的安装方式见上文「2.1 插件配置」，本节不再重复。
+等价入口：`python -m src.cli`（转发到 `lift_main`）。
+
+> OpenClaw 评测在 Docker 容器内执行，宿主机无需安装 `openclaw` CLI。镜像见 [agents/openclaw/](./agents/openclaw/README.md)。
+
+### Legacy 宿主机模式
+
+见 [legacy/README.md](./legacy/README.md)：`PYTHONPATH=legacy python legacy/openclaw_main.py ...`
 
 ### run_task 流程图
 
@@ -252,33 +264,13 @@ flowchart TD
 
 如果达到 `max_turns` 仍未成功，函数返回 `False`（不再发送额外的"任务失败"终结提示）。
 
-### Hermes
-
-如果只想跑 Hermes，可直接使用：
+### Hermes（legacy）
 
 ```bash
-python hermes_main.py
+PYTHONPATH=legacy python legacy/hermes_main.py --suite hello.json
 ```
 
-`hermes_main.py` 与 `openclaw_main.py` 共享上面所有命令行参数（`--mode` / `--benchmark_dir` / `--suite` / `--run_id` / `--test` / `--repeat` / `--parallel` / `--evaluate` / `--evaluate-only`）。区别：
-
-- Hermes 没有 OpenClaw 的 `langfuse-tracer` / `self-evolving-plugin-pro` 插件初始化步骤
-- `--parallel` 在 Hermes 模式下作用于多个 suite 之间（每个 suite 内的 task 串行）
-- `HermesAgent.evolve(...)` 走的是 hermes profile 的 evolve 流程
-
-如果某次跑完 benchmark 后只想重新出后处理产物（不再跑 agent），把 `--evaluate-only` 与 `--run_id` 配合使用即可，会自动定位 `evobench-reports/evobench-runid-{run_id}.json` 并把结果写到 `results/evobench-runid-{run_id}/`：
-
-```bash
-# Hermes 链路
-python hermes_main.py --evaluate-only --run_id 20260515-abcd
-
-# OpenClaw 链路
-python openclaw_main.py --evaluate-only --run_id 20260515-abcd
-```
-
-这样不必再手动指定 `--enriched-json` / `--comparison-csv` / `--summary-csv` / `--report-html` 等输出路径。
-
-详细功能待补全
+详见 [legacy/README.md](./legacy/README.md)。
 
 ## 6. 数据处理
 
@@ -286,7 +278,7 @@ python openclaw_main.py --evaluate-only --run_id 20260515-abcd
 可选输出参数：
 
 ```bash
-python postprocess/run_post_process.py evobench-reports/evobench-runid-xxxx.json ^
+python -m src.postprocess.run_post_process.py evobench-reports/evobench-runid-xxxx.json ^
   --output-dir results ^
   --output-prefix my_run ^
   --enriched-json results/my_run_enriched.json ^
@@ -295,7 +287,7 @@ python postprocess/run_post_process.py evobench-reports/evobench-runid-xxxx.json
   --report-html results/my_run_metrics_report.html
 ```
 
-默认输出文件名规则定义在 [postprocess/run_post_process.py](./postprocess/run_post_process.py) 的 `default_output_paths()` 中：
+默认输出文件名规则定义在 [src/postprocess/run_post_process.py](./src/postprocess/run_post_process.py) 的 `default_output_paths()` 中：
 
 - `<prefix>_enriched.json`
 - `<prefix>_comparison_metrics.csv`
@@ -306,7 +298,7 @@ python postprocess/run_post_process.py evobench-reports/evobench-runid-xxxx.json
 
 如果想在代码里直接调用，使用：
 
-`process_report_to_outputs()`，定义在 [postprocess/run_post_process.py](./postprocess/run_post_process.py)
+`process_report_to_outputs()`，定义在 [src/postprocess/run_post_process.py](./src/postprocess/run_post_process.py)
 
 它会一次性完成：
 
@@ -320,7 +312,7 @@ python postprocess/run_post_process.py evobench-reports/evobench-runid-xxxx.json
 
 ### 6.2. 后处理指标口径
 
-抽取逻辑在 [postprocess/extract.py](./postprocess/extract.py)，对比逻辑在 [postprocess/metrics.py](./postprocess/metrics.py)。
+抽取逻辑在 [src/postprocess/extract.py](./src/postprocess/extract.py)，对比逻辑在 [src/postprocess/metrics.py](./src/postprocess/metrics.py)。
 
 任务级 comparison CSV 当前包含：
 
@@ -344,7 +336,7 @@ python postprocess/run_post_process.py evobench-reports/evobench-runid-xxxx.json
 其中：
 
 - 原始指标列是 evolved 侧的值
-- `impr_*` 的定义是 `(evolved - baseline) / baseline`（相对改进比例，常用百分比展示；baseline 为 0 时返回 NaN，详见 [postprocess/metrics.py](./postprocess/metrics.py) 的 `compute_improvement_pct`）
+- `impr_*` 的定义是 `(evolved - baseline) / baseline`（相对改进比例，常用百分比展示；baseline 为 0 时返回 NaN，详见 [src/postprocess/metrics.py](./src/postprocess/metrics.py) 的 `compute_improvement_pct`）
 - baseline/evolved 的配对键是 `run + suite_name + suite_path + task_name + category`
 
 当前纳入 improvement 的指标有：
@@ -360,7 +352,7 @@ python postprocess/run_post_process.py evobench-reports/evobench-runid-xxxx.json
 
 ## 7. Langfuse 串联逻辑
 
-Langfuse **trace_backfill**（轨迹回填）内核在 [postprocess/langfuse_enrich.py](./postprocess/langfuse_enrich.py)（模块名为遗留称呼）。
+Langfuse **trace_backfill**（轨迹回填）内核在 [src/postprocess/trace_backfill.py](./src/postprocess/trace_backfill.py)。
 
 真正的 trace stitching 入口是：
 
@@ -374,7 +366,7 @@ Langfuse **trace_backfill**（轨迹回填）内核在 [postprocess/langfuse_enr
 4. 生成 `work_agent_traces` / `judge_agent_traces`
 5. 仅基于 work 侧生成 `work_analytics`
 
-插件实现见 [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/) 与 [langfuse-hermes/](./langfuse-hermes/)。
+插件实现见 [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/)（容器镜像已内置）与 [legacy/langfuse-hermes/](./legacy/langfuse-hermes/)（Hermes legacy）。
 
 ## 8. Langfuse拉取trace数据链路
 
@@ -382,19 +374,19 @@ Langfuse **trace_backfill**（轨迹回填）内核在 [postprocess/langfuse_enr
 
 ```bash
 # 默认输出位置：results/<run_id>/<run_id>_*.{json,csv,html}
-python postprocess/run_post_process.py evobench-reports/evobench-runid-20260515-xxxx.json
+python -m src.postprocess.run_post_process.py evobench-reports/evobench-runid-20260515-xxxx.json
 
 # 自定义输出目录与前缀
-python postprocess/run_post_process.py evobench-reports/....json ^
+python -m src.postprocess.run_post_process.py evobench-reports/....json ^
   --output-dir results --output-prefix my_run
 
 # 强制使用 hermes 模式做 trace stitching（默认 openclaw）
-python postprocess/run_post_process.py evobench-reports/....json --agent-source hermes
+python -m src.postprocess.run_post_process.py evobench-reports/....json --agent-source hermes
 ```
 
 每个 phase 会调用 `stitch_phase_langfuse_traces`，在对应 `baseline` / `evolved` 上填充 `langfuse` 字段。
 
-> 直接想跑全链路也可以执行 `python openclaw_main.py --evaluate-only --run_id <id>` 或 `python hermes_main.py --evaluate-only --run_id <id>`。
+> LIFT 全链路：`python -m src.cli.lift_main -r openclaw --suite ... --run_id <id>`；legacy 见 [legacy/README.md](./legacy/README.md)。
 
 ### 8.1 采集与合并流程
 
@@ -454,4 +446,4 @@ flowchart TD
 | `langfuse_work_analytics.py` | 生成 `trace_chain`、`chat_turns`、`global_stats`               |
 
 
-插件实现见 [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/) 与 [langfuse-hermes/](./langfuse-hermes/)。
+插件实现见 [agents/openclaw/plugins/langfuse-tracer/](./agents/openclaw/plugins/langfuse-tracer/)（容器镜像已内置）与 [legacy/langfuse-hermes/](./legacy/langfuse-hermes/)（Hermes legacy）。

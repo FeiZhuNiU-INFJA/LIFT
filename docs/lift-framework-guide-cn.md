@@ -1,8 +1,8 @@
 # LIFT 框架阅读指南
 
-本文面向第一次接触 `src_new/lift/` 的开发者，说明**如何阅读代码**、**OpenClaw 如何做适配**，以及一次完整评测从 CLI 到容器的执行路径。
+本文面向第一次接触 `src/lift/` 的开发者，说明**如何阅读代码**、**OpenClaw 如何做适配**，以及一次完整评测从 CLI 到容器的执行路径。
 
-> 相关文档：[eval-flow.md](./eval-flow.md)（抽象流程）、[suite_requirement.md](../assets/suite_requirement.md)（数据集规范）、[agents/openclaw/README.md](../agents/openclaw/README.md)（镜像构建）
+> 相关文档：[README.md](./README.md)（文档索引）、[eval-flow.md](./eval-flow.md)（抽象流程）、[suite_requirement.md](../assets/suite_requirement.md)（数据集规范）、[agents/openclaw/README.md](../agents/openclaw/README.md)（镜像构建）
 
 ---
 
@@ -25,12 +25,12 @@
 
 ---
 
-## 2. `src_new/lift/` 目录地图
+## 2. `src/lift/` 目录地图
 
 按**阅读优先级**排列（从上到下先读）：
 
 ```
-src_new/lift/
+src/lift/
 ├── pipeline/           # 编排入口：LIFT 主流程
 │   ├── lift_pipeline.py    ← 从这儿开始读
 │   └── run_options.py      ← CLI 选项的数据结构
@@ -38,8 +38,10 @@ src_new/lift/
 │   ├── lift_suite.py       ← 读 JSON + holdout_count 等扩展字段
 │   └── holdout.py          ← warmup / hold-out 切分逻辑
 ├── eval/               # 单题评测内核（runtime 无关）
-│   ├── run_task.py         ← work + judge 多轮循环
+│   ├── run_task.py         ← work + judge 多轮循环（含 Langfuse pre-chat）
+│   ├── chat_agent.py       ← ChatAgent 协议 + 出站消息时间戳
 │   ├── stage.py            ← SuiteStage / HoldoutLoadState / SuiteRunPhase
+│   ├── worker_judger.py    ← WorkerJudgerPair / Factory
 │   └── task_exec.py        ← execute_task / execute_tasks
 ├── adapters/           # 运行时适配层（三层继承）
 │   ├── base.py             ← SuiteRunContext + AgentRuntimeAdapter 模板方法
@@ -53,7 +55,8 @@ src_new/lift/
 │   └── openclaw/           ← OpenClaw 薄实现（镜像 / chat / evolve / 容器启动）
 │       ├── adapter.py
 │       ├── session.py          ← gateway 端口、seed、OpenClaw entrypoint
-│       ├── agent.py            ← ContainerOpenClawAgent + factory
+│       ├── chat_agent.py       ← OpenClawContainerAgent + factory
+│       ├── json_output.py      ← 解析 openclaw --json stdout
 │       ├── evolve.py           ← learn review
 │       └── workspace_seed.py
 ├── policies/           # 策略（产物如何产生、容器如何编排）
@@ -72,10 +75,10 @@ src_new/lift/
 
 | 路径 | 作用 |
 |------|------|
-| `src_new/cli/lift_main.py` | CLI 入口：`--agent-runtime openclaw` |
-| `src_new/lift/eval/` | `stage.py`（`SuiteStage`/`HoldoutLoadState`）；`task_exec.py`；`run_task`；`worker_judger.py` |
-| `src_new/models.py` | `Suite`、`SuiteTask`、`PhaseRun`、`EvalReport` |
-| `src_new/agents.py` | `OpenClawAgent` 基类（宿主机版） |
+| `src/cli/lift_main.py` | CLI 入口：`--agent-runtime openclaw` |
+| `src/lift/eval/` | `stage.py`（`SuiteStage`/`HoldoutLoadState`）；`task_exec.py`；`run_task`；`worker_judger.py` |
+| `src/models.py` | `Suite`、`SuiteTask`、`PhaseRun`、`EvalReport` |
+| `legacy/src/agents.py` | 宿主机直跑时代代码（`legacy/openclaw_main.py`），LIFT 不依赖 |
 | `agents/openclaw/` | Docker 镜像、插件、gateway 配置 |
 | `assets/benchmarks/*.json` | 机器可读评测集 |
 
@@ -85,7 +88,7 @@ src_new/lift/
 
 ### 第一步：搞清「谁调用谁」
 
-1. `src_new/cli/lift_main.py` — 参数解析 → `create_adapter()` → `LIFTPipeline.run()`
+1. `src/cli/lift_main.py` — 参数解析 → `create_adapter()` → `LIFTPipeline.run()`
 2. `pipeline/lift_pipeline.py` — 对每个 suite / repeat 的循环骨架
 3. `suite/holdout.py` + `suite/lift_suite.py` — 题目如何分成 warmup 与 hold-out
 
@@ -108,13 +111,14 @@ src_new/lift/
 
 8. `lift/eval/stage.py` + `task_exec.py` + `run_task.py` — 阶段语义 + 单题 / 多题执行（与 runtime 无关）
 9. `openclaw/session.py` — OpenClaw gateway 启动、端口、workspace seed
-10. `openclaw/agent.py` — 容器内 `docker exec openclaw` 实现 chat
+10. `openclaw/chat_agent.py` — 容器内 `docker exec openclaw` 实现 chat
+11. `eval/chat_agent.py` — `ChatAgent` 协议（框架与 runtime 边界）
 
 ### 第四步：对照测试
 
 ```bash
-python -m pytest src_new/lift/tests -q
-# 或按文件：pytest src_new/lift/tests/test_holdout.py
+python -m pytest src/lift/tests -q
+# 或按文件：pytest src/lift/tests/test_holdout.py
 ```
 
 ---
@@ -140,7 +144,7 @@ python -m pytest src_new/lift/tests -q
 └─────────────────────────────────────────────────────────────┘
 ```
 
-LIFT **不**在宿主机直接跑 OpenClaw CLI（legacy `openclaw_main.py` 才是旧模式）。`src_new` 通过 **`ContainerOpenClawAgent`** 把 `OpenClawAgent.chat()` 转成 `docker exec`。
+LIFT **不**在宿主机直接跑 OpenClaw CLI。`run_task` 统一处理 Langfuse / 时间戳；**`OpenClawContainerAgent`** 只做 `docker exec openclaw agent --local` 的 message 往返。
 
 ### 4.2 三层职责 → 文件映射
 
@@ -150,7 +154,8 @@ LIFT **不**在宿主机直接跑 OpenClaw CLI（legacy `openclaw_main.py` 才�
 | **AgentRuntimeAdapter** | `base.py` | 模板：`produce_delta`、`_run_holdout`；调 `lift/eval` |
 | **ContainerAgentRuntimeAdapter** | `container/adapter.py` | 容器启停；默认 `materialize_delta` = docker commit |
 | **OpenClawAdapter** | `openclaw/adapter.py` | `resolve_docker_image`、`start_container`、`worker_judger_factory`、`apply_evolve` |
-| **OpenClaw chat** | `openclaw/agent.py` | `ContainerOpenClawAgent` + `OpenClawWorkerJudgerPairFactory` |
+| **ChatAgent 协议** | `eval/chat_agent.py` | `chat(message, session_id) -> message`；与 agent 产品无关 |
+| **OpenClaw chat** | `openclaw/chat_agent.py` | `OpenClawContainerAgent` + `OpenClawWorkerJudgerPairFactory` |
 | **OpenClaw 容器** | `openclaw/session.py` | gateway 端口、volume、workspace seed |
 
 ### 4.3 一次 repeat 的容器时间线
@@ -219,7 +224,7 @@ sequenceDiagram
 | **阶段语义** | `lift/eval/stage.py` | `SuiteStage`（warmup/holdout）+ `HoldoutLoadState`（baseline/evolved）→ `SuiteRunPhase` |
 | **单题包装** | `lift/eval/task_exec.py` `execute_task` | factory → `run_task` → `PhaseRun` |
 | **多题编排** | `lift/eval/task_exec.py` `execute_tasks` | `parallel` 控制串行 / 并行 |
-| **OpenClaw 特化** | `openclaw/agent.py` `OpenClawWorkerJudgerPairFactory` | 容器内 `docker exec openclaw` 实现 `chat` |
+| **OpenClaw 特化** | `openclaw/chat_agent.py` `OpenClawWorkerJudgerPairFactory` | 容器内 `docker exec openclaw` 实现 `chat` |
 
 warmup 与 hold-out **共用** `run_task`；差异仅在 adapter 的容器 / workspace / evolve。
 
@@ -293,7 +298,7 @@ assets/benchmark_mds/<场景>/
   q1_xxx/q1_xxx.md + materials/
   q2_xxx/...
   skills/（可选）
-        ↓ python -m src_new.cli.preprocess
+        ↓ python -m src.cli.preprocess
 assets/benchmarks/<场景>.json   ← Suite + holdout 扩展字段
 ```
 
@@ -343,9 +348,9 @@ Suite JSON 在标准 `Suite` 之外可带：
 **Benchmark 预处理**把人类可读的 md 任务目录转成机器可读的 suite JSON（现在已与评测 CLI 解耦，需单独运行）：
 
 ```bash
-python -m src_new.cli.preprocess
+python -m src.cli.preprocess
 # 或指定目录
-python -m src_new.cli.preprocess --input-root assets/benchmark_mds --output-root assets/benchmarks
+python -m src.cli.preprocess --input-root assets/benchmark_mds --output-root assets/benchmarks
 ```
 
 ```text
@@ -383,16 +388,16 @@ assets/benchmarks/<场景>.json   ← LIFT CLI --suite 实际读取的文件
 
 ```bash
 # 只跑 warmup（如 hello.json 的 Q1）+ evolve，不跑 hold-out 终测
-python -m src_new.cli.lift_main --agent-runtime openclaw --suite hello.json --warmup-only
+python -m src.cli.lift_main --agent-runtime openclaw --suite hello.json --warmup-only
 
 # 完整 LIFT（warmup + hold-out 对照 + 默认后处理：trace_backfill、CSV、HTML）
-python -m src_new.cli.lift_main --agent-runtime openclaw --suite hello.json --run_id hello-full
+python -m src.cli.lift_main --agent-runtime openclaw --suite hello.json --run_id hello-full
 
 # 跳过后处理（调试长跑、或 Langfuse 未配置时）
-python -m src_new.cli.lift_main --agent-runtime openclaw --suite hello.json --run_id hello-full --no-evaluate
+python -m src.cli.lift_main --agent-runtime openclaw --suite hello.json --run_id hello-full --no-evaluate
 
 # 仅后处理已有 run
-python -m src_new.cli.lift_main --agent-runtime openclaw --evaluate-only --run_id hello-full
+python -m src.cli.lift_main --agent-runtime openclaw --evaluate-only --run_id hello-full
 ```
 
 完整推荐顺序：
@@ -400,14 +405,14 @@ python -m src_new.cli.lift_main --agent-runtime openclaw --evaluate-only --run_i
 ```bash
 # 准备阶段（首次或变更后执行）
 bash agents/openclaw/build-image.sh          # 1. 构建 OpenClaw 镜像
-python -m src_new.cli.preprocess             # 2. md → JSON（与 lift_main 解耦，需单独跑）
+python -m src.cli.preprocess             # 2. md → JSON（与 lift_main 解耦，需单独跑）
 
 # 运行阶段
-python -m src_new.cli.lift_main --agent-runtime openclaw --suite hello.json --warmup-only
-python -m src_new.cli.lift_main --agent-runtime openclaw --suite hello.json --run_id hello-full
+python -m src.cli.lift_main --agent-runtime openclaw --suite hello.json --warmup-only
+python -m src.cli.lift_main --agent-runtime openclaw --suite hello.json --run_id hello-full
 ```
 
-也可使用等价入口：`python -m src_new.cli`（转发到 `lift_main`）。
+也可使用等价入口：`python -m src.cli`（转发到 `lift_main`）。
 
 ### 两个输出目录：`evobench-reports` 与 `results`
 
@@ -457,7 +462,7 @@ EvalReport（run_id）
 
 #### `results/{run_id}/outcome/` — Agent 工作区（执行期）
 
-Agent 在容器内读写任务产物的宿主机目录，由 `src_new/utils.py` 的 `outcome_workspace()` 生成：
+Agent 在容器内读写任务产物的宿主机目录，由 `src/utils.py` 的 `outcome_workspace()` 生成：
 
 ```text
 results/{run_id}/outcome/
@@ -514,15 +519,15 @@ bash scripts/clean-results.sh
 
 ## 9. 与 legacy 的关系
 
-| 项目 | `src_new`（LIFT） | legacy（`openclaw_main.py`） |
+| 项目 | `src`（LIFT） | legacy（`legacy/openclaw_main.py`） |
 |------|-------------------|------------------------------|
 | 执行位置 | 容器内 `docker exec` | 宿主机直接调 OpenClaw |
 | 产物隔离 | delta 镜像 + per-task 容器 | 宿主机 toggle 加载 |
-| 官方入口 | `python -m src_new.cli.lift_main --agent-runtime openclaw` | `openclaw_main.py --mode exam` |
+| 官方入口 | `python -m src.cli.lift_main --agent-runtime openclaw` | `PYTHONPATH=legacy python legacy/openclaw_main.py --mode exam` |
 | CLI | `--warmup-only`、无 `--test` | `--mode replay` / `--test` 等遗留参数 |
 | 适配器契约 | `AgentRuntimeAdapter`（ABC + `@override`） | 无统一抽象 |
 
-新开发与论文级复现应使用 **`src_new`** 路径；`openclaw_main.py` 仅作历史对照。
+新开发与论文级复现应使用 **`src`** 路径；`legacy/` 仅作历史对照。
 
 ---
 
@@ -535,7 +540,7 @@ Warmup 需要状态连续以触发 evolve；hold-out 需要严格对照（baseli
 不会。位于 `tests/mock_adapter.py`，仅用于 `test_pipeline.py` 验证编排逻辑，不依赖 Docker。
 
 **Q：轨迹评分在哪？**  
-执行期 `PhaseRun` 主要记录 success/score/session；轨迹相关指标在 **postprocess**（`src_new/postprocess/`）结合 Langfuse trace 计算，评测结束后**默认**自动触发（`--no-evaluate` 可跳过）。
+执行期 `PhaseRun` 主要记录 success/score/session；轨迹相关指标在 **postprocess**（`src/postprocess/`）结合 Langfuse trace 计算，评测结束后**默认**自动触发（`--no-evaluate` 可跳过）。
 
 **Q：OpenClaw 镜像里有什么？**  
 见 `agents/openclaw/`：`self-evolving-plugin-pro`（evolve）、`langfuse-tracer`（观测）、gateway 配置片段。构建与环境变量见 [agents/openclaw/README.md](../agents/openclaw/README.md)。
@@ -550,7 +555,7 @@ Warmup 需要状态连续以触发 evolve；hold-out 需要严格对照（baseli
 delta 是单次评测的临时中间产物；`SuiteRunResources.cleanup()` 在每个 suite 跑完后会 `docker rmi` 删除。持久调试请看 `results/.../warmup/` 工作区。
 
 **Q：benchmark JSON 在哪？**  
-正式数据在仓库根目录 `assets/benchmarks/`（非 `src_new/assets/benchmarks/`）。`--benchmark_dir` 默认指向前者。
+正式数据在仓库根目录 `assets/benchmarks/`（非 `src/assets/benchmarks/`）。`--benchmark_dir` 默认指向前者。
 
 ---
 

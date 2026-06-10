@@ -1,3 +1,5 @@
+"""Evobench / LIFT 评测的数据模型：suite 定义、phase 执行结果、Langfuse trace 结构与报告 JSON。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,18 +12,32 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class TaskRequirements(BaseModel):
-    default_skills: list[str] = Field(default_factory=list)
-    extra_skills_dir: str | None = None
-    material_dir: str | None = None
+    """单个 task 的运行时资源需求（skills、materials 等）。"""
+
+    default_skills: list[str] = Field(
+        default_factory=list,
+        description="默认 skills 目录名或路径列表",
+    )
+    extra_skills_dir: str | None = Field(
+        default=None,
+        description="额外 skills 目录路径（相对项目根或绝对路径）",
+    )
+    material_dir: str | None = Field(
+        default=None,
+        description="task 级 materials 目录路径",
+    )
 
 
 class ExpectedResult(BaseModel):
+    """task 的期望结果与评判标准。"""
+
     content_reqs: str = Field(default="", description="当前任务的内容相关需求")
     trajectory_reqs: str = Field(default="", description="当前任务的轨迹相关需求")
 
     @model_validator(mode="before")
     @classmethod
     def _compat_description_field(cls, data: Any) -> Any:
+        """兼容旧 schema：将 ``description`` 映射为 ``content_reqs``。"""
         if not isinstance(data, dict):
             return data
         # Backward compatible with old schema: {"description": "..."}.
@@ -33,60 +49,78 @@ class ExpectedResult(BaseModel):
 
 
 class SuiteTask(BaseModel):
-    name: str
-    query: str
-    requirements: TaskRequirements
-    expected_result: ExpectedResult
-    category_name: str | None = None
+    """评测集内的一条 task 定义。"""
+
+    name: str = Field(description="task 名称（suite 内唯一）")
+    query: str = Field(description="发给 work agent 的用户 query")
+    requirements: TaskRequirements = Field(description="task 运行时资源需求")
+    expected_result: ExpectedResult = Field(description="内容与轨迹评判标准")
+    category_name: str | None = Field(
+        default=None,
+        description="所属场景分类名（Suite.from_json_file 时由 Suite.category 填充）",
+    )
 
 
-class SuiteSpec(BaseModel):
-    name: str
-    category: str
-    tasks: list[SuiteTask] = Field(default_factory=list)
+class Suite(BaseModel):
+    """标准评测集：一个场景分类下的一组 task。"""
+
+    name: str = Field(description="suite 名称")
+    category: str = Field(description="场景分类名（如 hello、coding）")
+    tasks: list[SuiteTask] = Field(
+        default_factory=list,
+        description="该 suite 下的 task 列表",
+    )
 
     @classmethod
-    def from_json_file(cls, file_path: str | Path) -> SuiteSpec:
+    def from_json_file(cls, file_path: str | Path) -> Suite:
+        """从 suite JSON 文件加载并填充各 task 的 ``category_name``。"""
         data = json.loads(Path(file_path).read_text(encoding="utf-8"))
-        spec = cls.model_validate(data)
-        for task in spec.tasks:
-            task.category_name = spec.category
-        return spec
+        suite = cls.model_validate(data)
+        for task in suite.tasks:
+            task.category_name = suite.category
+        return suite
 
 
 def _utc_now_iso() -> str:
+    """返回当前 UTC 时间的 ISO 8601 字符串（用于报告时间戳）。"""
     return datetime.now(timezone.utc).isoformat()
 
 
 # 业务侧 turn trace 的 name 集合：openclaw 走 "openclaw-plugin"，hermes 走 "Hermes turn"。
 # 两者 trace.metadata 都需写成 OpenClaw schema（messages / toolCallBlocks）。
 LANGFUSE_PLUGIN_TRACE_NAMES: tuple[str, ...] = ("openclaw-plugin", "Hermes turn")
+"""Langfuse 上插件侧 trace 的 name 集合（OpenClaw / Hermes）。"""
+
 # 兼容旧引用：默认/占位 trace 名仍取首项。
 LANGFUSE_PLUGIN_TRACE_NAME = LANGFUSE_PLUGIN_TRACE_NAMES[0]
+"""默认插件 trace 名（``LANGFUSE_PLUGIN_TRACE_NAMES`` 首项，兼容旧引用）。"""
 
 
 class LangfuseAgentTraceInput(BaseModel):
     """``work_agent`` / ``judge_agent`` pre-chat span 的 input（与 ``CustomTags`` / ``emit_pre_chat_state`` 一致）。"""
 
-    run: str
-    task: str
-    task_query: str
-    is_final_task: bool = False
-    is_evolve_turn: bool = False
-    content_reqs: str = ""
-    trajectory_reqs: str = ""
-    content_score: float = 0.0
+    run: str = Field(description="评测批次 ID（CustomTags.run）")
+    task: str = Field(description="task 标识（通常为 category_name + task name）")
+    task_query: str = Field(description="task 原始 query")
+    is_final_task: bool = Field(default=False, description="是否为 hold-out 最后一轮 task")
+    is_evolve_turn: bool = Field(default=False, description="是否为进化后的 evolved 阶段")
+    content_reqs: str = Field(default="", description="内容评判标准")
+    trajectory_reqs: str = Field(default="", description="轨迹评判标准")
+    content_score: float = Field(default=0.0, description="当前 content_score（0-1）")
 
 
 class LangfusePluginTraceMetadata(BaseModel):
     """``openclaw-plugin`` trace 的 metadata（``langfuse-tracer`` 在 agent_end 写入）。"""
 
-    success: bool = True
-    error: str | None = None
-    message_count: int = 0
-    tool_roundtrips: int = 0
-    tool_call_blocks: int = 0
-    tool_names_distinct: str | None = None
+    success: bool = Field(default=True, description="当轮 agent 是否成功完成")
+    error: str | None = Field(default=None, description="失败时的错误信息")
+    message_count: int = Field(default=0, description="transcript 中的 message 条数")
+    tool_roundtrips: int = Field(default=0, description="工具调用往返轮次")
+    tool_call_blocks: int = Field(default=0, description="assistant 消息中 toolCall 块数")
+    tool_names_distinct: str | None = Field(
+        default=None,
+        description="去重后的工具名列表（逗号分隔）",
+    )
     messages: list[Any] = Field(
         default_factory=list,
         description="完整 event.messages（OpenClaw transcript）",
@@ -111,6 +145,7 @@ class LangfusePluginTraceMetadata(BaseModel):
 
     @classmethod
     def from_langfuse_dict(cls, raw: dict[str, Any]) -> LangfusePluginTraceMetadata:
+        """从 Langfuse API 返回的 metadata dict 解析（兼容 camelCase / snake_case 键名）。"""
         msgs = raw.get("messages")
         return cls(
             success=bool(raw.get("success", True)),
@@ -127,6 +162,7 @@ class LangfusePluginTraceMetadata(BaseModel):
 
     @property
     def tool_names(self) -> list[str]:
+        """将 ``tool_names_distinct`` 解析为工具名列表。"""
         if not self.tool_names_distinct:
             return []
         return [n.strip() for n in self.tool_names_distinct.split(",") if n.strip()]
@@ -135,9 +171,9 @@ class LangfusePluginTraceMetadata(BaseModel):
 class LangfuseTraceTokens(BaseModel):
     """当轮 LLM token（来自配对 ``openclaw-plugin`` trace 的 GENERATION usage）。"""
 
-    input_tokens: int = 0
-    output_tokens: int = 0
-    total_tokens: int = 0
+    input_tokens: int = Field(default=0, description="输入 token 数")
+    output_tokens: int = Field(default=0, description="输出 token 数")
+    total_tokens: int = Field(default=0, description="总 token 数")
 
 
 class LangfuseTraceRef(BaseModel):
@@ -147,12 +183,12 @@ class LangfuseTraceRef(BaseModel):
     ``id`` 为 agent trace id；插件侧见 ``plugin_trace_id`` 与 ``plugin_*`` 字段。
     """
 
-    id: str
-    name: str | None = None
-    timestamp: str | None = None
-    session_id: str | None = None
-    user_id: str | None = None
-    tags: list[str] = Field(default_factory=list)
+    id: str = Field(description="agent pre-chat trace id")
+    name: str | None = Field(default=None, description="trace 名称（如 work_agent）")
+    timestamp: str | None = Field(default=None, description="trace 时间戳")
+    session_id: str | None = Field(default=None, description="Langfuse session id")
+    user_id: str | None = Field(default=None, description="Langfuse user id")
+    tags: list[str] = Field(default_factory=list, description="trace 标签列表")
     plugin_trace_id: str | None = Field(
         default=None,
         description="配对的 plugin trace id（openclaw-plugin / Hermes turn）",
@@ -190,20 +226,20 @@ class LangfuseTraceRef(BaseModel):
 class LangfuseObservationBrief(BaseModel):
     """单条 observation 的用量摘要（便于 JSON 落盘）。"""
 
-    id: str
-    type: str = ""
-    name: str | None = None
-    input_tokens: int = 0
-    output_tokens: int = 0
-    total_tokens: int = 0
+    id: str = Field(description="observation id")
+    type: str = Field(default="", description="observation 类型（如 GENERATION、TOOL）")
+    name: str | None = Field(default=None, description="observation 名称")
+    input_tokens: int = Field(default=0, description="输入 token 数")
+    output_tokens: int = Field(default=0, description="输出 token 数")
+    total_tokens: int = Field(default=0, description="总 token 数")
 
 
 class LangfuseTokenToolStats(BaseModel):
     """Token（来自 Langfuse GENERATION usage）与工具调用相关计数。"""
 
-    input_tokens: int = 0
-    output_tokens: int = 0
-    total_tokens: int = 0
+    input_tokens: int = Field(default=0, description="输入 token 数")
+    output_tokens: int = Field(default=0, description="输出 token 数")
+    total_tokens: int = Field(default=0, description="总 token 数")
     tool_roundtrips: int = Field(
         default=0,
         description="与 OpenClaw transcript 中 toolResult 轮次一致，优先取插件 trace.metadata.toolRoundtrips",
@@ -221,35 +257,62 @@ class LangfuseTokenToolStats(BaseModel):
 class LangfuseTraceDetailRecord(BaseModel):
     """``trace.get`` 后的单条 trace（结构化 payload + observation 摘要）。"""
 
-    id: str
-    name: str | None = None
-    timestamp: str | None = None
-    session_id: str | None = None
-    tags: list[str] = Field(default_factory=list)
-    agent_input: LangfuseAgentTraceInput | None = None
-    plugin_prompt: str | None = None
-    plugin_response: str | None = None
-    plugin_metadata: LangfusePluginTraceMetadata | None = None
-    latency_seconds: float | None = None
-    observations: list[LangfuseObservationBrief] = Field(default_factory=list)
+    id: str = Field(description="trace id")
+    name: str | None = Field(default=None, description="trace 名称")
+    timestamp: str | None = Field(default=None, description="trace 时间戳")
+    session_id: str | None = Field(default=None, description="Langfuse session id")
+    tags: list[str] = Field(default_factory=list, description="trace 标签列表")
+    agent_input: LangfuseAgentTraceInput | None = Field(
+        default=None,
+        description="pre-chat span input",
+    )
+    plugin_prompt: str | None = Field(
+        default=None,
+        description="插件 trace 的当轮用户 prompt",
+    )
+    plugin_response: str | None = Field(
+        default=None,
+        description="插件 trace 的当轮 assistant 回复",
+    )
+    plugin_metadata: LangfusePluginTraceMetadata | None = Field(
+        default=None,
+        description="插件 trace metadata",
+    )
+    latency_seconds: float | None = Field(
+        default=None,
+        description="trace 耗时（秒）",
+    )
+    observations: list[LangfuseObservationBrief] = Field(
+        default_factory=list,
+        description="该 trace 下 observation 用量摘要列表",
+    )
 
 
 class LangfuseWorkChatTurn(BaseModel):
     """Work 侧单次对话（与 ``work_agent_traces`` 一项一一对应）。"""
 
-    turn_index: int
-    agent_trace_id: str
-    plugin_trace_id: str | None = None
-    latency_seconds: float | None = None
-    stats: LangfuseTokenToolStats = Field(default_factory=LangfuseTokenToolStats)
+    turn_index: int = Field(description="对话轮次序号（0 起）")
+    agent_trace_id: str = Field(description="work agent pre-chat trace id")
+    plugin_trace_id: str | None = Field(
+        default=None,
+        description="配对的 plugin trace id",
+    )
+    latency_seconds: float | None = Field(
+        default=None,
+        description="当轮耗时（秒）",
+    )
+    stats: LangfuseTokenToolStats = Field(
+        default_factory=LangfuseTokenToolStats,
+        description="当轮 token 与工具统计",
+    )
 
 
 class LangfuseDialogueTurn(BaseModel):
     """一轮 work 对话的 input/output（已合并 agent + plugin，便于阅读对话内容）。"""
 
-    turn_index: int
-    name: str | None = None
-    timestamp: str | None = None
+    turn_index: int = Field(description="对话轮次序号（0 起）")
+    name: str | None = Field(default=None, description="trace 名称")
+    timestamp: str | None = Field(default=None, description="trace 时间戳")
     input: Any = Field(
         default=None,
         description="当轮用户侧内容，通常来自合并后的 plugin_prompt",
@@ -305,8 +368,8 @@ class PhaseLangfuseBundle(BaseModel):
     """
 
     eval_run_tag: str = Field(description="与 CustomTags.run / propagate tags 中 run 一致")
-    work_session_id: str
-    judge_session_id: str
+    work_session_id: str = Field(description="work agent 的 Langfuse session id")
+    judge_session_id: str = Field(description="judge agent 的 Langfuse session id")
     work_agent_traces: list[LangfuseTraceRef] = Field(
         default_factory=list,
         description="work 每轮对话一条：agent pre-chat + 配对 plugin（含 plugin_prompt/metadata/tokens）",
@@ -326,7 +389,7 @@ class PhaseRun(BaseModel):
 
     work_session_id: str = Field(description="传给 work_agent 的 session id（user_session_id）")
     judge_session_id: str = Field(description="传给 judge_agent 的 session id")
-    success: bool
+    success: bool = Field(description="task 是否成功完成")
     content_score: float = Field(
         default=0.0,
         description="judge 给出的最近一次 content_score（0-1）；任务超出最大尝试次数时为最后一轮的分数",
@@ -341,78 +404,122 @@ class PhaseRun(BaseModel):
 class TaskRun(BaseModel):
     """单个 task：进化前 baseline + 进化后 evolved（未跑 evolved 时为 null）。"""
 
-    task_name: str
-    category: str
-    baseline: PhaseRun
-    evolved: PhaseRun | None = None
+    task_name: str = Field(description="task 名称")
+    category: str = Field(description="场景分类名")
+    baseline: PhaseRun = Field(description="进化前 baseline 阶段执行结果")
+    evolved: PhaseRun | None = Field(
+        default=None,
+        description="进化后 evolved 阶段执行结果（未执行时为 null）",
+    )
 
 
 class SuiteRun(BaseModel):
     """一次 repeat 内、单个 suite JSON 的执行结果。"""
 
-    suite_name: str | None = None
-    suite_path: str | None = None
-    category: str | None = None
-    tasks: list[TaskRun] = Field(default_factory=list)
+    suite_name: str | None = Field(default=None, description="suite 名称")
+    suite_path: str | None = Field(default=None, description="suite JSON 文件路径")
+    category: str | None = Field(default=None, description="场景分类名")
+    tasks: list[TaskRun] = Field(
+        default_factory=list,
+        description="该 suite 下各 task 的执行结果",
+    )
 
 
 class EvalRepeat(BaseModel):
     """``--repeat`` 的一轮完整执行（所选 suite 各跑一遍）。"""
 
-    started_at: str = Field(default_factory=_utc_now_iso)
-    completed_at: str | None = None
-    suites: list[SuiteRun] = Field(default_factory=list)
+    started_at: str = Field(
+        default_factory=_utc_now_iso,
+        description="本轮开始时间（UTC ISO 8601）",
+    )
+    completed_at: str | None = Field(
+        default=None,
+        description="本轮完成时间（UTC ISO 8601）",
+    )
+    suites: list[SuiteRun] = Field(
+        default_factory=list,
+        description="本轮内各 suite 的执行结果",
+    )
 
 
 class EvalReport(BaseModel):
     """一次 evobench 评测 run 的汇总（``run_id`` 对应一份 report JSON）。"""
 
-    run_id: str
-    categories: list[str] = Field(default_factory=list)
-    started_at: str = Field(default_factory=_utc_now_iso)
-    completed_at: str | None = None
-    runs: list[EvalRepeat] = Field(default_factory=list)
+    run_id: str = Field(description="评测批次 ID")
+    categories: list[str] = Field(
+        default_factory=list,
+        description="本次评测涉及的场景分类名列表",
+    )
+    started_at: str = Field(
+        default_factory=_utc_now_iso,
+        description="评测开始时间（UTC ISO 8601）",
+    )
+    completed_at: str | None = Field(
+        default=None,
+        description="评测完成时间（UTC ISO 8601）",
+    )
+    runs: list[EvalRepeat] = Field(
+        default_factory=list,
+        description="各 repeat 的执行结果（对应 --repeat）",
+    )
 
     def write_json(self, path: str | Path) -> None:
+        """将报告序列化为 JSON 并写入 ``path``（自动创建父目录）。"""
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(self.model_dump_json(indent=2), encoding="utf-8")
 
     @classmethod
     def from_json_file(cls, file_path: str | Path) -> EvalReport:
+        """从 JSON 文件加载 ``EvalReport``。"""
         raw = Path(file_path).read_text(encoding="utf-8")
         return cls.model_validate_json(raw)
 
     @classmethod
     def from_json_str(cls, text: str) -> EvalReport:
+        """从 JSON 字符串加载 ``EvalReport``。"""
         return cls.model_validate_json(text)
 
 
 def _bool_to_tag(value: bool | None) -> str:
+    """将布尔值转为 CustomTags env 中的 ``"1"`` / ``"0"`` / ``""``。"""
     if value is None:
         return ""
     return "1" if value else "0"
 
 
 def _sanitize_tag_value(value: str) -> str:
+    """清洗 tag 值：CustomTags 使用逗号分隔的 key=value 对，需去除逗号与换行。"""
     # CustomTags uses comma-separated key=value pairs.
     return value.replace(",", " ").replace("\n", " ").strip()
 
 
 @dataclass
 class CustomTags:
+    """Langfuse pre-chat span 与 OpenClaw env 传播用的评测上下文标签。"""
+
     run: str
+    """评测批次 ID。"""
     task: str
+    """task 标识（通常为 category_name + task name）。"""
     task_query: str
+    """task 原始 query。"""
     is_final_task: bool
+    """是否为 hold-out 最后一轮 task。"""
     is_evolve_turn: bool
+    """是否为进化后的 evolved 阶段。"""
     content_reqs: str
+    """内容评判标准。"""
     trajectory_reqs: str
+    """轨迹评判标准。"""
     content_score: float
+    """当前 content_score（0-1）。"""
     agent_name: str
+    """OpenClaw agent 名称（Hermes 侧可为 unknown）。"""
 
     @classmethod
     def init_tags(cls, task: SuiteTask, run_id: str) -> CustomTags:
+        """从 ``SuiteTask`` 与 ``run_id`` 构造初始 CustomTags（默认值）。"""
         return cls(
             run=run_id,
             task=f"{task.category_name}_{task.name}",
@@ -426,6 +533,7 @@ class CustomTags:
         )
 
     def to_env_value(self) -> str:
+        """序列化为 OpenClaw env 变量值（逗号分隔 key=value，不含 agent_name）。"""
         fields_in_order = [
             ("run", self.run),
             ("task", self.task),
@@ -441,6 +549,7 @@ class CustomTags:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """转为 dict（不含 agent_name，供 Langfuse span input 使用）。"""
         return {
             "run": self.run,
             "task": self.task,

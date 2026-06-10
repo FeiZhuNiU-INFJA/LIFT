@@ -27,9 +27,9 @@
 └── skills/ # 可选，如果有必要的skill就加进来
     
 
-### 机器可读 Suite JSON（LIFT / `src_new` 评测）
+### 机器可读 Suite JSON（LIFT / `src` 评测）
 
-预处理后的 `assets/benchmarks/*.json` 在标准 `Suite` 字段之外，可包含 **hold-out 配置**（由 [src_new/lift/suite/lift_suite.py](../src_new/lift/suite/lift_suite.py) 读取）：
+预处理后的 `assets/benchmarks/*.json` 在标准 `Suite` 字段之外，可包含 **hold-out 配置**（由 [src/lift/suite/lift_suite.py](../src/lift/suite/lift_suite.py) 读取）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -39,7 +39,7 @@
 - **warmup**：非 hold-out 题目，用于产生产物（默认前导题 + evolve）。
 - **hold-out**：每题在 report 中各一条 `TaskRun`（`baseline` / `evolved`）。
 
-官方评测入口：[src_new/lift/README.md](../src_new/lift/README.md)（`python -m src_new.cli.lift_main -r openclaw`）；legacy 仍为根目录 `openclaw_main.py --mode exam`。
+官方评测入口：[src/lift/README.md](../src/lift/README.md)（`python -m src.cli.lift_main -r openclaw`）；legacy 见 [legacy/README.md](../legacy/README.md)。
 
 ---
 

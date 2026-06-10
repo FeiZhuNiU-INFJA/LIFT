@@ -17,6 +17,7 @@ from src.models import CustomTags
 
 
 def _langfuse_credentials_present() -> bool:
+    """Return True when Langfuse public/secret keys are configured."""
     return CONFIG.langfuse_credentials_present
 
 
@@ -28,6 +29,7 @@ def _truncate_str(value: str, max_len: int = 200) -> str:
 
 
 def _tags_to_full_payload(tags: CustomTags) -> dict[str, str]:
+    """Serialize all ``CustomTags`` fields into a flat string dict for span input."""
     return {
         "run": tags.run,
         "task": tags.task,

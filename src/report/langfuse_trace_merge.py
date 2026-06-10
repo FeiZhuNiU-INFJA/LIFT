@@ -10,10 +10,12 @@ from src.models import LangfuseTraceRef
 
 
 def _sort_key_ts(ref: LangfuseTraceRef) -> str:
+    """Sort key: trace timestamp string (empty string sorts first)."""
     return ref.timestamp or ""
 
 
 def merge_plugin_into_agent(agent: LangfuseTraceRef, plugin: LangfuseTraceRef) -> LangfuseTraceRef:
+    """Copy plugin fields (prompt, response, metadata, tokens) onto an agent trace ref."""
     return agent.model_copy(
         update={
             "plugin_trace_id": plugin.id,
@@ -28,6 +30,7 @@ def merge_plugin_into_agent(agent: LangfuseTraceRef, plugin: LangfuseTraceRef) -
 
 
 def _pair_single_session(refs: list[LangfuseTraceRef]) -> list[LangfuseTraceRef]:
+    """Pair agent and plugin traces within one session by chronological order."""
     ordered = sorted(refs, key=_sort_key_ts)
     turns: list[LangfuseTraceRef] = []
     pending_agent: LangfuseTraceRef | None = None

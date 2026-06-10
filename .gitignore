@@ -125,13 +125,14 @@ cython_debug/
 
 # Test files
 test*
-!src_new/lift/tests/
-!src_new/lift/tests/*.py
+!src/lift/tests/
+!src/lift/tests/*.py
 
 
 # results
-results/*
+results/
 
 # reports
 evobench-reports/*
 .tmp*/
+.cursor/
