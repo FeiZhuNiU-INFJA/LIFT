@@ -14,19 +14,13 @@ from src.lift.policies.artifact import WarmupThenUpdatePolicy
 from src.lift.pipeline.run_options import RunOptions
 from src.lift.suite.holdout import split_suite_tasks
 from src.lift.suite.lift_suite import load_lift_suite
-from src.paths import default_report_root
+from src.paths import report_json_path, results_run_dir
 
 
 class LIFTPipeline:
     """Loaded Impact on Final Task orchestration."""
 
-    def __init__(
-        self,
-        *,
-        report_root: Path | None = None,
-    ) -> None:
-        """``report_root`` 为 None 时使用默认 report 目录。"""
-        self.report_root = report_root or default_report_root()
+    def __init__(self) -> None:
         self._report_lock = asyncio.Lock()  # 并行 repeat 时保护 report 增量写入
 
     async def run(
@@ -39,8 +33,8 @@ class LIFTPipeline:
     ) -> EvalReport:
         """执行完整 LIFT 流程并写出 ``EvalReport`` JSON。"""
         eval_report = EvalReport(run_id=run_id)
-        report_path = self.report_root / f"{run_id}.json"
-        self.report_root.mkdir(parents=True, exist_ok=True)
+        report_path = report_json_path(run_id)
+        results_run_dir(run_id).mkdir(parents=True, exist_ok=True)
         eval_report.runs = [EvalRepeat() for _ in range(options.repeat)]
 
         if options.parallel_repeats and options.repeat > 1:

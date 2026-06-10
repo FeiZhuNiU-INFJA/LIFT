@@ -147,7 +147,7 @@ python -m src.cli.lift_main -r openclaw --suite hello.json --run_id my-run
 
 1. **Warmup**：单容器串行跑前序题 → `openclaw learn review` → `docker commit` 得 delta 镜像
 2. **Hold-out**：每题各起 baseline（base 镜像）与 evolved（delta 镜像）容器，workspace 按题隔离
-3. **Report**：写入 `evobench-reports/{run_id}.json`（执行期 `langfuse` 一般为 `null`）
+3. **Report**：写入 `results/{run_id}/report.json`（执行期 `langfuse` 一般为 `null`）
 4. **后处理**（默认）：从 Langfuse 拉 trace，回填至 `results/{run_id}/*_backfilled.json` 并出 CSV/HTML
 
 ### `run_task`（单题 judge 回路）
@@ -168,19 +168,21 @@ flowchart TD
 
 ## 7. 产出物
 
-| 目录 | 内容 |
-|------|------|
-| `evobench-reports/{run_id}.json` | 结构化 report（success、score、session、workspace_dir） |
-| `results/{run_id}/outcome/` | Agent 工作区（warmup / baseline / evolved） |
-| `results/{run_id}/` | 后处理：`*_backfilled.json`、`*_comparison_metrics.csv`、`*_summary_metrics.csv`、`*_metrics_report.html` |
+一次 `run_id` 对应目录 `results/{run_id}/`：
 
-> **为何 `evobench-reports/*.json` 里 `langfuse` 为空？** 执行期 report 只写评测结论；Langfuse trace 在**后处理**阶段由 `trace_backfill` 填入 `results/{run_id}/*_backfilled.json`。请确认 Langfuse 已按 §2 启动且 `.env` 中 `LANGFUSE_*` 已配置。
+| 路径 | 内容 |
+|------|------|
+| `report.json` | 执行期结构化 report（success、score、session、workspace_dir） |
+| `outcome/` | Agent 工作区（warmup / baseline / evolved） |
+| `{run_id}_backfilled.json` 等 | 后处理：trace 回填、对比/汇总 CSV、HTML 报告 |
+
+> **为何 `report.json` 里 `langfuse` 为空？** 执行期只写评测结论；Langfuse trace 在**后处理**阶段填入 `{run_id}_backfilled.json`。请确认 Langfuse 已按 §2 启动且 `.env` 中 `LANGFUSE_*` 已配置。
 
 单独跑后处理：
 
 ```bash
-python -m src.postprocess.run_post_process evobench-reports/evobench-runid-my-run.json
-# 或通过 CLI
+python -m src.postprocess.run_post_process results/evobench-runid-my-run/report.json
+# 或通过 CLI（自动解析 report 路径）
 python -m src.cli.lift_main -r openclaw --evaluate-only --run_id my-run
 ```
 
@@ -214,8 +216,7 @@ evolve_eval/
 │   ├── benchmark_mds/      # 人类可读任务源
 │   └── benchmarks/         # 机器可读 suite JSON
 ├── docs/                   # 流程与架构文档
-├── evobench-reports/       # 运行时 report（gitignore）
-└── results/                # workspace + 后处理产物（gitignore）
+└── results/                # 每次 run 产物（report、outcome、后处理；gitignore）
 ```
 
 ## 10. 测试

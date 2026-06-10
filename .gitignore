@@ -8,7 +8,6 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
-evobench-reports/
 develop-eggs/
 dist/
 downloads/
@@ -132,7 +131,6 @@ test*
 # results
 results/
 
-# reports
-evobench-reports/*
 .tmp*/
 .cursor/
+evobench-reports/

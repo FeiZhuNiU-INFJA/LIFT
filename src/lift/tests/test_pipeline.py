@@ -6,10 +6,12 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
 from src.lift.pipeline.lift_pipeline import LIFTPipeline
+from src.paths import report_json_path
 from src.lift.pipeline.run_options import RunOptions
 from src.lift.tests.mock_adapter import MockAdapter
 
@@ -53,15 +55,21 @@ async def test_pipeline_two_holdout_task_runs() -> None:
         tmp_path = Path(tmp)
         suite_path = tmp_path / "suite.json"
         _suite_json(suite_path)
-        report_root = tmp_path / "reports"
         adapter = MockAdapter()
-        pipeline = LIFTPipeline(report_root=report_root)
-        report = await pipeline.run(
-            run_id="evobench-runid-test-pipeline",
-            suite_paths=[suite_path],
-            adapter=adapter,
-            options=RunOptions(repeat=1, incremental_report=False, parallel_repeats=False),
-        )
+        pipeline = LIFTPipeline()
+        run_id = "evobench-runid-test-pipeline"
+        prev_cwd = Path.cwd()
+        os.chdir(tmp_path)
+        try:
+            report = await pipeline.run(
+                run_id=run_id,
+                suite_paths=[suite_path],
+                adapter=adapter,
+                options=RunOptions(repeat=1, incremental_report=False, parallel_repeats=False),
+            )
+        finally:
+            os.chdir(prev_cwd)
+        assert report_json_path(run_id, cwd=tmp_path).is_file()
         assert adapter.produce_delta_count == 1
         assert adapter.before_load_count == 2
         assert adapter.after_load_count == 2
@@ -83,13 +91,20 @@ async def test_pipeline_warmup_only_skips_holdout() -> None:
         suite_path = tmp_path / "suite.json"
         _suite_json(suite_path)
         adapter = MockAdapter()
-        pipeline = LIFTPipeline(report_root=tmp_path / "reports")
-        report = await pipeline.run(
-            run_id="evobench-runid-test-warmup-only",
-            suite_paths=[suite_path],
-            adapter=adapter,
-            options=RunOptions(warmup_only=True, incremental_report=False),
-        )
+        pipeline = LIFTPipeline()
+        run_id = "evobench-runid-test-warmup-only"
+        prev_cwd = Path.cwd()
+        os.chdir(tmp_path)
+        try:
+            report = await pipeline.run(
+                run_id=run_id,
+                suite_paths=[suite_path],
+                adapter=adapter,
+                options=RunOptions(warmup_only=True, incremental_report=False),
+            )
+        finally:
+            os.chdir(prev_cwd)
+        assert report_json_path(run_id, cwd=tmp_path).is_file()
         assert adapter.produce_delta_count == 1
         assert adapter.before_load_count == 0
         assert adapter.after_load_count == 0

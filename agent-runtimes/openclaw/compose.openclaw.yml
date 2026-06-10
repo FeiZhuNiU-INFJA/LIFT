@@ -16,5 +16,5 @@ services:
     volumes:
       - ../../results:/workspace/outcome
       - ../../assets/benchmarks:/workspace/benchmarks:ro
-      - ../../evobench-reports:/workspace/evobench-reports
+      - ../../results:/workspace/results
     command: ["openclaw", "gateway", "run", "--bind", "lan", "--allow-unconfigured"]

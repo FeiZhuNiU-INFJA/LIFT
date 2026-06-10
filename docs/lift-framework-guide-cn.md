@@ -132,7 +132,7 @@ python -m pytest src/lift/tests -q
 │  Host（Python / LIFTPipeline / OpenClawAdapter）              │
 │  - 读 suite JSON、切分 warmup/hold-out                       │
 │  - docker run / exec / commit / rm                          │
-│  - 写 evobench-reports/*.json                               │
+│  - 写 results/{run_id}/report.json                          │
 └──────────────────────────┬──────────────────────────────────┘
                            │ docker exec openclaw …
 ┌──────────────────────────▼──────────────────────────────────┐
@@ -210,7 +210,6 @@ sequenceDiagram
 | `/workspace/skills` | `task.requirements.extra_skills_dir` | ro |
 | `/workspace/outcome` | `results/{run_id}/outcome` | rw |
 | `/workspace/benchmarks` | `assets/benchmarks` | ro |
-| `/workspace/evobench-reports` | `evobench-reports/` | rw |
 
 任务 markdown 里写的 `materials/`、`result/` 路径，对应容器内 `/workspace/materials` 与 `/workspace/task/result/`。
 
@@ -414,23 +413,22 @@ python -m src.cli.lift_main --agent-runtime openclaw --suite hello.json --run_id
 
 也可使用等价入口：`python -m src.cli`（转发到 `lift_main`）。
 
-### 两个输出目录：`evobench-reports` 与 `results`
+### 产出目录：`results/{run_id}/`
 
-一次评测 invocation 对应一个 `run_id`（形如 `evobench-runid-20260608-xxxx`），产出落在**两个根目录**，职责不同：
+一次评测 invocation 对应一个 `run_id`（形如 `evobench-runid-20260608-xxxx`），**所有产物**落在 `results/{run_id}/`：
 
-| 目录 | 存什么 | 类比 |
-|------|--------|------|
-| **`evobench-reports/`** | 结构化评测 report JSON | 考试阅卷记录（分数、session、树形结构） |
-| **`results/`** | Agent 工作区文件 + 后处理分析产物 | 考生答卷 + 统计分析报告 |
-
-二者通过 **`run_id`** 关联；report 里每个 `PhaseRun.workspace_dir` 指向 `results/.../outcome/...` 下的具体路径。
+| 路径 | 内容 |
+|------|------|
+| `report.json` | 执行期结构化 report |
+| `outcome/` | Agent 工作区（warmup / baseline / evolved） |
+| `{run_id}_backfilled.json` 等 | 后处理指标与 HTML |
 
 ```mermaid
 flowchart LR
     subgraph exec [执行期]
         Pipe[LIFTPipeline]
         Agent[OpenClaw 容器]
-        Pipe -->|写| Report["evobench-reports/{run_id}.json"]
+        Pipe -->|写| Report["results/{run_id}/report.json"]
         Agent -->|读写产物| Outcome["results/{run_id}/outcome/..."]
         Pipe -->|记录 workspace_dir| Report
     end
@@ -441,9 +439,9 @@ flowchart LR
     end
 ```
 
-#### `evobench-reports/` — 结构化 Report
+#### `report.json` — 结构化 Report
 
-- **路径**：`evobench-reports/{run_id}.json`
+- **路径**：`results/{run_id}/report.json`
 - **谁写**：`LIFTPipeline` 执行期边跑边 append，结束时 `write_json` 一次写出（见 `pipeline/lift_pipeline.py`）
 - **内容**：`EvalReport` 树形结构
 
@@ -478,7 +476,7 @@ results/{run_id}/outcome/
 
 #### `results/{run_id}/` — 后处理产物（默认 / `--evaluate-only`）
 
-后处理读 `evobench-reports/{run_id}.json`，结合 Langfuse trace，输出到同 `run_id` 下的 `results/`：
+后处理读 `results/{run_id}/report.json`，结合 Langfuse trace，输出到同目录：
 
 | 文件 | 含义 |
 |------|------|
@@ -491,7 +489,7 @@ results/{run_id}/outcome/
 
 | 产物 | 路径 | `--repeat N` 时的份数 |
 |------|------|------------------------|
-| Report JSON | `evobench-reports/{run_id}.json` | **1 份**（内含 `runs[0..N-1]`） |
+| Report JSON | `results/{run_id}/report.json` | **1 份**（内含 `runs[0..N-1]`） |
 | Outcome workspace | `results/{run_id}/outcome/run-{i}/...` | **N 套**（i = 0..N-1） |
 | 后处理输出 | `results/{run_id}/*_backfilled.json` 等 | **1 套**（汇总全部 repeat） |
 
@@ -501,11 +499,11 @@ results/{run_id}/outcome/
 
 | 你想知道… | 去看 |
 |-----------|------|
-| 某题是否通过、分数多少 | `evobench-reports/{run_id}.json` |
+| 某题是否通过、分数多少 | `results/{run_id}/report.json` |
 | Agent 生成的文件（代码、报告、PPT 等） | `results/{run_id}/outcome/...`，或 report 里该 `PhaseRun.workspace_dir` |
 | baseline vs evolved 对比表、HTML 报告 | `results/{run_id}/` 下后处理文件（默认生成；`--no-evaluate` 跳过） |
 
-两个目录均在 `.gitignore` 中，属于运行时产物，一般不提交 git。更完整的 report 字段说明见 [eval-flow.md §8](./eval-flow.md#8-目录与-report-内容)。
+`results/` 在 `.gitignore` 中，属于运行时产物，一般不提交 git。更完整的 report 字段说明见 [eval-flow.md §8](./eval-flow.md#8-目录与-report-内容)。
 
 **文件属主**：OpenClaw 容器内以 root 写挂载目录（`.git`、`.openclaw` 等）。`ContainerSession.cleanup()` 会在销毁容器前对 `/workspace/task`、`/workspace/outcome` 执行 `chown` 回宿主机用户，正常跑完后应可直接 `rm -rf results/*`。
 
@@ -545,8 +543,8 @@ Warmup 需要状态连续以触发 evolve；hold-out 需要严格对照（baseli
 **Q：OpenClaw 镜像里有什么？**  
 见 `agent-runtimes/openclaw/`：`self-evolving-plugin-pro`（evolve）、`langfuse-tracer`（观测）、gateway 配置片段。构建与环境变量见 [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)。
 
-**Q：`evobench-reports` 和 `results` 有什么区别？**  
-`evobench-reports` 存结构化 report（分数、session、树形结构）；`results` 存 Agent 实际工作区文件（`outcome/`）和后处理分析（CSV/HTML）。通过 `run_id` 与 `PhaseRun.workspace_dir` 关联。详见本文 §8。
+**Q：report 和工作区分别在哪儿？**  
+同在 `results/{run_id}/`：`report.json` 为结构化结论；`outcome/` 为 Agent 产物；后处理 CSV/HTML 也在此目录。详见本文 §8。
 
 **Q：为什么 `results/` 删不掉（Permission denied）？**  
 容器内 root 创建的文件在宿主机上属主也是 root。新跑评测会在容器销毁前自动 `chown` 修复；历史残留用 `bash scripts/clean-results.sh` 清理。
@@ -568,7 +566,7 @@ CLI (lift_main)
        warmup：1 容器 × 多题 → learn review → docker commit → Δ（临时镜像）
        hold-out：每题 × (base 容器 baseline, Δ 容器 evolved)；workspace seed 跳过人设 onboarding
   → lift/eval.run_task：单题 work + judge 多轮（runtime 无关）
-  → evobench-reports/{run_id}.json（结构化 report）
+  → results/{run_id}/report.json（结构化 report）
   → results/{run_id}/outcome/...（Agent 工作区产物）
   → （可选）postprocess → results/{run_id}/*_metrics*（CSV/HTML）
 ```

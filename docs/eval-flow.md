@@ -13,7 +13,7 @@ evolve_eval 用于评测 **self-evolving agent**：在 hold-out final task 上�
 一次命令行 invocation 对应一次 **eval run**：
 
 - 一个 `run_id`（形如 `evobench-runid-{后缀}` 或自定义后缀）
-- 一份 **report JSON**（`evobench-reports/evobench-runid-*.json`）：执行期写入评测结果；`PhaseRun.langfuse` 通常在后处理 **trace_backfill** 时再填
+- 一份 **report JSON**（`results/{run_id}/report.json`）：执行期写入评测结果；`PhaseRun.langfuse` 通常在后处理 **trace_backfill** 时再填
 - 可选一套 **后处理产物**（trace_backfill 后的 JSON、对比 CSV、汇总 CSV、HTML 报告；`*_backfilled.json`）
 
 ---
@@ -70,7 +70,7 @@ flowchart LR
 |------|--------|------|
 | **数据准备** | 将 markdown 场景目录转为 suite JSON | `python -m src.cli.preprocess` → `src/preprocess/convert_suite_mds_to_json.py` |
 | **评测执行** | LIFT 编排：warmup 产 Δ → hold-out 对照 → 写 report | `python -m src.cli.lift_main -r openclaw` |
-| **Report 落盘** | 执行期 JSON（先填 success/score/session 等；trace 后填） | `EvalReport.write_json` → `evobench-reports/` |
+| **Report 落盘** | 执行期 JSON（先填 success/score/session 等；trace 后填） | `EvalReport.write_json` → `results/{run_id}/report.json` |
 | **后处理** | trace_backfill、抽指标、trajectory 打分、出报告 | `src/postprocess/run_post_process.py`（默认随 `-e` 触发） |
 
 > **注意**：benchmark 预处理与 LIFT 执行**已解耦**。`lift_main` 不会自动跑 preprocess；在 `assets/benchmark_mds/` 有变更时需先执行 `python -m src.cli.preprocess`。
@@ -211,7 +211,7 @@ flowchart TD
 | 产物 | 路径 | `--repeat N` 时的份数 |
 |------|------|------------------------|
 | `run_id` | — | **1 个** |
-| Report JSON | `evobench-reports/evobench-runid-*.json` | **1 份**（内含 `runs[0..N-1]`） |
+| Report JSON | `results/{run_id}/report.json` | **1 份**（内含 `runs[0..N-1]`） |
 | Outcome workspace | `results/{run_id}/outcome/run-{i}/{phase}/{category}/` | **N 套**（i = 0..N-1） |
 | 后处理输出 | `results/{run_id}/*_backfilled.json` 等 | **1 套**（汇总全部 repeat，CSV 含 `run` 列） |
 
@@ -246,7 +246,7 @@ EvalReport（run_id）
 
 **LIFT 注意**：warmup 题会 `run_task`，但 **一般不写入** `suite_run.tasks[]`，只打日志；进 report 的是 hold-out 的 `baseline` + `evolved` 两个 `PhaseRun`。
 
-路径：`evobench-reports/evobench-runid-{run_id}.json`
+路径：`results/{run_id}/report.json`
 
 #### 执行期 vs 后处理：Report 分两阶段填
 

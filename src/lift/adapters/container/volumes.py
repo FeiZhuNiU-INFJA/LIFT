@@ -7,9 +7,7 @@ from pathlib import Path
 from src.models import SuiteTask
 from src.paths import (
     CONTAINER_BENCHMARKS_ROOT,
-    CONTAINER_EVOBENCH_REPORTS_ROOT,
     CONTAINER_OUTCOME_ROOT,
-    default_report_root,
     outcome_root,
 )
 
@@ -29,7 +27,7 @@ def default_volume_binds(
     run_id: str,
     repeat_index: int,
 ) -> list[tuple[str, str, str]]:
-    """评测容器默认 bind mount：outcome、benchmarks、reports。"""
+    """评测容器默认 bind mount：outcome、benchmarks。"""
     binds: list[tuple[str, str, str]] = []
     host_outcome = outcome_root(run_id)
     if host_outcome.is_dir():
@@ -38,10 +36,6 @@ def default_volume_binds(
     benchmarks = Path.cwd() / "assets" / "benchmarks"
     if benchmarks.is_dir():
         binds.append((str(benchmarks.resolve()), CONTAINER_BENCHMARKS_ROOT, "ro"))
-
-    reports = default_report_root()
-    reports.mkdir(parents=True, exist_ok=True)
-    binds.append((str(reports.resolve()), CONTAINER_EVOBENCH_REPORTS_ROOT, "rw"))
     _ = repeat_index
     return binds
 

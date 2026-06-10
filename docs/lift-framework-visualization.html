@@ -299,7 +299,7 @@ python -m src.cli.lift_main -r openclaw --evaluate-only --run_id hello</code></p
 flowchart LR
     CLI["lift_main\n-r openclaw"] --> REG["create_adapter\nOpenClawAdapter"]
     REG --> LP[LIFTPipeline.run]
-    LP --> ER[evobench-reports]
+    LP --> ER[results/run_id/report.json]
     LP --> PP{evaluate?}
     PP -->|默认 on| POST[postprocess]
     PP -->|no-evaluate| SKIP[跳过]
@@ -687,7 +687,7 @@ flowchart LR
       <div class="card">
         <div class="mermaid">
 flowchart TB
-    LP[LIFTPipeline] --> ER["evobench-reports/run_id.json"]
+    LP[LIFTPipeline] --> ER["results/run_id/report.json"]
     LP --> OUT["results/run_id/outcome/run-i/"]
     OUT --> WU["warmup/"]
     OUT --> BL["baseline/category/task/"]
