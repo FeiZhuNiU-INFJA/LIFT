@@ -85,7 +85,7 @@ async def _reset_workspace_attestations(session: ContainerSession) -> None:
     await docker_exec_shell_async(
         session.container_name,
         "rm -rf \"${OPENCLAW_STATE_DIR:-/root/.openclaw}\"/workspace-attestations 2>/dev/null || true",
-        extra_env=container_runtime_env(),
+        env=container_runtime_env(),
     )
 
 
@@ -95,7 +95,7 @@ async def _ensure_workspace_seed(session: ContainerSession) -> None:
         await docker_exec_shell_async(
             session.container_name,
             container_workspace_seed_shell(),
-            extra_env=container_runtime_env(),
+            env=container_runtime_env(),
         )
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning(

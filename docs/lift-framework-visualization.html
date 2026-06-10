@@ -3,20 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LIFT 框架可视化 — Adapter 继承与 OpenClaw 接入</title>
+  <title>LIFT 框架可视化</title>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <style>
     :root {
-      --bg: #0f1419;
-      --surface: #1a2332;
-      --surface2: #243044;
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #21262d;
       --text: #e6edf3;
-      --muted: #8b9cb3;
+      --muted: #8b949e;
       --accent: #58a6ff;
       --green: #3fb950;
       --orange: #d29922;
       --purple: #bc8cff;
-      --red: #f85149;
       --border: #30363d;
     }
     * { box-sizing: border-box; }
@@ -25,44 +24,57 @@
       font-family: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
-      line-height: 1.6;
+      line-height: 1.65;
     }
     header {
-      padding: 2.5rem 2rem 1.5rem;
+      padding: 2.5rem 2rem 2rem;
       border-bottom: 1px solid var(--border);
-      background: linear-gradient(135deg, #121a27 0%, #0f1419 60%);
+      background: linear-gradient(160deg, #121a27 0%, var(--bg) 70%);
     }
-    header h1 { margin: 0 0 .5rem; font-size: 1.75rem; font-weight: 600; }
-    header p { margin: 0; color: var(--muted); max-width: 72ch; }
+    header h1 { margin: 0 0 .75rem; font-size: 1.85rem; font-weight: 600; }
+    .hero-quote {
+      margin: 0 0 1rem;
+      padding: 1rem 1.25rem;
+      border-left: 3px solid var(--accent);
+      background: var(--surface);
+      border-radius: 0 8px 8px 0;
+      font-size: 1.05rem;
+      max-width: 52rem;
+    }
+    header p { margin: 0; color: var(--muted); max-width: 52rem; font-size: .95rem; }
+    header a { color: var(--accent); }
     nav {
       position: sticky; top: 0; z-index: 10;
       display: flex; flex-wrap: wrap; gap: .5rem;
       padding: .75rem 2rem;
-      background: rgba(15, 20, 25, .92);
+      background: rgba(13, 17, 23, .94);
       backdrop-filter: blur(8px);
       border-bottom: 1px solid var(--border);
     }
     nav a {
-      color: var(--accent);
+      color: var(--text);
       text-decoration: none;
       font-size: .875rem;
-      padding: .35rem .75rem;
+      padding: .4rem .85rem;
       border-radius: 6px;
       border: 1px solid var(--border);
+      background: var(--surface);
     }
-    nav a:hover { background: var(--surface2); }
-    main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-    section {
-      margin-bottom: 3rem;
-      scroll-margin-top: 4rem;
-    }
+    nav a:hover { border-color: var(--accent); color: var(--accent); }
+    main { max-width: 960px; margin: 0 auto; padding: 2rem; }
+    section { margin-bottom: 3.5rem; scroll-margin-top: 4.5rem; }
     h2 {
-      font-size: 1.35rem;
-      margin: 0 0 1rem;
-      padding-bottom: .5rem;
-      border-bottom: 1px solid var(--border);
+      font-size: 1.4rem;
+      margin: 0 0 .35rem;
+      font-weight: 600;
     }
-    h3 { font-size: 1rem; color: var(--muted); margin: 1.5rem 0 .75rem; }
+    .section-lead {
+      color: var(--muted);
+      margin: 0 0 1.25rem;
+      font-size: .95rem;
+      max-width: 48rem;
+    }
+    h3 { font-size: .95rem; color: var(--muted); margin: 1.5rem 0 .75rem; font-weight: 500; }
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -79,43 +91,119 @@
     }
     th, td {
       text-align: left;
-      padding: .6rem .75rem;
+      padding: .65rem .8rem;
       border-bottom: 1px solid var(--border);
       vertical-align: top;
     }
     th { color: var(--muted); font-weight: 500; background: var(--surface2); }
     tr:last-child td { border-bottom: none; }
-    .tag {
-      display: inline-block;
-      font-size: .75rem;
-      padding: .15rem .45rem;
-      border-radius: 4px;
-      font-weight: 500;
-      white-space: nowrap;
+    .pill-row {
+      display: flex; flex-wrap: wrap; gap: .5rem;
+      margin-bottom: 1rem;
     }
-    .tag-abstract { background: #3d2a00; color: var(--orange); }
-    .tag-concrete { background: #0d2818; color: var(--green); }
-    .tag-inherit { background: #1c2d4a; color: var(--accent); }
-    .tag-openclaw { background: #2d1f4e; color: var(--purple); }
-    .legend {
-      display: flex; flex-wrap: wrap; gap: 1rem;
-      margin-bottom: 1rem; font-size: .85rem; color: var(--muted);
+    .pill {
+      font-size: .8rem;
+      padding: .35rem .7rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
     }
-    .legend span { display: flex; align-items: center; gap: .35rem; }
-    .layer-grid {
+    .pill strong { color: var(--text); }
+    .three-cols {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: .75rem;
+      margin-bottom: 1rem;
     }
-    .layer-box {
+    .mini-card {
       background: var(--surface2);
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 1rem;
     }
-    .layer-box strong { display: block; margin-bottom: .35rem; color: var(--accent); }
-    .layer-box ul { margin: 0; padding-left: 1.1rem; font-size: .85rem; color: var(--muted); }
+    .mini-card .label {
+      font-size: .75rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--muted);
+      margin-bottom: .25rem;
+    }
+    .mini-card .title {
+      font-weight: 600;
+      margin-bottom: .35rem;
+      color: var(--accent);
+    }
+    .mini-card p { margin: 0; font-size: .875rem; color: var(--muted); }
+    .stack {
+      display: flex; flex-direction: column; align-items: center; gap: 0;
+      padding: 1.5rem 1rem;
+    }
+    .stack-box {
+      width: 100%; max-width: 420px;
+      text-align: center;
+      padding: .85rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface2);
+      font-size: .9rem;
+    }
+    .stack-box strong { display: block; margin-bottom: .2rem; }
+    .stack-box span { color: var(--muted); font-size: .82rem; }
+    .stack-arrow { color: var(--muted); font-size: 1.1rem; line-height: 1; padding: .25rem 0; }
+    .steps { margin: 0; padding-left: 1.25rem; }
+    .steps li { margin-bottom: .5rem; color: var(--muted); }
+    .steps li strong { color: var(--text); }
+    pre.cmd {
+      margin: 0;
+      padding: 1rem;
+      background: var(--surface2);
+      border-radius: 8px;
+      font-size: .82rem;
+      line-height: 1.55;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+    }
     code { font-family: ui-monospace, monospace; font-size: .85em; color: #79c0ff; }
+    .tree {
+      font-family: ui-monospace, monospace;
+      font-size: .82rem;
+      line-height: 1.55;
+      color: var(--muted);
+      margin: 0;
+      white-space: pre;
+    }
+    .summary-box {
+      background: linear-gradient(135deg, #1a2332 0%, var(--surface) 100%);
+      border: 1px solid var(--accent);
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      font-family: ui-monospace, monospace;
+      font-size: .85rem;
+      line-height: 1.7;
+      color: var(--muted);
+    }
+    .summary-box strong { color: var(--green); }
+    details {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: .75rem;
+    }
+    details summary {
+      cursor: pointer;
+      padding: .9rem 1.1rem;
+      font-weight: 500;
+      color: var(--text);
+      list-style: none;
+    }
+    details summary::-webkit-details-marker { display: none; }
+    details summary::before {
+      content: "▸ ";
+      color: var(--accent);
+    }
+    details[open] summary::before { content: "▾ "; }
+    details .inner { padding: 0 1.1rem 1.1rem; }
     footer {
       padding: 2rem;
       text-align: center;
@@ -123,586 +211,444 @@
       font-size: .8rem;
       border-top: 1px solid var(--border);
     }
+    footer a { color: var(--accent); }
   </style>
 </head>
 <body>
   <header>
-    <h1>LIFT 框架架构可视化</h1>
+    <h1>LIFT 框架可视化</h1>
+    <p class="hero-quote">
+      Agent 做完「练习题」并进化之后，<strong>期末考</strong>能不能考得更好？
+    </p>
     <p>
-      Loaded Impact on Final Task — 展示 <code>src/lift/</code> 分层、
-      <code>AgentRuntimeAdapter</code> 三层继承、模板方法编排，以及
-      <code>OpenClawAdapter</code> 接入时的 4 个钩子。
-      CLI 入口：<code>-r openclaw</code>（<code>--agent-runtime</code>）。
+      同一道 hold-out 题跑两遍——没加载进化产物（baseline）和加载了（evolved）——看分数差。
+      文字讲稿见 <a href="lift-framework-guide-cn.md">lift-framework-guide-cn.md</a>。
     </p>
   </header>
 
   <nav>
-    <a href="#layers">分层</a>
-    <a href="#cli">CLI</a>
-    <a href="#class-diagram">类图 UML</a>
-    <a href="#openclaw-table">OpenClaw 适配表</a>
-    <a href="#sequence">时序图</a>
-    <a href="#eval-kernel">Eval 内核</a>
-    <a href="#concurrency">并发模型</a>
-    <a href="#outputs">产出物</a>
+    <a href="#framework">框架总览</a>
+    <a href="#openclaw">OpenClaw 接入</a>
+    <a href="#hello">hello.json 走一遍</a>
+    <a href="#summary">收尾</a>
+    <a href="#deep">延伸阅读</a>
   </nav>
 
   <main>
-    <section id="layers">
-      <h2>1. 分层总览</h2>
-      <div class="layer-grid">
-        <div class="layer-box">
-          <strong>CLI</strong>
-          <ul>
-            <li><code>cli/lift_main.py</code></li>
-            <li><code>-r</code> / <code>--agent-runtime</code></li>
-            <li><code>registry.create_adapter</code></li>
-            <li>默认 <code>postprocess</code>（<code>--no-evaluate</code> 跳过）</li>
-          </ul>
+    <!-- Part 1: Framework -->
+    <section id="framework">
+      <h2>框架长什么样</h2>
+      <p class="section-lead">用考试来理解：warmup 是练习题，hold-out 是期末考，delta 是进化后的记忆快照。</p>
+
+      <div class="three-cols">
+        <div class="mini-card">
+          <div class="label">Suite</div>
+          <div class="title">一张卷子</div>
+          <p>如 <code>hello.json</code>，多道题一起评</p>
         </div>
-        <div class="layer-box">
-          <strong>Pipeline</strong>
-          <ul>
-            <li><code>LIFTPipeline.run()</code></li>
-            <li>repeat / suite 编排</li>
-            <li>写 <code>EvalReport</code></li>
-          </ul>
+        <div class="mini-card">
+          <div class="label">Warmup</div>
+          <div class="title">练习题</div>
+          <p>触发进化，产物写入 delta 镜像</p>
         </div>
-        <div class="layer-box">
-          <strong>Adapter（Agent 运行时）</strong>
-          <ul>
-            <li><code>AgentRuntimeAdapter</code> 模板方法</li>
-            <li><code>ContainerAgentRuntimeAdapter</code> Docker</li>
-            <li><code>OpenClawAdapter</code> 4 钩子</li>
-          </ul>
-        </div>
-        <div class="layer-box">
-          <strong>Eval（运行时无关）</strong>
-          <ul>
-            <li><code>run_task</code> work+judge 循环</li>
-            <li><code>stage.py</code> + <code>execute_task</code> / <code>execute_tasks</code></li>
-            <li><code>WorkerJudgerPairFactory</code></li>
-          </ul>
-        </div>
-        <div class="layer-box">
-          <strong>Runtime 资源</strong>
-          <ul>
-            <li><code>SuiteRunResources</code></li>
-            <li><code>DeltaRef</code> / <code>Disposable</code></li>
-            <li>容器清理 / delta 镜像</li>
-          </ul>
-        </div>
-        <div class="layer-box">
-          <strong>Suite / Policy</strong>
-          <ul>
-            <li><code>load_lift_suite</code></li>
-            <li><code>split_suite_tasks</code> hold-out</li>
-            <li><code>WarmupThenUpdatePolicy</code></li>
-          </ul>
+        <div class="mini-card">
+          <div class="label">Hold-out</div>
+          <div class="title">期末考</div>
+          <p>baseline vs evolved 严格对照</p>
         </div>
       </div>
 
+      <div class="pill-row">
+        <span class="pill">默认 <strong>最后一题</strong> 是 hold-out</span>
+        <span class="pill"><code>holdout_count</code> 默认 1</span>
+        <span class="pill">成绩单 → <code>report.json</code></span>
+      </div>
+
+      <h3>三层分工（记住这条线）</h3>
       <div class="card">
-        <div class="mermaid">
-flowchart TB
-    subgraph CLI["CLI 层"]
-        LM["lift_main.py\n-r / --agent-runtime"]
-        REG[registry.create_adapter]
-    end
-    subgraph Pipe["Pipeline 层"]
-        LP[LIFTPipeline]
-        SRC[SuiteRunContext]
-        RO[RunOptions]
-    end
-    subgraph Adp["Adapter 层（可插拔运行时）"]
-        RA[AgentRuntimeAdapter]
-        CRA[ContainerAgentRuntimeAdapter]
-        OCA[OpenClawAdapter]
-        RA --> CRA --> OCA
-    end
-    subgraph Eval["Eval 层（运行时无关）"]
-        ST[SuiteStage / HoldoutLoadState]
-        EP[execute_task / execute_tasks]
-        RT[run_task]
-        APF[WorkerJudgerPairFactory]
-    end
-    subgraph OC["OpenClaw 特化模块"]
-        SESS[session.py]
-        AGENT[chat_agent.py]
-        EVOLVE[evolve.py]
-    end
-    LM --> REG --> OCA
-    LM --> LP
-    LP --> SRC
-    SRC --> RA
-    ST --> EP
-    RA --> EP --> RT
-    OCA --> SESS & AGENT & EVOLVE
-    APF -.-> RT
-        </div>
-      </div>
-    </section>
-
-    <section id="cli">
-      <h2>2. CLI 入口与常用参数</h2>
-      <div class="card">
-        <pre style="margin:0;color:var(--text);font-size:.85rem;line-height:1.5;"><code># 完整 LIFT（默认含后处理）
-python -m src.cli.lift_main -r openclaw --suite hello.json --run_id hello
-
-# 跳过后处理（调试 / Langfuse 未配置）
-python -m src.cli.lift_main -r openclaw --suite hello.json --no-evaluate
-
-# 仅后处理已有 report
-python -m src.cli.lift_main -r openclaw --evaluate-only --run_id hello</code></pre>
-      </div>
-      <div class="card">
-        <table>
-          <thead>
-            <tr><th>参数</th><th>默认</th><th>含义</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>-r</code> / <code>--agent-runtime</code></td>
-              <td><strong>必填</strong></td>
-              <td>选择 Agent 运行时适配器（当前 <code>openclaw</code> → <code>OpenClawAdapter</code>）</td>
-            </tr>
-            <tr>
-              <td><code>-e</code> / <code>--evaluate</code> / <code>--no-evaluate</code></td>
-              <td><strong>on</strong></td>
-              <td>评测结束后自动后处理（Langfuse backfill、CSV、HTML）；<code>BooleanOptionalAction</code></td>
-            </tr>
-            <tr>
-              <td><code>--evaluate-only</code></td>
-              <td>off</td>
-              <td>跳过 benchmark，仅对已有 report 跑 postprocess（需 <code>--run_id</code>）</td>
-            </tr>
-            <tr>
-              <td><code>--warmup-only</code></td>
-              <td>off</td>
-              <td>只跑 warmup + evolve + delta，跳过 hold-out 对照</td>
-            </tr>
-            <tr>
-              <td><code>--repeat</code> / <code>--serial-repeats</code></td>
-              <td>1 / 并行 repeat</td>
-              <td>多轮 LIFT；默认 repeat 间并行</td>
-            </tr>
-            <tr>
-              <td><code>-p</code> / <code>--parallel</code></td>
-              <td>off</td>
-              <td>warmup 题并行（同一 warmup 容器内 <code>asyncio.gather</code>）</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="card">
-        <div class="mermaid">
-flowchart LR
-    CLI["lift_main\n-r openclaw"] --> REG["create_adapter\nOpenClawAdapter"]
-    REG --> LP[LIFTPipeline.run]
-    LP --> ER[results/run_id/report.json]
-    LP --> PP{evaluate?}
-    PP -->|默认 on| POST[postprocess]
-    PP -->|no-evaluate| SKIP[跳过]
-        </div>
-      </div>
-    </section>
-
-    <section id="class-diagram">
-      <h2>3. Adapter 继承 UML 类图</h2>
-      <div class="legend">
-        <span><span class="tag tag-abstract">abstract</span> 子类必须实现</span>
-        <span><span class="tag tag-concrete">concrete</span> 基类已实现（模板方法）</span>
-        <span><span class="tag tag-inherit">inherit</span> 中间层实现</span>
-        <span><span class="tag tag-openclaw">openclaw</span> OpenClaw 特化</span>
-      </div>
-      <div class="card">
-        <div class="mermaid">
-classDiagram
-    direction TB
-
-    class AgentRuntimeAdapter {
-        &lt;&lt;abstract&gt;&gt;
-        +create_suite_run_resources(ctx)* SuiteRunResources
-        +produce_delta(resources, policy, tasks, ctx) DeltaRef
-        +run_before_load(task, resources, ctx) PhaseRun
-        +run_after_load(task, resources, delta, ctx) PhaseRun
-        -_run_holdout(...) PhaseRun
-        +warmup_workspace(ctx) Path
-        +holdout_workspace(ctx, task, phase) Path
-        +worker_judger_factory(env, ctx, phase, workspace)* WorkerJudgerPairFactory
-        +start_warmup_environment(ctx, resources, workspace)* ExecutionEnvironment
-        +start_holdout_environment(ctx, resources, task, workspace, image, seed)* ExecutionEnvironment
-        +apply_evolve(env, ctx)* void
-        +materialize_delta(env, ctx)* DeltaRef
-        +baseline_image(ctx)* str
-    }
-
-    class ContainerAgentRuntimeAdapter {
-        &lt;&lt;abstract&gt;&gt;
-        -_docker_image str
-        +resolve_docker_image(override)* str
-        +baseline_image(ctx) str
-        +produce_delta(...) DeltaRef
-        +start_warmup_environment(...) ExecutionEnvironment
-        +start_holdout_environment(...) ExecutionEnvironment
-        +materialize_delta(env, ctx) DeltaRef
-        +start_container(instance_id, image, ctx, ...)* ContainerSession
-    }
-
-    class OpenClawAdapter {
-        +resolve_docker_image(override) str
-        +start_container(...) ContainerSession
-        +worker_judger_factory(...) OpenClawWorkerJudgerPairFactory
-        +apply_evolve(env, ctx) void
-    }
-
-    class ExecutionEnvironment {
-        &lt;&lt;dataclass&gt;&gt;
-        +disposable Disposable
-        +workspace_dir Path
-        +handle Any
-    }
-
-    class SuiteRunContext {
-        &lt;&lt;dataclass&gt;&gt;
-        +run_id str
-        +repeat_index int
-        +suite_path Path
-        +category_name str
-        +suite_name str
-    }
-
-    class SuiteRunResources {
-        +run_id str
-        +repeat_index int
-        +suite_name str
-        +delta DeltaRef
-        +track(disposable) Disposable
-        +cleanup() void
-    }
-
-    class WorkerJudgerPairFactory {
-        &lt;&lt;Protocol&gt;&gt;
-        __call__(task) WorkerJudgerPair
-    }
-
-    class OpenClawWorkerJudgerPairFactory {
-        +__call__(task) WorkerJudgerPair
-    }
-
-    class LIFTPipeline {
-        +run(run_id, suite_paths, adapter, options) EvalReport
-        -_run_suites(...)
-    }
-
-    AgentRuntimeAdapter <|-- ContainerAgentRuntimeAdapter
-    ContainerAgentRuntimeAdapter <|-- OpenClawAdapter
-    OpenClawAdapter ..> ExecutionEnvironment : creates
-    OpenClawAdapter ..> OpenClawWorkerJudgerPairFactory : returns
-    OpenClawWorkerJudgerPairFactory ..|> WorkerJudgerPairFactory
-    LIFTPipeline --> AgentRuntimeAdapter : uses
-    LIFTPipeline --> SuiteRunContext : builds per suite
-    AgentRuntimeAdapter --> SuiteRunContext : receives ctx
-    AgentRuntimeAdapter --> SuiteRunResources
+        <div class="stack">
+          <div class="stack-box">
+            <strong>CLI / Pipeline</strong>
+            <span>切题、循环、写 report</span>
+          </div>
+          <div class="stack-arrow">↓</div>
+          <div class="stack-box">
+            <strong>AgentRuntimeAdapter</strong>
+            <span>容器、进化、chat 怎么调</span>
+          </div>
+          <div class="stack-arrow">↓</div>
+          <div class="stack-box">
+            <strong>lift/eval</strong>
+            <span>单题 work + judge 多轮（跟 OpenClaw 无关）</span>
+          </div>
         </div>
       </div>
 
-      <h3>模板方法：基类已实现、子类只填「钩子」</h3>
-      <div class="card">
-        <table>
-          <thead>
-            <tr>
-              <th>方法</th>
-              <th>AgentRuntimeAdapter</th>
-              <th>ContainerAgentRuntimeAdapter</th>
-              <th>OpenClawAdapter</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>produce_delta</code></td>
-              <td><span class="tag tag-concrete">模板：warmup→evolve→commit</span></td>
-              <td><span class="tag tag-inherit">校验容器策略后 super()</span></td>
-              <td><span class="tag tag-inherit">继承</span></td>
-            </tr>
-            <tr>
-              <td><code>run_before_load</code> / <code>run_after_load</code></td>
-              <td><span class="tag tag-concrete">模板：起容器→factory→execute_task</span></td>
-              <td><span class="tag tag-inherit">继承</span></td>
-              <td><span class="tag tag-inherit">继承</span></td>
-            </tr>
-            <tr>
-              <td><code>create_suite_run_resources</code></td>
-              <td><span class="tag tag-concrete">默认 SuiteRunResources</span></td>
-              <td><span class="tag tag-inherit">继承</span></td>
-              <td><span class="tag tag-inherit">继承</span></td>
-            </tr>
-            <tr>
-              <td><code>warmup_workspace</code> / <code>holdout_workspace</code></td>
-              <td><span class="tag tag-concrete">outcome_workspace 路径</span></td>
-              <td><span class="tag tag-inherit">继承</span></td>
-              <td><span class="tag tag-inherit">继承</span></td>
-            </tr>
-            <tr>
-              <td><code>baseline_image</code></td>
-              <td><span class="tag tag-abstract">abstract</span></td>
-              <td><span class="tag tag-inherit">返回 _docker_image</span></td>
-              <td><span class="tag tag-inherit">继承</span></td>
-            </tr>
-            <tr>
-              <td><code>start_warmup_environment</code></td>
-              <td><span class="tag tag-abstract">abstract</span></td>
-              <td><span class="tag tag-inherit">start_container + ExecutionEnvironment</span></td>
-              <td><span class="tag tag-inherit">继承</span></td>
-            </tr>
-            <tr>
-              <td><code>start_holdout_environment</code></td>
-              <td><span class="tag tag-abstract">abstract</span></td>
-              <td><span class="tag tag-inherit">每题新容器 + delta/base 镜像</span></td>
-              <td><span class="tag tag-inherit">继承</span></td>
-            </tr>
-            <tr>
-              <td><code>materialize_delta</code></td>
-              <td><span class="tag tag-abstract">abstract</span></td>
-              <td><span class="tag tag-inherit">docker commit → DeltaRef</span></td>
-              <td><span class="tag tag-inherit">继承</span></td>
-            </tr>
-            <tr>
-              <td><code>resolve_docker_image</code></td>
-              <td>—</td>
-              <td><span class="tag tag-abstract">abstract</span></td>
-              <td><span class="tag tag-openclaw">OPENCLAW_DOCKER_IMAGE</span></td>
-            </tr>
-            <tr>
-              <td><code>start_container</code></td>
-              <td>—</td>
-              <td><span class="tag tag-abstract">abstract</span></td>
-              <td><span class="tag tag-openclaw">start_openclaw_container</span></td>
-            </tr>
-            <tr>
-              <td><code>worker_judger_factory</code></td>
-              <td><span class="tag tag-abstract">abstract</span></td>
-              <td>—</td>
-              <td><span class="tag tag-openclaw">OpenClawWorkerJudgerPairFactory</span></td>
-            </tr>
-            <tr>
-              <td><code>apply_evolve</code></td>
-              <td><span class="tag tag-abstract">abstract</span></td>
-              <td>—</td>
-              <td><span class="tag tag-openclaw">openclaw_learn_review</span></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="openclaw-table">
-      <h2>4. OpenClaw 接入：4 个特化点 + 支撑模块</h2>
-      <p style="color: var(--muted); margin-top: 0;">
-        OpenClaw 适配器本身约 85 行；容器生命周期与 delta commit 由 <code>ContainerAgentRuntimeAdapter</code> 通用层承担。
-      </p>
-      <div class="card">
-        <table>
-          <thead>
-            <tr><th>特化钩子</th><th>实现位置</th><th>做什么</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>resolve_docker_image</code></td>
-              <td><code>openclaw/adapter.py</code></td>
-              <td>确定 base 镜像：优先 <code>RunOptions.docker_image</code> 覆盖，否则 <code>OPENCLAW_DOCKER_IMAGE</code>（<code>evolve-eval-openclaw:latest</code>）</td>
-            </tr>
-            <tr>
-              <td><code>start_container</code></td>
-              <td><code>openclaw/session.py</code></td>
-              <td><code>docker run</code> 启动 gateway 容器；挂载 workspace、.env、benchmarks；可选 workspace seed 同步</td>
-            </tr>
-            <tr>
-              <td><code>worker_judger_factory</code></td>
-              <td><code>openclaw/chat_agent.py</code></td>
-              <td>绑定 env 后返回 <code>OpenClawWorkerJudgerPairFactory</code>（callable）；<code>factory(task)</code> 时在容器内 <code>docker exec openclaw</code> 创建 work/judge</td>
-            </tr>
-            <tr>
-              <td><code>apply_evolve</code></td>
-              <td><code>openclaw/evolve.py</code></td>
-              <td>warmup 结束后调用 <code>self-evolving-plugin-pro</code> 的 learn review（<code>worker.js</code>）</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h3>通用 Container 层（OpenClaw 继承，无需重复实现）</h3>
-      <div class="card">
-        <table>
-          <thead>
-            <tr><th>模块</th><th>职责</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><code>container/session.py</code></td><td>参数化 <code>docker run</code>、<code>ContainerSession</code> 生命周期、chown 清理</td></tr>
-            <tr><td><code>container/volumes.py</code></td><td>宿主机路径解析、task / default 卷挂载</td></tr>
-            <tr><td><code>container/delta.py</code></td><td><code>docker commit</code> 生成 delta 镜像</td></tr>
-            <tr><td><code>container/adapter.py</code></td><td>warmup/holdout 环境启动、baseline 镜像、delta 物化</td></tr>
-            <tr><td><code>openclaw/container_exec.py</code></td><td>容器内异步执行 openclaw CLI</td></tr>
-            <tr><td><code>openclaw/workspace_seed.py</code></td><td>镜像内 <code>/opt/evolve-eval/workspace_seed</code> → 工作区</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <div class="mermaid">
-flowchart LR
-    subgraph Generic["ContainerAgentRuntimeAdapter（通用）"]
-        SC[start_container 抽象]
-        SW[start_warmup_environment]
-        SH[start_holdout_environment]
-        MD[materialize_delta docker commit]
-        BI[baseline_image]
-    end
-    subgraph OC["OpenClawAdapter（4 钩子）"]
-        RDI[resolve_docker_image]
-        STC[start_container → session.py]
-        CAPF[worker_judger_factory → chat_agent.py]
-        AE[apply_evolve → evolve.py]
-    end
-    subgraph Container["容器内"]
-        GW[OpenClaw Gateway]
-        PLG1[self-evolving-plugin-pro]
-        PLG2[langfuse-tracer]
-    end
-    RDI --> STC
-    STC --> SW & SH
-    SW & SH --> GW
-    CAPF --> GW
-    AE --> PLG1
-    MD --> DeltaImg["evolve-eval-delta:run-r0-suite"]
-        </div>
-      </div>
-    </section>
-
-    <section id="sequence">
-      <h2>5. 单次 Suite 评测时序图（OpenClaw）</h2>
+      <h3>一次完整 LIFT 的时间线</h3>
       <div class="card">
         <div class="mermaid">
 sequenceDiagram
-    autonumber
-    participant CLI as lift_main -r openclaw
-    participant LP as LIFTPipeline
-    participant AD as OpenClawAdapter
-    participant RES as SuiteRunResources
-    participant EP as execute_tasks
-    participant RT as run_task
-    participant DK as Docker
+    participant P as Pipeline
+    participant A as Adapter
+    participant W as Warmup 容器
+    participant H as Hold-out 容器
 
-    CLI->>CLI: create_adapter(agent_runtime)
-    CLI->>LP: run(run_id, suite_paths, adapter, options)
-    LP->>AD: create_suite_run_resources(ctx)
-    AD-->>RES: SuiteRunResources
+    P->>A: warmup 题（如 Q1）
+    A->>W: 起一个容器，连续做题
+    W->>W: evolve（learn review）
+    W->>W: docker commit → delta 镜像
+    A->>W: 删掉 warmup 容器
 
-    Note over LP,AD: Warmup 阶段（单容器 serial_single）
-    LP->>AD: produce_delta(resources, policy, warmup_tasks, ctx)
-    AD->>AD: start_warmup_environment
-    AD->>DK: docker run (base image)
-    AD->>AD: worker_judger_factory
-    AD->>EP: execute_tasks(warmup, SuiteRunPhase.warmup)
-    loop 每道 warmup 题
-        EP->>RT: factory(task) → run_task
-        RT-->>EP: PhaseRun
-    end
-    AD->>AD: apply_evolve (learn review)
-    AD->>DK: docker commit → delta image
-    AD-->>LP: DeltaRef
-
-    Note over LP,AD: Hold-out 阶段（每题新容器）
-    loop 每道 hold-out 题
-        LP->>AD: run_before_load (baseline, base image)
-        AD->>DK: docker run (no delta)
-        AD->>RT: execute_task(holdout baseline) → run_task
-        RT-->>LP: PhaseRun baseline
-        LP->>AD: run_after_load (evolved, delta image)
-        AD->>DK: docker run (delta image)
-        AD->>RT: execute_task(holdout evolved) → run_task
-        RT-->>LP: PhaseRun evolved
+    loop 每道 hold-out 题（如 Q2）
+        P->>A: baseline
+        A->>H: 从 base 镜像起新容器
+        P->>A: evolved
+        A->>H: 从 delta 镜像起新容器
     end
 
-    LP->>RES: cleanup() 释放容器 + 删 delta 镜像
-    LP->>LP: write_json(EvalReport)
-    CLI->>CLI: postprocess (默认)
+    P->>P: 写 report.json
+        </div>
+      </div>
+
+      <div class="three-cols">
+        <div class="mini-card">
+          <div class="title" style="color: var(--orange);">Warmup 共用一个容器</div>
+          <p>状态要连续，进化才有意义</p>
+        </div>
+        <div class="mini-card">
+          <div class="title" style="color: var(--green);">Hold-out 每轮新容器</div>
+          <p>baseline 必须是干净环境，题间 workspace 隔离</p>
+        </div>
+        <div class="mini-card">
+          <div class="title" style="color: var(--purple);">多道 hold-out 共用 delta</div>
+          <p>只换 workspace，不重复进化</p>
         </div>
       </div>
     </section>
 
-    <section id="eval-kernel">
-      <h2>6. Eval 内核（运行时无关）</h2>
+    <!-- Part 2: OpenClaw -->
+    <section id="openclaw">
+      <h2>OpenClaw 接入做了哪些事</h2>
+      <p class="section-lead">
+        核心原则：<strong>宿主机编排，容器内执行</strong>。Python 不直接跑 OpenClaw CLI，而是 <code>docker run</code> + <code>docker exec</code>。
+      </p>
+
+      <h3>OpenClaw 只填 4 个钩子</h3>
+      <div class="card">
+        <table>
+          <thead>
+            <tr><th>钩子</th><th>干什么</th><th>文件</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>resolve_docker_image</code></td>
+              <td>用哪个镜像（默认 <code>evolve-eval-openclaw:latest</code>）</td>
+              <td><code>openclaw/adapter.py</code></td>
+            </tr>
+            <tr>
+              <td><code>start_container</code></td>
+              <td>起 gateway、挂卷、可选 workspace seed</td>
+              <td><code>openclaw/session.py</code></td>
+            </tr>
+            <tr>
+              <td><code>worker_judger_factory</code></td>
+              <td>容器里怎么 chat（work + judge）</td>
+              <td><code>openclaw/chat_agent.py</code></td>
+            </tr>
+            <tr>
+              <td><code>apply_evolve</code></td>
+              <td>warmup 后 <code>openclaw learn review</code></td>
+              <td><code>openclaw/evolve.py</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <div class="card">
         <div class="mermaid">
 flowchart LR
-    subgraph Adapter
-        F[WorkerJudgerPairFactory]
-        F -->|__call__ task| P[WorkerJudgerPair]
+    subgraph Base["ContainerAgentRuntimeAdapter（通用，OpenClaw 继承）"]
+        DC[docker run / commit]
+        MD[materialize_delta]
     end
-    subgraph Eval
-        EP[execute_task]
-        RT[run_task]
-        P --> EP
-        EP --> RT
+    subgraph OC["OpenClawAdapter（4 钩子）"]
+        IMG[镜像]
+        SESS[起容器]
+        CHAT[chat factory]
+        EVO[learn review]
     end
-    subgraph Agents
-        W[work_agent.chat]
-        J[judge_agent.chat]
+    subgraph Box["容器内"]
+        GW[Gateway]
+        PLG[self-evolving 插件]
     end
-    RT --> W
-    W --> J
-    J -->|JSON score| PR[PhaseRun]
+    IMG --> SESS --> GW
+    CHAT --> GW
+    EVO --> PLG
+    DC --> MD --> Delta["delta 镜像"]
         </div>
       </div>
+
+      <h3>胶水模块</h3>
       <div class="card">
-        <p style="margin: 0; color: var(--muted); font-size: .9rem;">
-          <code>run_task</code> 是唯一的 work+judge 多轮循环；Adapter 只负责提供
-          <code>WorkerJudgerPairFactory</code>（绑定容器 / session），不感知 LIFT 对照语义。
-          <code>is_evolve_turn</code> / <code>is_final_task</code> 通过 CustomTags 写入 Langfuse，供后处理区分 baseline/evolved。
+        <table>
+          <thead>
+            <tr><th>模块</th><th>解决什么问题</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>json_output.py</code></td><td>解析 <code>openclaw --json</code> 输出</td></tr>
+            <tr><td><code>workspace_seed.py</code></td><td>hold-out 跳过首次 onboarding（warmup 不 seed）</td></tr>
+            <tr><td><code>container_exec.py</code></td><td>容器内异步执行 openclaw CLI</td></tr>
+            <tr><td><code>agent-runtimes/openclaw/</code></td><td>镜像：插件、langfuse-tracer、gateway 配置</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead>
+            <tr><th></th><th>LIFT（src）</th><th>legacy</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>执行</td><td>容器内</td><td>宿主机直跑</td></tr>
+            <tr><td>产物</td><td>delta 镜像 + 每题独立容器</td><td>宿主机 toggle 加载</td></tr>
+            <tr><td>入口</td><td><code>lift_main -r openclaw</code></td><td><code>legacy/openclaw_main.py</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Part 3: hello.json -->
+    <section id="hello">
+      <h2>hello.json 端到端走一遍</h2>
+      <p class="section-lead">最小冒烟集：Q1 练、Q2 考两遍。</p>
+
+      <div class="three-cols">
+        <div class="mini-card">
+          <div class="label">Q1 · Warmup</div>
+          <div class="title">「回复一下你好」</div>
+          <p>练习题 → evolve → commit</p>
+        </div>
+        <div class="mini-card">
+          <div class="label">Q2 · Hold-out</div>
+          <div class="title">「自我介绍一下你自己」</div>
+          <p>baseline（base 镜像）vs evolved（delta 镜像）</p>
+        </div>
+        <div class="mini-card">
+          <div class="label">默认切分</div>
+          <div class="title">holdout_count = 1</div>
+          <p>最后一题是 hold-out，前面都是 warmup</p>
+        </div>
+      </div>
+
+      <h3>怎么跑</h3>
+      <div class="card">
+        <pre class="cmd"><code># 准备（首次）
+bash agent-runtimes/openclaw/build-image.sh
+
+# 冒烟：只 warmup + evolve
+python -m src.cli.lift_main -r openclaw --suite hello.json --warmup-only
+
+# 完整 LIFT
+python -m src.cli.lift_main -r openclaw --suite hello.json --run_id hello-full</code></pre>
+      </div>
+
+      <h3>执行顺序</h3>
+      <div class="card">
+        <ol class="steps">
+          <li><strong>读卷</strong> — Q1 → warmup，Q2 → hold-out</li>
+          <li><strong>Warmup</strong> — 一个容器跑 Q1，work + judge 多轮</li>
+          <li><strong>Evolve</strong> — <code>openclaw learn review</code></li>
+          <li><strong>Commit</strong> — <code>docker commit</code> 得 delta，删 warmup 容器</li>
+          <li><strong>Q2 baseline</strong> — base 镜像 + seed workspace</li>
+          <li><strong>Q2 evolved</strong> — delta 镜像 + 同样 seed</li>
+          <li><strong>落盘</strong> — <code>report.json</code> + 默认后处理</li>
+        </ol>
+      </div>
+
+      <h3>跑完看哪里</h3>
+      <div class="card">
+        <div class="mermaid">
+flowchart TB
+    R["results/{run_id}/"]
+    R --> REP["report.json\nQ2 baseline / evolved 分数"]
+    R --> OUT["outcome/run-0/"]
+    OUT --> WU["warmup/Hello/\nQ1 + learn review"]
+    OUT --> BL["baseline/Hello/Q2/"]
+    OUT --> EV["evolved/Hello/Q2/"]
+    R --> PP["*_comparison_metrics.csv\n*_metrics_report.html"]
+        </div>
+      </div>
+
+      <div class="card">
+        <p class="tree">EvalReport
+  └── runs[0]
+        └── suites[0]     ← hello.json
+              └── tasks[0]  ← Q2（hold-out）
+                    ├── baseline: PhaseRun
+                    └── evolved:  PhaseRun</p>
+        <p style="margin: .75rem 0 0; font-size: .85rem; color: var(--muted);">
+          Delta 镜像是临时中间产物，suite 跑完会被删掉。调试进化过程看 <code>outcome/.../warmup/</code>。
         </p>
       </div>
     </section>
 
-    <section id="concurrency">
-      <h2>7. 并发模型</h2>
-      <div class="card">
-        <table>
-          <thead>
-            <tr><th>层级</th><th>默认</th><th>CLI 控制</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>repeat 之间</td><td>并行 <code>asyncio.gather</code></td><td><code>--serial-repeats</code></td></tr>
-            <tr><td>suite 之间</td><td><strong>串行</strong></td><td>无</td></tr>
-            <tr><td>warmup 题之间</td><td>串行</td><td><code>-p</code> / <code>--parallel</code></td></tr>
-            <tr><td>hold-out 题之间</td><td><strong>串行</strong></td><td>无</td></tr>
-            <tr><td>baseline → evolved</td><td><strong>串行</strong>（LIFT 语义）</td><td>无</td></tr>
-          </tbody>
-        </table>
+    <!-- Summary -->
+    <section id="summary">
+      <h2>收尾</h2>
+      <div class="summary-box">
+<strong>LIFT</strong> = warmup 进化 → 同一道 hold-out 题考两遍 → 看有没有 LIFT
+
+<strong>框架</strong> = Pipeline 编排 + eval 阅卷 + adapter 接 runtime
+
+<strong>OpenClaw</strong> = 4 个钩子 + 容器/chat/evolve/seed 胶水
+
+<strong>hello.json</strong> = Q1 练 → Q2 对照 → report + outcome
       </div>
     </section>
 
-    <section id="outputs">
-      <h2>8. 产出物与数据流</h2>
-      <div class="card">
-        <div class="mermaid">
-flowchart TB
-    LP[LIFTPipeline] --> ER["results/run_id/report.json"]
-    LP --> OUT["results/run_id/outcome/run-i/"]
-    OUT --> WU["warmup/"]
-    OUT --> BL["baseline/category/task/"]
-    OUT --> EV["evolved/category/task/"]
-    ER --> PP["postprocess"]
-    PP --> BF["backfilled.json"]
-    PP --> CSV["comparison_metrics.csv"]
-    PP --> HTML["metrics_report.html"]
+    <!-- Deep dive (collapsed) -->
+    <section id="deep">
+      <h2>延伸阅读</h2>
+      <p class="section-lead">需要读代码或查细节时再展开。</p>
+
+      <details>
+        <summary>代码入口</summary>
+        <div class="inner">
+          <table>
+            <thead><tr><th>想看什么</th><th>文件</th></tr></thead>
+            <tbody>
+              <tr><td>主流程</td><td><code>src/lift/pipeline/lift_pipeline.py</code></td></tr>
+              <tr><td>适配器契约</td><td><code>src/lift/adapters/base.py</code></td></tr>
+              <tr><td>单题评测</td><td><code>src/lift/eval/run_task.py</code></td></tr>
+              <tr><td>CLI</td><td><code>src/cli/lift_main.py</code></td></tr>
+            </tbody>
+          </table>
         </div>
-      </div>
+      </details>
+
+      <details>
+        <summary>Adapter 继承关系（UML）</summary>
+        <div class="inner">
+          <div class="card" style="margin: 0;">
+            <div class="mermaid">
+classDiagram
+    direction TB
+    class AgentRuntimeAdapter {
+        &lt;&lt;abstract&gt;&gt;
+        +produce_delta()
+        +run_before_load()
+        +run_after_load()
+        +worker_judger_factory()*
+        +apply_evolve()*
+    }
+    class ContainerAgentRuntimeAdapter {
+        &lt;&lt;abstract&gt;&gt;
+        +start_container()*
+        +materialize_delta()
+        docker commit
+    }
+    class OpenClawAdapter {
+        +resolve_docker_image()
+        +start_container()
+        +worker_judger_factory()
+        +apply_evolve()
+    }
+    AgentRuntimeAdapter <|-- ContainerAgentRuntimeAdapter
+    ContainerAgentRuntimeAdapter <|-- OpenClawAdapter
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>详细时序图（含 execute_task / run_task）</summary>
+        <div class="inner">
+          <div class="card" style="margin: 0;">
+            <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant CLI as lift_main
+    participant LP as LIFTPipeline
+    participant AD as OpenClawAdapter
+    participant RT as run_task
+    participant DK as Docker
+
+    CLI->>LP: run()
+    LP->>AD: produce_delta (warmup)
+    AD->>DK: docker run base image
+    loop warmup 题
+        AD->>RT: work + judge
+    end
+    AD->>AD: learn review
+    AD->>DK: docker commit → delta
+    loop hold-out 题
+        LP->>AD: run_before_load
+        AD->>DK: docker run base
+        AD->>RT: baseline
+        LP->>AD: run_after_load
+        AD->>DK: docker run delta
+        AD->>RT: evolved
+    end
+    LP->>DK: cleanup + 删 delta
+    LP->>LP: write report.json
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>CLI 常用参数</summary>
+        <div class="inner">
+          <table>
+            <thead><tr><th>参数</th><th>含义</th></tr></thead>
+            <tbody>
+              <tr><td><code>-r openclaw</code></td><td>选择 OpenClaw 适配器（必填）</td></tr>
+              <tr><td><code>--warmup-only</code></td><td>只跑 warmup + evolve，跳过 hold-out</td></tr>
+              <tr><td><code>--run_id</code></td><td>自定义 run 后缀</td></tr>
+              <tr><td><code>--repeat</code></td><td>重复完整 LIFT 流程 N 次</td></tr>
+              <tr><td><code>--no-evaluate</code></td><td>跳过后处理（CSV / HTML）</td></tr>
+              <tr><td><code>--evaluate-only</code></td><td>仅后处理已有 report</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <details>
+        <summary>并发模型</summary>
+        <div class="inner">
+          <table>
+            <thead><tr><th>层级</th><th>默认</th><th>CLI</th></tr></thead>
+            <tbody>
+              <tr><td>repeat 之间</td><td>并行</td><td><code>--serial-repeats</code> 改串行</td></tr>
+              <tr><td>suite / hold-out 题</td><td>串行</td><td>—</td></tr>
+              <tr><td>warmup 题</td><td>串行</td><td><code>-p</code> 可并行</td></tr>
+              <tr><td>baseline → evolved</td><td>串行</td><td>—（LIFT 语义）</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <details>
+        <summary>更多文档</summary>
+        <div class="inner">
+          <table>
+            <tbody>
+              <tr><td><a href="eval-flow.md">eval-flow.md</a></td><td>抽象流程与 report 字段</td></tr>
+              <tr><td><a href="../assets/suite_requirement.md">suite_requirement.md</a></td><td>Suite JSON 规范</td></tr>
+              <tr><td><a href="../src/lift/README.md">src/lift/README.md</a></td><td>英文 README</td></tr>
+              <tr><td><a href="../agent-runtimes/openclaw/README.md">openclaw/README.md</a></td><td>镜像构建</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
     </section>
   </main>
 
   <footer>
-  evolve_eval · <a href="README.md" style="color:var(--accent)">docs/</a> · CLI: <code>python -m src.cli.lift_main -r openclaw</code> · Mermaid 11
+    evolve_eval ·
+    <a href="lift-framework-guide-cn.md">讲稿</a> ·
+    <a href="eval-flow.md">eval-flow</a> ·
+    <code>python -m src.cli.lift_main -r openclaw --suite hello.json</code>
   </footer>
 
   <script>
@@ -710,16 +656,16 @@ flowchart TB
       startOnLoad: true,
       theme: "dark",
       themeVariables: {
-        primaryColor: "#1a2332",
+        primaryColor: "#161b22",
         primaryTextColor: "#e6edf3",
         primaryBorderColor: "#58a6ff",
-        lineColor: "#8b9cb3",
-        secondaryColor: "#243044",
-        tertiaryColor: "#0f1419",
+        lineColor: "#8b949e",
+        secondaryColor: "#21262d",
+        tertiaryColor: "#0d1117",
         fontFamily: "system-ui, sans-serif"
       },
       flowchart: { htmlLabels: true, curve: "basis" },
-      sequence: { mirrorActors: false, messageMargin: 35 }
+      sequence: { mirrorActors: false, messageMargin: 30 }
     });
   </script>
 </body>

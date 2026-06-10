@@ -24,6 +24,6 @@ if [[ -f "${WORKER_JS}" ]]; then
   sed -i 's/"--thinking", "low"/"--thinking", "off"/g' "${WORKER_JS}" || true
 fi
 """.strip(),
-        extra_env=env,
+        env=env,
     )
     await exec_openclaw_async(container, ["learn", "review"])  # 产物写入容器层，供 commit delta
