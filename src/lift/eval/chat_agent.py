@@ -33,7 +33,7 @@ class ChatAgent(ABC):
 
     async def activate_session(self, session_id: str) -> None:
         """chat 前切换 session；有状态 runtime（如 Hermes）覆写，无状态路径默认 no-op。"""
-        _ = session_id
+        _ = session_id  # OpenClaw 在 chat() 的 --session-id 传入，此处 intentionally 空实现
 
     def augment_work_prompt(self, task: SuiteTask, prompt: str) -> str:
         """可选：为 work agent 追加 prompt 后缀。"""

@@ -13,6 +13,7 @@ from src.lift.adapters.openclaw.container_exec import (
 async def openclaw_learn_review(container: OpenClawContainerContext) -> None:
     """warmup 题完成后在容器内执行 evolve（learn review + worker 配置）。"""
     env = container_runtime_env()
+    # 预备：git safe.directory + 降低 review worker thinking（加速 warmup evolve）
     await docker_exec_shell_async(
         container.container_name,
         """
@@ -25,4 +26,4 @@ fi
 """.strip(),
         extra_env=env,
     )
-    await exec_openclaw_async(container, ["learn", "review"])
+    await exec_openclaw_async(container, ["learn", "review"])  # 产物写入容器层，供 commit delta

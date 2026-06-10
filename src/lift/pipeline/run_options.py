@@ -45,7 +45,7 @@ class RunOptions(BaseModel):
     )
     parallel_repeats: bool = Field(
         default=True,
-        description="多轮 repeat 是否并行执行",
+        description="多轮 repeat 是否并行执行（--serial-repeats 关闭）",
     )
     max_parallel_repeats: int | None = Field(
         default=None,

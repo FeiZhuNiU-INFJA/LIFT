@@ -95,6 +95,7 @@ def _stitch_openclaw(
         client, tags=[judge_session_id], page_limit=page_limit, order_by="timestamp.asc"
     )
 
+    # 多路 trace.list 并集去重；完整 payload 一律 trace.get 拉取
     merged: dict[str, Any] = {}
     for t in (*by_run_tag, *by_work, *by_judge, *by_work_tag, *by_judge_tag):
         merged[str(t.id)] = t

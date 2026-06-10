@@ -14,6 +14,7 @@ def split_suite_tasks(config: LiftSuiteConfig) -> tuple[list[SuiteTask], list[Su
         raise ValueError(f"No tasks in suite {config.suite.name!r}")
 
     if config.holdout_task_names:
+        # 显式点名 hold-out；其余题全部进 warmup（顺序保持 suite 原序）
         name_set = set(config.holdout_task_names)
         holdout = [t for t in tasks if t.name in name_set]
         warmup = [t for t in tasks if t.name not in name_set]
@@ -26,11 +27,12 @@ def split_suite_tasks(config: LiftSuiteConfig) -> tuple[list[SuiteTask], list[Su
             raise ValueError(f"holdout_task_names matched no tasks in {config.suite.name!r}")
         return warmup, holdout
 
+    # 默认：suite 末 n 题为 hold-out，前面为 warmup
     n = config.holdout_count
     if n > len(tasks):
         raise ValueError(
             f"holdout_count={n} exceeds task count {len(tasks)} in suite {config.suite.name!r}"
         )
-    warmup = tasks[:-n]
+    warmup = tasks[:-n]  # n=len(tasks) 时 warmup 为空，produce_delta 会报错
     holdout = tasks[-n:]
     return warmup, holdout

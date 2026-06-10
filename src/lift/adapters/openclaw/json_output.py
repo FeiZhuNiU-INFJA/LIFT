@@ -18,6 +18,7 @@ def parse_json_loose(raw: str) -> dict:
     except json.JSONDecodeError:
         pass
 
+    # CLI 可能在 JSON 前打日志行；取最外层 {...}
     start = text.find("{")
     end = text.rfind("}")
     if start >= 0 and end > start:

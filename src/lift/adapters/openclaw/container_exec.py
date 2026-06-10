@@ -24,7 +24,7 @@ class OpenClawContainerContext:
     gateway_port: int
 
     def _exec_env(self, extra_env: dict[str, str] | None = None) -> dict[str, str]:
-        """OpenClaw CLI 所需的容器内环境变量。"""
+        """OpenClaw CLI 所需的容器内环境变量（每次 docker exec 注入）。"""
         env = {
             "OPENCLAW_GATEWAY_TOKEN": self.gateway_token,
             **container_runtime_env(),

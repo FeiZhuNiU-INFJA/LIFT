@@ -38,6 +38,7 @@ def backfill_phase(
     """Attach stitched Langfuse traces to a single ``PhaseRun``, or return None if *phase* is None."""
     if phase is None:
         return None
+    # 按 PhaseRun 存的 session id 拉 Langfuse，合并 *_agent + openclaw-plugin
     bundle = stitch_phase_langfuse_traces(
         client,
         eval_run_tag=run_tag,

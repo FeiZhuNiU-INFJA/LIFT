@@ -56,7 +56,7 @@ def emit_pre_chat_state(
     - ``propagate_attributes(metadata=...)`` only carries short string dimensions (v4 limit).
     """
     if not CONFIG.langfuse_pre_chat or not _langfuse_credentials_present():
-        return
+        return  # EVAL_LANGFUSE_PRE_CHAT=0 或缺 key 时静默跳过
 
     try:
         from langfuse import get_client, propagate_attributes
@@ -83,7 +83,7 @@ def emit_pre_chat_state(
 
     try:
         with propagate_attributes(
-            session_id=session_id,
+            session_id=session_id,  # 须与 openclaw --session-id / plugin sessionId 一致
             user_id=_truncate_str(tags.run),
             # trace_name=trace_name,
             # metadata=short_meta,

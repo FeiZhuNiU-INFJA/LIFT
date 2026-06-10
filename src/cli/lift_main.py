@@ -138,6 +138,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
     )
 
     if args.evaluate:
+        # 执行期 report 无 langfuse 字段；此处 trace_backfill + CSV/HTML
         from src.postprocess.run_post_process import run_post_process_pipeline
 
         report_path = report_json_path(run_id)

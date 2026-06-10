@@ -21,7 +21,7 @@ async def execute_task(
     run_phase: SuiteRunPhase,
 ) -> PhaseRun:
     """Run a single task via ``factory`` → ``run_task`` → ``PhaseRun``."""
-    pair = factory(task)
+    pair = factory(task)  # 每题新建 work/judge agent + 独立 Langfuse session id
     LOGGER.info(
         "Running %s %s: %s run_id=%s workspace=%s",
         run_phase.stage.value,
@@ -70,6 +70,7 @@ async def execute_tasks(
         )
 
     if parallel:
+        # 共享同一 factory/env/workspace：仅当 runtime 支持 warmup 多题并发时使用
         return list(await asyncio.gather(*[run_one(t) for t in tasks]))
     results: list[PhaseRun] = []
     for task in tasks:

@@ -37,6 +37,7 @@ class LIFTPipeline:
         results_run_dir(run_id).mkdir(parents=True, exist_ok=True)
         eval_report.runs = [EvalRepeat() for _ in range(options.repeat)]
 
+        # 多 repeat 默认并行；共享 eval_report，增量写入需 _report_lock
         if options.parallel_repeats and options.repeat > 1:
             await asyncio.gather(
                 *[
@@ -96,6 +97,7 @@ class LIFTPipeline:
             if not suite.tasks:
                 raise ValueError(f"No tasks in {suite_path}")
 
+            # warmup → evolve → delta；hold-out 仅在末 n 题或 holdout_task_names 上对照
             warmup_tasks, holdout_tasks = split_suite_tasks(config)
             category_name = suite.category
 
@@ -114,6 +116,7 @@ class LIFTPipeline:
                 category_name=category_name,
                 suite_name=suite.name,
             )
+            # 本 suite 的资源簿：track 容器、存 delta；suite 结束 finally 里 cleanup
             resources = await adapter.create_suite_run_resources(ctx)
             try:
                 async with self._report_lock:
@@ -127,11 +130,13 @@ class LIFTPipeline:
                     )
 
                 policy = WarmupThenUpdatePolicy(warmup_tasks=warmup_tasks)
+                # warmup 容器在 produce_delta 内部已 cleanup；delta 镜像留给 hold-out
                 delta = await adapter.produce_delta(
                     resources, policy, warmup_tasks, ctx
                 )
 
                 if options.warmup_only:
+                    # 只产 delta，不跑 before/after-load 对照
                     LOGGER.info(
                         "LIFT warmup-only %s: delta committed as %s",
                         suite.name,
@@ -139,6 +144,7 @@ class LIFTPipeline:
                     )
                 else:
                     for holdout_task in holdout_tasks:
+                        # 同一 final 题：baseline（base 镜像）vs evolved（delta 镜像）
                         baseline = await adapter.run_before_load(
                             holdout_task, resources, ctx
                         )
@@ -161,9 +167,11 @@ class LIFTPipeline:
                         )
 
                 if options.incremental_report:
+                    # 长跑中断时仍可从磁盘恢复部分 report
                     async with self._report_lock:
                         eval_report.write_json(report_path)
             finally:
+                # 删本 suite 登记的容器；delta 镜像也在 resources.cleanup 里 rmi
                 await resources.cleanup()
 
         repeat_run.completed_at = datetime.now(timezone.utc).isoformat()

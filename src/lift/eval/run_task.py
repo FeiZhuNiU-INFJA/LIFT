@@ -29,6 +29,7 @@ def _extract_judge_result(raw_text: str) -> EvalJudgeResult:
         end_idx = raw_text.rfind("}")
         if start_idx == -1 or end_idx == -1 or start_idx > end_idx:
             raise ValueError("Judge response does not contain a complete JSON object")
+        # judge 常夹带 markdown/废话；截取首尾 {} 再 json_repair
         json_candidate = raw_text[start_idx : end_idx + 1]
         repaired_text = repair_json(json_candidate)
         data = json.loads(repaired_text)
@@ -63,7 +64,7 @@ def _emit_pre_chat(
     chat_role: str,
 ) -> None:
     """框架统一发 Langfuse pre-chat span（与具体 runtime 无关）。"""
-    tags.agent_name = agent.agent_name
+    tags.agent_name = agent.agent_name  # report 层不依赖 ChatAgent 类型，在此桥接
     emit_pre_chat_state(session_id=session_id, tags=tags, chat_role=chat_role)
 
 
@@ -78,7 +79,7 @@ async def _agent_chat(
     """时间戳 + pre-chat + transport chat。"""
     _emit_pre_chat(agent, session_id=session_id, tags=tags, chat_role=chat_role)
     return await agent.chat(
-        format_outbound_message(message),
+        format_outbound_message(message),  # GMT+8 时间戳前缀，OpenClaw 等 runtime 约定
         session_id=session_id,
     )
 
@@ -118,7 +119,7 @@ async def _judge_with_retry(
         chat_role="judge_agent",
     )
 
-    max_judge_retry_times = 8
+    max_judge_retry_times = 8  # 只重试 judge 输出解析，不重跑 work agent
     judge_retry_count = 0
     while True:
         try:
@@ -158,8 +159,8 @@ async def run_task(
     Does not schedule multiple tasks; use ``execute_tasks`` for that.
     """
     tags = CustomTags.init_tags(task, run_id)
-    tags.is_final_task = is_final_task
-    tags.is_evolve_turn = is_evolve_turn
+    tags.is_final_task = is_final_task  # hold-out → Langfuse pre-chat / 后处理过滤
+    tags.is_evolve_turn = is_evolve_turn  # after-load → 标记加载了 warmup delta
     current_prompt = pair.work_agent.augment_work_prompt(task, task.query)
     last_content_score: float = 0.0
 
@@ -193,7 +194,7 @@ async def run_task(
             agent_result=agent_result,
         )
 
-        tags.content_score = judge_result.score
+        tags.content_score = judge_result.score  # 下一轮 pre-chat 会带上最新 score
         last_content_score = float(judge_result.score)
         if judge_result.success:
             return (
@@ -203,9 +204,10 @@ async def run_task(
                 last_content_score,
             )
 
+        # judge reason 作为下一轮 work 的用户消息（多轮改进循环）
         current_prompt = judge_result.reason + "你再试一次看看能不能完成任务"
 
-    return (
+    return (  # 耗尽 max_turns：success=False，score 为最后一轮 judge 分
         False,
         pair.work_session_id,
         pair.judge_session_id,

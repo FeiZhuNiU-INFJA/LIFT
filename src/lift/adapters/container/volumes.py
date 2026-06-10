@@ -36,7 +36,7 @@ def default_volume_binds(
     benchmarks = Path.cwd() / "assets" / "benchmarks"
     if benchmarks.is_dir():
         binds.append((str(benchmarks.resolve()), CONTAINER_BENCHMARKS_ROOT, "ro"))
-    _ = repeat_index
+    _ = repeat_index  # 预留：未来可按 repeat 分子目录挂载 outcome
     return binds
 
 

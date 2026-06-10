@@ -534,6 +534,7 @@ class CustomTags:
 
     def to_env_value(self) -> str:
         """序列化为 OpenClaw env 变量值（逗号分隔 key=value，不含 agent_name）。"""
+        # 逗号分隔协议：值内不得含逗号（见 _sanitize_tag_value）
         fields_in_order = [
             ("run", self.run),
             ("task", self.task),

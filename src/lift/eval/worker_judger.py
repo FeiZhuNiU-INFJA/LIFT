@@ -22,8 +22,8 @@ class WorkerJudgerPair:
 
     work_agent: ChatAgent
     judge_agent: ChatAgent
-    work_session_id: str
-    judge_session_id: str
+    work_session_id: str  # Langfuse session；OpenClaw = user-*
+    judge_session_id: str  # Langfuse session；OpenClaw = judge-*
 
 
 class WorkerJudgerPairFactory(Protocol):

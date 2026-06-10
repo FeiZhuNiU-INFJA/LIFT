@@ -36,10 +36,10 @@ _CONTAINER_PREFIX = "evolve-openclaw"  # docker 容器名前缀
 def _instance_ports(instance_key: str) -> tuple[int, int]:
     """按 instance_key hash 分配宿主机 gateway/fastapi 端口对。"""
     digest = hashlib.sha256(instance_key.encode()).hexdigest()
-    slot = int(digest[:8], 16) % 500
+    slot = int(digest[:8], 16) % 500  # 确定性端口，同 instance_key 可复现
     return (
         _BASE_GATEWAY_PORT + slot * _PORT_STEP,
-        _BASE_FASTAPI_PORT + slot * _PORT_STEP,
+        _BASE_FASTAPI_PORT + slot * _PORT_STEP,  # 18090：self-evolving-plugin HTTP，LIFT chat 不用
     )
 
 
@@ -59,12 +59,13 @@ async def _wait_gateway(session: ContainerSession, tries: int = 90) -> None:
             if proc.returncode == 0:
                 return
         await asyncio.sleep(1)
+    # 不抛错：部分环境 health 路径慢；后续 docker exec 失败会再暴露
     LOGGER.warning("Gateway health check timed out for %s", session.container_name)
 
 
 async def _reclaim_volume_ownership(session: ContainerSession) -> None:
     """容器销毁前将 bind mount 目录 chown 回宿主机用户。"""
-    await asyncio.sleep(2)
+    await asyncio.sleep(2)  # 等容器内进程释放 volume 文件句柄
     uid, gid = host_user_ids()
     try:
         await docker_exec_shell_async(
@@ -136,22 +137,22 @@ async def start_openclaw_container(
     )
     if workspace_dir is not None:
         if seed_workspace:
-            seed_eval_workspace(workspace_dir)
+            seed_eval_workspace(workspace_dir)  # 宿主机侧复制 IDENTITY/USER/SOUL
         binds.append((str(workspace_dir.resolve()), "/workspace/task", "rw"))
     if task is not None:
         binds.extend(task_volume_binds(task))
 
     env_vars = {
         "OPENCLAW_GATEWAY_TOKEN": token,
-        "EVOBENCH_EVAL_RUN_TAG": ctx.run_id,
+        "EVOBENCH_EVAL_RUN_TAG": ctx.run_id,  # langfuse-tracer 写入 trace tags，对齐 pre-chat run
         **container_runtime_env(),
     }
 
     post_start_hooks: list = []
     if workspace_dir is not None:
-        post_start_hooks.append(_reset_workspace_attestations)
+        post_start_hooks.append(_reset_workspace_attestations)  # 清跨题 attestations 状态
         if seed_workspace:
-            post_start_hooks.append(_ensure_workspace_seed)
+            post_start_hooks.append(_ensure_workspace_seed)  # 容器内删 BOOTSTRAP、同步 seed
 
     return await ContainerSession.start(
         instance_id=instance_id,
@@ -159,7 +160,7 @@ async def start_openclaw_container(
         image=image,
         entrypoint_cmd=["openclaw", "gateway", "run", "--bind", "lan"],
         port_mappings=[
-            (gateway_port, 18789),
+            (gateway_port, 18789),  # 容器内 openclaw agent --local 连此端口（非宿主机映射口）
             (fastapi_port, 18090),
         ],
         env_vars=env_vars,

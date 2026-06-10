@@ -70,7 +70,7 @@ class AgentRuntimeAdapter(ABC):
         run_phase = SuiteRunPhase.warmup()
         workspace = self.warmup_workspace(ctx)
         env = await self.start_warmup_environment(ctx, resources, workspace)
-        resources.track(env.disposable)
+        resources.track(env.disposable)  # suite 级登记；produce_delta 结束后再统一 cleanup
         try:
             factory = self.worker_judger_factory(
                 env, ctx, run_phase=run_phase, workspace_dir=workspace
@@ -81,14 +81,15 @@ class AgentRuntimeAdapter(ABC):
                 workspace_dir=workspace,
                 factory=factory,
                 run_phase=run_phase,
-                parallel=self._options.parallel,
+                parallel=self._options.parallel,  # warmup 多题是否并行由 CLI -p 控制
             )
-            await self.apply_evolve(env, ctx)
-            delta = await self.materialize_delta(env, ctx)
+            await self.apply_evolve(env, ctx)  # runtime 特有：OpenClaw = learn review
+            delta = await self.materialize_delta(env, ctx)  # 须在容器仍存活时 commit
             resources.delta = delta
             LOGGER.info("Delta materialized: %s", delta.image_tag)
             return delta
         finally:
+            # warmup 容器使命结束；hold-out 会起新容器加载 delta 镜像
             await env.disposable.cleanup()
 
     async def run_before_load(
@@ -143,7 +144,7 @@ class AgentRuntimeAdapter(ABC):
             image=image,
             seed_workspace=True,
         )
-        resources.track(env.disposable)
+        resources.track(env.disposable)  # hold-out 每题独立容器，题末 finally 立刻 rm
         try:
             factory = self.worker_judger_factory(
                 env, ctx, run_phase=run_phase, workspace_dir=workspace

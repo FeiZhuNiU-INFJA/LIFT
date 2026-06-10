@@ -48,6 +48,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
     ) -> DeltaRef:
         """按 ``warmup_container_policy`` 校验后委托父类执行 warmup → delta。"""
         policy_enum = self._options.warmup_container_policy
+        # 当前仅 SERIAL_SINGLE：warmup 全程单容器；PARALLEL_MULTI 预留未实现
         if policy_enum == WarmupContainerPolicy.PARALLEL_MULTI:
             if self._options.parallel:
                 raise NotImplementedError(
@@ -73,7 +74,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
             image=self._docker_image,
             ctx=ctx,
             workspace_dir=workspace_dir,
-            seed_workspace=False,
+            seed_workspace=False,  # warmup 要真实 onboarding/evolve，不注入 hold-out 人设 seed
             task=None,
         )
         return ExecutionEnvironment(
@@ -98,6 +99,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         ``seed_workspace`` 原样传给 ``start_container``（见该方法的文档）。
         """
         _ = resources
+        # short_id 保证并行 hold-out 或重跑时容器名不撞
         instance_id = (
             f"{ctx.run_id}-r{ctx.repeat_index}-{task.name}-holdout-{short_id()}"
         )

@@ -18,7 +18,7 @@ def build_docker_exec_argv(
     cmd: list[str] = ["docker", "exec"]
     if env:
         for key, val in env.items():
-            cmd.extend(["-e", f"{key}={val}"])
+            cmd.extend(["-e", f"{key}={val}"])  # 逐对 -e，兼容任意 runtime CLI 环境
     cmd.append(container_name)
     cmd.extend(command)
     return cmd

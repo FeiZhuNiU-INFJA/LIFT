@@ -53,7 +53,7 @@ class OpenClawContainerAgent(ChatAgent):
                 "--message",
                 message,
                 "--session-id",
-                session_id,
+                session_id,  # 与 emit_pre_chat_state / langfuse-tracer 的 sessionId 对齐
                 "--json",
                 "--local",
             ],
@@ -99,7 +99,7 @@ class OpenClawContainerAgent(ChatAgent):
                 attempt + 1,
                 max_retries,
             )
-            self._agent_name = f"evobench-agent_name-{short_id()}"
+            self._agent_name = f"evobench-agent_name-{short_id()}"  # 名冲突时换名重试
         raise ValueError("Failed to create container agent")
 
 
@@ -120,7 +120,7 @@ class OpenClawWorkerJudgerPairFactory:
         judge_session_id = f"judge-{short_id()}"
 
         def create_agent(session_role: str) -> OpenClawContainerAgent:
-            _ = session_role
+            _ = session_role  # work/judge 各独立 agent 实例，session 由下方 id 区分
             return OpenClawContainerAgent(
                 container=self._container,
                 agent_name=f"evobench-agent_name-{short_id()}",

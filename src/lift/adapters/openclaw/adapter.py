@@ -59,7 +59,7 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
     ) -> WorkerJudgerPairFactory:
         """绑定 OpenClaw 容器上下文，返回 ``OpenClawWorkerJudgerPairFactory``。"""
         session: ContainerSession = env.handle
-        _ = (ctx, run_phase)
+        _ = (ctx, run_phase)  # factory 按题创建 pair；phase 标签在 execute_task → run_task 传入
         return OpenClawWorkerJudgerPairFactory(
             container=openclaw_context(session),
             workspace_dir=workspace_dir,

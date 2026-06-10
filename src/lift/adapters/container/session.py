@@ -85,6 +85,7 @@ class ContainerSession(Disposable):
         safe_id = sanitize_container_id(instance_id)
         container_name = f"{container_name_prefix}-{safe_id}"[:128]
 
+        # 同名容器可能来自中断的上次 run
         await EnvironmentCleaner().remove_container(container_name)
 
         cmd = [
@@ -94,9 +95,9 @@ class ContainerSession(Disposable):
             "--name",
             container_name,
             "--add-host",
-            "host.docker.internal:host-gateway",
+            "host.docker.internal:host-gateway",  # 容器内 Langfuse / 模型 API 访问宿主机
             "-v",
-            "/tmp:/tmp",
+            "/tmp:/tmp",  # OpenClaw / 插件临时文件
         ]
         if extra_docker_args:
             cmd.extend(extra_docker_args)
@@ -131,7 +132,7 @@ class ContainerSession(Disposable):
             _pre_cleanup_hooks=list(pre_cleanup_hooks or []),
         )
         if readiness_check is not None:
-            await readiness_check(session)
+            await readiness_check(session)  # 如 OpenClaw gateway curl
         for hook in post_start_hooks or []:
-            await hook(session)
+            await hook(session)  # readiness 通过后再做 seed / attestations 清理
         return session
