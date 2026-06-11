@@ -131,7 +131,7 @@ sequenceDiagram
 
 ### 卷子长什么样
 
-`assets/benchmarks/hello.json` 两道题：
+`assets/benchmarks_demo/hello.json` 两道题（与 `assets/benchmarks/` 分离，跑时指定 `--benchmark_dir assets/benchmarks_demo`）：
 
 | 题 | 内容 | 在 LIFT 里扮演 |
 |----|------|----------------|
@@ -146,17 +146,18 @@ bash agent-runtimes/openclaw/build-image.sh
 
 # 2. 配置仓库根目录 .env（模型 API、Langfuse 等）
 
-# hello.json 已在 assets/benchmarks/，一般不用 preprocess
+# hello.json 可直接跑；完整 benchmark 需 preprocess
+# python -m src.cli.preprocess
 ```
 
 ### 两条命令，两种粒度
 
 ```bash
 # 冒烟：只跑 warmup + evolve，不跑 hold-out 对照
-python -m src.cli.lift_main --agent-runtime openclaw --suite hello.json --warmup-only
+python -m src.cli.lift_main --agent-runtime openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --warmup-only
 
 # 完整 LIFT：Q1 warmup → evolve → Q2 baseline vs evolved → 后处理
-python -m src.cli.lift_main --agent-runtime openclaw --suite hello.json --run_id hello-full
+python -m src.cli.lift_main --agent-runtime openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id hello-full
 ```
 
 ### 执行时发生了什么（按顺序讲）
@@ -222,7 +223,7 @@ Warmup 要状态连续才能进化；hold-out 要干净对照，每 phase 必须
 执行期 `PhaseRun` 记 success/score；轨迹相关指标在后处理结合 Langfuse trace 算（默认 `--evaluate` 开启）。
 
 **benchmark 从哪来？**  
-人类可读 md 在 `assets/benchmark_mds/`，`python -m src.cli.preprocess` 转成 `assets/benchmarks/*.json`。与 `lift_main` 解耦，md 改了要单独 preprocess。
+`hello.json` 在 `assets/benchmarks_demo/`（随仓库提供，与 `assets/benchmarks/` 分离）。`assets/benchmark_mds/` 与 `assets/benchmarks/` 不纳入 git；完整 benchmark 需 `python -m src.cli.preprocess`（从 TOS 下载 md 并转成 JSON）。与 `lift_main` 解耦，源数据更新后要单独 preprocess（可用 `--force-download`）。
 
 **results 删不掉？**  
 容器内 root 写的文件；新跑会自动 chown，历史残留用 `bash scripts/clean-results.sh`。

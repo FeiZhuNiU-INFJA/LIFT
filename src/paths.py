@@ -28,6 +28,21 @@ CONTAINER_OUTCOME_ROOT = "/workspace/outcome"
 CONTAINER_BENCHMARKS_ROOT = "/workspace/benchmarks"
 """容器内 benchmark suite JSON 根路径。"""
 
+BENCHMARK_MDS_DIR = PROJECT_ROOT / "assets" / "benchmark_mds"
+"""人类可读 benchmark markdown 根目录（preprocess 时从 TOS 下载，不纳入 git）。"""
+
+BENCHMARKS_DIR = PROJECT_ROOT / "assets" / "benchmarks"
+"""机器可读 suite JSON 目录（preprocess 生成，不纳入 git）。"""
+
+BENCHMARKS_DEMO_DIR = PROJECT_ROOT / "assets" / "benchmarks_demo"
+"""冒烟 / demo suite JSON 目录（如 hello.json，随仓库提供）。"""
+
+BENCHMARK_MDS_TOS_BUCKET = "aml-fde-boe"
+"""存放 ``benchmark_mds.zip`` 的 TOS bucket（BOE）。"""
+
+BENCHMARK_MDS_TOS_OBJECT_KEY = "benchmark_mds.zip"
+"""TOS 上 benchmark markdown 压缩包对象名。"""
+
 
 def _cwd(cwd: Path | None) -> Path:
     """解析工作目录，``None`` 时使用 ``Path.cwd()``。"""

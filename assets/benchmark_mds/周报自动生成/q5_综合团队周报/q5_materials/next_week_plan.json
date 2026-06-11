@@ -1,7 +1,0 @@
-[
-  {"owner":"李雷","task":"首页性能优化-图片懒加载","start":"2026-06-15","end":"2026-06-16","url":"https://jira.example.com/browse/FE-1310"},
-  {"owner":"李雷","task":"组件库升级-Table重构","start":"2026-06-17","end":"2026-06-19","url":"https://jira.example.com/browse/FE-1320"},
-  {"owner":"韩梅梅","task":"营销活动H5-抽奖动效（待后端联调）","start":"2026-06-15","end":"2026-06-19","url":"https://jira.example.com/browse/FE-1290"},
-  {"owner":"王五","task":"数据看板-导出Excel","start":"2026-06-15","end":"2026-06-17","url":"https://jira.example.com/browse/FE-1318"},
-  {"owner":"王五","task":"数据看板-埋点接入","start":"2026-06-18","end":"2026-06-19","url":"https://jira.example.com/browse/FE-1325"}
-]

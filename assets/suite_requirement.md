@@ -29,7 +29,7 @@
 
 ### 机器可读 Suite JSON（LIFT / `src` 评测）
 
-预处理后的 `assets/benchmarks/*.json` 在标准 `Suite` 字段之外，可包含 **hold-out 配置**（由 [src/lift/suite/lift_suite.py](../src/lift/suite/lift_suite.py) 读取）：
+preprocess 生成的 `assets/benchmarks/*.json`（不纳入 git）在标准 `Suite` 字段之外，可包含 **hold-out 配置**（由 [src/lift/suite/lift_suite.py](../src/lift/suite/lift_suite.py) 读取）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|

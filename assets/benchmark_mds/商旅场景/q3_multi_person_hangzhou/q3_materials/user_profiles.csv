@@ -1,4 +1,0 @@
-employee_id,name,title,level,home_city,flight_policy,train_policy,hotel_budget,hotel_preference,seat_preference,notes
-E001,王明,经理,P7,北京,4小时内航程限经济舱,高铁二等座,400,锦江/桔子,靠窗,优先上午航班；默认申请人为王明
-E002,张总,总监,P9,北京,可选商务舱；4小时内也可选经济舱,高铁一等座,600,锦江/桔子,过道,重要客户拜访优先舒适性
-E003,小李,专员,P5,杭州,经济舱,高铁二等座,300,经济连锁,无,预算敏感；可接受标间

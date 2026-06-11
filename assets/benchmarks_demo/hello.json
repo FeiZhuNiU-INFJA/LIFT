@@ -1,0 +1,32 @@
+{
+  "name": "Hello",
+  "category": "Hello",
+  "tasks": [
+    {
+      "name": "Q1",
+      "query": "回复一下你好",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": ""
+      },
+      "expected_result": {
+        "content_reqs": "1. 回复“你好”",
+        "trajectory_reqs": "1. 回复“你好”"
+      }
+    },
+    {
+      "name": "Q2",
+      "query": "自我介绍一下你自己",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": ""
+      },
+      "expected_result": {
+        "content_reqs": "1. 自我介绍一下你自己",
+        "trajectory_reqs": "1. 自我介绍一下你自己"
+      }
+    }
+  ]
+}

@@ -65,8 +65,8 @@ Full write / fetch / pairing contract: [docs/eval-flow.md §12.5](../../docs/eva
 
 ```bash
 bash agent-runtimes/openclaw/build-image.sh
-python -m src.cli.lift_main -r openclaw --suite hello.json --warmup-only
-python -m src.cli.lift_main -r openclaw --suite hello.json
+python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --warmup-only
+python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json
 ```
 
 Default image: `evolve-eval-openclaw:latest` (constant `OPENCLAW_DOCKER_IMAGE` in `src/paths.py`).

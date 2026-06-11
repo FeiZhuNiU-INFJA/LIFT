@@ -6,10 +6,14 @@ LIFT（Loaded Impact on Final Task）评测框架：Docker 容器内 OpenClaw ag
 # 1. 构建镜像（首次或 agent-runtimes 变更后）
 bash agent-runtimes/openclaw/build-image.sh
 
-# 2. 完整 LIFT + 默认后处理（trace backfill、指标、HTML）
-python -m src.cli.lift_main -r openclaw --suite hello.json --run_id my-run
+# 2. 冒烟（hello.json 在 assets/benchmarks_demo/，与完整 benchmark 目录分离）
+python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id my-run
 
-# 3. 仅后处理已有 report
+# 3. 完整 benchmark 需先 preprocess（需 .env 中 TOS_ACCESS_KEY / TOS_SECRET_KEY）
+# python -m src.cli.preprocess
+# python -m src.cli.lift_main -r openclaw --suite all --run_id my-run
+
+# 4. 仅后处理已有 report
 python -m src.cli.lift_main -r openclaw --evaluate-only --run_id my-run
 ```
 
@@ -52,10 +56,15 @@ bash agent-runtimes/openclaw/build-image.sh
 # 产出 evolve-eval-openclaw:latest，详见 agent-runtimes/openclaw/README.md
 ```
 
-Benchmark 预处理（`assets/benchmark_mds/` 有变更时执行，与 LIFT CLI 解耦）：
+Benchmark 预处理（从 TOS 拉取 `benchmark_mds.zip` 并生成 `assets/benchmarks/*.json`，与 LIFT CLI 解耦）：
 
 ```bash
+# 需配置 .env 中的 TOS_ACCESS_KEY / TOS_SECRET_KEY（bucket: aml-fde-boe）
 python -m src.cli.preprocess
+# 强制重新下载
+python -m src.cli.preprocess --force-download
+# 已有本地 assets/benchmark_mds/ 时跳过下载
+python -m src.cli.preprocess --skip-download
 ```
 
 ## 4. 环境变量
@@ -84,6 +93,10 @@ TRAJECTORY_JUDGE_MODEL=gpt-4o-mini
 
 # 联网搜索（部分 benchmark 可选）
 FIRECRAWL_API_KEY=
+
+# preprocess 从 TOS 下载 benchmark markdown（aml-fde-boe/benchmark_mds.zip）
+TOS_ACCESS_KEY=your_access_key
+TOS_SECRET_KEY=your_secret_key
 ```
 
 说明：
@@ -117,14 +130,15 @@ EvalReport
                     └── evolved（PhaseRun）
 ```
 
-- 机器可读数据：`assets/benchmarks/*.json`（由 `python -m src.cli.preprocess` 从 `assets/benchmark_mds/` 生成）
+- 冒烟 suite：`assets/benchmarks_demo/hello.json`（随仓库提供；`--benchmark_dir assets/benchmarks_demo`）
+- 完整 benchmark：`assets/benchmarks/*.json`（由 `python -m src.cli.preprocess` 从 TOS markdown 生成；不纳入 git；默认 `--benchmark_dir`）
 - 规范说明：[assets/suite_requirement.md](./assets/suite_requirement.md)
 - 模型定义：[src/models.py](./src/models.py)（`SuiteSpec`、`EvalReport`、`PhaseRun`）
 
 ## 6. 运行 LIFT
 
 ```bash
-python -m src.cli.lift_main -r openclaw --suite hello.json --run_id my-run
+python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id my-run
 ```
 
 常用参数：
@@ -214,8 +228,9 @@ evolve_eval/
 ├── agent-runtimes/         # 各 runtime 的 Docker 镜像与插件
 │   └── openclaw/
 ├── assets/
-│   ├── benchmark_mds/      # 人类可读任务源
-│   └── benchmarks/         # 机器可读 suite JSON
+│   ├── benchmark_mds/      # 人类可读任务源（preprocess 从 TOS 下载，gitignore）
+│   ├── benchmarks_demo/    # 冒烟 demo suite（如 hello.json）
+│   └── benchmarks/         # 完整 suite JSON（preprocess 生成，gitignore）
 ├── docs/                   # 流程与架构文档
 └── results/                # 每次 run 产物（report、outcome、后处理；gitignore）
 ```

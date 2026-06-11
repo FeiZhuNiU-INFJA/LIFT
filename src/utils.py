@@ -46,15 +46,18 @@ def outcome_workspace(
     return workspace_dir
 
 
+def _resolved_benchmark_dir(benchmark_dir: Path) -> Path:
+    """Normalize ``assets`` → ``assets/benchmarks``."""
+    return benchmark_dir / "benchmarks" if benchmark_dir.name == "assets" else benchmark_dir
+
+
 def iter_benchmark_paths(benchmark_dir: Path) -> list[Path]:
     """List all suite JSON files under a benchmark directory (recursive).
 
     Resolves ``assets`` to ``assets/benchmarks``. Raises if the path is not a
     directory or contains no ``*.json`` files when used by callers.
     """
-    if not benchmark_dir.is_dir():
-        raise ValueError(f"--benchmark_dir must be a directory: {benchmark_dir}")
-    resolved_dir = benchmark_dir / "benchmarks" if benchmark_dir.name == "assets" else benchmark_dir
+    resolved_dir = _resolved_benchmark_dir(benchmark_dir)
     if not resolved_dir.is_dir():
         raise ValueError(f"Benchmark directory not found: {resolved_dir}")
     return sorted(resolved_dir.glob("**/*.json"))
@@ -73,7 +76,8 @@ def resolve_suite_paths(benchmark_dir: Path, suite: str) -> list[Path]:
     """
     all_paths = iter_benchmark_paths(benchmark_dir)
     if not all_paths:
-        raise ValueError(f"No suite JSON files found in {benchmark_dir}")
+        resolved_dir = _resolved_benchmark_dir(benchmark_dir)
+        raise ValueError(f"No suite JSON files found in {resolved_dir}")
     if suite == "all":
         return all_paths
     suite_names = [name.strip() for name in suite.split(",")]

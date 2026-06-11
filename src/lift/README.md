@@ -29,15 +29,15 @@ Ephemeral entrypoint variant (optional): `agent-runtimes/openclaw/Dockerfile.ent
 
 ```bash
 # Canonical entry (runtime-agnostic CLI)
-python -m src.cli.lift_main -r openclaw --suite hello.json --warmup-only
+python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --warmup-only
 
-python -m src.cli -r openclaw --suite hello.json --warmup-only
+python -m src.cli -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --warmup-only
 
 # Full LIFT (default post-process / evaluation)
-python -m src.cli.lift_main -r openclaw --suite hello.json --run_id my-run
+python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id my-run
 
 # Parallel repeats (default)
-python -m src.cli.lift_main -r openclaw --suite hello.json --repeat 3
+python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --repeat 3
 ```
 
 ## Options

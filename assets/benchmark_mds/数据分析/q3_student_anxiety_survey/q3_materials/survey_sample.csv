@@ -1,7 +1,0 @@
-student_id,gender,grade,major_type,gad7,phq9,sleep_hours,weekly_exercise,advisor_support,financial_pressure
-S001,F,研一,医学,8,6,6.5,2,4,3
-S002,M,研二,工科,14,12,5.0,0,2,5
-S003,F,研三,文科,5,4,7.5,3,5,2
-S004,M,研一,理科,10,9,6.0,1,3,4
-S005,F,研二,医学,18,15,4.5,0,1,5
-S006,M,研三,工科,7,5,7.0,4,4,2

@@ -1,6 +1,7 @@
 """Convert markdown benchmark task folders into JSON ``Suite`` specifications.
 
-Scans scene directories under ``assets/benchmark_mds``, parses per-task markdown
+Scans scene directories under ``assets/benchmark_mds`` (downloaded from TOS by
+``benchmark_mds_fetch`` when using the default input root), parses per-task markdown
 sections (query, 要求, 轨迹要求), and writes validated JSON to ``assets/benchmarks``.
 """
 
@@ -21,6 +22,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.models import Suite  # noqa: E402
+from src.paths import BENCHMARK_MDS_DIR, BENCHMARKS_DIR  # noqa: E402
+from src.preprocess.benchmark_mds_fetch import ensure_benchmark_mds  # noqa: E402
 
 
 # Matches task directory names like ``q1``, ``q2_foo``, or ``Q3-bar``.
@@ -196,10 +199,20 @@ def convert_all(input_root: Path, output_root: Path) -> list[Path]:
 def preprocess_suite_mds(
     input_root: Path | None = None,
     output_root: Path | None = None,
+    *,
+    skip_download: bool = False,
+    force_download: bool = False,
 ) -> list[Path]:
     """Convert default or custom markdown benchmark roots to JSON benchmark specs."""
-    resolved_input_root = (input_root or (PROJECT_ROOT / "assets" / "benchmark_mds")).resolve()
-    resolved_output_root = (output_root or (PROJECT_ROOT / "assets" / "benchmarks")).resolve()
+    resolved_input_root = (input_root or BENCHMARK_MDS_DIR).resolve()
+    resolved_output_root = (output_root or BENCHMARKS_DIR).resolve()
+
+    using_default_input = input_root is None or resolved_input_root == BENCHMARK_MDS_DIR.resolve()
+    if using_default_input and not skip_download:
+        ensure_benchmark_mds(resolved_input_root, force=force_download)
+    elif not resolved_input_root.exists():
+        raise FileNotFoundError(f"benchmark markdown root does not exist: {resolved_input_root}")
+
     return convert_all(resolved_input_root, resolved_output_root)
 
 

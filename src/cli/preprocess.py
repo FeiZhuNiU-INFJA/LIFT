@@ -1,8 +1,9 @@
-"""独立 CLI：将 benchmark_mds markdown 目录转换为 suite JSON。
+"""独立 CLI：从 TOS 拉取 benchmark_mds 并转换为 suite JSON。
 
 在 benchmark 源变更后、运行 ``python -m src.cli.lift_main`` 前执行：
 
     python -m src.cli.preprocess
+    python -m src.cli.preprocess --force-download
     python -m src.cli.preprocess --input-root assets/benchmark_mds --output-root assets/benchmarks
 """
 
@@ -31,6 +32,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Destination directory for generated suite JSON files (default: assets/benchmarks).",
     )
+    parser.add_argument(
+        "--skip-download",
+        action="store_true",
+        help="Skip TOS download and use the existing local assets/benchmark_mds directory.",
+    )
+    parser.add_argument(
+        "--force-download",
+        action="store_true",
+        help="Re-download benchmark_mds.zip from TOS even if assets/benchmark_mds already exists.",
+    )
     return parser
 
 
@@ -40,6 +51,8 @@ def main(argv: list[str] | None = None) -> None:
     written = preprocess_suite_mds(
         input_root=args.input_root,
         output_root=args.output_root,
+        skip_download=args.skip_download,
+        force_download=args.force_download,
     )
     for path in written:
         print(path)

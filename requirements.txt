@@ -1,3 +1,6 @@
+--extra-index-url https://bytedpypi.byted.org/simple
+
+bytedtos
 openai
 pydantic
 python-dotenv

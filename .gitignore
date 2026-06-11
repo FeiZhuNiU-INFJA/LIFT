@@ -128,6 +128,10 @@ test*
 !src/lift/tests/*.py
 
 
+# benchmark assets (fetched / generated during preprocess)
+assets/benchmark_mds/
+assets/benchmarks/
+
 # results
 results/
 

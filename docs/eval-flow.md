@@ -68,12 +68,12 @@ flowchart LR
 
 | 阶段 | 做什么 | 入口 |
 |------|--------|------|
-| **数据准备** | 将 markdown 场景目录转为 suite JSON | `python -m src.cli.preprocess` → `src/preprocess/convert_suite_mds_to_json.py` |
+| **数据准备** | 从 TOS 下载 `benchmark_mds.zip` 并转为 suite JSON | `python -m src.cli.preprocess` → `src/preprocess/benchmark_mds_fetch.py` + `convert_suite_mds_to_json.py` |
 | **评测执行** | LIFT 编排：warmup 产 Δ → hold-out 对照 → 写 report | `python -m src.cli.lift_main -r openclaw` |
 | **Report 落盘** | 执行期 JSON（先填 success/score/session 等；trace 后填） | `EvalReport.write_json` → `results/{run_id}/report.json` |
 | **后处理** | trace_backfill、抽指标、trajectory 打分、出报告 | `src/postprocess/run_post_process.py`（默认随 `-e` 触发） |
 
-> **注意**：benchmark 预处理与 LIFT 执行**已解耦**。`lift_main` 不会自动跑 preprocess；在 `assets/benchmark_mds/` 有变更时需先执行 `python -m src.cli.preprocess`。
+> **注意**：benchmark 预处理与 LIFT 执行**已解耦**。`lift_main` 不会自动跑 preprocess。冒烟用 `assets/benchmarks_demo/hello.json`（`--benchmark_dir assets/benchmarks_demo`）；完整 benchmark 的 `assets/benchmark_mds/` 与 `assets/benchmarks/` 不纳入 git，需先执行 `python -m src.cli.preprocess`（默认 `--benchmark_dir assets/benchmarks`）。
 
 ---
 
@@ -107,7 +107,7 @@ repeat 之间默认并行；每 suite 独立 Δ 与 `SuiteRunResources` 登记�
 入口：
 
 ```bash
-python -m src.cli.lift_main -r openclaw --suite hello.json --run_id my-run
+python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id my-run
 ```
 
 详见 [lift-framework-guide-cn.md](./lift-framework-guide-cn.md)。
