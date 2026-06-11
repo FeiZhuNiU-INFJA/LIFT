@@ -1,38 +1,14 @@
-"""Suite 题目切分：warmup（产物生产）与 hold-out（LIFT 终测对照）。"""
+"""Suite 题目分组：warmup（train）与 holdout（test）。"""
 
 from __future__ import annotations
 
-from src.models import SuiteTask
-
-from src.lift.suite.lift_suite import LiftSuiteConfig
+from src.models import Suite, SuiteTask
 
 
-def split_suite_tasks(config: LiftSuiteConfig) -> tuple[list[SuiteTask], list[SuiteTask]]:
-    """将 suite 题目切分为 warmup（产物进化）与 hold-out（终测对照）两列表。"""
-    tasks = config.suite.tasks
-    if not tasks:
-        raise ValueError(f"No tasks in suite {config.suite.name!r}")
-
-    if config.holdout_task_names:
-        # 显式点名 hold-out；其余题全部进 warmup（顺序保持 suite 原序）
-        name_set = set(config.holdout_task_names)
-        holdout = [t for t in tasks if t.name in name_set]
-        warmup = [t for t in tasks if t.name not in name_set]
-        missing = name_set - {t.name for t in holdout}
-        if missing:
-            raise ValueError(
-                f"holdout_task_names not found in suite {config.suite.name!r}: {sorted(missing)}"
-            )
-        if not holdout:
-            raise ValueError(f"holdout_task_names matched no tasks in {config.suite.name!r}")
-        return warmup, holdout
-
-    # 默认：suite 末 n 题为 hold-out，前面为 warmup
-    n = config.holdout_count
-    if n > len(tasks):
-        raise ValueError(
-            f"holdout_count={n} exceeds task count {len(tasks)} in suite {config.suite.name!r}"
-        )
-    warmup = tasks[:-n]  # n=len(tasks) 时 warmup 为空，produce_delta 会报错
-    holdout = tasks[-n:]
-    return warmup, holdout
+def split_suite_tasks(suite: Suite) -> tuple[list[SuiteTask], list[SuiteTask]]:
+    """返回 suite 的 warmup 与 holdout 题列表。"""
+    if not suite.warmup_tasks:
+        raise ValueError(f"No warmup_tasks in suite {suite.name!r}")
+    if not suite.holdout_tasks:
+        raise ValueError(f"No holdout_tasks in suite {suite.name!r}")
+    return list(suite.warmup_tasks), list(suite.holdout_tasks)

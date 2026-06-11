@@ -62,13 +62,17 @@ class SuiteTask(BaseModel):
 
 
 class Suite(BaseModel):
-    """标准评测集：一个场景分类下的一组 task。"""
+    """标准评测集：warmup（train）与 hold-out（test）两组 task。"""
 
     name: str = Field(description="suite 名称")
     category: str = Field(description="场景分类名（如 hello、coding）")
-    tasks: list[SuiteTask] = Field(
+    warmup_tasks: list[SuiteTask] = Field(
         default_factory=list,
-        description="该 suite 下的 task 列表",
+        description="warmup 题列表（对应 benchmark_mds/train）",
+    )
+    holdout_tasks: list[SuiteTask] = Field(
+        default_factory=list,
+        description="hold-out 终测题列表（对应 benchmark_mds/test）",
     )
 
     @classmethod
@@ -76,7 +80,7 @@ class Suite(BaseModel):
         """从 suite JSON 文件加载并填充各 task 的 ``category_name``。"""
         data = json.loads(Path(file_path).read_text(encoding="utf-8"))
         suite = cls.model_validate(data)
-        for task in suite.tasks:
+        for task in suite.warmup_tasks + suite.holdout_tasks:
             task.category_name = suite.category
         return suite
 

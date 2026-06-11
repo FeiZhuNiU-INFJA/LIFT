@@ -22,7 +22,7 @@ class ArtifactPolicy(ABC):
     def warmup_tasks(self) -> list[SuiteTask]:
         """触发产物更新前需要执行的题目列表。
 
-        默认 pipeline 中为 suite 的非 hold-out 前缀（``split_suite_tasks`` → warmup 切片）。
+        默认 pipeline 中为 suite 的 ``warmup_tasks``（来自 benchmark ``train/``）。
         adapter 在 ``produce_delta`` 内执行这些题，再调用 evolve/update；
         它们的 ``PhaseRun`` 不会追加到 eval report。
 
@@ -39,7 +39,7 @@ class WarmupThenUpdatePolicy(BaseModel, ArtifactPolicy):
 
     tasks: list[SuiteTask] = Field(
         alias="warmup_tasks",
-        description="由 split_suite_tasks 切出的非 hold-out 题列表",
+        description="suite JSON 中的 warmup_tasks 列表",
     )
 
     @property

@@ -88,7 +88,7 @@ final @ before-load（control）  → PhaseRun  → report.baseline
 final @ after-load（treatment） → PhaseRun  → report.evolved
 ```
 
-- **写入 report**：每个 **hold-out 题** 各一条 `TaskRun`（`baseline` + `evolved` 两个 `PhaseRun`）。默认 `holdout_count=1`（仅最后一题）；可在 suite JSON 设为最后 N 题或 `holdout_task_names`（见 [src/lift/README.md](../src/lift/README.md)）。
+- **写入 report**：每个 **holdout_tasks** 题各一条 `TaskRun`（`baseline` + `evolved` 两个 `PhaseRun`）。warmup / hold-out 在 suite JSON 中由 `warmup_tasks` / `holdout_tasks` 显式给出（对应 benchmark ``train/`` / ``test/``）。
 - **warmup 结果**：`Q1..Q_{n-1}` 用于产生产物，一般**不进 report**（仅日志）；产物固化进 **delta 镜像**（`docker commit`）。
 - **final 的 before-load**：干净 base 镜像起**新容器**（无 Δ）。
 - **final 的 after-load**：从 warmup 后 commit 的 **Δ 镜像**起**新容器**；多道 hold-out **共用 Δ、workspace 按题隔离**。

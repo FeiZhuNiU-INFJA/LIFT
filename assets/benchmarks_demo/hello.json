@@ -1,7 +1,7 @@
 {
   "name": "Hello",
   "category": "Hello",
-  "tasks": [
+  "warmup_tasks": [
     {
       "name": "Q1",
       "query": "回复一下你好",
@@ -14,7 +14,9 @@
         "content_reqs": "1. 回复“你好”",
         "trajectory_reqs": "1. 回复“你好”"
       }
-    },
+    }
+  ],
+  "holdout_tasks": [
     {
       "name": "Q2",
       "query": "自我介绍一下你自己",

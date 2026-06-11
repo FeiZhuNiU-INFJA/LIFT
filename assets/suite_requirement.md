@@ -16,28 +16,30 @@
 任务提交要求
 提交文件夹，文件夹内存放对应场景/任务类型的所有任务，文件夹格式如下：
 <场景名称/任务类型>/
-├── q1_<任务短名>/
-│   ├── q1_<任务短名>.md
-│   └── materials/
-│       └── [Q1 专属补充材料]
-├── q2_<任务短名>/
-│   ├── q2_<任务短名>.md
-│   └── materials/
-│       └── [Q2 专属补充材料]
-└── skills/ # 可选，如果有必要的skill就加进来
+├── train/                    # warmup 题（产物进化）
+│   ├── q1_<任务短名>/
+│   │   ├── q1_<任务短名>.md
+│   │   └── q1_materials/     # 或 materials/
+│   └── q2_<任务短名>/
+│       └── ...
+├── test/                     # final / hold-out 题（LIFT 终测对照）
+│   ├── q5_<任务短名>/
+│   │   └── ...
+│   └── q6_<任务短名>/
+│       └── ...
+└── skills/                   # 可选，场景级 skill
     
 
 ### 机器可读 Suite JSON（LIFT / `src` 评测）
 
-preprocess 生成的 `assets/benchmarks/*.json`（不纳入 git）在标准 `Suite` 字段之外，可包含 **hold-out 配置**（由 [src/lift/suite/lift_suite.py](../src/lift/suite/lift_suite.py) 读取）：
+preprocess 生成的 `assets/benchmarks/*.json`（不纳入 git）使用 [src/models.py](../src/models.py) 中 ``Suite`` 结构：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `holdout_count` | int，可选，默认 `1` | `tasks` 中**最后 N 题**为 hold-out（LIFT 终测对照） |
-| `holdout_task_names` | string[]，可选 | 显式指定 hold-out 题名；若存在则**优先于** `holdout_count` |
+| `warmup_tasks` | `SuiteTask[]` | 对应 ``train/`` 下题目，用于 warmup + evolve |
+| `holdout_tasks` | `SuiteTask[]` | 对应 ``test/`` 下题目，用于 hold-out baseline/evolved 对照 |
 
-- **warmup**：非 hold-out 题目，用于产生产物（默认前导题 + evolve）。
-- **hold-out**：每题在 report 中各一条 `TaskRun`（`baseline` / `evolved`）。
+- 每个 **final** 题在 report 中各一条 `TaskRun`（`baseline` / `evolved`）。
 
 官方评测入口：[src/lift/README.md](../src/lift/README.md)（`python -m src.cli.lift_main -r openclaw`）；legacy 见 [legacy/README.md](../legacy/README.md)。
 

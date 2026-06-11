@@ -92,13 +92,8 @@ class LIFTPipeline:
         repeat_run = eval_report.runs[repeat_index]
 
         for suite_path in suite_paths:
-            config = load_lift_suite(suite_path)
-            suite = config.suite
-            if not suite.tasks:
-                raise ValueError(f"No tasks in {suite_path}")
-
-            # warmup → evolve → delta；hold-out 仅在末 n 题或 holdout_task_names 上对照
-            warmup_tasks, holdout_tasks = split_suite_tasks(config)
+            suite = load_lift_suite(suite_path)
+            warmup_tasks, holdout_tasks = split_suite_tasks(suite)
             category_name = suite.category
 
             suite_run = SuiteRun(

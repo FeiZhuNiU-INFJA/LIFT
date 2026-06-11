@@ -17,30 +17,18 @@ from src.lift.tests.mock_adapter import MockAdapter
 
 
 def _suite_json(path: Path) -> None:
-    """写入含 3 warmup + 2 holdout 的 PipeTest suite JSON。"""
+    """写入含 1 warmup + 2 final 的 PipeTest suite JSON。"""
+    task = {
+        "requirements": {"default_skills": [], "extra_skills_dir": "", "material_dir": ""},
+        "expected_result": {"content_reqs": "x", "trajectory_reqs": ""},
+    }
     payload = {
         "name": "PipeTest",
         "category": "PipeTest",
-        "holdout_count": 2,
-        "tasks": [
-            {
-                "name": "Q1",
-                "query": "w1",
-                "requirements": {"default_skills": [], "extra_skills_dir": "", "material_dir": ""},
-                "expected_result": {"content_reqs": "x", "trajectory_reqs": ""},
-            },
-            {
-                "name": "Q2",
-                "query": "h1",
-                "requirements": {"default_skills": [], "extra_skills_dir": "", "material_dir": ""},
-                "expected_result": {"content_reqs": "x", "trajectory_reqs": ""},
-            },
-            {
-                "name": "Q3",
-                "query": "h2",
-                "requirements": {"default_skills": [], "extra_skills_dir": "", "material_dir": ""},
-                "expected_result": {"content_reqs": "x", "trajectory_reqs": ""},
-            },
+        "warmup_tasks": [{"name": "Q1", "query": "w1", **task}],
+        "holdout_tasks": [
+            {"name": "Q2", "query": "h1", **task},
+            {"name": "Q3", "query": "h2", **task},
         ],
     }
     path.write_text(json.dumps(payload), encoding="utf-8")

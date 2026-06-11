@@ -35,6 +35,9 @@ SECTION_NAMES = ("query", "要求", "轨迹要求")
 # Directory names skipped when scanning benchmark scenes.
 IGNORED_DIR_NAMES = {"__MACOSX"}
 
+TRAIN_DIR_NAME = "train"
+TEST_DIR_NAME = "test"
+
 
 def to_project_relative(path: Path) -> str:
     """Return *path* as a POSIX path relative to ``PROJECT_ROOT``."""
@@ -89,9 +92,14 @@ def find_task_markdown(task_dir: Path) -> Path:
     raise ValueError(f"Unable to determine task markdown file in {task_dir}")
 
 
+def has_train_test_layout(scene_dir: Path) -> bool:
+    """Return whether *scene_dir* uses ``train/`` + ``test/`` split layout."""
+    return (scene_dir / TRAIN_DIR_NAME).is_dir() or (scene_dir / TEST_DIR_NAME).is_dir()
+
+
 def resolve_scene_dir(scene_dir: Path) -> Path:
-    """Return the directory that directly contains task subdirectories for a scene."""
-    if iter_task_dirs(scene_dir):
+    """Return the directory that contains ``train/`` and/or ``test/`` task splits."""
+    if has_train_test_layout(scene_dir):
         return scene_dir
 
     nested_candidates = [
@@ -99,13 +107,14 @@ def resolve_scene_dir(scene_dir: Path) -> Path:
         for path in scene_dir.iterdir()
         if path.is_dir() and path.name not in IGNORED_DIR_NAMES
     ]
-
     preferred_nested = [path for path in nested_candidates if path.name == scene_dir.name]
     for candidate in preferred_nested + nested_candidates:
-        if iter_task_dirs(candidate):
+        if has_train_test_layout(candidate):
             return candidate
 
-    raise ValueError(f"No task directories found in benchmark scene: {scene_dir}")
+    raise ValueError(
+        f"No train/test task directories found in benchmark scene: {scene_dir}"
+    )
 
 
 def find_materials_dir(task_dir: Path, task_index: int) -> Path | None:
@@ -148,25 +157,42 @@ def build_task_entry(scene_dir: Path, task_dir: Path) -> dict[str, object]:
     }
 
 
-def iter_task_dirs(scene_dir: Path) -> list[Path]:
-    """Return task subdirectories under *scene_dir*, sorted by question index."""
+def iter_task_dirs(split_dir: Path) -> list[Path]:
+    """Return task subdirectories under a ``train/`` or ``test/`` split, sorted by index."""
+    if not split_dir.is_dir():
+        return []
     task_dirs = [
         path
-        for path in scene_dir.iterdir()
+        for path in split_dir.iterdir()
         if path.is_dir() and TASK_DIR_RE.match(path.name)
     ]
     return sorted(task_dirs, key=lambda path: int(TASK_DIR_RE.match(path.name).group("index")))
 
 
+def iter_split_task_dirs(scene_dir: Path, split_name: str) -> list[Path]:
+    """Return task dirs under ``scene_dir/{split_name}/``."""
+    return iter_task_dirs(scene_dir / split_name)
+
+
 def build_benchmark_spec(scene_dir: Path) -> dict[str, object]:
-    """Build a full benchmark spec dict (name, category, tasks) for one scene."""
+    """Build a full benchmark spec dict for one scene (warmup_tasks + holdout_tasks)."""
     resolved_scene_dir = resolve_scene_dir(scene_dir)
-    task_dirs = iter_task_dirs(resolved_scene_dir)
+    warmup_dirs = iter_split_task_dirs(resolved_scene_dir, TRAIN_DIR_NAME)
+    final_dirs = iter_split_task_dirs(resolved_scene_dir, TEST_DIR_NAME)
+    if not warmup_dirs:
+        raise ValueError(f"No train tasks found in {resolved_scene_dir / TRAIN_DIR_NAME}")
+    if not final_dirs:
+        raise ValueError(f"No test tasks found in {resolved_scene_dir / TEST_DIR_NAME}")
 
     return {
         "name": resolved_scene_dir.name,
         "category": resolved_scene_dir.name,
-        "tasks": [build_task_entry(resolved_scene_dir, task_dir) for task_dir in task_dirs],
+        "warmup_tasks": [
+            build_task_entry(resolved_scene_dir, task_dir) for task_dir in warmup_dirs
+        ],
+        "holdout_tasks": [
+            build_task_entry(resolved_scene_dir, task_dir) for task_dir in final_dirs
+        ],
     }
 
 

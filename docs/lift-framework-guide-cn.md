@@ -27,7 +27,7 @@
 | **Delta（Δ）** | 进化后的「记忆快照」 | `docker commit` 出的临时镜像 |
 | **Report** | 成绩单 | `results/{run_id}/report.json` |
 
-默认规则：**每套卷子最后一题是 hold-out**，前面都是 warmup（`holdout_count` 默认 `1`）。
+Suite JSON 显式分为 **`warmup_tasks`**（benchmark ``train/``）与 **`holdout_tasks`**（benchmark ``test/``），不再在运行时按题号切分。
 
 ### 三层分工（记住这条线就够了）
 
@@ -135,8 +135,8 @@ sequenceDiagram
 
 | 题 | 内容 | 在 LIFT 里扮演 |
 |----|------|----------------|
-| **Q1** | 「回复一下你好」 | **Warmup**——练习题 |
-| **Q2** | 「自我介绍一下你自己」 | **Hold-out**——期末考（默认最后一题） |
+| **Q1** | 「回复一下你好」 | **Warmup**（`warmup_tasks`）——练习题 |
+| **Q2** | 「自我介绍一下你自己」 | **Hold-out**（`holdout_tasks`）——期末考 |
 
 ### 跑之前准备什么
 
@@ -162,7 +162,7 @@ python -m src.cli.lift_main --agent-runtime openclaw --benchmark_dir assets/benc
 
 ### 执行时发生了什么（按顺序讲）
 
-1. **读卷** → `load_lift_suite` + `split_suite_tasks`：Q1 → warmup，Q2 → hold-out  
+1. **读卷** → `load_lift_suite`：`warmup_tasks`（Q1）+ `holdout_tasks`（Q2）  
 2. **Warmup** → 一个容器跑 Q1（work agent 答题，judge 给反馈，可多轮）  
 3. **Evolve** → 容器内 `openclaw learn review`，把进化状态写进文件系统  
 4. **Commit** → `docker commit` 得到临时 delta 镜像，删掉 warmup 容器  
