@@ -112,6 +112,8 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 
 详见 [lift-framework-guide-cn.md](./lift-framework-guide-cn.md)。
 
+容器 Agent 的**模型配置契约**（镜像内注册 provider/model，运行时 `.env` `MODEL_NAME` 选用）见 [§12.6](./eval-flow.md#126-agent-模型配置契约lift--容器运行时)。
+
 ### 4.2 Legacy 宿主机模式（非主入口）
 
 旧栈 `legacy/openclaw_main.py` 使用 `--mode exam`（语义等同 LIFT）或 `--mode replay`（全 suite 双遍，**遗留**）。新开发与复现应使用 `src/cli/lift_main.py`。
@@ -482,7 +484,34 @@ OpenClaw 容器启动时注入 `EVOBENCH_EVAL_RUN_TAG=run_id`，插件将其加�
 
 **Hermes 差异**：`Hermes turn` 的 `session_id` 为内部 task id，与外部 work/judge session 不一致，但 tags 中带外部 session id；配对走 `pair_hermes_traces_to_agent_turns`（见 [`langfuse_trace_stitch.py`](../src/report/langfuse_trace_stitch.py) `_stitch_hermes`）。
 
-### 12.6 当前实现映射
+### 12.6 Agent 模型配置契约（LIFT ↔ 容器运行时）
+
+LIFT 在容器内通过 `agents add --model …` 注册 work / judge agent。OpenClaw 只接受已在容器 `openclaw.json` 中**登记过**的 `provider/model_id` 字符串。因此镜像构建与运行时 `.env` 之间存在固定契约——**当前由 OpenClaw 实现**，未来其他容器 runtime 亦应遵守同等「能力在镜像、选用在宿主」分层。
+
+| 层级 | 谁配置 | 做什么 |
+|------|--------|--------|
+| **能力层**（镜像构建） | Agent runtime 的 config fragment（OpenClaw：`agent-runtimes/openclaw/config/models.fragment.json`） | 注册 provider：`baseUrl`、`apiKey`、可调用的 **model id 列表**；构建时 `ARK_API_KEY` 等写入 fragment |
+| **默认选用层**（镜像构建，可选） | Agent defaults fragment（OpenClaw：`config/agents.fragment.json` 的 `agents.defaults.model.primary`） | 未显式指定模型时 OpenClaw 的默认值 |
+| **运行时选用层**（评测前） | 仓库根 `.env` 的 `MODEL_NAME` | LIFT 调用 `openclaw agents add --model $MODEL_NAME`；**一次 eval run 内所有 eval agent 共用同一模型** |
+
+**契约规则：**
+
+1. `MODEL_NAME` 必须为 `provider/model_id` 格式（例如 `custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215`）。
+2. `provider` 前缀与 `models.fragment.json` 中某 provider 的 key 一致；`model_id` 与该 provider 下 `models[].id` 之一一致。
+3. 仅改 `.env` 的 `MODEL_NAME` **不能**使用镜像未注册的模型；须先在 fragment 中增加 provider/model，再 `build-image.sh` 重建镜像。
+4. 若 `MODEL_NAME` 与 `agents.fragment.json` 默认一致，则行为与镜像默认相同，但 LIFT 仍会显式传入 `--model`（便于不换镜像切换已 bake 的候选模型）。
+
+**常见操作：**
+
+| 目标 | 做法 |
+|------|------|
+| 换用已 bake 的另一模型 | 只改 `.env` 的 `MODEL_NAME` |
+| 新增 provider 或 model id | 改 runtime 的 `models.fragment.json`（及所需 API key）→ 重建镜像 → `.env` 指向新 `provider/model_id` |
+| 对齐默认与评测 | 保持 `MODEL_NAME` 与 `agents.fragment.json` 的 `primary` 一致，或有意偏离以 A/B 不同模型 |
+
+代码入口：[`chat_agent.py`](../src/lift/adapters/openclaw/chat_agent.py)（`agents add --model`）；配置加载：[`config.py`](../src/config.py)（`MODEL_NAME`）。OpenClaw 镜像构建细节见 [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)。
+
+### 12.7 当前实现映射
 
 | 抽象步骤 | `src/lift`（OpenClaw 容器） | `legacy`（宿主机，遗留） |
 |----------|----------------------------|-------------------------|

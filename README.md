@@ -101,10 +101,10 @@ TOS_SECRET_KEY=your_secret_key
 
 说明：
 
-- `MODEL_NAME`：须为 `provider/model_name` 格式
+- `MODEL_NAME`：须为 `provider/model_id` 格式，且与评测镜像内已注册的 provider/model **一致**（详见 [docs/eval-flow.md §12.6](./docs/eval-flow.md#126-agent-模型配置契约lift--容器运行时)）
 - `EVAL_MAX_TURNS`：`run_task` 最大 judge 重试轮次（默认 2）
 - `LANGFUSE_*`：**必填**；在 Langfuse UI 创建项目后获取（见 §2）
-- `ARK_API_KEY`：构建镜像前建议在 `.env` 中设置，否则镜像内模型 apiKey 为空
+- `ARK_API_KEY`：构建镜像前建议在 `.env` 中设置，写入 `models.fragment.json`；否则镜像内模型 apiKey 为空
 
 容器启动时通过 `--env-file .env` 挂载上述变量。
 

@@ -144,7 +144,7 @@ sequenceDiagram
 # 1. 构建 OpenClaw 镜像（首次或镜像变更后）
 bash agent-runtimes/openclaw/build-image.sh
 
-# 2. 配置仓库根目录 .env（模型 API、Langfuse 等）
+# 2. 配置仓库根目录 .env（模型 API、Langfuse 等；MODEL_NAME 须与镜像 fragment 对齐，见 eval-flow §12.6）
 
 # hello.json 可直接跑；完整 benchmark 需 preprocess
 # python -m src.cli.preprocess
@@ -235,6 +235,7 @@ Warmup 要状态连续才能进化；hold-out 要干净对照，每 phase 必须
 | 主题 | 文档 / 路径 |
 |------|-------------|
 | 抽象流程与 report 字段 | [eval-flow.md](./eval-flow.md) |
+| Agent 模型配置契约（fragment ↔ `MODEL_NAME`） | [eval-flow.md §12.6](./eval-flow.md#126-agent-模型配置契约lift--容器运行时) |
 | Suite JSON 规范 | [assets/suite_requirement.md](../assets/suite_requirement.md) |
 | 英文 README | [src/lift/README.md](../src/lift/README.md) |
 | 单元测试（理解行为） | `src/lift/tests/` |

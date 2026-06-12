@@ -46,8 +46,10 @@ docker build -f agent-runtimes/openclaw/Dockerfile.entrypoint -t evolve-eval-ope
 
 Copy [`.env.docker.example`](.env.docker.example) into the repo root `.env`:
 
+本镜像构建时 merge `config/models.fragment.json` 与 `config/agents.fragment.json` 进容器内 `openclaw.json`，并遵守仓库公共契约：[Agent 模型配置契约](../../docs/eval-flow.md#126-agent-模型配置契约lift--容器运行时)（能力在 fragment / 选用在 `.env` `MODEL_NAME`）。
+
 - `ARK_API_KEY` — **required for image build**; injected into `config/models.fragment.json`
-- `MODEL_NAME` — host/src agent model id
+- `MODEL_NAME` — runtime model id for LIFT `agents add --model`（须为 fragment 中已登记的 `provider/model_id`）
 - `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` — runtime
 - `LANGFUSE_BASE_URL` — use `http://host.docker.internal:3000` inside containers
 - LIFT `ContainerSession` adds `--add-host=host.docker.internal:host-gateway` (required on Linux for langfuse-tracer ingestion)
