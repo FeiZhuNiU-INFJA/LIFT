@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
 
-from src.lift.policies.container import WarmupContainerPolicy
+from src.lift.policies.container import HoldoutContainerPolicy, WarmupContainerPolicy
 
 
 class RunOptions(BaseModel):
@@ -23,10 +23,6 @@ class RunOptions(BaseModel):
         default=False,
         description="仅后处理已有 report（--evaluate-only）",
     )
-    parallel: bool = Field(
-        default=False,
-        description="warmup 题是否并行执行（受 warmup_container_policy 约束）",
-    )
     docker_image: str | None = Field(
         default=None,
         description="覆盖 agent 配置的 base 镜像（None 时由 ContainerAgentRuntimeAdapter 解析）",
@@ -36,8 +32,18 @@ class RunOptions(BaseModel):
         description="每个 suite 完成后是否增量写 report JSON",
     )
     warmup_container_policy: WarmupContainerPolicy = Field(
-        default=WarmupContainerPolicy.SERIAL_SINGLE,
-        description="warmup 阶段容器编排策略",
+        default=WarmupContainerPolicy.PARALLEL_SINGLE,
+        description=(
+            "warmup 阶段容器编排策略（决定容器数量与是否并发）。"
+            "题级并发由该字段统一表达，不再使用单独的 parallel 开关。"
+        ),
+    )
+    holdout_container_policy: HoldoutContainerPolicy = Field(
+        default=HoldoutContainerPolicy.PARALLEL_MULTI,
+        description=(
+            "hold-out 阶段容器编排策略：每题独立容器（强制），仅决定多题是否并发。"
+            "默认 ``parallel_multi`` 提速；问题间需要严格隔离时改为 ``serial_multi``。"
+        ),
     )
     delta_materialization: str = Field(
         default="commit_image",

@@ -22,7 +22,7 @@ from src.utils import make_run_id, resolve_suite_paths
 from src.lift.adapters.registry import SUPPORTED_RUNTIMES, create_adapter
 from src.lift.pipeline.lift_pipeline import LIFTPipeline
 from src.lift.pipeline.run_options import RunOptions
-from src.lift.policies.container import WarmupContainerPolicy
+from src.lift.policies.container import HoldoutContainerPolicy, WarmupContainerPolicy
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -69,16 +69,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run_id", default=None, help="Custom run_id suffix.")
     parser.add_argument("--repeat", type=int, default=1, help="Repeat LIFT flow N times.")
     parser.add_argument(
-        "-p",
-        "--parallel",
-        action="store_true",
-        help="Run warmup tasks in parallel (within warmup container policy).",
+        "--warmup-container-policy",
+        default=WarmupContainerPolicy.PARALLEL_SINGLE.value,
+        choices=[p.value for p in WarmupContainerPolicy],
+        help=(
+            "Warmup container orchestration policy "
+            "(default: parallel_single — one container, asyncio.gather concurrent tasks). "
+            "Other values: serial_single (one container, sequential), "
+            "parallel_multi (one container per task, multi-user style)."
+        ),
     )
     parser.add_argument(
-        "--warmup-container-policy",
-        default=WarmupContainerPolicy.SERIAL_SINGLE.value,
-        choices=[p.value for p in WarmupContainerPolicy],
-        help="Warmup container orchestration policy.",
+        "--holdout-container-policy",
+        default=HoldoutContainerPolicy.PARALLEL_MULTI.value,
+        choices=[p.value for p in HoldoutContainerPolicy],
+        help=(
+            "Hold-out container orchestration policy: each task always gets its own "
+            "container (image-split). Choose serial_multi (sequential) or "
+            "parallel_multi (default; asyncio.gather across tasks)."
+        ),
     )
     parser.add_argument(
         "--serial-repeats",
@@ -111,14 +120,13 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
 async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
     """执行完整 LIFT pipeline（warmup + hold-out），可选后处理。"""
     run_id = make_run_id(args.run_id)
-    warmup_policy = WarmupContainerPolicy(args.warmup_container_policy)
     options = RunOptions(
         repeat=args.repeat,
         warmup_only=args.warmup_only,
         evaluate=args.evaluate,
         evaluate_only=False,
-        parallel=args.parallel,
-        warmup_container_policy=warmup_policy,
+        warmup_container_policy=WarmupContainerPolicy(args.warmup_container_policy),
+        holdout_container_policy=HoldoutContainerPolicy(args.holdout_container_policy),
         parallel_repeats=not args.serial_repeats,
         max_parallel_repeats=args.max_parallel_repeats,
     )

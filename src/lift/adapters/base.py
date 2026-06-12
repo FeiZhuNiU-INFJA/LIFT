@@ -81,7 +81,7 @@ class AgentRuntimeAdapter(ABC):
                 workspace_dir=workspace,
                 factory=factory,
                 run_phase=run_phase,
-                parallel=self._options.parallel,  # warmup 多题是否并行由 CLI -p 控制
+                parallel=self._options.warmup_container_policy.tasks_parallel,  # 由 warmup_container_policy 决定
             )
             await self.apply_evolve(env, ctx)  # runtime 特有：OpenClaw = learn review
             delta = await self.materialize_delta(env, ctx)  # 须在容器仍存活时 commit
@@ -143,6 +143,7 @@ class AgentRuntimeAdapter(ABC):
             workspace,
             image=image,
             seed_workspace=True,
+            load_state=load_state,  # runtime 据此区分 baseline/evolved（如群体记忆是否注入）
         )
         resources.track(env.disposable)  # hold-out 每题独立容器，题末 finally 立刻 rm
         try:
@@ -209,6 +210,7 @@ class AgentRuntimeAdapter(ABC):
         *,
         image: str,
         seed_workspace: bool,
+        load_state: HoldoutLoadState,
     ) -> ExecutionEnvironment:
         """Start the runtime used for one hold-out task.
 
@@ -216,6 +218,10 @@ class AgentRuntimeAdapter(ABC):
         框架在 hold-out 传 ``True``、warmup 传 ``False``；具体文件与是否 no-op 由
         runtime 的 ``start_container`` 实现决定（OpenClaw 复制 IDENTITY/USER/SOUL 并删
         BOOTSTRAP；其他 agent 可注入项目指令、规则文件，或忽略该标志）。
+
+        ``load_state``: 当前 hold-out 加载态（``BASELINE`` / ``EVOLVED``）。多数
+        runtime 通过 ``image`` 即可区分（base vs delta），但群体记忆等不依赖镜像
+        commit 的策略需要这个显式信号决定是否注入"已学经验"配置。
         """
 
     @abstractmethod

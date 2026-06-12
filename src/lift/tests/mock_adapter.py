@@ -73,9 +73,10 @@ class MockAdapter(AgentRuntimeAdapter):
         *,
         image: str,
         seed_workspace: bool,
+        load_state: HoldoutLoadState,
     ) -> ExecutionEnvironment:
         """Not implemented; MockAdapter does not run tasks / 未实现，MockAdapter 不执行任务。"""
-        _ = (ctx, resources, task, workspace_dir, image, seed_workspace)
+        _ = (ctx, resources, task, workspace_dir, image, seed_workspace, load_state)
         raise NotImplementedError("MockAdapter does not run tasks")
 
     @override

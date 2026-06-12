@@ -12,8 +12,11 @@ from src.models import EvalRepeat, EvalReport, SuiteRun, TaskRun
 from src.lift.adapters.base import AgentRuntimeAdapter, SuiteRunContext
 from src.lift.policies.artifact import WarmupThenUpdatePolicy
 from src.lift.pipeline.run_options import RunOptions
+from src.lift.runtime.delta_ref import DeltaRef
+from src.lift.runtime.suite_run_resources import SuiteRunResources
 from src.lift.suite.holdout import split_suite_tasks
 from src.lift.suite.lift_suite import load_lift_suite
+from src.models import SuiteTask
 from src.paths import report_json_path, results_run_dir
 
 
@@ -138,28 +141,16 @@ class LIFTPipeline:
                         delta.image_tag,
                     )
                 else:
-                    for holdout_task in holdout_tasks:
-                        # 同一 final 题：baseline（base 镜像）vs evolved（delta 镜像）
-                        baseline = await adapter.run_before_load(
-                            holdout_task, resources, ctx
-                        )
-                        evolved = await adapter.run_after_load(
-                            holdout_task, resources, delta, ctx
-                        )
-                        suite_run.tasks.append(
-                            TaskRun(
-                                task_name=holdout_task.name,
-                                category=category_name,
-                                baseline=baseline,
-                                evolved=evolved,
-                            )
-                        )
-                        LOGGER.info(
-                            "LIFT hold-out %s: baseline_success=%s evolved_success=%s",
-                            holdout_task.name,
-                            baseline.success,
-                            evolved.success,
-                        )
+                    task_runs = await self._run_holdout_tasks(
+                        adapter=adapter,
+                        holdout_tasks=holdout_tasks,
+                        resources=resources,
+                        delta=delta,
+                        ctx=ctx,
+                        category_name=category_name,
+                        options=options,
+                    )
+                    suite_run.tasks.extend(task_runs)
 
                 if options.incremental_report:
                     # 长跑中断时仍可从磁盘恢复部分 report
@@ -170,3 +161,40 @@ class LIFTPipeline:
                 await resources.cleanup()
 
         repeat_run.completed_at = datetime.now(timezone.utc).isoformat()
+
+    async def _run_holdout_tasks(
+        self,
+        *,
+        adapter: AgentRuntimeAdapter,
+        holdout_tasks: list[SuiteTask],
+        resources: SuiteRunResources,
+        delta: DeltaRef,
+        ctx: SuiteRunContext,
+        category_name: str,
+        options: RunOptions,
+    ) -> list[TaskRun]:
+        """按 ``holdout_container_policy`` 串行 / 并行执行 hold-out 多题。
+
+        每题内部 baseline → evolved 仍然顺序执行（同题镜像分裂会读写同一 workspace
+        子目录，且需要先后对照语义）；多题之间按 policy 决定是否 ``asyncio.gather``。
+        """
+
+        async def _one_task(task: SuiteTask) -> TaskRun:
+            baseline = await adapter.run_before_load(task, resources, ctx)
+            evolved = await adapter.run_after_load(task, resources, delta, ctx)
+            LOGGER.info(
+                "LIFT hold-out %s: baseline_success=%s evolved_success=%s",
+                task.name,
+                baseline.success,
+                evolved.success,
+            )
+            return TaskRun(
+                task_name=task.name,
+                category=category_name,
+                baseline=baseline,
+                evolved=evolved,
+            )
+
+        if options.holdout_container_policy.tasks_parallel:
+            return list(await asyncio.gather(*(_one_task(t) for t in holdout_tasks)))
+        return [await _one_task(t) for t in holdout_tasks]

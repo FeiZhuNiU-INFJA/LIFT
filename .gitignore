@@ -138,3 +138,4 @@ results/
 .tmp*/
 .cursor/
 evobench-reports/
+!assets/benchmarks_demo/*

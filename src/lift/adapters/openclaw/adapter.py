@@ -12,7 +12,7 @@ from src.lift.adapters.environment import ExecutionEnvironment
 from src.lift.adapters.openclaw.chat_agent import OpenClawWorkerJudgerPairFactory
 from src.lift.adapters.openclaw.evolve import openclaw_learn_review
 from src.lift.adapters.openclaw.session import openclaw_context, start_openclaw_container
-from src.lift.eval.stage import SuiteRunPhase
+from src.lift.eval.stage import HoldoutLoadState, SuiteRunPhase
 from src.lift.eval.worker_judger import WorkerJudgerPairFactory
 from src.models import SuiteTask
 from src.paths import OPENCLAW_DOCKER_IMAGE
@@ -37,8 +37,15 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
         workspace_dir: Path,
         seed_workspace: bool,
         task: SuiteTask | None,
+        load_state: HoldoutLoadState | None = None,
     ) -> ContainerSession:
-        """委托 ``start_openclaw_container`` 启动 gateway 容器。"""
+        """委托 ``start_openclaw_container`` 启动 gateway 容器。
+
+        OpenClaw baseline 与 evolved 的差异完全由 ``image``（base vs delta 镜像）
+        承载，因此忽略 ``load_state``。Mixin/子类如需根据 load_state 注入额外
+        env（如群体记忆配置）可在覆盖中读取该参数。
+        """
+        _ = load_state  # OpenClaw 主路径不区分；GroupMemoryAdapterMixin 会用到
         return await start_openclaw_container(
             instance_id=instance_id,
             image=image,

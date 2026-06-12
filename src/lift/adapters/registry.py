@@ -9,7 +9,7 @@ from src.lift.pipeline.run_options import RunOptions
 if TYPE_CHECKING:
     from src.lift.adapters.base import AgentRuntimeAdapter
 
-SUPPORTED_RUNTIMES = ("openclaw",)  # CLI 可选的运行时标识
+SUPPORTED_RUNTIMES = ("openclaw", "multi_user_openclaw")  # CLI 可选的运行时标识
 
 
 def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
@@ -19,5 +19,10 @@ def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
         from src.lift.adapters.openclaw.adapter import OpenClawAdapter
 
         return OpenClawAdapter(options)
+    if normalized == "multi_user_openclaw":
+        # OpenClaw + 群体记忆 Mixin（多容器 warmup，evolve 落到外部记忆系统）
+        from src.lift.adapters.openclaw_multi_user.adapter import MultiUserOpenClawAdapter
+
+        return MultiUserOpenClawAdapter(options)
     supported = ", ".join(SUPPORTED_RUNTIMES)
     raise ValueError(f"Unknown runtime {runtime!r}; supported: {supported}")

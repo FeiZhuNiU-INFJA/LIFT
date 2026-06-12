@@ -10,6 +10,7 @@ from src.lift.adapters.base import AgentRuntimeAdapter, SuiteRunContext
 from src.lift.adapters.container.delta import commit_delta_image
 from src.lift.adapters.container.session import ContainerSession
 from src.lift.adapters.environment import ExecutionEnvironment
+from src.lift.eval.stage import HoldoutLoadState
 from src.lift.policies.container import WarmupContainerPolicy
 from src.lift.runtime.delta_ref import DeltaRef
 from src.lift.runtime.environment_cleaner import delta_image_tag
@@ -46,16 +47,21 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         warmup_tasks: list[SuiteTask],
         ctx: SuiteRunContext,
     ) -> DeltaRef:
-        """按 ``warmup_container_policy`` 校验后委托父类执行 warmup → delta。"""
+        """按 ``warmup_container_policy`` 校验后委托父类执行 warmup → delta。
+
+        ``ContainerAgentRuntimeAdapter`` 默认是"单容器 commit 镜像"形态，仅支持
+        ``SERIAL_SINGLE`` / ``PARALLEL_SINGLE``（同容器内并发）。``PARALLEL_MULTI``
+        需要走 ``GroupMemoryAdapterMixin`` 等覆盖编排层。
+        """
         policy_enum = self._options.warmup_container_policy
-        # 当前仅 SERIAL_SINGLE：warmup 全程单容器；PARALLEL_MULTI 预留未实现
-        if policy_enum == WarmupContainerPolicy.PARALLEL_MULTI:
-            if self._options.parallel:
-                raise NotImplementedError(
-                    "parallel_multi warmup with per-task containers is not implemented yet"
-                )
-            raise NotImplementedError("parallel_multi warmup policy is not implemented yet")
-        if policy_enum != WarmupContainerPolicy.SERIAL_SINGLE:
+        if policy_enum is WarmupContainerPolicy.PARALLEL_MULTI:
+            raise NotImplementedError(
+                "parallel_multi warmup requires a GroupMemoryAdapterMixin-based adapter"
+            )
+        if policy_enum not in (
+            WarmupContainerPolicy.SERIAL_SINGLE,
+            WarmupContainerPolicy.PARALLEL_SINGLE,
+        ):
             raise ValueError(f"Unknown warmup container policy: {policy_enum}")
         return await super().produce_delta(resources, policy, warmup_tasks, ctx)
 
@@ -93,10 +99,13 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         *,
         image: str,
         seed_workspace: bool,
+        load_state: HoldoutLoadState,
     ) -> ExecutionEnvironment:
         """hold-out 单题：独立容器 + 指定镜像（baseline 或 delta）。
 
         ``seed_workspace`` 原样传给 ``start_container``（见该方法的文档）。
+        ``load_state`` 透传给 ``start_container``，由 runtime 决定是否注入
+        evolved-only 配置（如群体记忆 namespace）。
         """
         _ = resources
         # short_id 保证并行 hold-out 或重跑时容器名不撞
@@ -110,6 +119,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
             workspace_dir=workspace_dir,
             seed_workspace=seed_workspace,
             task=task,
+            load_state=load_state,
         )
         return ExecutionEnvironment(
             disposable=session,
@@ -144,6 +154,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         workspace_dir,
         seed_workspace: bool,
         task: SuiteTask | None,
+        load_state: HoldoutLoadState | None = None,
     ) -> ContainerSession:
         """启动运行时特定的容器会话（子类实现 gateway/entrypoint 等）。
 
@@ -151,4 +162,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         - **OpenClaw**（``True``）：``workspace_seed/`` → 跳过 BOOTSTRAP 首次上线。
         - **其他 runtime**：可实现为写入 AGENTS.md / 规则 / 空操作；框架不规定文件格式。
         - **Warmup** 路径始终传 ``False``，由调用方保证。
+
+        ``load_state``: 仅在 hold-out 路径有值（``BASELINE`` / ``EVOLVED``），warmup 路径
+        为 ``None``。runtime 据此决定 evolved-only 注入（如群体记忆 namespace、token 等）。
         """

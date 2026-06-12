@@ -219,6 +219,12 @@ hello.json：Q1 练 → Q2 对照 → report + outcome
 **为什么 warmup 和 hold-out 容器策略不一样？**  
 Warmup 要状态连续才能进化；hold-out 要干净对照，每 phase 必须新容器。
 
+**Warmup 一定是单容器吗？**  
+默认是（`WarmupContainerPolicy.serial_single`）。也支持 `parallel_single`（同一容器内 `asyncio.gather` 并发）与 `parallel_multi`（每题独立容器，"模拟多用户"，需要配合群体记忆 adapter，evolve 产物落到外部系统而不是 docker commit）。代表实现 `MultiUserOpenClawAdapter`（`-r multi_user_openclaw`）默认会把 policy 自动覆盖为 `parallel_multi`。详见 [eval-flow.md §4.3 / §12.2.1](./eval-flow.md#43-warmup-容器策略warmupcontainerpolicy)。
+
+**Hold-out 是串行还是并行？**  
+默认 `HoldoutContainerPolicy.parallel_multi`：每题独立容器（强制），多题之间 `asyncio.gather` 并发。需要严格顺序时改为 `--holdout-container-policy serial_multi`。同题内部 baseline → evolved 始终顺序执行。详见 [eval-flow.md §4.4](./eval-flow.md#44-hold-out-容器策略holdoutcontainerpolicy)。
+
 **轨迹分在哪？**  
 执行期 `PhaseRun` 记 success/score；轨迹相关指标在后处理结合 Langfuse trace 算（默认 `--evaluate` 开启）。
 

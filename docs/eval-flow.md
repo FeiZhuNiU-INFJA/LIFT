@@ -125,6 +125,52 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 | report | 通常每 suite 若干 hold-out `TaskRun` | 每题一条 `TaskRun` |
 | 科学问题 | 产物对 final 是否有效 | 每题进化幅度（诊断用） |
 
+### 4.3 Warmup 容器策略（`WarmupContainerPolicy`）
+
+`§4.1` 描述的「单容器串行」是默认策略，但 LIFT 在 [`src/lift/policies/container.py`](../src/lift/policies/container.py) 中以枚举显式表达 warmup **容器编排维度**的三种策略。CLI 通过 `--warmup-container-policy` 选择；该枚举仅决定容器数量与是否并发，**evolve 产物的去向（commit 镜像 vs 写外部系统）由 adapter 类型决定**。
+
+| 枚举值 | 容器数 | 题级并发 | 适用 adapter 形态 |
+|--------|--------|----------|--------------------|
+| `serial_single` | 1（共享） | 否（顺序） | 单容器 commit 镜像类（`ContainerAgentRuntimeAdapter` 默认） |
+| `parallel_single`（默认） | 1（共享） | 是（同容器 `asyncio.gather`） | 同上；适合 runtime 可并发处理多 session 的场景 |
+| `parallel_multi` | N（每题一个） | 是 | 群体记忆 / 外部产物类（`GroupMemoryAdapterMixin`） |
+
+**delta 形态由 adapter 决定，不由本枚举决定：**
+
+```text
+ContainerAgentRuntimeAdapter（serial_single / parallel_single）：
+  warmup（共享容器，多题串行或并发）→ apply_evolve（容器内）→ docker commit → DeltaRef(owned=True)
+  hold-out evolved：docker run delta_image
+
+GroupMemoryAdapterMixin（必须 parallel_multi）：
+  warmup（多容器并行，每题一个，模拟多用户）→ apply_evolve no-op
+                                              → DeltaRef(image_tag=base_image, owned=False)
+  hold-out evolved：docker run base_image，runtime 在 load_state=EVOLVED 时注入群体记忆配置
+```
+
+**何时选哪种：**
+
+- runtime 的 evolve 产物**能 commit 进镜像**（如 OpenClaw 的 `learn review` 写入容器文件系统）→ `serial_single`（默认）或 `parallel_single`（同容器并发提速）
+- runtime 的 evolve 产物**在容器外**（如群体记忆服务、远端向量库）→ 选用 `GroupMemoryAdapterMixin` 系列 adapter（如 `multi_user_openclaw`），并使用 `parallel_multi`（adapter 默认会自动覆盖到此值）
+- 需要"模拟多用户"语义 → `parallel_multi` + 群体记忆 adapter（`serial_single` 多题共享 agent 状态，会污染"独立用户"假设）
+
+### 4.4 Hold-out 容器策略（`HoldoutContainerPolicy`）
+
+hold-out 与 warmup 的容器维度不同：每道 hold-out 题必须用独立容器（baseline 与 evolved 镜像分裂、避免状态污染），所以本枚举不提供"单容器"形态，只决定**多题之间是否并发**。
+
+| 枚举值 | 容器数 | 题级并发 | 适用场景 |
+|--------|--------|----------|----------|
+| `serial_multi` | N（每题独立） | 否（顺序） | 调试单题、严格按题顺序产出 trace |
+| `parallel_multi`（默认） | N（每题独立） | 是（`asyncio.gather`） | 加速大量 hold-out 题；docker / runtime 资源足够时建议默认 |
+
+**与 warmup 的差别**：
+
+- warmup 关心"产物如何累积"，所以容器维度有 single / multi 之分；
+- hold-out 只做对照评估，每题镜像分裂强制多容器，没有共享意义；
+- 同题内 baseline → evolved **始终顺序执行**（依赖镜像差异 + workspace 子目录语义），policy 只控制**多题之间**。
+
+**实现位置**：[`LIFTPipeline._run_holdout_tasks`](../src/lift/pipeline/lift_pipeline.py)。
+
 ---
 
 ## 5. 最小执行单元：`run_task`
@@ -328,13 +374,15 @@ flowchart LR
 
 | 参数 | 作用 |
 |------|------|
-| `-r` / `--agent-runtime` | **必填**；当前 `openclaw` |
+| `-r` / `--agent-runtime` | **必填**；当前支持 `openclaw`、`multi_user_openclaw`（OpenClaw + 群体记忆） |
 | `--benchmark_dir` | suite JSON 目录（默认 `assets/benchmarks`） |
 | `--suite` | 逗号分隔 suite 文件名，或 `all` |
 | `--run_id` | 自定义 eval run 后缀 |
 | `--warmup-only` | 只跑 warmup + evolve + Δ，跳过 hold-out |
 | `--repeat` | 完整 LIFT 重复 N 次，写入 `EvalReport.runs[]` |
-| `-p` / `--parallel` | warmup 题并行（受容器策略约束） |
+| `-p` / `--parallel` | **已弃用**：自动映射到 `--warmup-container-policy=parallel_single` |
+| `--warmup-container-policy` | warmup 容器编排策略（`serial_single` / `parallel_single` / `parallel_multi`），见 [§4.3](#43-warmup-容器策略warmupcontainerpolicy) |
+| `--holdout-container-policy` | hold-out 容器编排策略（`serial_multi` / `parallel_multi`，默认 `parallel_multi`），见 [§4.4](#44-hold-out-容器策略holdoutcontainerpolicy) |
 | `-e` / `--evaluate` | 评测结束后自动后处理（**默认开启**；`--no-evaluate` 关闭） |
 | `--evaluate-only` | 跳执行，仅对已有 report 后处理（需 `--run_id`） |
 
@@ -383,6 +431,36 @@ flowchart LR
 - **`PhaseRun`**：单 task × 单加载状态 × 完整 judge 回路。
 - **`TaskRun`**：同一 final 的 pre/post 两个 `PhaseRun` → report 字段 `baseline` / `evolved`。
 
+#### 12.2.1 Delta 形态与加载机制
+
+`UpdateArtifact` 是抽象概念；其在框架中的引用类型 `DeltaRef`（[`src/lift/runtime/delta_ref.py`](../src/lift/runtime/delta_ref.py)）当前仅承载**镜像句柄**：
+
+```python
+class DeltaRef(BaseModel, Disposable):
+    image_tag: str           # hold-out evolved 启动用的镜像（可能等于 base 镜像）
+    source_container: str | None
+    owned: bool = True       # cleanup 时是否 docker rmi（False = 复用外部镜像，不可删）
+```
+
+非镜像形态（如群体记忆、外挂经验文件）通过两条**正交信号**借用此通道：
+
+| 信号 | 作用 | 谁消费 |
+|------|------|--------|
+| `DeltaRef.image_tag` | hold-out evolved 启动用的镜像 | `_run_holdout` → `start_holdout_environment` → `docker run` |
+| `HoldoutLoadState` | 当前是 `BASELINE` 还是 `EVOLVED` | runtime 的 `start_container(load_state=…)`，决定是否注入 evolved-only 配置（env、卷、namespace） |
+
+**两种典型组合：**
+
+| Delta 形态 | `image_tag` | `owned` | evolved 与 baseline 镜像 | runtime 如何区分 |
+|------------|-------------|---------|--------------------------|------------------|
+| 镜像 delta（OpenClaw 主流） | `docker commit` 出的 delta 镜像 | `True` | **不同** | 镜像本身已不同，无需读 `load_state` |
+| 外部记忆 delta（`MultiUserOpenClawAdapter`） | base 镜像（占位） | `False` | **相同** | 在 `start_container` 中按 `load_state == EVOLVED` 注入群体记忆 namespace/token 等 |
+| 文件 delta（占位形态，未实现） | base 镜像（占位） | `False` | **相同** | `load_state == EVOLVED` 时挂载经验文件目录 |
+
+**为什么需要 `load_state` 而不是仅靠 `image_tag` 区分？** 当 evolved 与 baseline 共用镜像（外部记忆 / 文件 delta），二者镜像名相同，仅靠 `image_tag` 无法表达"现在该加载已学产物了"——`load_state` 是显式信号位。镜像 delta 主流路径不读它，但接口契约保留该参数以支持非镜像形态。
+
+**`owned` 字段语义**：表达"`DeltaRef` 是否拥有这个镜像、有权 `docker rmi` 它"。`False` 时 cleanup 跳过 `rmi`，避免误删 base 镜像。
+
 ### 12.3 LIFT Pipeline（编排）
 
 ```text
@@ -401,11 +479,13 @@ flowchart LR
 ```text
 worker_judger_factory()           # ChatAgent 工厂
 start_warmup_environment()        # before 产物积累
-start_holdout_environment()       # per-task 隔离容器
-apply_evolve()                    # warmup 后更新产物
-materialize_delta()               # 默认 docker commit（Container 层）
+start_holdout_environment(..., load_state)  # per-task 隔离容器；load_state 区分 baseline/evolved
+apply_evolve()                    # warmup 后更新产物（外部记忆方案可 no-op）
+materialize_delta()               # 默认 docker commit（Container 层）；非镜像方案返回 owned=False 占位
 baseline_image()                  # before-load 运行时标识
 ```
+
+**Mixin 扩展点**：`produce_delta` / `apply_evolve` / `materialize_delta` 都可以由 Mixin 覆盖以支持不同 delta 形态。`GroupMemoryAdapterMixin` 是首个示例：与具体 runtime adapter（如 `OpenClawAdapter`）多重继承组合得到 `MultiUserOpenClawAdapter`，无需重写 runtime 特性方法（`start_container`、`worker_judger_factory`）。详见 [`src/lift/adapters/group_memory/mixin.py`](../src/lift/adapters/group_memory/mixin.py)。
 
 ### 12.5 trace_backfill（观测）
 
@@ -513,12 +593,12 @@ LIFT 在容器内通过 `agents add --model …` 注册 work / judge agent。Ope
 
 ### 12.7 当前实现映射
 
-| 抽象步骤 | `src/lift`（OpenClaw 容器） | `legacy`（宿主机，遗留） |
-|----------|----------------------------|-------------------------|
-| 默认 ArtifactPolicy | warmup `tasks[:-holdout]` + `learn review` | warmup + `evolve()` |
-| before-load final | `docker run` base 镜像 + 新 workspace | `disable_evolve()` 后跑 final |
-| after-load final | `docker run` delta 镜像 + 新 workspace | `enable_evolve()` + evolved workspace |
-| trace_backfill | `agent_source=openclaw` | `agent_source=hermes` |
+| 抽象步骤 | `src/lift`（OpenClaw 容器） | `MultiUserOpenClaw`（群体记忆） | `legacy`（宿主机，遗留） |
+|----------|----------------------------|---------------------------------|-------------------------|
+| 默认 ArtifactPolicy | warmup `tasks[:-holdout]` + `learn review` | warmup 多容器并行（`parallel_multi` 策略 + `GroupMemoryAdapterMixin`） | warmup + `evolve()` |
+| before-load final | `docker run` base 镜像 + 新 workspace | `docker run` base 镜像 + `load_state=BASELINE`（不读群体记忆） | `disable_evolve()` 后跑 final |
+| after-load final | `docker run` delta 镜像 + 新 workspace | `docker run` base 镜像 + `load_state=EVOLVED`（读已学群体记忆） | `enable_evolve()` + evolved workspace |
+| trace_backfill | `agent_source=openclaw` | `agent_source=openclaw`（共享 OpenClaw 链路） | `agent_source=hermes` |
 
 ---
 
