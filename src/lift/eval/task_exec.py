@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import TypeVar
 
@@ -87,24 +87,30 @@ async def execute_tasks(
     run_phase: SuiteRunPhase,
     parallel: bool,
     max_concurrent: int | None = None,
+    on_task_done: Callable[[SuiteTask, PhaseRun], Awaitable[None]] | None = None,
 ) -> list[PhaseRun]:
     """Run multiple tasks; ``parallel`` 选并发 vs 串行；``max_concurrent`` 限并发上限。
 
     - ``parallel=False``：``for`` 顺序执行（``max_concurrent`` 被忽略）。
     - ``parallel=True``：``bounded_gather``；``max_concurrent`` 为 None / <=0 → 无上限。
+    - ``on_task_done``：每道题完成后立刻 ``await`` 的钩子（在并发模式下，仍是该题
+      自己的协程槽位内调用——共用同一并发上限）。常用于"每题独立 evolve"场景。
     """
     if not tasks:
         return []
 
     async def run_one(task: SuiteTask) -> PhaseRun:
-        """单题包装：委托 ``execute_task``。"""
-        return await execute_task(
+        """单题包装：execute_task → 可选 on_task_done。"""
+        result = await execute_task(
             task=task,
             run_id=run_id,
             workspace_dir=workspace_dir,
             factory=factory,
             run_phase=run_phase,
         )
+        if on_task_done is not None:
+            await on_task_done(task, result)
+        return result
 
     if parallel:
         # 共享同一 factory/env/workspace：仅当 runtime 支持 warmup 多题并发时使用

@@ -1,8 +1,8 @@
 """warmup / hold-out 阶段容器编排策略枚举。
 
-只表达**容器编排维度**（"几个容器、是否并发"）。``apply_evolve`` /
-``materialize_delta`` 的行为（产物落到镜像还是外部记忆）由 adapter 类型决定，
-不在本枚举里。
+只表达**容器编排维度**（"几个容器、是否并发"）。``evolve_after_warmup`` /
+``evolve_after_task`` / ``materialize_delta`` 的行为（产物落到镜像还是外部记忆）
+由 adapter 类型决定，不在本枚举里。
 """
 
 from __future__ import annotations

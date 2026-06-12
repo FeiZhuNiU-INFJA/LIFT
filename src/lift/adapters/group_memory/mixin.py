@@ -8,7 +8,7 @@
 设计约定：
     - **不继承** ``AgentRuntimeAdapter``：仅以 duck typing override 方法，避免菱形继承。
     - 必须放在 MRO 左侧（如 ``class X(GroupMemoryAdapterMixin, OpenClawAdapter)``），
-      使其 ``produce_delta`` / ``apply_evolve`` / ``materialize_delta`` 优先生效。
+      使其 ``produce_delta`` / ``evolve_after_task`` / ``materialize_delta`` 优先生效。
     - 依赖父类提供 ``self.start_container``、``self._docker_image``、``self._options``、
       ``self.warmup_workspace``、``self.worker_judger_factory``——这些都来自
       ``ContainerAgentRuntimeAdapter`` + 具体 runtime adapter。
@@ -43,8 +43,9 @@ class GroupMemoryAdapterMixin:
           返回 ``owned=False`` 的占位 ``DeltaRef``——hold-out evolved 阶段会复用 base
           镜像，evolved 信号通过 ``load_state`` 透传给 ``start_container``，由 runtime
           决定如何加载群体记忆。
-        - ``apply_evolve``: 默认 no-op。群体记忆通常在 chat 期间由 runtime 插件实时
-          写入，无需 warmup 末尾显式触发。子类如有需要可在覆盖中调用外部 evolve API。
+        - ``evolve_after_task``: 默认 no-op（群体记忆通常在 chat 期间由 runtime 插件
+          实时写入，无需显式触发）。子类可覆盖为 flush / 索引重建调用。
+        - ``evolve_after_warmup``: 默认 no-op（群体记忆是"题级"产物，没有"批次级收尾"语义）。
         - ``materialize_delta``: 默认返回 ``owned=False`` 的占位（实际不会被
           ``produce_delta`` 调用，仅为兜底契约）。
     """
@@ -114,7 +115,7 @@ class GroupMemoryAdapterMixin:
         resources: SuiteRunResources,
         ctx: SuiteRunContext,
     ) -> None:
-        """单题独立容器跑完 warmup → 调用 ``apply_evolve`` 钩子 → 立刻 cleanup。"""
+        """单题独立容器跑完 warmup → 调用 ``evolve_after_task`` 钩子 → 立刻 cleanup。"""
         workspace = workspace_root / task.name
         workspace.mkdir(parents=True, exist_ok=True)
 
@@ -148,19 +149,32 @@ class GroupMemoryAdapterMixin:
                 factory=factory,
                 run_phase=run_phase,
             )
-            # 留 evolve 钩子：默认 no-op；具体 runtime 子类可覆写为外部 API 调用
-            await self.apply_evolve(env, ctx)  # type: ignore[attr-defined]
+            # 题级 evolve 钩子：默认 no-op；子类可覆盖为外部记忆 flush
+            await self.evolve_after_task(env, task, ctx)  # type: ignore[attr-defined]
         finally:
             await session.cleanup()
 
-    async def apply_evolve(  # type: ignore[override]
+    async def evolve_after_task(  # type: ignore[override]
         self,
         env: ExecutionEnvironment,
+        task: SuiteTask,
         ctx: SuiteRunContext,
     ) -> None:
         """默认 no-op：群体记忆在 chat 期间由 runtime 插件实时写入，无需显式触发。
 
-        子类如需在 warmup 末尾对外部记忆系统做收尾（如 flush / 索引重建），可覆写此方法。
+        子类如需在每题末尾对外部记忆系统做收尾（如 flush / 索引重建），可覆写此方法。
+        """
+        _ = (env, task, ctx)
+        return None
+
+    async def evolve_after_warmup(  # type: ignore[override]
+        self,
+        env: ExecutionEnvironment,
+        ctx: SuiteRunContext,
+    ) -> None:
+        """默认 no-op：本 Mixin 的 ``produce_delta`` 不会调用此方法（钩子在每题后触发）。
+
+        若被外部代码调用（如未走 Mixin 路径的容器编排），返回 no-op。
         """
         _ = (env, ctx)
         return None

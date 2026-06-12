@@ -96,7 +96,7 @@ sequenceDiagram
 | `resolve_docker_image` | 用哪个镜像（默认 `evolve-eval-openclaw:latest`） |
 | `start_container` | 起 gateway、挂卷、可选 workspace seed |
 | `worker_judger_factory` | 怎么在容器里 chat（work agent + judge agent） |
-| `apply_evolve` | warmup 结束后跑 `openclaw learn review` |
+| `evolve_after_warmup` | warmup 结束后跑 `openclaw learn review` |
 
 **Docker commit 产 delta** 是上层 `ContainerAgentRuntimeAdapter` 已经写好的，OpenClaw 不用重复实现。
 

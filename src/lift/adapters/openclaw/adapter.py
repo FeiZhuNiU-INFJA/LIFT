@@ -73,7 +73,9 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
         )
 
     @override
-    async def apply_evolve(self, env: ExecutionEnvironment, ctx: SuiteRunContext) -> None:
+    async def evolve_after_warmup(
+        self, env: ExecutionEnvironment, ctx: SuiteRunContext
+    ) -> None:
         """warmup 完成后在容器内执行 ``openclaw learn review``。"""
         _ = ctx
         session: ContainerSession = env.handle

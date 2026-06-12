@@ -80,7 +80,7 @@ class MockAdapter(AgentRuntimeAdapter):
         raise NotImplementedError("MockAdapter does not run tasks")
 
     @override
-    async def apply_evolve(self, env: ExecutionEnvironment, ctx: SuiteRunContext) -> None:
+    async def evolve_after_warmup(self, env: ExecutionEnvironment, ctx: SuiteRunContext) -> None:
         """Not implemented; MockAdapter does not run tasks / 未实现，MockAdapter 不执行任务。"""
         _ = (env, ctx)
         raise NotImplementedError("MockAdapter does not run tasks")

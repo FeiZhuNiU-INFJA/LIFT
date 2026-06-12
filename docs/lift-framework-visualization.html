@@ -356,7 +356,7 @@ sequenceDiagram
               <td><code>openclaw/chat_agent.py</code></td>
             </tr>
             <tr>
-              <td><code>apply_evolve</code></td>
+              <td><code>evolve_after_warmup</code></td>
               <td>warmup 后 <code>openclaw learn review</code></td>
               <td><code>openclaw/evolve.py</code></td>
             </tr>
@@ -539,7 +539,8 @@ classDiagram
         +run_before_load()
         +run_after_load()
         +worker_judger_factory()*
-        +apply_evolve()*
+        +evolve_after_warmup()*
+        +evolve_after_task()
     }
     class ContainerAgentRuntimeAdapter {
         &lt;&lt;abstract&gt;&gt;
@@ -551,7 +552,7 @@ classDiagram
         +resolve_docker_image()
         +start_container()
         +worker_judger_factory()
-        +apply_evolve()
+        +evolve_after_warmup()
     }
     AgentRuntimeAdapter <|-- ContainerAgentRuntimeAdapter
     ContainerAgentRuntimeAdapter <|-- OpenClawAdapter

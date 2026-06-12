@@ -139,11 +139,11 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 
 ```text
 ContainerAgentRuntimeAdapter（serial_single / parallel_single）：
-  warmup（共享容器，多题串行或并发）→ apply_evolve（容器内）→ docker commit → DeltaRef(owned=True)
+  warmup（共享容器，多题串行或并发）→ evolve_after_warmup（容器内）→ docker commit → DeltaRef(owned=True)
   hold-out evolved：docker run delta_image
 
 GroupMemoryAdapterMixin（必须 parallel_multi）：
-  warmup（多容器并行，每题一个，模拟多用户）→ apply_evolve no-op
+  warmup（多容器并行，每题一个，模拟多用户）→ evolve_after_task per-container（默认 no-op）
                                               → DeltaRef(image_tag=base_image, owned=False)
   hold-out evolved：docker run base_image，runtime 在 load_state=EVOLVED 时注入群体记忆配置
 ```
@@ -480,12 +480,74 @@ class DeltaRef(BaseModel, Disposable):
 worker_judger_factory()           # ChatAgent 工厂
 start_warmup_environment()        # before 产物积累
 start_holdout_environment(..., load_state)  # per-task 隔离容器；load_state 区分 baseline/evolved
-apply_evolve()                    # warmup 后更新产物（外部记忆方案可 no-op）
+evolve_after_task()               # 每题完成后钩子（默认 no-op；群体记忆方案常用）
+evolve_after_warmup()             # 所有 warmup 完成后钩子（OpenClaw=learn review；外部记忆方案可 no-op）
 materialize_delta()               # 默认 docker commit（Container 层）；非镜像方案返回 owned=False 占位
 baseline_image()                  # before-load 运行时标识
 ```
 
-**Mixin 扩展点**：`produce_delta` / `apply_evolve` / `materialize_delta` 都可以由 Mixin 覆盖以支持不同 delta 形态。`GroupMemoryAdapterMixin` 是首个示例：与具体 runtime adapter（如 `OpenClawAdapter`）多重继承组合得到 `MultiUserOpenClawAdapter`，无需重写 runtime 特性方法（`start_container`、`worker_judger_factory`）。详见 [`src/lift/adapters/group_memory/mixin.py`](../src/lift/adapters/group_memory/mixin.py)。
+**Mixin 扩展点**：`produce_delta` / `evolve_after_task` / `evolve_after_warmup` / `materialize_delta` 都可以由 Mixin 覆盖以支持不同 delta 形态。`GroupMemoryAdapterMixin` 是首个示例：与具体 runtime adapter（如 `OpenClawAdapter`）多重继承组合得到 `MultiUserOpenClawAdapter`，无需重写 runtime 特性方法（`start_container`、`worker_judger_factory`）。详见 [`src/lift/adapters/group_memory/mixin.py`](../src/lift/adapters/group_memory/mixin.py)。
+
+#### 12.4.1 evolve 钩子契约：`evolve_after_task` vs `evolve_after_warmup`
+
+**两套钩子设计目标**：让 adapter 自由选择"每题完成后立刻 evolve"还是"全部 warmup 完成后统一 evolve"，无需重写整个 `produce_delta`。
+
+| 钩子 | 是否抽象 | 默认实现 | 调用时机 | 适用场景 |
+|------|---------|---------|---------|---------|
+| `evolve_after_task(env, task, ctx)` | 否（有默认 no-op） | `pass` | **每道** warmup 题完成后立刻调用一次 | 每题独立 evolve（群体记忆 flush、增量学习） |
+| `evolve_after_warmup(env, ctx)` | 是（@abstractmethod） | 子类必须实现 | 所有 warmup 题完成、`materialize_delta` 之前调用一次 | 批次级 evolve（OpenClaw `learn review`） |
+
+**调用次数 × 容器编排矩阵**
+
+设 warmup 题数为 N。
+
+| `WarmupContainerPolicy` | `evolve_after_task` 调用 | 调用所在容器 | `evolve_after_warmup` 调用 | 调用所在容器 |
+|---|---|---|---|---|
+| `SERIAL_SINGLE` | N 次（顺序，每题后） | **同一**共享容器 | 1 次 | 同一共享容器 |
+| `PARALLEL_SINGLE` | N 次（并发，每题协程槽位内） | **同一**共享容器（⚠️ 并发调用） | 1 次 | 同一共享容器 |
+| `PARALLEL_MULTI`（GroupMemoryAdapterMixin） | N 次（并发） | **各自独立**容器（每题一个） | 1 次（**Mixin 默认 no-op**，因为 Mixin 不走 base `produce_delta`） | — |
+
+**关键约束**
+
+1. **`evolve_after_warmup` 是抽象方法**：所有 adapter 必须显式实现（即使是 no-op，也要写出来表态）。`OpenClawAdapter` 实现为 `openclaw learn review`；`GroupMemoryAdapterMixin` 显式覆盖为 no-op。
+
+2. **`evolve_after_task` 默认 no-op**：基类 [`AgentRuntimeAdapter`](../src/lift/adapters/base.py) 提供默认空实现；子类只在需要"每题立刻 evolve"时覆写。
+
+3. **并发竞态警告**：`PARALLEL_SINGLE` 模式下，多个 `evolve_after_task` 协程**共享同一容器**并发执行——若 evolve 操作非原子（如修改容器内同一文件），调用方需自行加锁或选择 `SERIAL_SINGLE`。`PARALLEL_MULTI` 各题独立容器，无此问题。
+
+4. **`evolve_after_task` 钩子由谁触发**：
+   - base 路径（`SERIAL_SINGLE` / `PARALLEL_SINGLE`）：由 `execute_tasks` 的 `on_task_done` 参数自动调用，见 [`base.py` produce_delta 中 `on_task_done=lambda...`](../src/lift/adapters/base.py)。
+   - Mixin 路径（`PARALLEL_MULTI`）：由 `_run_warmup_in_isolated_container` 在每题容器 `cleanup` 之前显式调用，见 [`mixin.py`](../src/lift/adapters/group_memory/mixin.py)。
+
+**子类覆写决策树**
+
+```text
+是否需要"每题完成后立刻 evolve"？
+  ├─ 是（群体记忆 flush / 增量学习 / 每题指标采集）
+  │    → 覆写 evolve_after_task
+  │    → 通常 evolve_after_warmup 设为 no-op
+  │
+  └─ 否（warmup 结束后统一处理产物，最常见）
+       → 覆写 evolve_after_warmup（OpenClaw 风格）
+       → evolve_after_task 保持默认 no-op
+```
+
+**典型实现示意**
+
+```python
+# OpenClaw：批次级 evolve（默认 evolve_after_task no-op）
+class OpenClawAdapter(ContainerAgentRuntimeAdapter):
+    async def evolve_after_warmup(self, env, ctx) -> None:
+        await openclaw_learn_review(openclaw_context(env.handle))
+
+# 群体记忆 Mixin：题级 evolve（evolve_after_warmup no-op）
+class GroupMemoryAdapterMixin:
+    async def evolve_after_task(self, env, task, ctx) -> None:
+        # 例：把当前题的产物 flush 到外部群体记忆
+        return None  # 默认插件已实时写入，无需显式 flush
+    async def evolve_after_warmup(self, env, ctx) -> None:
+        return None  # 题级产物，无批次收尾语义
+```
 
 ### 12.5 trace_backfill（观测）
 

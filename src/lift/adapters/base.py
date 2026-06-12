@@ -83,8 +83,9 @@ class AgentRuntimeAdapter(ABC):
                 run_phase=run_phase,
                 parallel=self._options.warmup_container_policy.tasks_parallel,  # 由 warmup_container_policy 决定
                 max_concurrent=self._options.max_concurrent_tasks,
+                on_task_done=lambda task, _result: self.evolve_after_task(env, task, ctx),  # 每题完成钩子；默认 no-op
             )
-            await self.apply_evolve(env, ctx)  # runtime 特有：OpenClaw = learn review
+            await self.evolve_after_warmup(env, ctx)  # 所有 warmup 完成钩子：OpenClaw = learn review
             delta = await self.materialize_delta(env, ctx)  # 须在容器仍存活时 commit
             resources.delta = delta
             LOGGER.info("Delta materialized: %s", delta.image_tag)
@@ -225,9 +226,30 @@ class AgentRuntimeAdapter(ABC):
         commit 的策略需要这个显式信号决定是否注入"已学经验"配置。
         """
 
+    async def evolve_after_task(
+        self,
+        env: ExecutionEnvironment,
+        task: SuiteTask,
+        ctx: SuiteRunContext,
+    ) -> None:
+        """每道 warmup 题完成后立刻调用的 evolve 钩子；默认 no-op。
+
+        典型用法：在群体记忆 / 多容器场景下，每题独立容器跑完即写一次外部记忆 flush。
+        在共享容器（``SERIAL_SINGLE`` / ``PARALLEL_SINGLE``）模式下也可被覆写为
+        增量 evolve，但要注意 ``PARALLEL_SINGLE`` 下多次并发调用同一容器的
+        evolve 操作可能产生竞态——具体由子类自行评估。
+        """
+        _ = (env, task, ctx)
+        return None
+
     @abstractmethod
-    async def apply_evolve(self, env: ExecutionEnvironment, ctx: SuiteRunContext) -> None:
-        """Trigger artifact update after warmup tasks complete."""
+    async def evolve_after_warmup(
+        self, env: ExecutionEnvironment, ctx: SuiteRunContext
+    ) -> None:
+        """所有 warmup 题完成后调用的 evolve 钩子（``produce_delta`` 主路径）。
+
+        OpenClaw 在此触发 ``openclaw learn review``；群体记忆 runtime 通常 no-op。
+        """
 
     @abstractmethod
     async def materialize_delta(
