@@ -53,7 +53,7 @@ async def test_pipeline_two_holdout_task_runs() -> None:
                 run_id=run_id,
                 suite_paths=[suite_path],
                 adapter=adapter,
-                options=RunOptions(repeat=1, incremental_report=False),
+                options=RunOptions(repeat=1),
             )
         finally:
             os.chdir(prev_cwd)
@@ -88,7 +88,7 @@ async def test_pipeline_warmup_only_skips_holdout() -> None:
                 run_id=run_id,
                 suite_paths=[suite_path],
                 adapter=adapter,
-                options=RunOptions(warmup_only=True, incremental_report=False),
+                options=RunOptions(warmup_only=True),
             )
         finally:
             os.chdir(prev_cwd)

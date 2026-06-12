@@ -27,10 +27,6 @@ class RunOptions(BaseModel):
         default=None,
         description="覆盖 agent 配置的 base 镜像（None 时由 ContainerAgentRuntimeAdapter 解析）",
     )
-    incremental_report: bool = Field(
-        default=True,
-        description="每个 suite 完成后是否增量写 report JSON",
-    )
     warmup_container_policy: WarmupContainerPolicy = Field(
         default=WarmupContainerPolicy.PARALLEL_SINGLE,
         description=(

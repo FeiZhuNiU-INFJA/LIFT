@@ -154,10 +154,9 @@ class LIFTPipeline:
                     )
                     suite_run.tasks.extend(task_runs)
 
-                if options.incremental_report:
-                    # 长跑中断时仍可从磁盘恢复部分 report
-                    async with self._report_lock:
-                        eval_report.write_json(report_path)
+                # 每个 suite 完成后落盘：长跑中断时仍可从磁盘恢复部分 report
+                async with self._report_lock:
+                    eval_report.write_json(report_path)
             finally:
                 # 删本 suite 登记的容器；delta 镜像也在 resources.cleanup 里 rmi
                 await resources.cleanup()
