@@ -20,14 +20,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from src.config import LOGGER
 from src.lift.adapters.base import SuiteRunContext
 from src.lift.adapters.environment import ExecutionEnvironment
 from src.lift.eval.stage import SuiteRunPhase
-from src.lift.eval.task_exec import execute_task
+from src.lift.eval.task_exec import bounded_gather, execute_task
 from src.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src.lift.policies.container import WarmupContainerPolicy
 from src.lift.runtime.delta_ref import DeltaRef
@@ -88,7 +87,10 @@ class GroupMemoryAdapterMixin:
             for task in warmup_tasks
         ]
         if container_policy.tasks_parallel:
-            await asyncio.gather(*coros)
+            await bounded_gather(
+                coros,
+                limit=self._options.max_concurrent_tasks,  # type: ignore[attr-defined]
+            )
         else:
             for coro in coros:
                 await coro

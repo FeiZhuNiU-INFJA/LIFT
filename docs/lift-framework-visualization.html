@@ -619,9 +619,9 @@ sequenceDiagram
           <table>
             <thead><tr><th>层级</th><th>默认</th><th>CLI</th></tr></thead>
             <tbody>
-              <tr><td>repeat 之间</td><td>并行</td><td><code>--serial-repeats</code> 改串行</td></tr>
-              <tr><td>suite / hold-out 题</td><td>串行</td><td>—</td></tr>
-              <tr><td>warmup 题</td><td>串行</td><td><code>-p</code> 可并行</td></tr>
+              <tr><td>repeat 之间</td><td>并行</td><td><code>--max-parallel-repeats=1</code> 改串行；&gt;1 限并发上限</td></tr>
+              <tr><td>suite / hold-out 题</td><td>并行</td><td><code>--holdout-container-policy=serial_multi</code> 改串行；<code>--max-concurrent-tasks</code> 限并发</td></tr>
+              <tr><td>warmup 题</td><td>并行（同容器）</td><td><code>--warmup-container-policy</code> 切换形态；<code>--max-concurrent-tasks</code> 限并发</td></tr>
               <tr><td>baseline → evolved</td><td>串行</td><td>—（LIFT 语义）</td></tr>
             </tbody>
           </table>

@@ -82,6 +82,7 @@ class AgentRuntimeAdapter(ABC):
                 factory=factory,
                 run_phase=run_phase,
                 parallel=self._options.warmup_container_policy.tasks_parallel,  # 由 warmup_container_policy 决定
+                max_concurrent=self._options.max_concurrent_tasks,
             )
             await self.apply_evolve(env, ctx)  # runtime 特有：OpenClaw = learn review
             delta = await self.materialize_delta(env, ctx)  # 须在容器仍存活时 commit

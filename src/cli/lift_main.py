@@ -90,15 +90,23 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--serial-repeats",
-        action="store_true",
-        help="Run repeats serially instead of in parallel.",
-    )
-    parser.add_argument(
         "--max-parallel-repeats",
         type=int,
         default=None,
-        help="Cap parallel repeat workers (default: repeat count).",
+        help=(
+            "Cap parallel repeat workers. Default: no cap (all repeats run in parallel). "
+            "Set to 1 to run repeats serially."
+        ),
+    )
+    parser.add_argument(
+        "--max-concurrent-tasks",
+        type=int,
+        default=None,
+        help=(
+            "Cap concurrent task containers within a suite "
+            "(applies to warmup parallel_single/parallel_multi and hold-out "
+            "parallel_multi). Default: no cap."
+        ),
     )
     return parser
 
@@ -127,8 +135,8 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         evaluate_only=False,
         warmup_container_policy=WarmupContainerPolicy(args.warmup_container_policy),
         holdout_container_policy=HoldoutContainerPolicy(args.holdout_container_policy),
-        parallel_repeats=not args.serial_repeats,
         max_parallel_repeats=args.max_parallel_repeats,
+        max_concurrent_tasks=args.max_concurrent_tasks,
     )
     adapter = create_adapter(args.agent_runtime, options)
     pipeline = LIFTPipeline()

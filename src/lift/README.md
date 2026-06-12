@@ -46,9 +46,10 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 |------|---------|---------|
 | `-r / --agent-runtime` | *(required)* | Agent adapter; also selects base Docker image via registry |
 | `--warmup-only` | off | Warmup + evolve + delta only; skip hold-out contrast |
-| `--warmup-container-policy` | `serial_single` | Warmup in one container |
-| `--serial-repeats` | off | Disable parallel repeats |
-| `-p` | off | Parallel warmup tasks (within policy) |
+| `--warmup-container-policy` | `parallel_single` | Warmup container orchestration: `serial_single` / `parallel_single` / `parallel_multi` |
+| `--holdout-container-policy` | `parallel_multi` | Hold-out container orchestration: `serial_multi` / `parallel_multi` |
+| `--max-parallel-repeats` | unlimited | Cap parallel repeat workers (set to `1` for serial repeats) |
+| `--max-concurrent-tasks` | unlimited | Cap concurrent task containers within a suite |
 
 ## Post-process outputs (`-e` / `--evaluate-only`)
 

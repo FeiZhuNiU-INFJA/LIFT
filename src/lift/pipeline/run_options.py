@@ -49,20 +49,26 @@ class RunOptions(BaseModel):
         default="commit_image",
         description="delta 物化方式（当前仅 docker commit）",
     )
-    parallel_repeats: bool = Field(
-        default=True,
-        description="多轮 repeat 是否并行执行（--serial-repeats 关闭）",
-    )
     max_parallel_repeats: int | None = Field(
         default=None,
-        description="repeat 并行度上限（默认等于 repeat）",
+        description=(
+            "repeat 并行度上限（也是串/并行开关）。``None`` 表示无上限（所有 repeat "
+            "并行）；``1`` 表示串行；``N>1`` 表示最多 N 个 repeat 同时跑。"
+        ),
+    )
+    max_concurrent_tasks: int | None = Field(
+        default=None,
+        description=(
+            "题级并发容器数上限（warmup parallel_single/parallel_multi 与 hold-out "
+            "parallel_multi 共用此上限）。None 或 <=0 表示无上限。"
+            "在大 suite + 资源紧张时设为较小整数避免 docker 资源耗尽。"
+        ),
     )
 
     @model_validator(mode="after")
     def _normalize_options(self) -> RunOptions:
-        """校验 repeat 下限并补全 ``max_parallel_repeats`` 默认值。"""
+        """校验 repeat 下限。``max_parallel_repeats`` / ``max_concurrent_tasks``
+        保持 ``None`` 语义（无上限），由下游 ``bounded_gather`` 解释。"""
         if self.repeat < 1:
             raise ValueError("--repeat must be at least 1")
-        if self.max_parallel_repeats is None:
-            self.max_parallel_repeats = self.repeat
         return self

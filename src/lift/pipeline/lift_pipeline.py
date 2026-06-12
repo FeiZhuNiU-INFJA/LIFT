@@ -10,6 +10,7 @@ from src.config import LOGGER
 from src.models import EvalRepeat, EvalReport, SuiteRun, TaskRun
 
 from src.lift.adapters.base import AgentRuntimeAdapter, SuiteRunContext
+from src.lift.eval.task_exec import bounded_gather
 from src.lift.policies.artifact import WarmupThenUpdatePolicy
 from src.lift.pipeline.run_options import RunOptions
 from src.lift.runtime.delta_ref import DeltaRef
@@ -40,10 +41,10 @@ class LIFTPipeline:
         results_run_dir(run_id).mkdir(parents=True, exist_ok=True)
         eval_report.runs = [EvalRepeat() for _ in range(options.repeat)]
 
-        # 多 repeat 默认并行；共享 eval_report，增量写入需 _report_lock
-        if options.parallel_repeats and options.repeat > 1:
-            await asyncio.gather(
-                *[
+        # 多 repeat 默认并行；max_parallel_repeats=1 时串行；否则受其值上限约束
+        if options.repeat > 1 and options.max_parallel_repeats != 1:
+            await bounded_gather(
+                (
                     self._run_suites(
                         repeat_index=i,
                         run_id=run_id,
@@ -54,7 +55,8 @@ class LIFTPipeline:
                         report_path=report_path,
                     )
                     for i in range(options.repeat)
-                ]
+                ),
+                limit=options.max_parallel_repeats,
             )
         else:
             for repeat_index in range(options.repeat):
@@ -196,5 +198,8 @@ class LIFTPipeline:
             )
 
         if options.holdout_container_policy.tasks_parallel:
-            return list(await asyncio.gather(*(_one_task(t) for t in holdout_tasks)))
+            return await bounded_gather(
+                (_one_task(t) for t in holdout_tasks),
+                limit=options.max_concurrent_tasks,
+            )
         return [await _one_task(t) for t in holdout_tasks]

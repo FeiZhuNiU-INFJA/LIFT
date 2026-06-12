@@ -3,13 +3,45 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Iterable
 from pathlib import Path
+from typing import TypeVar
 
 from src.config import LOGGER
 from src.lift.eval.stage import SuiteRunPhase
 from src.lift.eval.worker_judger import WorkerJudgerPairFactory
 from src.lift.eval.run_task import run_task
 from src.models import PhaseRun, SuiteTask
+
+_T = TypeVar("_T")
+
+
+async def bounded_gather(
+    coros: Iterable[Awaitable[_T]],
+    *,
+    limit: int | None,
+) -> list[_T]:
+    """``asyncio.gather`` 加并发上限版本。
+
+    - ``limit is None`` 或 ``limit <= 0``：行为同 ``asyncio.gather``（无上限）。
+    - 其他情况：用 ``asyncio.Semaphore(limit)`` 包裹每个 coroutine，确保
+      任意时刻至多 ``limit`` 个 coroutine 在执行（其余在 ``async with sem`` 处等待）。
+
+    返回顺序与输入顺序一致（与 ``asyncio.gather`` 一致）。
+    """
+    coros_list = list(coros)
+    if not coros_list:
+        return []
+    if limit is None or limit <= 0 or limit >= len(coros_list):
+        return list(await asyncio.gather(*coros_list))
+
+    sem = asyncio.Semaphore(limit)
+
+    async def _bounded(coro: Awaitable[_T]) -> _T:
+        async with sem:
+            return await coro
+
+    return list(await asyncio.gather(*[_bounded(c) for c in coros_list]))
 
 
 async def execute_task(
@@ -54,8 +86,13 @@ async def execute_tasks(
     factory: WorkerJudgerPairFactory,
     run_phase: SuiteRunPhase,
     parallel: bool,
+    max_concurrent: int | None = None,
 ) -> list[PhaseRun]:
-    """Run multiple tasks; ``parallel`` selects serial ``for`` vs ``asyncio.gather``."""
+    """Run multiple tasks; ``parallel`` 选并发 vs 串行；``max_concurrent`` 限并发上限。
+
+    - ``parallel=False``：``for`` 顺序执行（``max_concurrent`` 被忽略）。
+    - ``parallel=True``：``bounded_gather``；``max_concurrent`` 为 None / <=0 → 无上限。
+    """
     if not tasks:
         return []
 
@@ -71,7 +108,9 @@ async def execute_tasks(
 
     if parallel:
         # 共享同一 factory/env/workspace：仅当 runtime 支持 warmup 多题并发时使用
-        return list(await asyncio.gather(*[run_one(t) for t in tasks]))
+        return await bounded_gather(
+            (run_one(t) for t in tasks), limit=max_concurrent
+        )
     results: list[PhaseRun] = []
     for task in tasks:
         results.append(await run_one(task))

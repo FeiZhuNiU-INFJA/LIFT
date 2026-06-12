@@ -53,7 +53,7 @@ async def test_pipeline_two_holdout_task_runs() -> None:
                 run_id=run_id,
                 suite_paths=[suite_path],
                 adapter=adapter,
-                options=RunOptions(repeat=1, incremental_report=False, parallel_repeats=False),
+                options=RunOptions(repeat=1, incremental_report=False),
             )
         finally:
             os.chdir(prev_cwd)
