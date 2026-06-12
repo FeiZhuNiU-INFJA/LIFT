@@ -25,6 +25,34 @@ python -m src.cli.lift_main -r openclaw --evaluate-only --run_id my-run
 - **Conda**（Miniconda/Anaconda 任一）+ Python 3.12
 - **Langfuse**（**必需**）：pre-chat 上报、容器内 trace、后处理 trace backfill 与 token/延迟指标均依赖 Langfuse
 
+### 安装 Docker（macOS）
+
+[Docker 官方文档](https://docs.docker.com/desktop/setup/install/mac-install/) 仅推荐 **Docker Desktop**（图形界面应用），**不包含** Colima 等第三方方案。本项目只需 `docker` CLI + 可用的 Docker daemon，以下两种方式任选其一：
+
+**方式 A：Docker Desktop（官方）**
+
+按 [Install Docker Desktop on Mac](https://docs.docker.com/desktop/setup/install/mac-install/) 下载安装，启动后确认：
+
+```bash
+docker info
+```
+
+**方式 B：Colima + Docker CLI（轻量、纯命令行，非 Docker 官方产品）**
+
+适合不想装 Docker Desktop、或偏好 Homebrew + 终端管理的 Mac 开发者。Colima 在 macOS 上启动一个 Linux 虚拟机并在其中运行 Docker Engine；本项目已在此方案下验证通过。
+
+```bash
+brew install colima docker docker-compose
+colima start --cpu 4 --memory 8   # 首次启动会下载 VM 镜像，需等待数分钟
+docker info                       # 应能正常输出 Server 信息
+```
+
+常用命令：`colima status`（查看状态）、`colima stop`（停止）。可选开机自启：`brew services start colima`。
+
+> **说明**：Colima 文档见 [abiosoft/colima](https://github.com/abiosoft/colima)。若 `docker compose` 找不到插件，在 `~/.docker/config.json` 中加入 `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]`（Apple Silicon Homebrew 路径；Intel 一般为 `/usr/local/lib/docker/cli-plugins`）。
+
+**Linux**：按 [Docker Engine 安装指南](https://docs.docker.com/engine/install/) 安装对应发行版包即可。
+
 ## 2. 安装 Langfuse
 
 按官方文档用 Docker Compose 本地或 VM 部署即可：
