@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, override
 
 from src.config import LOGGER
+from src.lift.adapters.container.exec import redact_docker_argv
 from src.lift.runtime.disposable import Disposable
 from src.lift.runtime.environment_cleaner import EnvironmentCleaner
 
@@ -124,7 +125,7 @@ class ContainerSession(Disposable):
         cmd.append(image)
         cmd.extend(entrypoint_cmd)
 
-        LOGGER.info("Starting container session: %s", " ".join(cmd))
+        LOGGER.info("Starting container session: %s", redact_docker_argv(cmd))
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,

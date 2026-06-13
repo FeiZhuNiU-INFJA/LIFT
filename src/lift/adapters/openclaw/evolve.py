@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from src.lift.adapters.openclaw.container_env import container_runtime_env
 from src.lift.adapters.container.exec import docker_exec_shell_async
 from src.lift.adapters.openclaw.container_exec import (
     OpenClawContainerContext,
@@ -11,8 +10,11 @@ from src.lift.adapters.openclaw.container_exec import (
 
 
 async def openclaw_learn_review(container: OpenClawContainerContext) -> None:
-    """warmup 题完成后在容器内执行 evolve（learn review + worker 配置）。"""
-    env = container_runtime_env()
+    """warmup 题完成后在容器内执行 evolve（learn review + worker 配置）。
+
+    所有 runtime env（``LANGFUSE_BASE_URL`` 等）已在 ``docker run`` 阶段写入容器
+    ``Config.Env``，``docker exec`` 自动继承，因此这里不再显式 ``-e`` 注入。
+    """
     # 预备：git safe.directory + 降低 review worker thinking（加速 warmup evolve）
     await docker_exec_shell_async(
         container.container_name,
@@ -24,6 +26,6 @@ if [[ -f "${WORKER_JS}" ]]; then
   sed -i 's/"--thinking", "low"/"--thinking", "off"/g' "${WORKER_JS}" || true
 fi
 """.strip(),
-        env=env,
     )
     await exec_openclaw_async(container, ["learn", "review"])  # 产物写入容器层，供 commit delta
+

@@ -19,8 +19,6 @@ def _normalize_langfuse_base_url(raw: str | None) -> str:
 
 def host_user_ids() -> tuple[int, int]:
     """宿主机 uid/gid，用于容器销毁后 reclaim bind mount 文件所有权。"""
-    import os
-
     return os.getuid(), os.getgid()
 
 
@@ -36,22 +34,17 @@ done
 
 
 def container_runtime_env() -> dict[str, str]:
-    """传入 OpenClaw 容器的环境变量（覆盖/补充 repo ``.env``）。"""
-    env: dict[str, str] = {}
-    ark_key = os.environ.get("ARK_API_KEY")
-    if ark_key:
-        env["ARK_API_KEY"] = ark_key
-    # 工具/插件凭据：宿主机环境若有则透传给容器（OpenClaw 启动时按 env 自动选 web_search /
-    # web_fetch provider，无需写 openclaw.json）。
-    for key in (
-        "LANGFUSE_PUBLIC_KEY",
-        "LANGFUSE_SECRET_KEY",
-        "FIRECRAWL_API_KEY",
-    ):
-        val = os.environ.get(key)
-        if val:
-            env[key] = val
-    env["LANGFUSE_BASE_URL"] = _normalize_langfuse_base_url(
-        os.environ.get("LANGFUSE_BASE_URL")
-    )
-    return env
+    """``docker run`` 时需要相对宿主机 ``.env`` **改写**的环境变量。
+
+    其它 secret（``ARK_API_KEY`` / ``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY`` /
+    ``FIRECRAWL_API_KEY`` 等）一律走 ``--env-file``，不在这里返回——避免 secret 重复
+    出现在 ``docker run -e ...`` 命令行与日志里；这些值已经写入容器 ``Config.Env``，
+    后续 ``docker exec`` 会自动继承，无需再次注入。
+    """
+    return {
+        # 容器内 host.docker.internal 访问宿主机 Langfuse；宿主机 .env 通常配 localhost
+        "LANGFUSE_BASE_URL": _normalize_langfuse_base_url(
+            os.environ.get("LANGFUSE_BASE_URL")
+        ),
+    }
+

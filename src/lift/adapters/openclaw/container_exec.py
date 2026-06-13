@@ -6,7 +6,6 @@ import subprocess
 from dataclasses import dataclass
 
 from src.lift.adapters.container.exec import docker_exec_async, docker_exec_sync
-from src.lift.adapters.openclaw.container_env import container_runtime_env
 
 
 @dataclass(frozen=True)
@@ -15,23 +14,14 @@ class OpenClawContainerContext:
 
     Attributes:
         container_name: ``docker exec`` 目标容器名。
-        gateway_token: ``OPENCLAW_GATEWAY_TOKEN`` 环境变量值。
+        gateway_token: ``OPENCLAW_GATEWAY_TOKEN`` 环境变量值（仅记录用，
+            实际注入由 ``docker run`` 阶段的 ``Config.Env`` 完成；exec 默认继承）。
         gateway_port: 宿主机上映射的 gateway 端口（metadata 用）。
     """
 
     container_name: str
     gateway_token: str
     gateway_port: int
-
-    def _exec_env(self, extra_env: dict[str, str] | None = None) -> dict[str, str]:
-        """OpenClaw CLI 所需的容器内环境变量（每次 docker exec 注入）。"""
-        env = {
-            "OPENCLAW_GATEWAY_TOKEN": self.gateway_token,
-            **container_runtime_env(),
-        }
-        if extra_env:
-            env.update(extra_env)
-        return env
 
 
 async def exec_openclaw_async(
@@ -40,11 +30,17 @@ async def exec_openclaw_async(
     *,
     extra_env: dict[str, str] | None = None,
 ) -> str:
-    """异步 ``docker exec openclaw ...``，失败抛 ``RuntimeError``。"""
+    """异步 ``docker exec openclaw ...``，失败抛 ``RuntimeError``。
+
+    OpenClaw CLI 所需的 ``OPENCLAW_GATEWAY_TOKEN`` / ``LANGFUSE_*`` / ``ARK_API_KEY``
+    等环境变量在 ``docker run`` 阶段已经写入 ``Config.Env``，``docker exec`` 默认
+    继承——因此这里不再传 ``-e``，避免 secret 在命令行/日志中重复出现。
+    ``extra_env`` 仅用于偶发的运行时附加变量。
+    """
     return await docker_exec_async(
         ctx.container_name,
         ["openclaw", *args],
-        env=ctx._exec_env(extra_env),
+        env=extra_env,
         label=f"openclaw {' '.join(args)}",
     )
 
@@ -56,10 +52,14 @@ def exec_openclaw_sync(
     extra_env: dict[str, str] | None = None,
     check: bool = True,
 ) -> subprocess.CompletedProcess:
-    """同步 ``docker exec openclaw ...``（用于 initialize 等阻塞场景）。"""
+    """同步 ``docker exec openclaw ...``（用于 initialize 等阻塞场景）。
+
+    详见 ``exec_openclaw_async`` 的说明：env 默认继承容器 ``Config.Env``。
+    """
     return docker_exec_sync(
         ctx.container_name,
         ["openclaw", *args],
-        env=ctx._exec_env(extra_env),
+        env=extra_env,
         check=check,
     )
+

@@ -7,6 +7,48 @@ import subprocess
 
 from src.config import LOGGER
 
+# ``docker run -e KEY=VAL`` / ``docker exec -e KEY=VAL`` 写日志时需要脱敏的 key 子串
+# （大小写不敏感，子串匹配——例如 ``ARK_API_KEY`` 命中 ``API_KEY``）。
+_REDACT_KEY_SUBSTRINGS = (
+    "TOKEN",
+    "SECRET",
+    "KEY",
+    "PASSWORD",
+)
+
+
+def _should_redact_env(key: str) -> bool:
+    """env key 是否属于敏感 secret（包含 TOKEN/SECRET/KEY/PASSWORD 子串）。"""
+    upper = key.upper()
+    return any(needle in upper for needle in _REDACT_KEY_SUBSTRINGS)
+
+
+def redact_docker_argv(cmd: list[str]) -> str:
+    """把 ``docker run/exec`` argv 中 ``-e KEY=VAL`` 的敏感值替换为 ``***``。
+
+    扫描每个 ``-e`` 后续的 ``KEY=VAL`` 段：若 KEY 命中 ``_should_redact_env`` 则
+    把值改为 ``***``；其它参数原样保留。仅用于日志输出，不影响实际 subprocess 调用。
+    """
+    redacted: list[str] = []
+    i = 0
+    while i < len(cmd):
+        token = cmd[i]
+        redacted.append(token)
+        if token == "-e" and i + 1 < len(cmd):
+            kv = cmd[i + 1]
+            if "=" in kv:
+                key, _, _ = kv.partition("=")
+                if _should_redact_env(key):
+                    redacted.append(f"{key}=***")
+                else:
+                    redacted.append(kv)
+            else:
+                redacted.append(kv)
+            i += 2
+            continue
+        i += 1
+    return " ".join(redacted)
+
 
 def build_docker_exec_argv(
     container_name: str,
@@ -33,7 +75,7 @@ async def docker_exec_async(
 ) -> str:
     """异步 ``docker exec``，非零退出码抛 ``RuntimeError``，返回 stdout 文本。"""
     cmd = build_docker_exec_argv(container_name, command, env=env)
-    LOGGER.info("Container exec: %s", " ".join(cmd))
+    LOGGER.info("Container exec: %s", redact_docker_argv(cmd))
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -60,7 +102,7 @@ def docker_exec_sync(
 ) -> subprocess.CompletedProcess:
     """同步 ``docker exec``（阻塞场景，如 initialize）。"""
     cmd = build_docker_exec_argv(container_name, command, env=env)
-    LOGGER.info("Container exec (sync): %s", " ".join(cmd))
+    LOGGER.info("Container exec (sync): %s", redact_docker_argv(cmd))
     return subprocess.run(cmd, check=check, capture_output=True, text=True)
 
 
@@ -78,3 +120,4 @@ async def docker_exec_shell_async(
         env=env,
         label=f"shell: {script[:120]}",
     )
+
