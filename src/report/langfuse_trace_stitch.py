@@ -78,10 +78,13 @@ def _stitch_openclaw(
     judge_session_id: str,
     page_limit: int,
 ) -> PhaseLangfuseBundle:
-    """OpenClaw：pre-chat ``*_agent`` + ``openclaw-plugin`` 按 eval session 归类并 1:1 配对。"""
-    by_run_tag = _list_traces_all_pages(
-        client, tags=[eval_run_tag], page_limit=page_limit, order_by="timestamp.asc"
-    )
+    """OpenClaw：pre-chat ``*_agent`` + ``openclaw-plugin`` 按 eval session 归类并 1:1 配对。
+
+    只按 work/judge 的 ``session_id`` 与对应 session tag 检索（四路并集去重）。不再按
+    ``eval_run_tag`` 全量拉取——该 tag 是整个 run 所有 task×phase×turn 的公共 tag，按它
+    检索会把全 run trace 拖进 ``trace.get``，但 classify 阶段只保留本 phase 的 work/judge
+    trace，其余全部丢弃，造成 O(phase 数 × 全 run trace 数) 的 N+1 放大。
+    """
     by_work = _list_traces_all_pages(
         client, session_id=work_session_id, page_limit=page_limit, order_by="timestamp.asc"
     )
@@ -97,7 +100,7 @@ def _stitch_openclaw(
 
     # 多路 trace.list 并集去重；完整 payload 一律 trace.get 拉取
     merged: dict[str, Any] = {}
-    for t in (*by_run_tag, *by_work, *by_judge, *by_work_tag, *by_judge_tag):
+    for t in (*by_work, *by_judge, *by_work_tag, *by_judge_tag):
         merged[str(t.id)] = t
 
     details = fetch_trace_details(client, list(merged.keys()))
