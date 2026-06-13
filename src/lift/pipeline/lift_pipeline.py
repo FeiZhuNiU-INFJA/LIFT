@@ -176,13 +176,19 @@ class LIFTPipeline:
     ) -> list[TaskRun]:
         """按 ``holdout_container_policy`` 串行 / 并行执行 hold-out 多题。
 
-        每题内部 baseline → evolved 仍然顺序执行（同题镜像分裂会读写同一 workspace
-        子目录，且需要先后对照语义）；多题之间按 policy 决定是否 ``asyncio.gather``。
+        ``holdout_phase_policy`` 控制单 task 内 baseline / evolved 是否并行
+        （二者镜像与 workspace 子目录互不依赖，并行后单题最多有 2 个容器存活）。
         """
 
         async def _one_task(task: SuiteTask) -> TaskRun:
-            baseline = await adapter.run_before_load(task, resources, ctx)
-            evolved = await adapter.run_after_load(task, resources, delta, ctx)
+            if options.holdout_phase_policy.phases_parallel:
+                baseline, evolved = await asyncio.gather(
+                    adapter.run_before_load(task, resources, ctx),
+                    adapter.run_after_load(task, resources, delta, ctx),
+                )
+            else:
+                baseline = await adapter.run_before_load(task, resources, ctx)
+                evolved = await adapter.run_after_load(task, resources, delta, ctx)
             LOGGER.info(
                 "LIFT hold-out %s: baseline_success=%s evolved_success=%s",
                 task.name,

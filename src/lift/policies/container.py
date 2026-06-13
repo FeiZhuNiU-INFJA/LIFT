@@ -49,3 +49,23 @@ class HoldoutContainerPolicy(str, Enum):
         """hold-out 多题是否在 Python 层 ``asyncio.gather`` 并发执行。"""
         return self is HoldoutContainerPolicy.PARALLEL_MULTI
 
+
+class HoldoutPhasePolicy(str, Enum):
+    """单个 hold-out task 内 baseline / evolved 两个 phase 的执行顺序。
+
+    两个 phase 在容器、镜像、workspace 子目录上互不依赖（``run_before_load``
+    返回值不喂给 ``run_after_load``），可安全并行；并行后单 task 内会同时存活
+    2 个容器，需配合 ``--max-concurrent-tasks`` 控制总量。
+
+    - ``PARALLEL``: ``asyncio.gather(baseline, evolved)``（默认，提速 ~1/3 hold-out）。
+    - ``SERIAL``: 先 baseline 后 evolved（兼容旧行为，便于按时间线调试）。
+    """
+
+    PARALLEL = "parallel"
+    SERIAL = "serial"
+
+    @property
+    def phases_parallel(self) -> bool:
+        """单 task 内 baseline / evolved 是否并行执行。"""
+        return self is HoldoutPhasePolicy.PARALLEL
+

@@ -22,7 +22,11 @@ from src.utils import make_run_id, resolve_suite_paths
 from src.lift.adapters.registry import SUPPORTED_RUNTIMES, create_adapter
 from src.lift.pipeline.lift_pipeline import LIFTPipeline
 from src.lift.pipeline.run_options import RunOptions
-from src.lift.policies.container import HoldoutContainerPolicy, WarmupContainerPolicy
+from src.lift.policies.container import (
+    HoldoutContainerPolicy,
+    HoldoutPhasePolicy,
+    WarmupContainerPolicy,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -90,6 +94,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--holdout-phase-policy",
+        default=HoldoutPhasePolicy.PARALLEL.value,
+        choices=[p.value for p in HoldoutPhasePolicy],
+        help=(
+            "Per-task baseline/evolved execution order. Default: parallel "
+            "(asyncio.gather both phases — saves ~1/3 hold-out time). "
+            "Set to serial to keep the legacy baseline→evolved order."
+        ),
+    )
+    parser.add_argument(
         "--max-parallel-repeats",
         type=int,
         default=None,
@@ -135,6 +149,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         evaluate_only=False,
         warmup_container_policy=WarmupContainerPolicy(args.warmup_container_policy),
         holdout_container_policy=HoldoutContainerPolicy(args.holdout_container_policy),
+        holdout_phase_policy=HoldoutPhasePolicy(args.holdout_phase_policy),
         max_parallel_repeats=args.max_parallel_repeats,
         max_concurrent_tasks=args.max_concurrent_tasks,
     )

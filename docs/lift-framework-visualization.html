@@ -617,13 +617,16 @@ sequenceDiagram
       <details>
         <summary>并发模型</summary>
         <div class="inner">
+          <p style="margin: 0 0 .75rem; color: var(--muted); font-size: .9rem;">
+            速览；完整开关、作用域与已知限制见 <a href="eval-flow.md#45-并发模型与限制">eval-flow.md §4.5</a>。
+          </p>
           <table>
             <thead><tr><th>层级</th><th>默认</th><th>CLI</th></tr></thead>
             <tbody>
               <tr><td>repeat 之间</td><td>并行</td><td><code>--max-parallel-repeats=1</code> 改串行；&gt;1 限并发上限</td></tr>
               <tr><td>suite / hold-out 题</td><td>并行</td><td><code>--holdout-container-policy=serial_multi</code> 改串行；<code>--max-concurrent-tasks</code> 限并发</td></tr>
               <tr><td>warmup 题</td><td>并行（同容器）</td><td><code>--warmup-container-policy</code> 切换形态；<code>--max-concurrent-tasks</code> 限并发</td></tr>
-              <tr><td>baseline → evolved</td><td>串行</td><td>—（LIFT 语义）</td></tr>
+              <tr><td>baseline / evolved（同 task 内）</td><td>并行（默认）</td><td><code>--holdout-phase-policy=serial</code> 改串行</td></tr>
             </tbody>
           </table>
         </div>

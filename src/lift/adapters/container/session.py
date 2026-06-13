@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,13 +36,15 @@ class ContainerSession(Disposable):
         instance_id: sanitize 后的逻辑实例 id。
         container_name: ``docker run --name`` 实际容器名。
         image: 启动时使用的镜像 tag。
-        metadata: 运行时附加信息（如 OpenClaw gateway 端口/token）。
+        metadata: 运行时附加信息（如 OpenClaw gateway token）。
+        published_ports: 容器内端口 → 宿主机真实端口（启动时由 docker inspect 回填）。
     """
 
     instance_id: str
     container_name: str
     image: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    published_ports: dict[int, int] = field(default_factory=dict)
     _cleaner: EnvironmentCleaner = field(default_factory=EnvironmentCleaner)  # 容器/镜像清理
     _pre_cleanup_hooks: list[ContainerHook] = field(default_factory=list, repr=False)  # rm 前钩子
     _cleaned: bool = field(default=False, repr=False)  # 幂等 cleanup 标记
@@ -71,7 +74,7 @@ class ContainerSession(Disposable):
         container_name_prefix: str,
         image: str,
         entrypoint_cmd: list[str],
-        port_mappings: list[tuple[int, int]],
+        port_mappings: list[tuple[int | None, int]],
         env_vars: dict[str, str],
         volume_binds: list[tuple[str, str, str]],
         env_file: Path | None = None,
@@ -81,7 +84,13 @@ class ContainerSession(Disposable):
         pre_cleanup_hooks: list[ContainerHook] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> ContainerSession:
-        """组装 ``docker run -d`` 命令并启动容器，可选 readiness 与 post-start 钩子。"""
+        """组装 ``docker run -d`` 命令并启动容器，可选 readiness 与 post-start 钩子。
+
+        ``port_mappings`` 中 ``host_port`` 为 ``None`` 时由 Docker 在临时端口段
+        随机分配（生成 ``-p <container_port>``，避免确定性 hash 端口的碰撞与占用
+        冲突）。容器启动后通过 ``docker inspect`` 读取真实端口，回填到
+        ``session.published_ports``（key 为容器内端口）。
+        """
         safe_id = sanitize_container_id(instance_id)
         container_name = f"{container_name_prefix}-{safe_id}"[:128]
 
@@ -102,7 +111,10 @@ class ContainerSession(Disposable):
         if extra_docker_args:
             cmd.extend(extra_docker_args)
         for host_port, container_port in port_mappings:
-            cmd.extend(["-p", f"{host_port}:{container_port}"])
+            if host_port is None or host_port == 0:
+                cmd.extend(["-p", str(container_port)])  # docker 自选空闲宿主机端口
+            else:
+                cmd.extend(["-p", f"{host_port}:{container_port}"])
         if env_file is not None and env_file.is_file():
             cmd.extend(["--env-file", str(env_file.resolve())])
         for key, val in env_vars.items():
@@ -124,11 +136,17 @@ class ContainerSession(Disposable):
                 f"docker run failed: {stderr.decode(errors='replace')}"
             )
 
+        published = await _resolve_published_ports(
+            container_name,
+            [container_port for _, container_port in port_mappings],
+        )
+
         session = cls(
             instance_id=safe_id,
             container_name=container_name,
             image=image,
             metadata=dict(metadata or {}),
+            published_ports=published,
             _pre_cleanup_hooks=list(pre_cleanup_hooks or []),
         )
         if readiness_check is not None:
@@ -136,3 +154,35 @@ class ContainerSession(Disposable):
         for hook in post_start_hooks or []:
             await hook(session)  # readiness 通过后再做 seed / attestations 清理
         return session
+
+
+async def _resolve_published_ports(
+    container_name: str, container_ports: list[int]
+) -> dict[int, int]:
+    """读 ``docker inspect`` 拿到容器内端口对应的真实宿主机端口。"""
+    proc = await asyncio.create_subprocess_exec(
+        "docker",
+        "inspect",
+        "--format",
+        "{{json .NetworkSettings.Ports}}",
+        container_name,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"docker inspect failed for {container_name}: "
+            f"{stderr.decode(errors='replace')}"
+        )
+    raw = stdout.decode().strip()
+    ports_map = json.loads(raw) if raw and raw != "null" else {}
+    resolved: dict[int, int] = {}
+    for cont in container_ports:
+        bindings = ports_map.get(f"{cont}/tcp") or []
+        if not bindings:
+            raise RuntimeError(
+                f"docker inspect: no host binding for {cont}/tcp on {container_name}"
+            )
+        resolved[cont] = int(bindings[0]["HostPort"])
+    return resolved

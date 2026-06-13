@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
 
-from src.lift.policies.container import HoldoutContainerPolicy, WarmupContainerPolicy
+from src.lift.policies.container import (
+    HoldoutContainerPolicy,
+    HoldoutPhasePolicy,
+    WarmupContainerPolicy,
+)
 
 
 class RunOptions(BaseModel):
@@ -39,6 +43,14 @@ class RunOptions(BaseModel):
         description=(
             "hold-out 阶段容器编排策略：每题独立容器（强制），仅决定多题是否并发。"
             "默认 ``parallel_multi`` 提速；问题间需要严格隔离时改为 ``serial_multi``。"
+        ),
+    )
+    holdout_phase_policy: HoldoutPhasePolicy = Field(
+        default=HoldoutPhasePolicy.PARALLEL,
+        description=(
+            "单 hold-out task 内 baseline / evolved 两个 phase 的执行顺序。"
+            "默认 ``parallel`` 同时启两个容器（baseline 与 evolved 镜像/workspace "
+            "子目录互不依赖）；``serial`` 兼容旧行为先 baseline 后 evolved。"
         ),
     )
     delta_materialization: str = Field(

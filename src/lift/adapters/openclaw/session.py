@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import secrets
 from pathlib import Path
 
@@ -27,20 +26,9 @@ from src.lift.adapters.openclaw.workspace_seed import (
 )
 from src.models import SuiteTask
 
-_BASE_GATEWAY_PORT = 18789  # 宿主机 gateway 端口起始
-_BASE_FASTAPI_PORT = 18090  # 宿主机 FastAPI 端口起始
-_PORT_STEP = 20  # 每 slot 端口步进，避免冲突
+_GATEWAY_CONTAINER_PORT = 18789  # 容器内 gateway 端口（agent --local 连此）
+_FASTAPI_CONTAINER_PORT = 18090  # 容器内 self-evolving plugin HTTP 端口
 _CONTAINER_PREFIX = "evolve-openclaw"  # docker 容器名前缀
-
-
-def _instance_ports(instance_key: str) -> tuple[int, int]:
-    """按 instance_key hash 分配宿主机 gateway/fastapi 端口对。"""
-    digest = hashlib.sha256(instance_key.encode()).hexdigest()
-    slot = int(digest[:8], 16) % 500  # 确定性端口，同 instance_key 可复现
-    return (
-        _BASE_GATEWAY_PORT + slot * _PORT_STEP,
-        _BASE_FASTAPI_PORT + slot * _PORT_STEP,  # 18090：self-evolving-plugin HTTP，LIFT chat 不用
-    )
 
 
 async def _wait_gateway(session: ContainerSession, tries: int = 90) -> None:
@@ -114,6 +102,17 @@ def openclaw_context(session: ContainerSession) -> OpenClawContainerContext:
     )
 
 
+async def _resolve_gateway_port(session: ContainerSession) -> None:
+    """readiness_check 前回填真实宿主机端口到 ``metadata['gateway_port']``。
+
+    ``ContainerSession.start`` 启动后已通过 ``docker inspect`` 把端口映射写入
+    ``session.published_ports``；这里将容器内 18789/18090 映射到的真实宿主机端口
+    复制到 metadata，供 ``_wait_gateway`` 与 ``OpenClawContainerContext`` 使用。
+    """
+    session.metadata["gateway_port"] = session.published_ports[_GATEWAY_CONTAINER_PORT]
+    session.metadata["fastapi_port"] = session.published_ports[_FASTAPI_CONTAINER_PORT]
+
+
 async def start_openclaw_container(
     *,
     instance_id: str,
@@ -127,8 +126,10 @@ async def start_openclaw_container(
 
     ``seed_workspace``: 为 ``True`` 时调用 ``seed_eval_workspace`` 并执行容器内 seed
     shell，使 hold-out 工作区带固定人设、无 ``BOOTSTRAP.md``。
+
+    宿主机端口由 Docker 自动分配（避免确定性 hash 端口的碰撞与占用冲突）；启动后
+    ``_resolve_gateway_port`` 把真实端口写回 ``metadata['gateway_port']``。
     """
-    gateway_port, fastapi_port = _instance_ports(instance_id)
     token = secrets.token_hex(32)
 
     binds = default_volume_binds(
@@ -160,18 +161,26 @@ async def start_openclaw_container(
         image=image,
         entrypoint_cmd=["openclaw", "gateway", "run", "--bind", "lan"],
         port_mappings=[
-            (gateway_port, 18789),  # 容器内 openclaw agent --local 连此端口（非宿主机映射口）
-            (fastapi_port, 18090),
+            (None, _GATEWAY_CONTAINER_PORT),  # docker 自选宿主机端口
+            (None, _FASTAPI_CONTAINER_PORT),
         ],
         env_vars=env_vars,
         volume_binds=binds,
         env_file=Path.cwd() / ".env",
-        readiness_check=_wait_gateway,
+        readiness_check=_check_gateway_with_resolved_port,
         post_start_hooks=post_start_hooks,
         pre_cleanup_hooks=[_reclaim_volume_ownership],
         metadata={
             "gateway_token": token,
-            "gateway_port": gateway_port,
-            "fastapi_port": fastapi_port,
         },
     )
+
+
+async def _check_gateway_with_resolved_port(session: ContainerSession) -> None:
+    """先回填真实端口，再做 gateway 健康检查。
+
+    ``ContainerSession.start`` 在调 readiness_check 前已 inspect 出真实端口，
+    这里把端口写回 metadata 后调用 ``_wait_gateway``（依赖 metadata['gateway_port']）。
+    """
+    await _resolve_gateway_port(session)
+    await _wait_gateway(session)

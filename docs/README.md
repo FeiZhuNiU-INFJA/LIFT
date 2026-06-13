@@ -1,10 +1,14 @@
 # 文档索引
 
-| 文档 | 用途 |
+按使用场景挑一份：
+
+| 场景 | 文档 |
 |------|------|
-| [lift-framework-guide-cn.md](./lift-framework-guide-cn.md) | **首选**：`src/lift/` 目录地图、OpenClaw 适配、CLI、产出物 |
-| [lift-framework-visualization.html](./lift-framework-visualization.html) | 架构可视化（类图、时序图、分层）；浏览器直接打开 |
-| [eval-flow.md](./eval-flow.md) | 抽象评测流程：术语、LIFT 协议、report 结构、后处理；**§12.5** Langfuse trace 契约、**§12.6** Agent 模型配置契约（镜像 fragment ↔ `.env` `MODEL_NAME`） |
+| **入门 / 内部分享**（讲故事、`hello.json` 走查、FAQ） | [lift-framework-guide-cn.md](./lift-framework-guide-cn.md) |
+| **协议字段查询**（adapter 契约、report 字段、并发模型、Langfuse trace、模型配置） | [eval-flow.md](./eval-flow.md) |
+| **架构图与速览**（类图、时序图、CLI / 并发速览表） | [lift-framework-visualization.html](./lift-framework-visualization.html) |
+
+三份文档定位不重叠：guide 讲故事、eval-flow 是协议主仓、visualization 是图形入口；细节定义统一收口在 [eval-flow.md](./eval-flow.md)。
 
 相关文档（仓库其他位置）：
 

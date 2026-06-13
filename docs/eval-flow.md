@@ -167,9 +167,36 @@ hold-out 与 warmup 的容器维度不同：每道 hold-out 题必须用独立�
 
 - warmup 关心"产物如何累积"，所以容器维度有 single / multi 之分；
 - hold-out 只做对照评估，每题镜像分裂强制多容器，没有共享意义；
-- 同题内 baseline → evolved **始终顺序执行**（依赖镜像差异 + workspace 子目录语义），policy 只控制**多题之间**。
+- 同题内 baseline / evolved 默认 **并行** 执行（两者镜像/workspace 子目录互不依赖），可用 `--holdout-phase-policy serial` 退回串行；本枚举只控制**多题之间**。
 
 **实现位置**：[`LIFTPipeline._run_holdout_tasks`](../src/lift/pipeline/lift_pipeline.py)。
+
+### 4.5 并发模型与限制
+
+LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与已知限制**，完整的代码索引见 [`lift_pipeline.py`](../src/lift/pipeline/lift_pipeline.py) 与 [`task_exec.py`](../src/lift/eval/task_exec.py)。
+
+| 维度 | 默认 | 控制方式 | 备注 |
+|------|------|----------|------|
+| repeat 之间 | 并行 | `--max-parallel-repeats=1` 串行；`>1` 限并发上限 | repeat 之间不共享 delta 镜像，互不阻塞 |
+| 同 repeat 内多个 suite | 串行 | —（按 `--suite` 顺序遍历） | 当前未提供 suite 间并发开关 |
+| warmup 题 | 并行（同容器） | `--warmup-container-policy`（见 §4.3）；`--max-concurrent-tasks` | 容器形态由 policy 决定 |
+| hold-out 多题之间 | 并行（多容器） | `--holdout-container-policy serial_multi` 串行（见 §4.4）；`--max-concurrent-tasks` | 每题独立容器强制 |
+| 单 hold-out task 内 baseline ↔ evolved | **并行（默认）** | `--holdout-phase-policy serial` 退回串行 | 两 phase 镜像/workspace 子目录互不依赖；并行后单 task 内同时存活 2 容器 |
+| 同 task 内 work agent ↔ judge agent | 看 runtime | — | 由 `worker_judger_factory` 实现细节决定 |
+
+**`--max-concurrent-tasks` 作用域**：
+
+- 限制的是**单个 phase 内并发执行的 task 数**（asyncio Semaphore），由 [`bounded_gather`](../src/lift/eval/task_exec.py) 实现。
+- warmup 阶段与 hold-out 阶段**各自持有一个独立的 Semaphore**，不是跨阶段全局上限。
+- **不限制单个 task 内部启动的容器数**——例如 `parallel_multi` 下每个 warmup task 起 1 个容器、`max_concurrent_tasks=4` 时同时存活上限是 4 个 warmup 容器。
+- **不跨 repeat / suite 共享**——多个 repeat 并发执行时，每个 repeat 各自的 phase 独立计数。
+
+**已知限制**（如需突破再做扩展）：
+
+1. **`--max-concurrent-tasks` 仅在 phase 级生效**：默认 `--holdout-phase-policy parallel` 下，单 task 内会同时启 baseline + evolved 两容器，但 Semaphore 只在 task 维度计数；`max_concurrent_tasks=4` 时 hold-out 容器数最高可达 8，需要硬上限请配合 `--holdout-phase-policy serial` 或下调 `--max-concurrent-tasks`。
+2. **warmup → hold-out 之间被 `evolve_after_warmup` 阻塞**：hold-out 必须等 evolve 完成才能起容器，期间宿主机资源闲置。
+3. **跨 repeat / 跨 suite 没有全局并发上限**：`--max-parallel-repeats` 限的是 repeat 协程数，不是容器数；如果 `repeat=4 × max_concurrent_tasks=4 × holdout-phase-policy=parallel` 同时跑，宿主机可见容器数 > 32。
+4. **OpenClaw 容器宿主机端口**：现已改为 `docker run -p <container_port>` 由 docker 在临时端口段自动分配，启动后通过 `docker inspect` 把真实端口回填到 `ContainerSession.published_ports`；旧的 instance_id hash slot 方案已废弃，避免并行容器端口碰撞。
 
 ---
 
@@ -383,6 +410,7 @@ flowchart LR
 | `-p` / `--parallel` | **已弃用**：自动映射到 `--warmup-container-policy=parallel_single` |
 | `--warmup-container-policy` | warmup 容器编排策略（`serial_single` / `parallel_single` / `parallel_multi`），见 [§4.3](#43-warmup-容器策略warmupcontainerpolicy) |
 | `--holdout-container-policy` | hold-out 容器编排策略（`serial_multi` / `parallel_multi`，默认 `parallel_multi`），见 [§4.4](#44-hold-out-容器策略holdoutcontainerpolicy) |
+| `--holdout-phase-policy` | 单 task 内 baseline / evolved 顺序（`parallel` / `serial`，默认 `parallel`），见 [§4.5](#45-并发模型与限制) |
 | `-e` / `--evaluate` | 评测结束后自动后处理（**默认开启**；`--no-evaluate` 关闭） |
 | `--evaluate-only` | 跳执行，仅对已有 report 后处理（需 `--run_id`） |
 
