@@ -178,7 +178,7 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 | 维度 | 默认 | 控制方式 | 备注 |
 |------|------|----------|------|
 | repeat 之间 | 并行 | `--max-parallel-repeats=1` 串行；`>1` 限并发上限 | repeat 之间不共享 delta 镜像，互不阻塞 |
-| 同 repeat 内多个 suite | 串行 | —（按 `--suite` 顺序遍历） | 当前未提供 suite 间并发开关 |
+| 同 repeat 内多个 suite | **并行（默认上限 3）** | `--max-parallel-suites`（默认 `3`；`1` 串行；`<=0` 无上限） | 每个 suite 独立 `SuiteRunResources`（容器 + delta 镜像），互不干扰；失败隔离见下文 |
 | warmup 题 | 并行（同容器） | `--warmup-container-policy`（见 §4.3）；`--max-concurrent-tasks` | 容器形态由 policy 决定 |
 | hold-out 多题之间 | 并行（多容器） | `--holdout-container-policy serial_multi` 串行（见 §4.4）；`--max-concurrent-tasks` | 每题独立容器强制 |
 | 单 hold-out task 内 baseline ↔ evolved | **并行（默认）** | `--holdout-phase-policy serial` 退回串行 | 两 phase 镜像/workspace 子目录互不依赖；并行后单 task 内同时存活 2 容器 |
@@ -195,8 +195,44 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 
 1. **`--max-concurrent-tasks` 仅在 phase 级生效**：默认 `--holdout-phase-policy parallel` 下，单 task 内会同时启 baseline + evolved 两容器，但 Semaphore 只在 task 维度计数；`max_concurrent_tasks=4` 时 hold-out 容器数最高可达 8，需要硬上限请配合 `--holdout-phase-policy serial` 或下调 `--max-concurrent-tasks`。
 2. **warmup → hold-out 之间被 `evolve_after_warmup` 阻塞**：hold-out 必须等 evolve 完成才能起容器，期间宿主机资源闲置。
-3. **跨 repeat / 跨 suite 没有全局并发上限**：`--max-parallel-repeats` 限的是 repeat 协程数，不是容器数；如果 `repeat=4 × max_concurrent_tasks=4 × holdout-phase-policy=parallel` 同时跑，宿主机可见容器数 > 32。
+3. **跨 repeat / suite 没有容器级全局上限**：`--max-parallel-repeats` / `--max-parallel-suites` 限的是协程数，不是容器数；总峰值容器数 ≈ `并发 repeat 数 × 并发 suite 数 × max_concurrent_tasks × (phase 并行?2:1)`。例如 `repeat=4 × suites=3 × max_concurrent_tasks=4 × holdout-phase-policy=parallel` 同时跑，宿主机可见容器数会非常大，需结合 §4.6 资源约束与并发上限一起设。
 4. **OpenClaw 容器宿主机端口**：现已改为 `docker run -p <container_port>` 由 docker 在临时端口段自动分配，启动后通过 `docker inspect` 把真实端口回填到 `ContainerSession.published_ports`；旧的 instance_id hash slot 方案已废弃，避免并行容器端口碰撞。
+
+**suite 级失败隔离与重跑**（[`_run_suites`](../src/lift/pipeline/lift_pipeline.py)）：
+
+- 同 repeat 内的并发 suite 用 `bounded_gather(..., return_exceptions=True)`，**单个 suite 抛异常不会取消其余 suite**（避免 fail-fast 拖垮整个 run，丢失其它 suite 已完成的工作）。
+- 首轮失败的 suite 会被收集起来**放到队列最后重跑一次**；重跑仍失败则记录 `suite failed after retry` 并在报告里保留 `None` 占位（该 suite 缺最终结果，其余 suite 正常落盘）。
+- 报告顺序稳定：`repeat_run.suites` 先按输入顺序占位，再由各 suite 协程按索引回填，不随完成时间错乱。
+
+### 4.6 容器资源约束与运维（Colima / Docker VM）
+
+并发会按上一节公式放大**同时存活的容器数**。在资源受限的本地 Docker VM（尤其 macOS 上的 Colima / Docker Desktop）上，峰值容器一旦超过 VM 内存，会触发 **OOM kill 或整机卡死**，典型症状是 hold-out 阶段报 `container ... is not running` 或 `Failed to list agents in container`（容器被 kill / 卡死无响应），容器 `docker ps -a` 显示 **Exited (137)**。可用 `colima ssh -- sudo dmesg | grep -i oom` 确认 OOM 类型：`global_oom`（VM 整体内存耗尽）或 `Memory cgroup out of memory`（单容器撞 `--memory` 上限）。
+
+> **实测教训**：单个 OpenClaw 容器内是 node/V8 多进程（gateway + 插件 + agent + V8Worker），常驻峰值可能超过 3g。给 `--container-memory 3g` 反而会让容器在**正常推理时**撞 cgroup 上限被 OOM-kill（`constraint=CONSTRAINT_MEMCG`）。因此**默认不设单容器上限**，把内存交给 VM 内核统一调度（溢出落 VM swap），靠并发开关 + VM 内存/swap 控制总量。
+
+**两道防线：**
+
+1. **单容器资源上限**（`docker run --memory` / `--cpus`，默认均不设）：
+   - `--container-memory`（默认**不限制**）→ `RunOptions.container_memory` → `start_openclaw_container` 透传给 `docker run --memory`。**仅在确知单容器内存可控、且想用 cgroup 硬隔离时才设**（如 `--container-memory 6g`）；设过小会导致正常推理被 `CONSTRAINT_MEMCG` OOM-kill。
+   - `--container-cpus`（默认不限制）→ `docker run --cpus`，如 `--container-cpus 2`。
+2. **VM 总资源**（Colima 示例，物理 16GB/10 核的 Mac 建议留 4GB/2 核给宿主机）：
+   ```bash
+   colima stop
+   colima start --cpu 8 --memory 12 --disk 60   # 设过一次后续直接 colima start 沿用
+   ```
+   VM 内存**不要 overcommit 超过物理内存**，否则会落到 macOS 主机 swap、整机更卡。需要额外缓冲时在 guest 内加 swapfile 作为**防瞬时峰值 OOM 的安全网**（不是扩容）：
+   ```bash
+   colima ssh
+   sudo fallocate -l 8G /swapfile && sudo chmod 600 /swapfile
+   sudo mkswap /swapfile && sudo swapon /swapfile
+   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab   # 持久化
+   exit
+   ```
+   注：agent 推理走线上 API，容器本身只跑 gateway + 插件 + 文件 IO，swap 命中时性能影响有限，主要价值是防止 VM 整体崩溃。去掉单容器 `--memory` 上限后，多容器总需求超过 VM 物理内存时会优先用 swap 兜底，**只有 RAM+swap 全部耗尽才触发全局 OOM**。
+
+**容器名冲突自愈**（[`ContainerSession.start`](../src/lift/adapters/container/session.py)）：warmup 容器名是确定性的（无 `short_id` 后缀）。若上一次（被中断 / OOM）的同名容器残留、且启动前预删恰逢 daemon 抖动失败，重跑会报 `docker: Conflict. The container name "..." is already in use`。`start` 检测到该报错后会**强制再删一次同名容器并重试 `docker run`**，使 suite 级队尾重跑不会因残留容器直接失败。
+
+**调参建议**：先用默认（不限单容器内存）+ `--max-parallel-suites` 控制并发，观察 `docker ps -a` 是否出现 Exited (137)；若仍全局 OOM，优先**下调 `--max-parallel-suites` 或 `--max-concurrent-tasks`**，再考虑扩 VM 内存 / swap；仅当需要对单容器做硬隔离时才设 `--container-memory`（且要给足，如 5~6g）。
 
 ---
 
@@ -411,6 +447,11 @@ flowchart LR
 | `--warmup-container-policy` | warmup 容器编排策略（`serial_single` / `parallel_single` / `parallel_multi`），见 [§4.3](#43-warmup-容器策略warmupcontainerpolicy) |
 | `--holdout-container-policy` | hold-out 容器编排策略（`serial_multi` / `parallel_multi`，默认 `parallel_multi`），见 [§4.4](#44-hold-out-容器策略holdoutcontainerpolicy) |
 | `--holdout-phase-policy` | 单 task 内 baseline / evolved 顺序（`parallel` / `serial`，默认 `parallel`），见 [§4.5](#45-并发模型与限制) |
+| `--max-parallel-repeats` | repeat 并发上限（默认无上限；`1` 串行），见 [§4.5](#45-并发模型与限制) |
+| `--max-parallel-suites` | 同 repeat 内 suite 并发上限（默认 `3`；`1` 串行；`<=0` 无上限），见 [§4.5](#45-并发模型与限制) |
+| `--max-concurrent-tasks` | 单 phase 内题级并发容器数上限（默认无上限），见 [§4.5](#45-并发模型与限制) |
+| `--container-memory` | 单容器内存上限，透传 `docker run --memory`（**默认不限制**；设过小会触发 `CONSTRAINT_MEMCG` OOM），见 [§4.6](#46-容器资源约束与运维colima--docker-vm) |
+| `--container-cpus` | 单容器 CPU 上限，透传 `docker run --cpus`（默认不限制），见 [§4.6](#46-容器资源约束与运维colima--docker-vm) |
 | `-e` / `--evaluate` | 评测结束后自动后处理（**默认开启**；`--no-evaluate` 关闭） |
 | `--evaluate-only` | 跳执行，仅对已有 report 后处理（需 `--run_id`） |
 

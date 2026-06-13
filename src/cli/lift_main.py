@@ -113,6 +113,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--max-parallel-suites",
+        type=int,
+        default=3,
+        help=(
+            "Cap parallel suites within a repeat. Default: 3 (up to 3 suites run "
+            "warmup+hold-out concurrently). Set to 1 for serial; <=0 for no cap. "
+            "Note: concurrent suites multiply total containers with per-suite task "
+            "parallelism."
+        ),
+    )
+    parser.add_argument(
         "--max-concurrent-tasks",
         type=int,
         default=None,
@@ -120,6 +131,25 @@ def build_parser() -> argparse.ArgumentParser:
             "Cap concurrent task containers within a suite "
             "(applies to warmup parallel_single/parallel_multi and hold-out "
             "parallel_multi). Default: no cap."
+        ),
+    )
+    parser.add_argument(
+        "--container-memory",
+        default=None,
+        help=(
+            "Per-container memory cap passed to 'docker run --memory' (e.g. 3g, 2048m). "
+            "Default: no cap. A single OpenClaw container (node/V8 multi-process) can peak "
+            "above 3g, and a cgroup cap gets the container OOM-killed mid-inference, so the "
+            "default leaves memory to the VM kernel (overflow spills to VM swap). Control "
+            "total memory via --max-parallel-suites and VM memory/swap instead."
+        ),
+    )
+    parser.add_argument(
+        "--container-cpus",
+        default=None,
+        help=(
+            "Per-container CPU cap passed to 'docker run --cpus' (e.g. 2, 1.5). "
+            "Default: no cap."
         ),
     )
     return parser
@@ -151,7 +181,10 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         holdout_container_policy=HoldoutContainerPolicy(args.holdout_container_policy),
         holdout_phase_policy=HoldoutPhasePolicy(args.holdout_phase_policy),
         max_parallel_repeats=args.max_parallel_repeats,
+        max_parallel_suites=args.max_parallel_suites,
         max_concurrent_tasks=args.max_concurrent_tasks,
+        container_memory=args.container_memory or None,
+        container_cpus=args.container_cpus or None,
     )
     adapter = create_adapter(args.agent_runtime, options)
     pipeline = LIFTPipeline()

@@ -119,11 +119,16 @@ async def start_openclaw_container(
     workspace_dir: Path | None = None,
     seed_workspace: bool = False,
     task: SuiteTask | None = None,
+    container_memory: str | None = None,
+    container_cpus: str | None = None,
 ) -> ContainerSession:
     """启动 OpenClaw gateway 容器：端口、token、volume、readiness 与 seed 钩子。
 
     ``seed_workspace``: 为 ``True`` 时调用 ``seed_eval_workspace`` 并执行容器内 seed
     shell，使 hold-out 工作区带固定人设、无 ``BOOTSTRAP.md``。
+
+    ``container_memory`` / ``container_cpus``: 透传给 ``docker run --memory`` /
+    ``--cpus`` 的单容器资源上限（None 表示不限制）。
 
     宿主机端口由 Docker 自动分配（避免确定性 hash 端口的碰撞与占用冲突）；启动后
     ``_resolve_gateway_port`` 把真实端口写回 ``metadata['gateway_port']``。
@@ -147,6 +152,13 @@ async def start_openclaw_container(
         **container_runtime_env(),
     }
 
+    # 单容器资源上限：防止单容器吃光 VM 内存触发整机卡死
+    extra_docker_args: list[str] = []
+    if container_memory:
+        extra_docker_args.extend(["--memory", container_memory])
+    if container_cpus:
+        extra_docker_args.extend(["--cpus", container_cpus])
+
     post_start_hooks: list = []
     if workspace_dir is not None:
         post_start_hooks.append(_reset_workspace_attestations)  # 清跨题 attestations 状态
@@ -165,6 +177,7 @@ async def start_openclaw_container(
         env_vars=env_vars,
         volume_binds=binds,
         env_file=Path.cwd() / ".env",
+        extra_docker_args=extra_docker_args or None,
         readiness_check=_check_gateway_with_resolved_port,
         post_start_hooks=post_start_hooks,
         pre_cleanup_hooks=[_reclaim_volume_ownership],

@@ -87,7 +87,16 @@ class LIFTPipeline:
         eval_report: EvalReport,
         report_path: Path,
     ) -> None:
-        """单轮 repeat 内依次跑所有 suite（warmup → hold-out）。"""
+        """单轮 repeat 内跑所有 suite（warmup → hold-out）。
+
+        suite 间默认并发（``max_parallel_suites`` 控制上限）；每个 suite 拥有独立的
+        ``SuiteRunResources``（容器、delta 镜像），互不干扰。``repeat_run.suites``
+        先按输入顺序占位，再由各 suite 协程按索引回填，保证报告顺序稳定。
+
+        失败隔离：并发 gather 用 ``return_exceptions=True``，单个 suite 抛异常不会
+        取消其余 suite。首轮失败的 suite 会被收集起来放到队列最后**重跑一次**；
+        重跑仍失败则记录错误并保留占位（该 suite 在报告中缺最终结果）。
+        """
         LOGGER.info(
             "LIFT repeat %d/%d run_id=%s",
             repeat_index + 1,
@@ -95,73 +104,141 @@ class LIFTPipeline:
             run_id,
         )
         repeat_run = eval_report.runs[repeat_index]
+        # 先占位：并发回填时按索引写入，避免 append 顺序随完成时间错乱
+        repeat_run.suites = [None] * len(suite_paths)  # type: ignore[list-item]
 
-        for suite_path in suite_paths:
-            suite = load_lift_suite(suite_path)
-            warmup_tasks, holdout_tasks = split_suite_tasks(suite)
-            category_name = suite.category
-
-            suite_run = SuiteRun(
-                suite_name=suite.name,
-                suite_path=str(suite_path.resolve()),
-                category=category_name,
-                tasks=[],
-            )
-            repeat_run.suites.append(suite_run)
-
-            ctx = SuiteRunContext(
-                run_id=run_id,
-                repeat_index=repeat_index,
-                suite_path=suite_path,
-                category_name=category_name,
-                suite_name=suite.name,
-            )
-            # 本 suite 的资源簿：track 容器、存 delta；suite 结束 finally 里 cleanup
-            resources = await adapter.create_suite_run_resources(ctx)
-            try:
-                async with self._report_lock:
-                    if category_name not in eval_report.categories:
-                        eval_report.categories.append(category_name)
-
-                if not warmup_tasks:
-                    raise ValueError(
-                        f"No warmup tasks in {suite_path}; "
-                        "produce_delta requires at least one non-hold-out task"
+        async def _attempt(indexed: list[tuple[int, Path]]) -> list[int]:
+            """跑一批 suite，返回抛异常的 suite 索引列表（失败隔离）。"""
+            results = await bounded_gather(
+                (
+                    self._run_one_suite(
+                        suite_index=idx,
+                        suite_path=suite_path,
+                        repeat_index=repeat_index,
+                        repeat_run=repeat_run,
+                        run_id=run_id,
+                        adapter=adapter,
+                        options=options,
+                        eval_report=eval_report,
+                        report_path=report_path,
                     )
+                    for idx, suite_path in indexed
+                ),
+                limit=options.max_parallel_suites,
+                return_exceptions=True,
+            )
+            failed: list[int] = []
+            for (idx, suite_path), result in zip(indexed, results):
+                if isinstance(result, BaseException):
+                    failed.append(idx)
+                    LOGGER.error(
+                        "LIFT suite failed run_id=%s repeat=%d suite=%s: %r",
+                        run_id,
+                        repeat_index,
+                        suite_path.name,
+                        result,
+                    )
+            return failed
 
-                policy = WarmupThenUpdatePolicy(warmup_tasks=warmup_tasks)
-                # warmup 容器在 produce_delta 内部已 cleanup；delta 镜像留给 hold-out
-                delta = await adapter.produce_delta(
-                    resources, policy, warmup_tasks, ctx
+        indexed_suites = list(enumerate(suite_paths))
+        failed_indices = await _attempt(indexed_suites)
+
+        # 失败的 suite 放队列最后重跑一次
+        if failed_indices:
+            retry_indexed = [(idx, suite_paths[idx]) for idx in failed_indices]
+            LOGGER.info(
+                "LIFT retrying %d failed suite(s) run_id=%s repeat=%d: %s",
+                len(retry_indexed),
+                run_id,
+                repeat_index,
+                ", ".join(p.name for _, p in retry_indexed),
+            )
+            still_failed = await _attempt(retry_indexed)
+            for idx in still_failed:
+                LOGGER.error(
+                    "LIFT suite failed after retry run_id=%s repeat=%d suite=%s",
+                    run_id,
+                    repeat_index,
+                    suite_paths[idx].name,
                 )
 
-                if options.warmup_only:
-                    # 只产 delta，不跑 before/after-load 对照
-                    LOGGER.info(
-                        "LIFT warmup-only %s: delta committed as %s",
-                        suite.name,
-                        delta.image_tag,
-                    )
-                else:
-                    task_runs = await self._run_holdout_tasks(
-                        adapter=adapter,
-                        holdout_tasks=holdout_tasks,
-                        resources=resources,
-                        delta=delta,
-                        ctx=ctx,
-                        category_name=category_name,
-                        options=options,
-                    )
-                    suite_run.tasks.extend(task_runs)
-
-                # 每个 suite 完成后落盘：长跑中断时仍可从磁盘恢复部分 report
-                async with self._report_lock:
-                    eval_report.write_json(report_path)
-            finally:
-                # 删本 suite 登记的容器；delta 镜像也在 resources.cleanup 里 rmi
-                await resources.cleanup()
-
         repeat_run.completed_at = datetime.now(timezone.utc).isoformat()
+
+    async def _run_one_suite(
+        self,
+        *,
+        suite_index: int,
+        suite_path: Path,
+        repeat_index: int,
+        repeat_run: EvalRepeat,
+        run_id: str,
+        adapter: AgentRuntimeAdapter,
+        options: RunOptions,
+        eval_report: EvalReport,
+        report_path: Path,
+    ) -> None:
+        """跑单个 suite：warmup → produce_delta → hold-out 对照，结束清理资源。"""
+        suite = load_lift_suite(suite_path)
+        warmup_tasks, holdout_tasks = split_suite_tasks(suite)
+        category_name = suite.category
+
+        suite_run = SuiteRun(
+            suite_name=suite.name,
+            suite_path=str(suite_path.resolve()),
+            category=category_name,
+            tasks=[],
+        )
+        repeat_run.suites[suite_index] = suite_run
+
+        ctx = SuiteRunContext(
+            run_id=run_id,
+            repeat_index=repeat_index,
+            suite_path=suite_path,
+            category_name=category_name,
+            suite_name=suite.name,
+        )
+        # 本 suite 的资源簿：track 容器、存 delta；suite 结束 finally 里 cleanup
+        resources = await adapter.create_suite_run_resources(ctx)
+        try:
+            async with self._report_lock:
+                if category_name not in eval_report.categories:
+                    eval_report.categories.append(category_name)
+
+            if not warmup_tasks:
+                raise ValueError(
+                    f"No warmup tasks in {suite_path}; "
+                    "produce_delta requires at least one non-hold-out task"
+                )
+
+            policy = WarmupThenUpdatePolicy(warmup_tasks=warmup_tasks)
+            # warmup 容器在 produce_delta 内部已 cleanup；delta 镜像留给 hold-out
+            delta = await adapter.produce_delta(resources, policy, warmup_tasks, ctx)
+
+            if options.warmup_only:
+                # 只产 delta，不跑 before/after-load 对照
+                LOGGER.info(
+                    "LIFT warmup-only %s: delta committed as %s",
+                    suite.name,
+                    delta.image_tag,
+                )
+            else:
+                task_runs = await self._run_holdout_tasks(
+                    adapter=adapter,
+                    holdout_tasks=holdout_tasks,
+                    resources=resources,
+                    delta=delta,
+                    ctx=ctx,
+                    category_name=category_name,
+                    options=options,
+                )
+                suite_run.tasks.extend(task_runs)
+
+            # 每个 suite 完成后落盘：长跑中断时仍可从磁盘恢复部分 report
+            async with self._report_lock:
+                eval_report.write_json(report_path)
+        finally:
+            # 删本 suite 登记的容器；delta 镜像也在 resources.cleanup 里 rmi
+            await resources.cleanup()
 
     async def _run_holdout_tasks(
         self,

@@ -53,6 +53,8 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
             workspace_dir=workspace_dir,
             seed_workspace=seed_workspace,
             task=task,
+            container_memory=self._options.container_memory,
+            container_cpus=self._options.container_cpus,
         )
 
     @override

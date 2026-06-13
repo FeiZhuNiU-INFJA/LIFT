@@ -20,6 +20,7 @@ async def bounded_gather(
     coros: Iterable[Awaitable[_T]],
     *,
     limit: int | None,
+    return_exceptions: bool = False,
 ) -> list[_T]:
     """``asyncio.gather`` 加并发上限版本。
 
@@ -27,13 +28,18 @@ async def bounded_gather(
     - 其他情况：用 ``asyncio.Semaphore(limit)`` 包裹每个 coroutine，确保
       任意时刻至多 ``limit`` 个 coroutine 在执行（其余在 ``async with sem`` 处等待）。
 
+    ``return_exceptions`` 透传给 ``asyncio.gather``：为 ``True`` 时单个协程抛异常
+    不会取消其余协程，异常对象按位置写入返回列表（用于失败隔离）。
+
     返回顺序与输入顺序一致（与 ``asyncio.gather`` 一致）。
     """
     coros_list = list(coros)
     if not coros_list:
         return []
     if limit is None or limit <= 0 or limit >= len(coros_list):
-        return list(await asyncio.gather(*coros_list))
+        return list(
+            await asyncio.gather(*coros_list, return_exceptions=return_exceptions)
+        )
 
     sem = asyncio.Semaphore(limit)
 
@@ -41,7 +47,12 @@ async def bounded_gather(
         async with sem:
             return await coro
 
-    return list(await asyncio.gather(*[_bounded(c) for c in coros_list]))
+    return list(
+        await asyncio.gather(
+            *[_bounded(c) for c in coros_list],
+            return_exceptions=return_exceptions,
+        )
+    )
 
 
 async def execute_task(

@@ -126,16 +126,18 @@ class ContainerSession(Disposable):
         cmd.extend(entrypoint_cmd)
 
         LOGGER.info("Starting container session: %s", redact_docker_argv(cmd))
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"docker run failed: {stderr.decode(errors='replace')}"
+        stderr_text = await _docker_run(cmd)
+        if stderr_text is not None and "is already in use" in stderr_text:
+            # 上一次（被中断/OOM）的同名容器残留，且启动前的预删恰逢 daemon 抖动失败。
+            # 容器名是确定性的（warmup 无 short_id），重跑必撞——强制再删一次后重试。
+            LOGGER.warning(
+                "Container name %s still in use; force-removing stale container and retrying run",
+                container_name,
             )
+            await EnvironmentCleaner().remove_container(container_name)
+            stderr_text = await _docker_run(cmd)
+        if stderr_text is not None:
+            raise RuntimeError(f"docker run failed: {stderr_text}")
 
         published = await _resolve_published_ports(
             container_name,
@@ -155,6 +157,19 @@ class ContainerSession(Disposable):
         for hook in post_start_hooks or []:
             await hook(session)  # readiness 通过后再做 seed / attestations 清理
         return session
+
+
+async def _docker_run(cmd: list[str]) -> str | None:
+    """运行 ``docker run`` argv；成功返回 ``None``，失败返回 stderr 文本。"""
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _stdout, stderr = await proc.communicate()
+    if proc.returncode == 0:
+        return None
+    return stderr.decode(errors="replace")
 
 
 async def _resolve_published_ports(
