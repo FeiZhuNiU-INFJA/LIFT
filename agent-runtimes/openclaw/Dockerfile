@@ -25,7 +25,11 @@ ENV OPENCLAW_STATE_DIR=/root/.openclaw \
     HOME=/root \
     PATH="/root/.openclaw/uv-bin:/root/.openclaw/uv-bin/bin:${PATH}"
 
-RUN mkdir -p /root/.openclaw/extensions /workspace
+RUN mkdir -p /root/.openclaw/extensions /root/.openclaw/skills /workspace
+
+# Firecrawl 通过 OpenClaw 自带的 stock plugin (`stock:firecrawl/index.js`) 提供
+# search/scrape/browser 能力；运行时只需在容器 env 注入 FIRECRAWL_API_KEY 鉴权。
+# 启用动作放在 install-plugins-in-image.sh，allowlist 在 openclaw.base.json。
 
 COPY plugins/langfuse-tracer /tmp/langfuse-tracer
 COPY plugins/self-evolving-plugin-pro-2026.4.23.zip /tmp/self-evolving-plugin-pro.zip

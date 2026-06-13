@@ -19,9 +19,10 @@ unzip -q self-evolving-plugin-pro.zip
 cd self-evolving-plugin-pro
 bash scripts/install-openclaw-plugin.sh
 
-# 3) Ensure both plugins enabled
+# 3) Ensure required plugins enabled (含 OpenClaw 自带 stock firecrawl，运行时读 FIRECRAWL_API_KEY)
 openclaw plugins enable langfuse-tracer 2>/dev/null || true
 openclaw plugins enable self-evolving-plugin-pro 2>/dev/null || true
+openclaw plugins enable firecrawl 2>/dev/null || true
 
 # Ark / custom providers often only support thinking=off (plugin defaults to low).
 WORKER_JS="${OPENCLAW_STATE_DIR}/extensions/self-evolving-plugin-pro/src/review/worker.js"

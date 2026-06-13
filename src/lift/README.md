@@ -23,8 +23,6 @@ bash agent-runtimes/openclaw/build-image.sh
 # or: docker build -f agent-runtimes/openclaw/Dockerfile -t evolve-eval-openclaw:latest agent-runtimes/openclaw
 ```
 
-Ephemeral entrypoint variant (optional): `agent-runtimes/openclaw/Dockerfile.entrypoint`
-
 ## Run
 
 ```bash

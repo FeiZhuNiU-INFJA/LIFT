@@ -41,7 +41,13 @@ def container_runtime_env() -> dict[str, str]:
     ark_key = os.environ.get("ARK_API_KEY")
     if ark_key:
         env["ARK_API_KEY"] = ark_key
-    for key in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"):
+    # 工具/插件凭据：宿主机环境若有则透传给容器（OpenClaw 启动时按 env 自动选 web_search /
+    # web_fetch provider，无需写 openclaw.json）。
+    for key in (
+        "LANGFUSE_PUBLIC_KEY",
+        "LANGFUSE_SECRET_KEY",
+        "FIRECRAWL_API_KEY",
+    ):
         val = os.environ.get(key)
         if val:
             env[key] = val

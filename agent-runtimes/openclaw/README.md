@@ -36,12 +36,6 @@ Verify:
 bash agent-runtimes/openclaw/verify-image.sh evolve-eval-openclaw:latest
 ```
 
-Optional entrypoint-based image (ephemeral instances):
-
-```bash
-docker build -f agent-runtimes/openclaw/Dockerfile.entrypoint -t evolve-eval-openclaw:entrypoint agent-runtimes/openclaw
-```
-
 ## Environment
 
 Copy [`.env.docker.example`](.env.docker.example) into the repo root `.env`:
