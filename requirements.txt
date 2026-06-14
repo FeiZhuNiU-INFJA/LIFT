@@ -8,5 +8,6 @@ json-repair
 langfuse>=4.0
 pandas
 tqdm
+rich
 pytest
 pytest-asyncio

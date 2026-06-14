@@ -11,13 +11,14 @@ from src.models import EvalRepeat, EvalReport, SuiteRun, TaskRun
 
 from src.lift.adapters.base import AgentRuntimeAdapter, SuiteRunContext
 from src.lift.eval.task_exec import bounded_gather
+from src.lift.status import events as status_events
 from src.lift.policies.artifact import WarmupThenUpdatePolicy
 from src.lift.pipeline.run_options import RunOptions
 from src.lift.runtime.delta_ref import DeltaRef
 from src.lift.runtime.suite_run_resources import SuiteRunResources
 from src.lift.suite.holdout import split_suite_tasks
 from src.lift.suite.lift_suite import load_lift_suite
-from src.models import SuiteTask
+from src.models import PhaseRun, SuiteTask
 from src.paths import report_json_path, results_run_dir
 
 
@@ -40,6 +41,13 @@ class LIFTPipeline:
         report_path = report_json_path(run_id)
         results_run_dir(run_id).mkdir(parents=True, exist_ok=True)
         eval_report.runs = [EvalRepeat() for _ in range(options.repeat)]
+
+        # 广播整体执行计划：repeat 数 + suite 列表（题级骨架在 suite 加载后补全）
+        status_events.emit_run_plan(
+            run_id=run_id,
+            repeats=options.repeat,
+            suite_names=tuple(p.stem for p in suite_paths),
+        )
 
         # 多 repeat 默认并行；max_parallel_repeats=1 时串行；否则受其值上限约束
         if options.repeat > 1 and options.max_parallel_repeats != 1:
@@ -103,6 +111,9 @@ class LIFTPipeline:
             options.repeat,
             run_id,
         )
+        status_events.emit_stage(
+            kind="repeat", status="running", run_id=run_id, repeat_index=repeat_index
+        )
         repeat_run = eval_report.runs[repeat_index]
         # 先占位：并发回填时按索引写入，避免 append 顺序随完成时间错乱
         repeat_run.suites = [None] * len(suite_paths)  # type: ignore[list-item]
@@ -163,6 +174,9 @@ class LIFTPipeline:
                 )
 
         repeat_run.completed_at = datetime.now(timezone.utc).isoformat()
+        status_events.emit_stage(
+            kind="repeat", status="done", run_id=run_id, repeat_index=repeat_index
+        )
 
     async def _run_one_suite(
         self,
@@ -190,6 +204,24 @@ class LIFTPipeline:
         )
         repeat_run.suites[suite_index] = suite_run
 
+        # suite 加载后广播题级骨架与 suite 开始
+        status_events.emit_suite_plan(
+            run_id=run_id,
+            repeat_index=repeat_index,
+            suite_index=suite_index,
+            suite_name=suite.name,
+            warmup_task_names=tuple(t.name for t in warmup_tasks),
+            holdout_task_names=tuple(t.name for t in holdout_tasks),
+        )
+        status_events.emit_stage(
+            kind="suite",
+            status="running",
+            run_id=run_id,
+            repeat_index=repeat_index,
+            suite_index=suite_index,
+            suite_name=suite.name,
+        )
+
         ctx = SuiteRunContext(
             run_id=run_id,
             repeat_index=repeat_index,
@@ -212,7 +244,23 @@ class LIFTPipeline:
 
             policy = WarmupThenUpdatePolicy(warmup_tasks=warmup_tasks)
             # warmup 容器在 produce_delta 内部已 cleanup；delta 镜像留给 hold-out
+            status_events.emit_stage(
+                kind="warmup",
+                status="running",
+                run_id=run_id,
+                repeat_index=repeat_index,
+                suite_index=suite_index,
+                suite_name=suite.name,
+            )
             delta = await adapter.produce_delta(resources, policy, warmup_tasks, ctx)
+            status_events.emit_stage(
+                kind="warmup",
+                status="done",
+                run_id=run_id,
+                repeat_index=repeat_index,
+                suite_index=suite_index,
+                suite_name=suite.name,
+            )
 
             if options.warmup_only:
                 # 只产 delta，不跑 before/after-load 对照
@@ -228,6 +276,7 @@ class LIFTPipeline:
                     resources=resources,
                     delta=delta,
                     ctx=ctx,
+                    suite_index=suite_index,
                     category_name=category_name,
                     options=options,
                 )
@@ -236,6 +285,24 @@ class LIFTPipeline:
             # 每个 suite 完成后落盘：长跑中断时仍可从磁盘恢复部分 report
             async with self._report_lock:
                 eval_report.write_json(report_path)
+            status_events.emit_stage(
+                kind="suite",
+                status="done",
+                run_id=run_id,
+                repeat_index=repeat_index,
+                suite_index=suite_index,
+                suite_name=suite.name,
+            )
+        except BaseException:
+            status_events.emit_stage(
+                kind="suite",
+                status="failed",
+                run_id=run_id,
+                repeat_index=repeat_index,
+                suite_index=suite_index,
+                suite_name=suite.name,
+            )
+            raise
         finally:
             # 删本 suite 登记的容器；delta 镜像也在 resources.cleanup 里 rmi
             await resources.cleanup()
@@ -248,6 +315,7 @@ class LIFTPipeline:
         resources: SuiteRunResources,
         delta: DeltaRef,
         ctx: SuiteRunContext,
+        suite_index: int,
         category_name: str,
         options: RunOptions,
     ) -> list[TaskRun]:
@@ -257,20 +325,82 @@ class LIFTPipeline:
         （二者镜像与 workspace 子目录互不依赖，并行后单题最多有 2 个容器存活）。
         """
 
+        def _phase(task_name: str, phase: str, status: str) -> None:
+            status_events.emit_stage(
+                kind="phase",
+                status=status,
+                run_id=ctx.run_id,
+                repeat_index=ctx.repeat_index,
+                suite_index=suite_index,
+                suite_name=ctx.suite_name,
+                task_name=task_name,
+                phase=phase,
+            )
+
+        async def _before(task: SuiteTask) -> PhaseRun:
+            _phase(task.name, "baseline", "running")
+            try:
+                result = await adapter.run_before_load(task, resources, ctx)
+            except BaseException:
+                _phase(task.name, "baseline", "failed")
+                raise
+            _phase(task.name, "baseline", "done" if result.success else "failed")
+            return result
+
+        async def _after(task: SuiteTask) -> PhaseRun:
+            _phase(task.name, "evolved", "running")
+            try:
+                result = await adapter.run_after_load(task, resources, delta, ctx)
+            except BaseException:
+                _phase(task.name, "evolved", "failed")
+                raise
+            _phase(task.name, "evolved", "done" if result.success else "failed")
+            return result
+
         async def _one_task(task: SuiteTask) -> TaskRun:
-            if options.holdout_phase_policy.phases_parallel:
-                baseline, evolved = await asyncio.gather(
-                    adapter.run_before_load(task, resources, ctx),
-                    adapter.run_after_load(task, resources, delta, ctx),
+            status_events.emit_stage(
+                kind="task",
+                status="running",
+                run_id=ctx.run_id,
+                repeat_index=ctx.repeat_index,
+                suite_index=suite_index,
+                suite_name=ctx.suite_name,
+                task_name=task.name,
+            )
+            try:
+                if options.holdout_phase_policy.phases_parallel:
+                    baseline, evolved = await asyncio.gather(
+                        _before(task),
+                        _after(task),
+                    )
+                else:
+                    baseline = await _before(task)
+                    evolved = await _after(task)
+            except BaseException:
+                status_events.emit_stage(
+                    kind="task",
+                    status="failed",
+                    run_id=ctx.run_id,
+                    repeat_index=ctx.repeat_index,
+                    suite_index=suite_index,
+                    suite_name=ctx.suite_name,
+                    task_name=task.name,
                 )
-            else:
-                baseline = await adapter.run_before_load(task, resources, ctx)
-                evolved = await adapter.run_after_load(task, resources, delta, ctx)
+                raise
             LOGGER.info(
                 "LIFT hold-out %s: baseline_success=%s evolved_success=%s",
                 task.name,
                 baseline.success,
                 evolved.success,
+            )
+            status_events.emit_stage(
+                kind="task",
+                status="done",
+                run_id=ctx.run_id,
+                repeat_index=ctx.repeat_index,
+                suite_index=suite_index,
+                suite_name=ctx.suite_name,
+                task_name=task.name,
             )
             return TaskRun(
                 task_name=task.name,

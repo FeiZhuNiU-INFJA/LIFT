@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
+from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -162,6 +165,15 @@ def build_parser() -> argparse.ArgumentParser:
             "Default: no cap."
         ),
     )
+    parser.add_argument(
+        "--status-viz",
+        action="store_true",
+        help=(
+            "Show a live terminal dashboard of run/repeat/suite/task/phase status and "
+            "alive containers (default: off). Console logs are redirected to the log file "
+            "while the dashboard is active to avoid clobbering the display."
+        ),
+    )
     return parser
 
 
@@ -177,6 +189,44 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
         raise FileNotFoundError(f"Report not found: {report_path}")
     LOGGER.info("LIFT evaluate-only agent_runtime=%s: %s", args.agent_runtime, report_path)
     run_post_process_pipeline(run_id, report_path, agent_source=args.agent_runtime)
+
+
+@contextmanager
+def _status_dashboard(enabled: bool) -> Iterator[None]:
+    """启用状态 TUI：注册 tracker、静音 console 日志、启动 rich.Live 看板。
+
+    ``enabled`` 为 False 时为 no-op。退出时恢复 console 日志并停止看板；
+    看板期间日志只写文件，避免日志行冲掉 Live 渲染区。
+    """
+    if not enabled:
+        yield
+        return
+
+    from src.lift.status.state import RunStateTracker
+    from src.lift.status.tui import StatusDashboard
+
+    root_logger = logging.getLogger()
+    # 暂时摘掉 stdout/stderr StreamHandler（保留 FileHandler），避免日志冲掉 TUI
+    stream_handlers = [
+        h
+        for h in root_logger.handlers
+        if isinstance(h, logging.StreamHandler)
+        and not isinstance(h, logging.FileHandler)
+    ]
+    for h in stream_handlers:
+        root_logger.removeHandler(h)
+
+    tracker = RunStateTracker()
+    tracker.attach()
+    dashboard = StatusDashboard(tracker)
+    dashboard.start()
+    try:
+        yield
+    finally:
+        dashboard.stop()
+        tracker.detach()
+        for h in stream_handlers:
+            root_logger.addHandler(h)
 
 
 async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
@@ -205,12 +255,13 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         args.agent_runtime,
         len(suite_paths),
     )
-    await pipeline.run(
-        run_id=run_id,
-        suite_paths=suite_paths,
-        adapter=adapter,
-        options=options,
-    )
+    with _status_dashboard(args.status_viz):
+        await pipeline.run(
+            run_id=run_id,
+            suite_paths=suite_paths,
+            adapter=adapter,
+            options=options,
+        )
 
     if args.evaluate:
         # 执行期 report 无 langfuse 字段；此处 trace_backfill + CSV/HTML

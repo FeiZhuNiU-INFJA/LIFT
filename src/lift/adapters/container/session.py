@@ -14,6 +14,7 @@ from src.config import LOGGER
 from src.lift.adapters.container.exec import redact_docker_argv
 from src.lift.runtime.disposable import Disposable
 from src.lift.runtime.environment_cleaner import EnvironmentCleaner
+from src.lift.status import events as status_events
 
 ContainerHook = Callable[["ContainerSession"], Awaitable[None]]  # 容器启动/销毁前后钩子
 
@@ -58,6 +59,9 @@ class ContainerSession(Disposable):
     image: str
     metadata: dict[str, Any] = field(default_factory=dict)
     published_ports: dict[int, int] = field(default_factory=dict)
+    # 可视化用：由 instance_id 推断的阶段（warmup/baseline/evolved/holdout）与题名
+    viz_stage: str | None = field(default=None, repr=False)
+    viz_task: str | None = field(default=None, repr=False)
     _cleaner: EnvironmentCleaner = field(default_factory=EnvironmentCleaner)  # 容器/镜像清理
     _pre_cleanup_hooks: list[ContainerHook] = field(default_factory=list, repr=False)  # rm 前钩子
     _cleaned: bool = field(default=False, repr=False)  # 幂等 cleanup 标记
@@ -78,6 +82,13 @@ class ContainerSession(Disposable):
                 )
         await self._cleaner.remove_container(self.container_name)
         self._cleaned = True
+        status_events.emit_container(
+            status="stopped",
+            container_name=self.container_name,
+            image=self.image,
+            task_name=self.viz_task,
+            stage=self.viz_stage,
+        )
 
     @classmethod
     async def start(
@@ -156,19 +167,50 @@ class ContainerSession(Disposable):
             [container_port for _, container_port in port_mappings],
         )
 
+        stage, task = _infer_stage_task(instance_id)
         session = cls(
             instance_id=safe_id,
             container_name=container_name,
             image=image,
             metadata=dict(metadata or {}),
             published_ports=published,
+            viz_stage=stage,
+            viz_task=task,
             _pre_cleanup_hooks=list(pre_cleanup_hooks or []),
+        )
+        status_events.emit_container(
+            status="started",
+            container_name=container_name,
+            image=image,
+            task_name=task,
+            stage=stage,
         )
         if readiness_check is not None:
             await readiness_check(session)  # 如 OpenClaw gateway curl
         for hook in post_start_hooks or []:
             await hook(session)  # readiness 通过后再做 seed / attestations 清理
         return session
+
+
+def _infer_stage_task(instance_id: str) -> tuple[str | None, str | None]:
+    """从 instance_id 命名约定推断展示用的阶段与题名（尽力而为）。
+
+    约定（见 container/adapter.py、group_memory/mixin.py）：
+    - warmup 单容器：``...-{suite}-warmup``
+    - warmup 多容器：``...-{suite}-warmup-{task}-{short_id}``
+    - holdout 每题：``...-{task}-holdout-{short_id}``
+    无法解析时返回 ``(None, None)``，不影响功能。
+    """
+    parts = instance_id.split("-")
+    if "holdout" in parts:
+        idx = parts.index("holdout")
+        task = parts[idx - 1] if idx > 0 else None
+        return "holdout", task
+    if "warmup" in parts:
+        idx = parts.index("warmup")
+        task = parts[idx + 1] if idx + 1 < len(parts) else None
+        return "warmup", task
+    return None, None
 
 
 async def _docker_run(cmd: list[str]) -> str | None:
