@@ -83,6 +83,7 @@ class AgentRuntimeAdapter(ABC):
                 run_phase=run_phase,
                 parallel=self._options.warmup_container_policy.tasks_parallel,  # 由 warmup_container_policy 决定
                 max_concurrent=self._options.max_concurrent_tasks,
+                max_conversation_turns=self._options.max_conversation_turns,
                 on_task_done=lambda task, _result: self.evolve_after_task(env, task, ctx),  # 每题完成钩子；默认 no-op
             )
             await self.evolve_after_warmup(env, ctx)  # 所有 warmup 完成钩子：OpenClaw = learn review
@@ -158,6 +159,7 @@ class AgentRuntimeAdapter(ABC):
                 workspace_dir=workspace,
                 factory=factory,
                 run_phase=run_phase,
+                max_conversation_turns=self._options.max_conversation_turns,
             )
         finally:
             await env.disposable.cleanup()

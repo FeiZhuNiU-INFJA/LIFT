@@ -63,7 +63,7 @@ async def test_run_task_success_on_first_turn() -> None:
         _task(),
         "run-1",
         pair,
-        max_turns=2,
+        max_conversation_turns=2,
     )
 
     assert success is True
@@ -91,7 +91,7 @@ async def test_run_task_retries_work_after_judge_failure() -> None:
         judge_session_id="judge-1",
     )
 
-    success, _, _, score = await run_task(_task(), "run-1", pair, max_turns=2)
+    success, _, _, score = await run_task(_task(), "run-1", pair, max_conversation_turns=2)
 
     assert success is True
     assert score == 1.0
@@ -111,7 +111,7 @@ async def test_run_task_judge_parse_retry() -> None:
         judge_session_id="judge-1",
     )
 
-    success, _, _, score = await run_task(_task(), "run-1", pair, max_turns=1)
+    success, _, _, score = await run_task(_task(), "run-1", pair, max_conversation_turns=1)
 
     assert success is True
     assert score == 1.0

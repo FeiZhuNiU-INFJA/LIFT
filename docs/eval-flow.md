@@ -247,7 +247,7 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 - `SuiteTask`（query、expected_result 等）
 - `run_id`、phase 标记（`is_evolve_turn`、`is_final_task`）
 - work session 与 judge session（隔离两条对话链）
-- `max_turns`（默认 `EVAL_MAX_TURNS`，通常为 2）
+- `max_conversation_turns`（由 CLI `--max-conversation-turns` 设置，默认 5）
 
 **输出（填入 `PhaseRun`）：**
 
@@ -261,7 +261,7 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 ```mermaid
 flowchart TD
   start([进入 run_task]) --> init[初始化 CustomTags、current_prompt = task.query]
-  init --> loop{turn 小于 max_turns?}
+  init --> loop{turn 小于 max_conversation_turns?}
   loop -->|是| work[work chat：执行任务]
   work --> judge[judge chat：根据 content_reqs 判定 JSON]
   judge --> parse[解析 success / reason / score，更新 content_score]
@@ -277,7 +277,7 @@ flowchart TD
 1. **work chat**：work agent 根据 `current_prompt` 执行任务，产出 `agent_result`。
 2. **judge chat**：评测器根据用户原题、`content_reqs` 与 `agent_result` 输出 JSON：`success`、`reason`、`score`。
 
-若 `success=false` 且未达 `max_turns`，将 `reason` 作为下一轮 `current_prompt` 重试；若 judge 输出无法解析，会对 judge 侧有限次重试。
+若 `success=false` 且未达 `max_conversation_turns`，将 `reason` 作为下一轮 `current_prompt` 重试；若 judge 输出无法解析，会对 judge 侧有限次重试。
 
 ### 5.3 可观测性（CustomTags）
 

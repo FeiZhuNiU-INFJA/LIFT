@@ -134,6 +134,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--max-conversation-turns",
+        type=int,
+        default=5,
+        help=(
+            "Max work->judge conversation turns per task: when the judge rejects, the "
+            "task retries with the judge's reason as the next prompt, up to this many "
+            "turns (default: 5). Replaces the former EVAL_MAX_TURNS env var."
+        ),
+    )
+    parser.add_argument(
         "--container-memory",
         default=None,
         help=(
@@ -183,6 +193,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         max_parallel_repeats=args.max_parallel_repeats,
         max_parallel_suites=args.max_parallel_suites,
         max_concurrent_tasks=args.max_concurrent_tasks,
+        max_conversation_turns=args.max_conversation_turns,
         container_memory=args.container_memory or None,
         container_cpus=args.container_cpus or None,
     )

@@ -60,7 +60,7 @@ class OpenClawContainerAgent(ChatAgent):
         )
         return extract_agent_text(stdout)
 
-    def _register_agent_in_container(self, max_retries: int = 3) -> None:
+    def _register_agent_in_container(self, max_attempts: int = 5) -> None:
         def exists() -> bool:
             result = exec_openclaw_sync(
                 self._container,
@@ -71,7 +71,7 @@ class OpenClawContainerAgent(ChatAgent):
                 raise ValueError("Failed to list agents in container")
             return self._agent_name in (result.stdout or "")
 
-        for attempt in range(max_retries):
+        for attempt in range(max_attempts):
             if exists():
                 LOGGER.info("Container agent %s already exists", self._agent_name)
                 return
@@ -97,7 +97,7 @@ class OpenClawContainerAgent(ChatAgent):
                 "Retry container agent create %s (%d/%d)",
                 self._agent_name,
                 attempt + 1,
-                max_retries,
+                max_attempts,
             )
             self._agent_name = f"evobench-agent_name-{short_id()}"  # 名冲突时换名重试
         raise ValueError("Failed to create container agent")

@@ -105,8 +105,6 @@ MODEL_NAME=custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215
 # 构建镜像时写入 models fragment；运行时亦传入容器
 ARK_API_KEY=your_ark_api_key
 
-EVAL_MAX_TURNS=2
-
 # Langfuse（pre-chat 上报 + 后处理 trace backfill）
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
@@ -130,9 +128,10 @@ TOS_SECRET_KEY=your_secret_key
 说明：
 
 - `MODEL_NAME`：须为 `provider/model_id` 格式，且与评测镜像内已注册的 provider/model **一致**（详见 [docs/eval-flow.md §12.6](./docs/eval-flow.md#126-agent-模型配置契约lift--容器运行时)）
-- `EVAL_MAX_TURNS`：`run_task` 最大 judge 重试轮次（默认 2）
 - `LANGFUSE_*`：**必填**；在 Langfuse UI 创建项目后获取（见 §2）
 - `ARK_API_KEY`：构建镜像前建议在 `.env` 中设置，写入 `models.fragment.json`；否则镜像内模型 apiKey 为空
+
+> 单个 task 的最大 work→judge 对话轮数改由 CLI 参数 `--max-conversation-turns`（默认 5）控制，不再使用 `EVAL_MAX_TURNS` 环境变量。
 
 容器启动时通过 `--env-file .env` 挂载上述变量。
 
@@ -194,11 +193,11 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 
 ### `run_task`（单题 judge 回路）
 
-每个 phase 对一题调用 `src/lift/eval/run_task.py`：work chat → judge chat（JSON 判定）→ 未通过则用 `reason` 重试，最多 `EVAL_MAX_TURNS` 轮。
+每个 phase 对一题调用 `src/lift/eval/run_task.py`：work chat → judge chat（JSON 判定）→ 未通过则用 `reason` 重试，最多 `--max-conversation-turns` 轮（默认 5）。
 
 ```mermaid
 flowchart TD
-    A((run_task)) --> B{turn < max_turns?}
+    A((run_task)) --> B{turn < max_conversation_turns?}
     B -->|是| C[work chat]
     C --> D[judge chat → JSON]
     D --> E{success?}

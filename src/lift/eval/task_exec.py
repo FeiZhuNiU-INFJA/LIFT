@@ -62,6 +62,7 @@ async def execute_task(
     workspace_dir: Path,
     factory: WorkerJudgerPairFactory,
     run_phase: SuiteRunPhase,
+    max_conversation_turns: int = 5,
 ) -> PhaseRun:
     """Run a single task via ``factory`` → ``run_task`` → ``PhaseRun``."""
     pair = factory(task)  # 每题新建 work/judge agent + 独立 Langfuse session id
@@ -77,6 +78,7 @@ async def execute_task(
         task,
         run_id,
         pair,
+        max_conversation_turns=max_conversation_turns,
         is_evolve_turn=run_phase.is_evolve_turn,
         is_final_task=run_phase.is_final_task,
     )
@@ -98,6 +100,7 @@ async def execute_tasks(
     run_phase: SuiteRunPhase,
     parallel: bool,
     max_concurrent: int | None = None,
+    max_conversation_turns: int = 5,
     on_task_done: Callable[[SuiteTask, PhaseRun], Awaitable[None]] | None = None,
 ) -> list[PhaseRun]:
     """Run multiple tasks; ``parallel`` 选并发 vs 串行；``max_concurrent`` 限并发上限。
@@ -118,6 +121,7 @@ async def execute_tasks(
             workspace_dir=workspace_dir,
             factory=factory,
             run_phase=run_phase,
+            max_conversation_turns=max_conversation_turns,
         )
         if on_task_done is not None:
             await on_task_done(task, result)

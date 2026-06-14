@@ -7,7 +7,7 @@ import json
 from json_repair import repair_json
 from pydantic import BaseModel, Field
 
-from src.config import CONFIG, LOGGER
+from src.config import LOGGER
 from src.lift.eval.chat_agent import format_outbound_message
 from src.lift.eval.worker_judger import WorkerJudgerPair
 from src.models import CustomTags, SuiteTask
@@ -149,11 +149,11 @@ async def run_task(
     run_id: str,
     pair: WorkerJudgerPair,
     *,
-    max_turns: int = CONFIG.eval_max_turns,
+    max_conversation_turns: int = 5,
     is_evolve_turn: bool = False,
     is_final_task: bool = False,
 ) -> tuple[bool, str, str, float]:
-    """Run one task: work chat + judge loop until success or ``max_turns``.
+    """Run one task: work chat + judge loop until success or ``max_conversation_turns``.
 
     Returns ``(success, work_session_id, judge_session_id, content_score)``.
     Does not schedule multiple tasks; use ``execute_tasks`` for that.
@@ -164,7 +164,7 @@ async def run_task(
     current_prompt = pair.work_agent.augment_work_prompt(task, task.query)
     last_content_score: float = 0.0
 
-    for _ in range(max_turns):
+    for _ in range(max_conversation_turns):
         LOGGER.info(
             "[%s] [%s] User Prompt: %s",
             run_id,
@@ -207,7 +207,7 @@ async def run_task(
         # judge reason 作为下一轮 work 的用户消息（多轮改进循环）
         current_prompt = judge_result.reason + "你再试一次看看能不能完成任务"
 
-    return (  # 耗尽 max_turns：success=False，score 为最后一轮 judge 分
+    return (  # 耗尽 max_conversation_turns：success=False，score 为最后一轮 judge 分
         False,
         pair.work_session_id,
         pair.judge_session_id,

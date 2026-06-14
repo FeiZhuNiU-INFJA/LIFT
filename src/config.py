@@ -40,8 +40,6 @@ class AppConfig:
     """Hermes API 密钥（``HERMES_API_KEY``）。"""
     hermes_env_file: str | None
     """Hermes profile 的 ``.env`` 文件路径（``HERMES_ENV_FILE``）。"""
-    eval_max_turns: int
-    """单次 task 最大对话轮次（``EVAL_MAX_TURNS``，默认 2）。"""
     model: str
     """OpenClaw agent 使用的模型名（``MODEL_NAME``）。"""
     log_file: str
@@ -80,7 +78,6 @@ def load_config() -> AppConfig:
     return AppConfig(
         hermes_api_key=os.getenv("HERMES_API_KEY"),
         hermes_env_file=os.getenv("HERMES_ENV_FILE"),
-        eval_max_turns=int(os.getenv("EVAL_MAX_TURNS", "2")),
         model=os.getenv("MODEL_NAME", "unknown"),
         log_file=os.getenv("EVAL_LOG_FILE", str(_default_log_file())),
         langfuse_pre_chat=_env_flag("EVAL_LANGFUSE_PRE_CHAT", default=True),

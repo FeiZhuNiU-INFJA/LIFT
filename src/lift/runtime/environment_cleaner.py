@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from pathlib import Path
 
@@ -12,8 +13,17 @@ _SAFE_TAG_RE = re.compile(r"[^a-zA-Z0-9._-]")  # Docker tag 非法字符替换
 
 
 def sanitize_image_tag(tag: str) -> str:
-    """将字符串 sanitize 为 Docker 镜像 tag 安全字符集（最长 128）。"""
-    return _SAFE_TAG_RE.sub("-", tag)[:128]
+    """将字符串 sanitize 为 Docker 镜像 tag 安全字符集（最长 128）。
+
+    非 ASCII 字符（如中文 suite 名）会被全部替换成 ``-``，不同中文名可能塌缩成
+    相同串而导致 delta 镜像 tag 碰撞（A suite 的 delta 被 B suite 误用）。因此当
+    sanitize 改写了原值时，追加原值的确定性短哈希以保证唯一且可复现。
+    """
+    safe = _SAFE_TAG_RE.sub("-", tag)
+    if not tag.isascii():
+        digest = hashlib.sha1(tag.encode("utf-8")).hexdigest()[:8]
+        safe = f"{safe[:119].strip('-')}-{digest}"
+    return safe[:128]
 
 
 def delta_image_tag(*, run_id: str, repeat_index: int, suite_name: str) -> str:

@@ -80,6 +80,13 @@ class RunOptions(BaseModel):
             "在大 suite + 资源紧张时设为较小整数避免 docker 资源耗尽。"
         ),
     )
+    max_conversation_turns: int = Field(
+        default=5,
+        description=(
+            "单个 task 内 work→judge 的最大对话轮数：judge 未通过时用 reason 反馈"
+            "重试，最多跑 ``max_conversation_turns`` 轮（由 ``--max-conversation-turns`` 设置）。"
+        ),
+    )
     container_memory: str | None = Field(
         default=None,
         description=(
@@ -104,4 +111,6 @@ class RunOptions(BaseModel):
         保持 ``None`` 语义（无上限），由下游 ``bounded_gather`` 解释。"""
         if self.repeat < 1:
             raise ValueError("--repeat must be at least 1")
+        if self.max_conversation_turns < 1:
+            raise ValueError("--max-conversation-turns must be at least 1")
         return self

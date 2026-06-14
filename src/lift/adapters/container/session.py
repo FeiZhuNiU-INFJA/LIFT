@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -18,15 +19,26 @@ ContainerHook = Callable[["ContainerSession"], Awaitable[None]]  # 容器启动/
 
 
 def sanitize_container_id(value: str) -> str:
-    """将 instance id sanitize 为 Docker 容器名合法字符（最长 64）。"""
+    """将 instance id sanitize 为 Docker 容器名合法字符（最长 64）。
+
+    Docker ``--name`` 仅接受 ``[a-zA-Z0-9._-]``。注意 ``str.isalnum()`` 对中文等
+    非 ASCII 字符返回 ``True``，故须额外要求 ``ch.isascii()``，否则中文 suite 名
+    会被原样保留导致 ``docker run`` 立即失败。非 ASCII 字符替换为 ``-`` 后，不同
+    中文名可能塌缩成相同串，因此当原值含非 ASCII 字符时追加原值的确定性短哈希，
+    既保证唯一性又保持容器名可复现（供 ``start`` 的同名容器预删/重试逻辑使用）。
+    """
     out = []
     for ch in value:
-        if ch.isalnum() or ch in "._-":
+        if ch.isascii() and (ch.isalnum() or ch in "._-"):
             out.append(ch)
         else:
             out.append("-")
-    result = "".join(out).strip("-")[:64]
-    return result or "session"
+    sanitized = "".join(out).strip("-")
+    if not value.isascii():
+        digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:8]
+        body = sanitized[:55].strip("-")
+        sanitized = f"{body}-{digest}" if body else digest
+    return sanitized[:64] or "session"
 
 
 @dataclass

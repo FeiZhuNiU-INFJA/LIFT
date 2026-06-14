@@ -148,6 +148,7 @@ class GroupMemoryAdapterMixin:
                 workspace_dir=workspace,
                 factory=factory,
                 run_phase=run_phase,
+                max_conversation_turns=self._options.max_conversation_turns,  # type: ignore[attr-defined]
             )
             # 题级 evolve 钩子：默认 no-op；子类可覆盖为外部记忆 flush
             await self.evolve_after_task(env, task, ctx)  # type: ignore[attr-defined]
