@@ -16,7 +16,7 @@ from src.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src.lift.runtime.delta_ref import DeltaRef
 from src.lift.runtime.suite_run_resources import SuiteRunResources
 from src.models import PhaseRun, SuiteTask
-from src.utils import outcome_workspace
+from src.utils import outcome_workspace, stage_task_materials
 
 
 class SuiteRunContext(BaseModel):
@@ -69,6 +69,10 @@ class AgentRuntimeAdapter(ABC):
 
         run_phase = SuiteRunPhase.warmup()
         workspace = self.warmup_workspace(ctx)
+        # warmup 多题共享同一 workspace：把每题 materials 按原目录名复制进去，
+        # 使 query 中的 ``qN_materials/`` 相对引用可在容器 /workspace/task 下命中
+        for task in warmup_tasks:
+            stage_task_materials(workspace, task.requirements.material_dir)
         env = await self.start_warmup_environment(ctx, resources, workspace)
         resources.track(env.disposable)  # suite 级登记；produce_delta 结束后再统一 cleanup
         try:
@@ -138,6 +142,9 @@ class AgentRuntimeAdapter(ABC):
         """Hold-out 单题执行内核：起容器 → factory → execute_task。"""
         run_phase = SuiteRunPhase.holdout(load_state)
         workspace = self.holdout_workspace(ctx, task, load_state)
+        # 把本题 materials 按原目录名复制进 workspace（容器内 /workspace/task），
+        # 使 query 中的 ``qN_materials/`` 相对引用命中
+        stage_task_materials(workspace, task.requirements.material_dir)
         # Hold-out 每题新 workspace：seed 由 runtime 解释（OpenClaw=预置人设跳过 BOOTSTRAP）
         env = await self.start_holdout_environment(
             ctx,

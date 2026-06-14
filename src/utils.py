@@ -1,9 +1,11 @@
 """Shared helpers for CLI, LIFT pipeline, and OpenClaw adapters."""
 
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
 
+from src.config import LOGGER
 from src.paths import outcome_root
 
 
@@ -44,6 +46,30 @@ def outcome_workspace(
     )
     workspace_dir.mkdir(parents=True, exist_ok=True)
     return workspace_dir
+
+
+def stage_task_materials(workspace_dir: Path, material_dir: str | None) -> None:
+    """把 task 的 materials 目录按**原目录名**复制进 ``workspace_dir``。
+
+    benchmark 的 query 一律以工作区相对路径引用材料（如 ``q1_materials/``），而 agent
+    的工作目录就是被挂载的 ``workspace_dir``（容器内 ``/workspace/task``）。因此须把
+    ``material_dir``（如 ``.../q1_single_table_summary/q1_materials``）整目录复制到
+    ``workspace_dir / q1_materials``，agent 才能按 query 中的名字找到材料。
+
+    空值或目录不存在时静默跳过。复制采用 ``dirs_exist_ok=True``，重复 stage 不报错。
+    """
+    if not material_dir or not str(material_dir).strip():
+        return
+    source = Path(material_dir).expanduser()
+    if not source.is_absolute():
+        source = (Path.cwd() / source).resolve()
+    if not source.is_dir():
+        LOGGER.warning("Material dir not found, skip staging: %s", source)
+        return
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    destination = workspace_dir / source.name
+    shutil.copytree(source, destination, dirs_exist_ok=True)
+    LOGGER.info("Staged materials into workspace: %s -> %s", source, destination)
 
 
 def _resolved_benchmark_dir(benchmark_dir: Path) -> Path:

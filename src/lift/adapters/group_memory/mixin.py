@@ -32,7 +32,7 @@ from src.lift.policies.container import WarmupContainerPolicy
 from src.lift.runtime.delta_ref import DeltaRef
 from src.lift.runtime.suite_run_resources import SuiteRunResources
 from src.models import SuiteTask
-from src.utils import short_id
+from src.utils import short_id, stage_task_materials
 
 
 class GroupMemoryAdapterMixin:
@@ -118,6 +118,8 @@ class GroupMemoryAdapterMixin:
         """单题独立容器跑完 warmup → 调用 ``evolve_after_task`` 钩子 → 立刻 cleanup。"""
         workspace = workspace_root / task.name
         workspace.mkdir(parents=True, exist_ok=True)
+        # 每容器独立 workspace：把本题 materials 按原目录名复制进去，命中 query 的相对引用
+        stage_task_materials(workspace, task.requirements.material_dir)
 
         instance_id = (
             f"{ctx.run_id}-r{ctx.repeat_index}-{ctx.suite_name}-warmup-{task.name}-{short_id()}"

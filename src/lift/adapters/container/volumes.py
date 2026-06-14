@@ -41,14 +41,16 @@ def default_volume_binds(
 
 
 def task_volume_binds(task: SuiteTask) -> list[tuple[str, str, str]]:
-    """单题只读挂载：extra skills 与 materials 目录。"""
+    """单题只读挂载：extra skills 目录。
+
+    materials 不在此挂载：benchmark 的 query 以工作区相对路径（``qN_materials/``）引用
+    材料，故由 ``stage_task_materials`` 把材料按原目录名复制进 ``workspace_dir``
+    （容器内 ``/workspace/task``），而非挂到固定路径。
+    """
     binds: list[tuple[str, str, str]] = []
     skills = resolve_host_path(task.requirements.extra_skills_dir)
     if skills is not None and skills.is_dir():
         binds.append((str(skills), "/workspace/skills", "ro"))
-    materials = resolve_host_path(task.requirements.material_dir)
-    if materials is not None and materials.is_dir():
-        binds.append((str(materials), "/workspace/materials", "ro"))
     return binds
 
 
