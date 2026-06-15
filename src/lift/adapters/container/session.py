@@ -237,13 +237,17 @@ def _infer_stage_task(instance_id: str) -> tuple[str | None, str | None]:
     约定（见 container/adapter.py、group_memory/mixin.py）：
     - warmup 单容器：``...-{suite}-warmup``
     - warmup 多容器：``...-{suite}-warmup-{task}-{short_id}``
-    - holdout 每题：``...-{task}-holdout-{short_id}``
+    - holdout 每题：``...-{task}-holdout-{baseline|evolved}-{short_id}``
     无法解析时返回 ``(None, None)``，不影响功能。
     """
     parts = instance_id.split("-")
     if "holdout" in parts:
         idx = parts.index("holdout")
         task = parts[idx - 1] if idx > 0 else None
+        # 紧跟 holdout 的若是 baseline/evolved 则一并返回作为更精确的 stage
+        load_state = parts[idx + 1] if idx + 1 < len(parts) else None
+        if load_state in ("baseline", "evolved"):
+            return f"holdout/{load_state}", task
         return "holdout", task
     if "warmup" in parts:
         idx = parts.index("warmup")

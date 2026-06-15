@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from threading import Lock
 
@@ -82,6 +83,7 @@ class ContainerInfo:
     suite_name: str | None = None
     task_name: str | None = None
     stage: str | None = None
+    started_at: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -91,6 +93,8 @@ class RunSnapshot:
     run_id: str
     repeats: list[RepeatNode]
     containers: list[ContainerInfo]
+    run_started_at: float = 0.0
+    snapshot_at: float = 0.0
 
 
 class RunStateTracker:
@@ -103,6 +107,7 @@ class RunStateTracker:
         self._repeats: dict[int, RepeatNode] = {}
         # 容器以 container_name 为键
         self._containers: dict[str, ContainerInfo] = {}
+        self._run_started_at: float = 0.0
 
     # ---- 订阅生命周期 ----------------------------------------------------
 
@@ -132,6 +137,8 @@ class RunStateTracker:
         with self._lock:
             self._run_id = e.run_id
             self._suite_names = e.suite_names
+            if self._run_started_at == 0.0:
+                self._run_started_at = time.time()
             for r in range(e.repeats):
                 repeat = self._repeats.setdefault(r, RepeatNode(index=r))
                 for idx, name in enumerate(e.suite_names):
@@ -269,5 +276,9 @@ class RunStateTracker:
             ]
             containers = list(self._containers.values())
         return RunSnapshot(
-            run_id=self._run_id, repeats=repeats, containers=containers
+            run_id=self._run_id,
+            repeats=repeats,
+            containers=containers,
+            run_started_at=self._run_started_at,
+            snapshot_at=time.time(),
         )

@@ -117,10 +117,11 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         _ = resources
         # short_id 保证并行 hold-out 或重跑时容器名不撞；带上 suite_name 让运维能从
         # 容器名直接看出对应的 suite（中文 suite/task 会经 clip_name_segment 转写为
-        # 拼音并各截到 20 字符，holdout 标记和 short_id 不再被截断）。
+        # 拼音并各截到 20 字符，holdout 标记和 short_id 不再被截断）；load_state
+        # （baseline/evolved）也编进容器名，方便 TUI / 日志一眼区分对照阶段。
         instance_id = (
             f"{ctx.run_id}-r{ctx.repeat_index}-{clip_name_segment(ctx.suite_name)}"
-            f"-{clip_name_segment(task.name)}-holdout-{short_id()}"
+            f"-{clip_name_segment(task.name)}-holdout-{load_state.value}-{short_id()}"
         )
         session = await self.start_container(
             instance_id=instance_id,

@@ -733,6 +733,65 @@ LIFT 在容器内通过 `agents add --model …` 注册 work / judge agent。Ope
 
 ---
 
+## 12.8 运行状态可视化（`--status-viz`）
+
+LIFT 内置一个事件总线 + 终端 TUI，用于实时观察 repeat × suite × task × phase 的执行状态以及当前存活容器，对长时间多 suite 评测尤其有用。设计上完全可选——未启用时所有 `emit_*` 调用都是零成本 no-op。
+
+### 启用方式
+
+```bash
+python -m src.cli.lift_main -r openclaw_with_evolve \
+  --benchmark_dir assets/benchmarks --suite all \
+  --run_id full-r2 --repeat 2 --max-parallel-suites 7 \
+  --status-viz
+```
+
+启用后看板覆盖整个屏幕；为避免日志冲掉 Live 渲染区，console 日志会被自动静音，文件日志（`evolve_eval.log`）照常写入。
+
+### 看板布局
+
+| 区块 | 内容 |
+|------|------|
+| Header | 总进度条（按 `repeat × suite` 单元统计）、已用时间、粗略 ETA |
+| Repeats | 每个 repeat 一行进度条，反映 `--max-parallel-repeats` 并发下不同轮次的实际推进 |
+| Suites × Repeats 栅格 | suite 行 × repeat 列，每格 `w b e` 三个状态符号（warmup / baseline / evolved）；done suite 自动折叠为 `+ N suites done` |
+| Containers | 当前存活容器，按启动时长降序，超过 10 个折叠为 `+ N more containers` |
+
+状态符号：`·` pending · `◔` running · `●` done · `✗` failed。
+
+### 离线场景注意
+
+`rich.Live` 依赖 tty。若用 `nohup` 把日志重定向到文件，`--status-viz` 不可读（输出全是 ANSI 转义）。两种推荐做法：
+
+- **`tmux` / `screen` 里前台跑** —— 程序在 host init 进程下，detach 不影响运行；`tmux attach` 即可看到完整看板。最适合开着看进度。
+- **`nohup` 跑但不开 viz** —— 直接 `tail -f logs/<run>.log`，看结构化日志（包含 suite/phase 进度事件）。
+
+### 扩展点：HTTP / WebSocket Dashboard（**预留，未实现**）
+
+事件总线 [src/lift/status/events.py](../src/lift/status/events.py) 的 `subscribe(listener)` 支持任意数量并行订阅者，因此 TUI 之外还可挂一个 HTTP 仪表盘，把同一份事件流通过 SSE / WebSocket 推到浏览器。这能解决终端 TUI 解决不了的痛点：
+
+- `nohup` / 远端机器跑评测时没有 tty 也想看实时状态
+- 多人同时观察一次 run（团队会议 / 协同调试）
+- 时间轴 / 甘特图 / suite 详情下钻等富交互
+
+实现轮廓（约 250 行；零额外依赖，标准库 `http.server` 即可）：
+
+1. 新建 `src/lift/status/http_dashboard.py`，定义 `HttpDashboard` 类：
+   - `start(host, port)` 起后台线程跑 `ThreadingHTTPServer`。
+   - `__init__` 内 `events.subscribe(self._on_event)`，把事件追加到内存环形缓冲。
+   - 路由：`GET /` 返回内嵌单文件 HTML；`GET /events` 返回 SSE 事件流；`GET /snapshot` 返回 `RunStateTracker.snapshot()` 的 JSON。
+2. `src/cli/lift_main.py` 增加 `--status-http [HOST:]PORT`；与 `--status-viz` 独立，可分别开启或同时开启。
+3. 不需要新增依赖；如以后想换 FastAPI/uvicorn 也只是替换该模块的内部实现。
+4. `ContainerInfo.started_at` / `RunSnapshot.run_started_at` 字段已经具备，足以渲染时间轴 / 甘特图。
+
+代码 navigation：
+- 事件定义与发射：[src/lift/status/events.py](../src/lift/status/events.py)
+- 状态聚合：[src/lift/status/state.py](../src/lift/status/state.py)
+- 终端渲染：[src/lift/status/tui.py](../src/lift/status/tui.py)
+- CLI 集成：[src/cli/lift_main.py](../src/cli/lift_main.py)（`_status_dashboard` context manager）
+
+---
+
 ## 13. 相关文档
 
 | 文档 | 用途 |
