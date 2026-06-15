@@ -138,6 +138,32 @@ def _truncate(value: str, width: int) -> str:
 # ---- 渲染：Header ---------------------------------------------------------
 
 
+def render_params(snapshot: RunSnapshot) -> Panel | None:
+    """本次 run 的关键参数（CLI / RunOptions）。无参数时返回 None 跳过。"""
+    if not snapshot.params:
+        return None
+    # 紧凑两列网格：每列一对 key=value
+    table = Table(
+        expand=True, show_edge=False, pad_edge=False, show_header=False, show_lines=False
+    )
+    cols = 3  # 每行 3 个键值对，避免列太宽
+    for _ in range(cols):
+        table.add_column("k", style="cyan", no_wrap=True, ratio=1)
+        table.add_column("v", style="white", overflow="fold", ratio=2)
+    row: list[str | Text] = []
+    for key, value in snapshot.params:
+        row.extend([Text(key, style="cyan"), Text(str(value), style="white")])
+        if len(row) >= cols * 2:
+            table.add_row(*row)
+            row = []
+    if row:
+        # 补齐空格使表格列对齐
+        while len(row) < cols * 2:
+            row.append(Text(""))
+        table.add_row(*row)
+    return Panel(table, title="run params", border_style="grey50", padding=(0, 1))
+
+
 def render_header(snapshot: RunSnapshot) -> Panel:
     """run 总进度 + 已用时间 + 粗略 ETA。"""
     total_units = sum(len(r.suites) for r in snapshot.repeats)
@@ -360,13 +386,15 @@ def render_containers(snapshot: RunSnapshot) -> Panel:
 
 
 def render(snapshot: RunSnapshot) -> Group:
-    """组合 Header / Repeat / Grid / Containers。"""
-    return Group(
-        render_header(snapshot),
-        render_repeat_bars(snapshot),
-        render_suite_grid(snapshot),
-        render_containers(snapshot),
-    )
+    """组合 Header / Params / Repeat / Grid / Containers。"""
+    parts: list = [render_header(snapshot)]
+    params_panel = render_params(snapshot)
+    if params_panel is not None:
+        parts.append(params_panel)
+    parts.append(render_repeat_bars(snapshot))
+    parts.append(render_suite_grid(snapshot))
+    parts.append(render_containers(snapshot))
+    return Group(*parts)
 
 
 class StatusDashboard:

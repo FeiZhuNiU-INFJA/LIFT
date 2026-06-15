@@ -315,6 +315,11 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
             suite_paths=suite_paths,
             adapter=adapter,
             options=options,
+            extra_params=(
+                ("agent_runtime", args.agent_runtime),
+                ("benchmark_dir", str(args.benchmark_dir)),
+                ("suite", args.suite),
+            ),
         )
 
     if args.evaluate:

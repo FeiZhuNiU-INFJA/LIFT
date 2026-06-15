@@ -97,7 +97,7 @@ final @ after-load（treatment） → PhaseRun  → report.evolved
 ### 4.1 环境模型（`src/lift/`）
 
 ```text
-warmup（单容器串行）→ evolve → docker commit → DeltaRef (Δ 镜像)
+warmup（默认 parallel_single：同容器并发；可切 serial_single / parallel_multi）→ evolve → docker commit → DeltaRef (Δ 镜像)
 对每个 hold-out 题 Q_h：
   before-load: docker run base_image + workspace_h → PhaseRun → destroy
   after-load:  docker run Δ_image + workspace_h   → PhaseRun → destroy
@@ -127,7 +127,7 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 
 ### 4.3 Warmup 容器策略（`WarmupContainerPolicy`）
 
-`§4.1` 描述的「单容器串行」是默认策略，但 LIFT 在 [`src/lift/policies/container.py`](../src/lift/policies/container.py) 中以枚举显式表达 warmup **容器编排维度**的三种策略。CLI 通过 `--warmup-container-policy` 选择；该枚举仅决定容器数量与是否并发，**evolve 产物的去向（commit 镜像 vs 写外部系统）由 adapter 类型决定**。
+`§4.1` 给出的是 warmup 默认策略（`parallel_single`），LIFT 在 [`src/lift/policies/container.py`](../src/lift/policies/container.py) 中以枚举显式表达 warmup **容器编排维度**的三种策略。CLI 通过 `--warmup-container-policy` 选择；该枚举仅决定容器数量与是否并发，**evolve 产物的去向（commit 镜像 vs 写外部系统）由 adapter 类型决定**。
 
 | 枚举值 | 容器数 | 题级并发 | 适用 adapter 形态 |
 |--------|--------|----------|--------------------|
@@ -443,15 +443,17 @@ flowchart LR
 | `--run_id` | 自定义 eval run 后缀 |
 | `--warmup-only` | 只跑 warmup + evolve + Δ，跳过 hold-out |
 | `--repeat` | 完整 LIFT 重复 N 次，写入 `EvalReport.runs[]` |
-| `-p` / `--parallel` | **已弃用**：自动映射到 `--warmup-container-policy=parallel_single` |
-| `--warmup-container-policy` | warmup 容器编排策略（`serial_single` / `parallel_single` / `parallel_multi`），见 [§4.3](#43-warmup-容器策略warmupcontainerpolicy) |
+| `--warmup-container-policy` | warmup 容器编排策略（`serial_single` / `parallel_single` / `parallel_multi`，默认 `parallel_single`），见 [§4.3](#43-warmup-容器策略warmupcontainerpolicy) |
 | `--holdout-container-policy` | hold-out 容器编排策略（`serial_multi` / `parallel_multi`，默认 `parallel_multi`），见 [§4.4](#44-hold-out-容器策略holdoutcontainerpolicy) |
 | `--holdout-phase-policy` | 单 task 内 baseline / evolved 顺序（`parallel` / `serial`，默认 `parallel`），见 [§4.5](#45-并发模型与限制) |
 | `--max-parallel-repeats` | repeat 并发上限（默认无上限；`1` 串行），见 [§4.5](#45-并发模型与限制) |
 | `--max-parallel-suites` | 同 repeat 内 suite 并发上限（默认 `3`；`1` 串行；`<=0` 无上限），见 [§4.5](#45-并发模型与限制) |
 | `--max-concurrent-tasks` | 单 phase 内题级并发容器数上限（默认无上限），见 [§4.5](#45-并发模型与限制) |
+| `--max-conversation-turns` | 单 task 内 work→judge 最大对话轮数（默认 `5`，替代旧的 `EVAL_MAX_TURNS` 环境变量） |
 | `--container-memory` | 单容器内存上限，透传 `docker run --memory`（**默认不限制**；设过小会触发 `CONSTRAINT_MEMCG` OOM），见 [§4.6](#46-容器资源约束与运维colima--docker-vm) |
 | `--container-cpus` | 单容器 CPU 上限，透传 `docker run --cpus`（默认不限制），见 [§4.6](#46-容器资源约束与运维colima--docker-vm) |
+| `--status-viz` | 启动终端 TUI 实时状态面板（`rich.Live`），见 [§12.8](#128-运行状态可视化--status-viz----status-http) |
+| `--status-http [HOST:]PORT` | 启动浏览器 HTTP 状态面板（标准库零依赖），见 [§12.8](#128-运行状态可视化--status-viz----status-http) |
 | `-e` / `--evaluate` | 评测结束后自动后处理（**默认开启**；`--no-evaluate` 关闭） |
 | `--evaluate-only` | 跳执行，仅对已有 report 后处理（需 `--run_id`） |
 

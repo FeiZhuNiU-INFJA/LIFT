@@ -22,6 +22,42 @@ from src.models import PhaseRun, SuiteTask
 from src.paths import report_json_path, results_run_dir
 
 
+def _fmt_optional_int(value: int | None) -> str:
+    """``None`` / 非正整数视作 unlimited；正整数转字符串。"""
+    if value is None or value <= 0:
+        return "unlimited"
+    return str(value)
+
+
+def _build_run_params(
+    *,
+    options: RunOptions,
+    suite_count: int,
+    extra: tuple[tuple[str, str], ...] = (),
+) -> tuple[tuple[str, str], ...]:
+    """从 ``RunOptions`` 抽取关键参数，序列化成 ``(key, value)`` 对，
+    用于 dashboard / TUI 顶部展示。``extra`` 由 CLI 追加（如 agent_runtime）。"""
+    pairs: list[tuple[str, str]] = list(extra)
+    pairs.extend(
+        [
+            ("suites", str(suite_count)),
+            ("repeat", str(options.repeat)),
+            ("warmup_only", str(options.warmup_only)),
+            ("evaluate", str(options.evaluate)),
+            ("max_parallel_repeats", _fmt_optional_int(options.max_parallel_repeats)),
+            ("max_parallel_suites", _fmt_optional_int(options.max_parallel_suites)),
+            ("max_concurrent_tasks", _fmt_optional_int(options.max_concurrent_tasks)),
+            ("max_conversation_turns", str(options.max_conversation_turns)),
+            ("warmup_container_policy", options.warmup_container_policy.value),
+            ("holdout_container_policy", options.holdout_container_policy.value),
+            ("holdout_phase_policy", options.holdout_phase_policy.value),
+            ("container_memory", options.container_memory or "-"),
+            ("container_cpus", options.container_cpus or "-"),
+        ]
+    )
+    return tuple(pairs)
+
+
 class LIFTPipeline:
     """Loaded Impact on Final Task orchestration."""
 
@@ -35,8 +71,13 @@ class LIFTPipeline:
         suite_paths: list[Path],
         adapter: AgentRuntimeAdapter,
         options: RunOptions,
+        extra_params: tuple[tuple[str, str], ...] = (),
     ) -> EvalReport:
-        """执行完整 LIFT 流程并写出 ``EvalReport`` JSON。"""
+        """执行完整 LIFT 流程并写出 ``EvalReport`` JSON。
+
+        ``extra_params`` 由调用方（如 CLI）追加，例如 ``agent_runtime`` /
+        ``benchmark_dir``，用于在 dashboard / TUI 顶部展示。
+        """
         eval_report = EvalReport(run_id=run_id)
         report_path = report_json_path(run_id)
         results_run_dir(run_id).mkdir(parents=True, exist_ok=True)
@@ -47,6 +88,11 @@ class LIFTPipeline:
             run_id=run_id,
             repeats=options.repeat,
             suite_names=tuple(p.stem for p in suite_paths),
+            params=_build_run_params(
+                options=options,
+                suite_count=len(suite_paths),
+                extra=extra_params,
+            ),
         )
 
         # 多 repeat 默认并行；max_parallel_repeats=1 时串行；否则受其值上限约束

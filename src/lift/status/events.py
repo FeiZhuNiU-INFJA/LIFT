@@ -30,6 +30,9 @@ class RunPlanEvent:
     # 注：实际题数要到 suite 真正加载时才知道，这里仅给出 suite 列表占位，
     # 题级骨架在 ``SuitePlanEvent`` 中补全。
     suite_names: tuple[str, ...] = ()
+    # 关键运行参数（用于 dashboard / TUI 顶部展示，串联日志便于回查）。
+    # 取自 CLI / RunOptions，键值对均序列化为字符串以便直接渲染。
+    params: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -132,9 +135,21 @@ def _emit(event: object) -> None:
 # ---- 便捷发射函数（供 pipeline / container 调用） -------------------------
 
 
-def emit_run_plan(run_id: str, repeats: int, suite_names: tuple[str, ...]) -> None:
-    """广播一次 run 的整体计划（repeat 数 + suite 列表）。"""
-    _emit(RunPlanEvent(run_id=run_id, repeats=repeats, suite_names=suite_names))
+def emit_run_plan(
+    run_id: str,
+    repeats: int,
+    suite_names: tuple[str, ...],
+    params: tuple[tuple[str, str], ...] = (),
+) -> None:
+    """广播一次 run 的整体计划（repeat 数 + suite 列表 + 关键参数）。"""
+    _emit(
+        RunPlanEvent(
+            run_id=run_id,
+            repeats=repeats,
+            suite_names=suite_names,
+            params=params,
+        )
+    )
 
 
 def emit_suite_plan(

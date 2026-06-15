@@ -103,6 +103,9 @@ _INDEX_HTML = """<!doctype html>
   .conn { font-size: 11px; padding: 2px 6px; border-radius: 4px; }
   .conn.live { background: #064e3b; color: #6ee7b7; }
   .conn.dead { background: #7f1d1d; color: #fecaca; }
+  .params { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 16px; }
+  .params .pk { color: var(--muted); margin-right: 6px; }
+  .params .pv { color: var(--fg); word-break: break-all; }
 </style>
 </head>
 <body>
@@ -115,6 +118,11 @@ _INDEX_HTML = """<!doctype html>
     <div class="bar"><div id="overall-bar" style="width:0"></div></div>
     <div id="overall-stats" class="muted"></div>
   </div>
+</div>
+
+<div class="panel" id="params-panel" style="display:none">
+  <div class="panel-title">run params</div>
+  <div id="params" class="params"></div>
 </div>
 
 <div class="panel" id="repeats-panel">
@@ -186,6 +194,19 @@ function render() {
   if (!snapshot) return;
   const repeats = snapshot.repeats || [];
   document.getElementById('run-id').textContent = snapshot.run_id || '(no run)';
+
+  // run params 面板：来自 RunPlanEvent.params
+  const params = snapshot.params || [];
+  const paramsPanel = document.getElementById('params-panel');
+  const paramsDiv = document.getElementById('params');
+  if (params.length) {
+    paramsPanel.style.display = '';
+    paramsDiv.innerHTML = params.map(([k, v]) =>
+      `<div><span class="pk">${k}</span><span class="pv">${v}</span></div>`
+    ).join('');
+  } else {
+    paramsPanel.style.display = 'none';
+  }
 
   // overall 进度（每个 repeat × suite 计 1 个单元）
   let total = 0, done = 0, running = 0;

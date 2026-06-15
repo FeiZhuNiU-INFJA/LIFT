@@ -179,7 +179,15 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 | `--run_id` | 自动生成 | 后缀，生成 `evobench-runid-{run_id}` |
 | `--warmup-only` | off | 只跑 warmup + evolve + delta，跳过 hold-out |
 | `--repeat` | `1` | 重复完整 LIFT N 次 |
-| `-p` / `--parallel` | off | warmup 题并行 |
+| `--warmup-container-policy` | `parallel_single` | warmup 容器编排：`serial_single` / `parallel_single` / `parallel_multi`（替代旧的 `-p/--parallel`） |
+| `--holdout-container-policy` | `parallel_multi` | hold-out 多题间是否并发（`serial_multi` / `parallel_multi`） |
+| `--holdout-phase-policy` | `parallel` | 单 task 内 baseline / evolved 并行或串行 |
+| `--max-parallel-repeats` | unlimited | repeat 并行度上限；`1` 串行 |
+| `--max-parallel-suites` | `3` | 单 repeat 内 suite 并行度上限；`<=0` 无上限 |
+| `--max-concurrent-tasks` | unlimited | 单 phase 内 task 并发上限 |
+| `--max-conversation-turns` | `5` | 单 task 内 work→judge 最大轮数 |
+| `--status-viz` | off | 终端 TUI 实时状态面板 |
+| `--status-http` | off | 浏览器 HTTP 状态面板（`PORT` 或 `HOST:PORT`） |
 | `-e` / `--evaluate` | **on** | 结束后自动后处理；`--no-evaluate` 关闭 |
 | `--evaluate-only` | off | 仅后处理已有 report（需 `--run_id`） |
 
@@ -187,7 +195,7 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 
 ### LIFT 流程（简述）
 
-1. **Warmup**：单容器串行跑前序题 → `openclaw learn review` → `docker commit` 得 delta 镜像
+1. **Warmup**：默认同容器并发跑前序题（`parallel_single`，可切 `serial_single` / `parallel_multi`）→ `openclaw learn review` → `docker commit` 得 delta 镜像
 2. **Hold-out**：每题各起 baseline（base 镜像）与 evolved（delta 镜像）容器，workspace 按题隔离
 3. **Report**：写入 `results/{run_id}/report.json`（执行期 `langfuse` 一般为 `null`）
 4. **后处理**（默认）：从 Langfuse 拉 trace，回填至 `results/{run_id}/*_backfilled.json` 并出 CSV/HTML

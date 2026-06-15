@@ -95,6 +95,8 @@ class RunSnapshot:
     containers: list[ContainerInfo]
     run_started_at: float = 0.0
     snapshot_at: float = 0.0
+    # CLI / RunOptions 中的关键参数，供 TUI / HTTP dashboard 顶部展示
+    params: list[tuple[str, str]] = field(default_factory=list)
 
 
 class RunStateTracker:
@@ -108,6 +110,7 @@ class RunStateTracker:
         # 容器以 container_name 为键
         self._containers: dict[str, ContainerInfo] = {}
         self._run_started_at: float = 0.0
+        self._params: tuple[tuple[str, str], ...] = ()
 
     # ---- 订阅生命周期 ----------------------------------------------------
 
@@ -137,6 +140,7 @@ class RunStateTracker:
         with self._lock:
             self._run_id = e.run_id
             self._suite_names = e.suite_names
+            self._params = e.params
             if self._run_started_at == 0.0:
                 self._run_started_at = time.time()
             for r in range(e.repeats):
@@ -281,4 +285,5 @@ class RunStateTracker:
             containers=containers,
             run_started_at=self._run_started_at,
             snapshot_at=time.time(),
+            params=list(self._params),
         )
