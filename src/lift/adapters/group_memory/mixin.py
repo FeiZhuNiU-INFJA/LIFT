@@ -27,11 +27,12 @@ from src.lift.adapters.base import SuiteRunContext
 from src.lift.adapters.container.session import clip_name_segment
 from src.lift.adapters.environment import ExecutionEnvironment
 from src.lift.eval.stage import SuiteRunPhase
-from src.lift.eval.task_exec import bounded_gather, execute_task
+from src.lift.eval.task_exec import bounded_gather, exc_summary, execute_task
 from src.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src.lift.policies.container import WarmupContainerPolicy
 from src.lift.runtime.delta_ref import DeltaRef
 from src.lift.runtime.suite_run_resources import SuiteRunResources
+from src.lift.status import events as status_events
 from src.models import SuiteTask
 from src.utils import short_id, stage_task_materials
 
@@ -89,13 +90,27 @@ class GroupMemoryAdapterMixin:
             for task in warmup_tasks
         ]
         if container_policy.tasks_parallel:
-            await bounded_gather(
+            # 题间隔离 + 单题内部已 retry 一次；单题最终失败不取消兄弟题
+            results = await bounded_gather(
                 coros,
                 limit=self._options.max_concurrent_tasks,  # type: ignore[attr-defined]
+                return_exceptions=True,
             )
+            for task, r in zip(warmup_tasks, results):
+                if isinstance(r, BaseException):
+                    LOGGER.error(
+                        "Warmup task failed after retry (isolated) suite=%s task=%s: %r",
+                        ctx.suite_name, task.name, r,
+                    )
         else:
-            for coro in coros:
-                await coro
+            for task, coro in zip(warmup_tasks, coros):
+                try:
+                    await coro
+                except BaseException as exc:  # noqa: BLE001
+                    LOGGER.error(
+                        "Warmup task failed after retry (serial isolated) suite=%s task=%s: %r",
+                        ctx.suite_name, task.name, exc,
+                    )
 
         delta = DeltaRef(
             image_tag=self._docker_image,  # type: ignore[attr-defined]
@@ -116,7 +131,57 @@ class GroupMemoryAdapterMixin:
         resources: SuiteRunResources,
         ctx: SuiteRunContext,
     ) -> None:
-        """单题独立容器跑完 warmup → 调用 ``evolve_after_task`` 钩子 → 立刻 cleanup。"""
+        """单题独立容器跑完 warmup → 调用 ``evolve_after_task`` 钩子 → 立刻 cleanup。
+
+        异常时**原地重试一次**（重新起容器、重跑该题），二次仍异常才向上抛。
+        每次 attempt 通过 ``kind=warmup_task`` 事件向状态总线汇报，前端 hover ``w``
+        单元格能看到逐题状态。
+        """
+        def _emit(status: str, detail: str | None = None) -> None:
+            status_events.emit_stage(
+                kind="warmup_task",
+                status=status,
+                run_id=ctx.run_id,
+                repeat_index=ctx.repeat_index,
+                suite_name=ctx.suite_name,
+                task_name=task.name,
+                detail=detail,
+            )
+
+        last_exc: BaseException | None = None
+        for attempt in range(2):
+            _emit("running")
+            try:
+                await self._run_warmup_attempt(
+                    task=task,
+                    workspace_root=workspace_root,
+                    resources=resources,
+                    ctx=ctx,
+                )
+                _emit("done")
+                return
+            except BaseException as exc:  # noqa: BLE001
+                last_exc = exc
+                if attempt == 0:
+                    LOGGER.warning(
+                        "GroupMemory warmup task %s failed (attempt 1/2): %r — retrying",
+                        task.name, exc,
+                    )
+                    _emit("retrying", f"retry after: {exc_summary(exc)}")
+                    continue
+                _emit("failed", exc_summary(exc))
+                raise
+        raise last_exc  # type: ignore[misc]
+
+    async def _run_warmup_attempt(
+        self,
+        *,
+        task: SuiteTask,
+        workspace_root: Path,
+        resources: SuiteRunResources,
+        ctx: SuiteRunContext,
+    ) -> None:
+        """单题 warmup 的一次尝试（不含重试）。"""
         workspace = workspace_root / task.name
         workspace.mkdir(parents=True, exist_ok=True)
         # 每容器独立 workspace：把本题 materials 按原目录名复制进去，命中 query 的相对引用

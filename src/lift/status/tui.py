@@ -32,6 +32,7 @@ from src.lift.status.state import (
     DONE,
     FAILED,
     PENDING,
+    RETRYING,
     RUNNING,
     ContainerInfo,
     RepeatNode,
@@ -44,6 +45,7 @@ from src.lift.status.state import (
 _STATUS_STYLE = {
     PENDING: ("·", "grey50"),
     RUNNING: ("◔", "yellow"),
+    RETRYING: ("↻", "yellow"),
     DONE: ("●", "green"),
     FAILED: ("✗", "red"),
 }
@@ -65,7 +67,7 @@ def _phase_status(suite: SuiteNode, phase: str) -> str:
 
     - 任一 failed → failed
     - 全部 done → done
-    - 任一 running → running
+    - 任一 running / retrying → running（retrying 视为进行中）
     - 否则 pending
     """
     if not suite.holdout_tasks:
@@ -78,7 +80,7 @@ def _phase_status(suite: SuiteNode, phase: str) -> str:
         return FAILED
     if all(s == DONE for s in statuses):
         return DONE
-    if RUNNING in statuses:
+    if RUNNING in statuses or RETRYING in statuses:
         return RUNNING
     return PENDING
 
@@ -318,7 +320,7 @@ def render_suite_grid(snapshot: RunSnapshot) -> Panel:
     legend.append("=baseline ", style="grey62")
     legend.append("e", style="cyan")
     legend.append("=evolved   ", style="grey62")
-    for st in (PENDING, RUNNING, DONE, FAILED):
+    for st in (PENDING, RUNNING, RETRYING, DONE, FAILED):
         sym, color = _STATUS_STYLE[st]
         legend.append(f"{sym} ", style=color)
         legend.append(f"{st} ", style="grey62")
@@ -382,11 +384,58 @@ def render_containers(snapshot: RunSnapshot) -> Panel:
     return Panel(table, title=title, border_style="blue", padding=(0, 1))
 
 
+# ---- 渲染：最近失败 -------------------------------------------------------
+
+
+# 错误面板最多展示行数；超出折叠为 "+N more"
+MAX_RECENT_ERRORS = 8
+
+
+def render_recent_errors(snapshot: RunSnapshot) -> Panel | None:
+    """最近 N 条 ``failed`` / suite 重试触发的错误。无错误时返回 None。
+
+    展示列：``time | kind | r/suite/task/phase | detail``。kind=phase 时
+    把 phase 一并贴到坐标里方便识别 baseline / evolved。
+    """
+    if not snapshot.recent_errors:
+        return None
+    table = Table(expand=True, show_edge=False, pad_edge=False)
+    table.add_column("time", style="grey62", no_wrap=True, min_width=8)
+    table.add_column("kind", style="magenta", no_wrap=True, min_width=6)
+    table.add_column("where", style="white", overflow="fold", ratio=2)
+    table.add_column("detail", style="red", overflow="fold", ratio=4)
+
+    overflow = 0
+    for i, rec in enumerate(snapshot.recent_errors):
+        if i >= MAX_RECENT_ERRORS:
+            overflow = len(snapshot.recent_errors) - MAX_RECENT_ERRORS
+            break
+        ts = time.strftime("%H:%M:%S", time.localtime(rec.at))
+        coord_parts: list[str] = [f"r{rec.repeat_index}"]
+        if rec.suite_name:
+            coord_parts.append(_truncate(rec.suite_name, 24))
+        if rec.task_name:
+            coord_parts.append(_truncate(rec.task_name, 20))
+        if rec.phase:
+            coord_parts.append(rec.phase)
+        table.add_row(ts, rec.kind, " / ".join(coord_parts), rec.detail)
+    if overflow > 0:
+        table.add_row(
+            Text("…", style="grey62"),
+            "",
+            Text(f"+ {overflow} more", style="grey62"),
+            "",
+        )
+
+    title = f"recent failures: {len(snapshot.recent_errors)}"
+    return Panel(table, title=title, border_style="red", padding=(0, 1))
+
+
 # ---- 渲染：组合 -----------------------------------------------------------
 
 
 def render(snapshot: RunSnapshot) -> Group:
-    """组合 Header / Params / Repeat / Grid / Containers。"""
+    """组合 Header / Params / Repeat / Grid / Containers / RecentErrors。"""
     parts: list = [render_header(snapshot)]
     params_panel = render_params(snapshot)
     if params_panel is not None:
@@ -394,6 +443,9 @@ def render(snapshot: RunSnapshot) -> Group:
     parts.append(render_repeat_bars(snapshot))
     parts.append(render_suite_grid(snapshot))
     parts.append(render_containers(snapshot))
+    errors_panel = render_recent_errors(snapshot)
+    if errors_panel is not None:
+        parts.append(errors_panel)
     return Group(*parts)
 
 

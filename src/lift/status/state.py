@@ -20,6 +20,7 @@ from src.lift.status import events as ev
 # 状态常量
 PENDING = "pending"
 RUNNING = "running"
+RETRYING = "retrying"
 DONE = "done"
 FAILED = "failed"
 
@@ -30,6 +31,7 @@ class PhaseNode:
 
     name: str  # baseline / evolved
     status: str = PENDING
+    last_error: str | None = None  # status=failed 时的异常摘要 / judge 拒因
 
 
 @dataclass
@@ -39,6 +41,7 @@ class TaskNode:
     name: str
     status: str = PENDING
     phases: dict[str, PhaseNode] = field(default_factory=dict)
+    last_error: str | None = None
 
 
 @dataclass
@@ -47,6 +50,7 @@ class WarmupTaskNode:
 
     name: str
     status: str = PENDING
+    last_error: str | None = None
 
 
 @dataclass
@@ -61,6 +65,7 @@ class SuiteNode:
     holdout_tasks: dict[str, TaskNode] = field(default_factory=dict)
     # 题级骨架是否已由 SuitePlanEvent 填充
     planned: bool = False
+    last_error: str | None = None  # suite 级失败摘要（warmup 异常 / 重试后仍失败）
 
 
 @dataclass
@@ -70,6 +75,19 @@ class RepeatNode:
     index: int
     status: str = PENDING
     suites: dict[int, SuiteNode] = field(default_factory=dict)
+
+
+@dataclass
+class ErrorRecord:
+    """最近的失败事件，按发生时间倒序展示。"""
+
+    at: float
+    kind: str  # suite / warmup / task / phase
+    repeat_index: int
+    suite_name: str | None
+    task_name: str | None
+    phase: str | None
+    detail: str
 
 
 @dataclass
@@ -97,6 +115,8 @@ class RunSnapshot:
     snapshot_at: float = 0.0
     # CLI / RunOptions 中的关键参数，供 TUI / HTTP dashboard 顶部展示
     params: list[tuple[str, str]] = field(default_factory=list)
+    # 最近的失败事件（最新在前），便于 dashboard / TUI 一眼看到失败原因
+    recent_errors: list[ErrorRecord] = field(default_factory=list)
 
 
 class RunStateTracker:
@@ -111,6 +131,9 @@ class RunStateTracker:
         self._containers: dict[str, ContainerInfo] = {}
         self._run_started_at: float = 0.0
         self._params: tuple[tuple[str, str], ...] = ()
+        # 最近 N 条失败事件（环形）；首条最新
+        self._recent_errors: list[ErrorRecord] = []
+        self._recent_errors_max: int = 50
 
     # ---- 订阅生命周期 ----------------------------------------------------
 
@@ -175,6 +198,8 @@ class RunStateTracker:
                     e.repeat_index, RepeatNode(index=e.repeat_index)
                 )
                 repeat.status = e.status
+                if e.status == FAILED:
+                    self._record_error(e)
                 return
 
             suite = None
@@ -185,20 +210,32 @@ class RunStateTracker:
 
             if e.kind == "suite" and suite is not None:
                 suite.status = e.status
+                if e.status == FAILED:
+                    suite.last_error = e.detail
+                    self._record_error(e)
             elif e.kind == "warmup" and suite is not None:
                 suite.warmup_status = e.status
+                if e.status == FAILED:
+                    suite.last_error = e.detail
+                    self._record_error(e)
             elif e.kind == "task" and suite is not None and e.task_name:
                 node = suite.holdout_tasks.get(e.task_name)
                 if node is None:
                     node = TaskNode(name=e.task_name)
                     suite.holdout_tasks[e.task_name] = node
                 node.status = e.status
+                if e.status == FAILED:
+                    node.last_error = e.detail
+                    self._record_error(e)
             elif e.kind == "warmup_task" and suite is not None and e.task_name:
                 wnode = suite.warmup_tasks.get(e.task_name)
                 if wnode is None:
                     wnode = WarmupTaskNode(name=e.task_name)
                     suite.warmup_tasks[e.task_name] = wnode
                 wnode.status = e.status
+                if e.status == FAILED:
+                    wnode.last_error = e.detail
+                    self._record_error(e)
             elif (
                 e.kind == "phase"
                 and suite is not None
@@ -210,6 +247,32 @@ class RunStateTracker:
                 )
                 pnode = tnode.phases.setdefault(e.phase, PhaseNode(e.phase))
                 pnode.status = e.status
+                if e.status == RETRYING:
+                    # 中间态：把首次错误摘要落到节点供 hover；不计入 recent_errors
+                    pnode.last_error = e.detail
+                elif e.status == FAILED:
+                    pnode.last_error = e.detail
+                    self._record_error(e)
+                elif e.status == DONE:
+                    # judge fail 时 detail 形如 "judge fail (score=0.42)"，落到节点
+                    # 供 dashboard 展示；非 judge fail 的 done 通常 detail=None。
+                    if e.detail:
+                        pnode.last_error = e.detail
+
+    def _record_error(self, e: ev.StageEvent) -> None:
+        """把一条失败事件写入环形缓冲（调用方须持锁）。``detail`` 缺省时回退为 ``"failed"``。"""
+        record = ErrorRecord(
+            at=time.time(),
+            kind=e.kind,
+            repeat_index=e.repeat_index,
+            suite_name=e.suite_name,
+            task_name=e.task_name,
+            phase=e.phase,
+            detail=e.detail or "failed",
+        )
+        self._recent_errors.insert(0, record)
+        if len(self._recent_errors) > self._recent_errors_max:
+            del self._recent_errors[self._recent_errors_max :]
 
     # ---- 容器 ------------------------------------------------------------
 
@@ -257,7 +320,11 @@ class RunStateTracker:
                             status=s.status,
                             warmup_status=s.warmup_status,
                             warmup_tasks={
-                                k: WarmupTaskNode(name=w.name, status=w.status)
+                                k: WarmupTaskNode(
+                                    name=w.name,
+                                    status=w.status,
+                                    last_error=w.last_error,
+                                )
                                 for k, w in s.warmup_tasks.items()
                             },
                             holdout_tasks={
@@ -265,13 +332,19 @@ class RunStateTracker:
                                     name=t.name,
                                     status=t.status,
                                     phases={
-                                        pk: PhaseNode(name=p.name, status=p.status)
+                                        pk: PhaseNode(
+                                            name=p.name,
+                                            status=p.status,
+                                            last_error=p.last_error,
+                                        )
                                         for pk, p in t.phases.items()
                                     },
+                                    last_error=t.last_error,
                                 )
                                 for k, t in s.holdout_tasks.items()
                             },
                             planned=s.planned,
+                            last_error=s.last_error,
                         )
                         for i, s in r.suites.items()
                     },
@@ -279,6 +352,7 @@ class RunStateTracker:
                 for r in sorted(self._repeats.values(), key=lambda x: x.index)
             ]
             containers = list(self._containers.values())
+            recent_errors = list(self._recent_errors)
         return RunSnapshot(
             run_id=self._run_id,
             repeats=repeats,
@@ -286,4 +360,5 @@ class RunStateTracker:
             run_started_at=self._run_started_at,
             snapshot_at=time.time(),
             params=list(self._params),
+            recent_errors=recent_errors,
         )

@@ -28,13 +28,20 @@ def clip_name_segment(name: str, max_len: int = 20) -> str:
     又不超过 Docker 总长度上限。中文等非 ASCII 字符会先经 ``pypinyin.lazy_pinyin``
     转写为不带声调的拼音（用 ``-`` 连接），再 sanitize 到 Docker 容器名合法字符。
     空值返回占位符 ``x``，避免拼装出连续 ``--``。
+
+    **防塌缩**：当原值「被拼音转写」或「sanitize 后超过 ``max_len`` 被截断」时，
+    会在尾部追加 4 位原值 sha1（``-{4hex}``，从可读前缀里挤出预算），保证不同
+    原值永不映射到同一段。短 ASCII 名（如 ``data_analysis``）保持原样，不引入
+    后缀，避免破坏现有可读性。
     """
     if not name:
         return "x"
     if not name.isascii():
         translated = "-".join(lazy_pinyin(name, style=Style.NORMAL, errors="default"))
+        needs_disambig = True
     else:
         translated = name
+        needs_disambig = False
     out: list[str] = []
     for ch in translated:
         if ch.isascii() and (ch.isalnum() or ch in "._-"):
@@ -44,8 +51,16 @@ def clip_name_segment(name: str, max_len: int = 20) -> str:
     sanitized = "".join(out).strip("-")
     while "--" in sanitized:
         sanitized = sanitized.replace("--", "-")
-    clipped = sanitized[:max_len].strip("-")
-    return clipped or "x"
+    if len(sanitized) > max_len:
+        needs_disambig = True
+    if needs_disambig:
+        digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:4]
+        budget = max_len - 1 - len(digest)  # 留 `-` + 4 hex
+        if budget < 1:
+            return digest
+        head = sanitized[:budget].rstrip("-") or "x"
+        return f"{head}-{digest}"
+    return sanitized.strip("-") or "x"
 
 
 def sanitize_container_id(value: str) -> str:

@@ -95,6 +95,7 @@ _INDEX_HTML = """<!doctype html>
   td.cell { font-family: ui-monospace; letter-spacing: 1px; white-space: nowrap; }
   .pending { color: var(--grey); }
   .running { color: var(--yellow); }
+  .retrying { color: var(--yellow); }
   .done { color: var(--green); }
   .failed { color: var(--red); }
   .legend { color: var(--muted); font-size: 12px; margin-top: 6px; }
@@ -139,7 +140,7 @@ _INDEX_HTML = """<!doctype html>
     </span>
   </div>
   <table id="grid"><thead></thead><tbody></tbody></table>
-  <div class="legend">legend: w=warmup b=baseline e=evolved · · pending ◔ running ● done ✗ failed</div>
+  <div class="legend">legend: w=warmup b=baseline e=evolved · · pending ◔ running ↻ retrying ● done ✗ failed · hover for details</div>
 </div>
 
 <div class="panel">
@@ -147,9 +148,19 @@ _INDEX_HTML = """<!doctype html>
   <table id="ctr"><thead><tr><th>container</th><th>repeat</th><th>stage</th><th>suite</th><th>task</th><th>uptime</th></tr></thead><tbody></tbody></table>
 </div>
 
+<div class="panel" id="errors-panel" style="display:none">
+  <div class="panel-title">recent failures <span id="err-count" class="muted"></span></div>
+  <table id="errors"><thead><tr><th>time</th><th>kind</th><th>where</th><th>detail</th></tr></thead><tbody></tbody></table>
+</div>
+
 <script>
-const STATUS_SYM = { pending: '·', running: '◔', done: '●', failed: '✗' };
+const STATUS_SYM = { pending: '·', running: '◔', retrying: '↻', done: '●', failed: '✗' };
 let snapshot = null;
+
+function escapeAttr(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 function fmtDuration(sec) {
   sec = Math.max(0, Math.floor(sec));
@@ -162,32 +173,73 @@ function fmtDuration(sec) {
 }
 
 function suiteOverall(suite) {
-  // 与 TUI 取最差状态：failed > running > pending > done
+  // 与 TUI 取最差状态：failed > running/retrying > pending > done
   const all = [];
   if (suite.warmup_status) all.push(suite.warmup_status);
   for (const t of Object.values(suite.holdout_tasks || {})) {
     for (const p of Object.values(t.phases || {})) all.push(p.status);
   }
   if (all.includes('failed')) return 'failed';
-  if (all.includes('running')) return 'running';
+  if (all.includes('running') || all.includes('retrying')) return 'running';
   if (all.length && all.every(x => x === 'done')) return 'done';
   return 'pending';
 }
 
 function suiteCellHtml(suite) {
   const w = suite.warmup_status || 'pending';
-  // 取所有 holdout 题里的 baseline/evolved 聚合状态
+  // suite.last_error 主要承载 warmup 错误摘要
+  const wErr = suite.last_error || '';
+  // warmup 题级 tooltip：列出每个 warmup_task 的状态符号 + 名字 + 可选错误摘要
+  const wTasks = Object.values(suite.warmup_tasks || {});
+  let wTitle = `warmup [${w}]`;
+  if (wTasks.length) {
+    const lines = wTasks.map(t => {
+      const sym = STATUS_SYM[t.status] || '?';
+      const err = t.last_error ? `  (${t.last_error})` : '';
+      return `  ${sym} ${t.name}${err}`;
+    });
+    wTitle = `warmup [${w}]\n` + lines.join('\n');
+  } else if (wErr) {
+    wTitle = `warmup [${w}]: ${wErr}`;
+  }
+  // 取所有 holdout 题里的 baseline/evolved 聚合状态 + 第一条错误摘要
   const phaseAgg = (phase) => {
-    const xs = Object.values(suite.holdout_tasks || {}).map(t => (t.phases || {})[phase]?.status || 'pending');
-    if (!xs.length) return 'pending';
-    if (xs.includes('failed')) return 'failed';
-    if (xs.every(x => x === 'done')) return 'done';
-    if (xs.includes('running') || xs.includes('done')) return 'running';
-    return 'pending';
+    const tasks = Object.values(suite.holdout_tasks || {});
+    const xs = tasks.map(t => (t.phases || {})[phase]?.status || 'pending');
+    const errs = tasks
+      .map(t => (t.phases || {})[phase]?.last_error)
+      .filter(Boolean);
+    let st;
+    if (!xs.length) st = 'pending';
+    else if (xs.includes('failed')) st = 'failed';
+    else if (xs.every(x => x === 'done')) st = 'done';
+    else if (xs.includes('running') || xs.includes('retrying') || xs.includes('done')) st = 'running';
+    else st = 'pending';
+    return { st, err: errs.join(' | ') };
   };
-  const b = phaseAgg('baseline');
-  const e = phaseAgg('evolved');
-  return `<span class="${w}">${STATUS_SYM[w]}</span> <span class="${b}">${STATUS_SYM[b]}</span> <span class="${e}">${STATUS_SYM[e]}</span>`;
+  const baseline = phaseAgg('baseline');
+  const evolved = phaseAgg('evolved');
+  // baseline / evolved 也按题展开 tooltip
+  const phaseTooltip = (phase, label, st) => {
+    const tasks = Object.values(suite.holdout_tasks || {});
+    if (!tasks.length) return `${label} [${st}]`;
+    const lines = tasks.map(t => {
+      const p = (t.phases || {})[phase];
+      const sym = STATUS_SYM[p?.status || 'pending'] || '?';
+      const err = p?.last_error ? `  (${p.last_error})` : '';
+      return `  ${sym} ${t.name}${err}`;
+    });
+    return `${label} [${st}]\n` + lines.join('\n');
+  };
+  const cell = (st, sym, title) =>
+    `<span class="${st}" title="${escapeAttr(title)}">${sym}</span>`;
+  return [
+    cell(w, STATUS_SYM[w] || '?', wTitle),
+    cell(baseline.st, STATUS_SYM[baseline.st] || '?',
+      phaseTooltip('baseline', 'baseline', baseline.st)),
+    cell(evolved.st, STATUS_SYM[evolved.st] || '?',
+      phaseTooltip('evolved', 'evolved', evolved.st)),
+  ].join(' ');
 }
 
 function render() {
@@ -290,6 +342,31 @@ function render() {
       + `<td>${c.task_name || '-'}</td>`
       + `<td>${up}</td>`;
     ctrTbody.appendChild(tr);
+  }
+
+  // recent failures：每条 ErrorRecord 一行
+  const errsPanel = document.getElementById('errors-panel');
+  const errsTbody = document.querySelector('#errors tbody');
+  const errs = snapshot.recent_errors || [];
+  document.getElementById('err-count').textContent = `(${errs.length})`;
+  if (errs.length) {
+    errsPanel.style.display = '';
+    errsTbody.innerHTML = '';
+    const max = 50;
+    for (let i = 0; i < Math.min(errs.length, max); i++) {
+      const e = errs[i];
+      const ts = e.at ? new Date(e.at * 1000).toLocaleTimeString() : '-';
+      const coord = [`r${e.repeat_index}`,
+        e.suite_name, e.task_name, e.phase].filter(Boolean).join(' / ');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td class="muted">${ts}</td>`
+        + `<td>${e.kind || ''}</td>`
+        + `<td>${escapeAttr(coord)}</td>`
+        + `<td class="failed" title="${escapeAttr(e.detail || '')}">${escapeAttr(e.detail || '')}</td>`;
+      errsTbody.appendChild(tr);
+    }
+  } else {
+    errsPanel.style.display = 'none';
   }
 }
 

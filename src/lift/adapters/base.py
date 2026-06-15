@@ -15,6 +15,7 @@ from src.lift.pipeline.run_options import RunOptions
 from src.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src.lift.runtime.delta_ref import DeltaRef
 from src.lift.runtime.suite_run_resources import SuiteRunResources
+from src.lift.status import events as status_events
 from src.models import PhaseRun, SuiteTask
 from src.utils import outcome_workspace, stage_task_materials
 
@@ -75,6 +76,23 @@ class AgentRuntimeAdapter(ABC):
             stage_task_materials(workspace, task.requirements.material_dir)
         env = await self.start_warmup_environment(ctx, resources, workspace)
         resources.track(env.disposable)  # suite 级登记；produce_delta 结束后再统一 cleanup
+
+        def _emit_warmup_task(task: SuiteTask, status: str, detail: str | None) -> None:
+            """把 execute_tasks 的单题状态回调转发到 status 事件总线。
+
+            走 ``kind=warmup_task`` 后端 state 会更新 ``SuiteNode.warmup_tasks[name]``，
+            前端 hover 整个 ``w`` 单元格能看到逐题状态。
+            """
+            status_events.emit_stage(
+                kind="warmup_task",
+                status=status,
+                run_id=ctx.run_id,
+                repeat_index=ctx.repeat_index,
+                suite_name=ctx.suite_name,
+                task_name=task.name,
+                detail=detail,
+            )
+
         try:
             factory = self.worker_judger_factory(
                 env, ctx, run_phase=run_phase, workspace_dir=workspace
@@ -89,6 +107,9 @@ class AgentRuntimeAdapter(ABC):
                 max_concurrent=self._options.max_concurrent_tasks,
                 max_conversation_turns=self._options.max_conversation_turns,
                 on_task_done=lambda task, _result: self.evolve_after_task(env, task, ctx),  # 每题完成钩子；默认 no-op
+                on_task_status=_emit_warmup_task,  # 题级状态 → dashboard tooltip
+                retry_each=True,  # 单题异常原地重试一次（judge fail 不算失败）
+                tasks_isolated=True,  # warmup 题间隔离：单题最终失败不取消兄弟题
             )
             await self.evolve_after_warmup(env, ctx)  # 所有 warmup 完成钩子：OpenClaw = learn review
             delta = await self.materialize_delta(env, ctx)  # 须在容器仍存活时 commit

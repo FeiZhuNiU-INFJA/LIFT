@@ -10,7 +10,7 @@ from src.config import LOGGER
 from src.models import EvalRepeat, EvalReport, SuiteRun, TaskRun
 
 from src.lift.adapters.base import AgentRuntimeAdapter, SuiteRunContext
-from src.lift.eval.task_exec import bounded_gather
+from src.lift.eval.task_exec import bounded_gather, exc_summary as _exc_summary
 from src.lift.status import events as status_events
 from src.lift.policies.artifact import WarmupThenUpdatePolicy
 from src.lift.pipeline.run_options import RunOptions
@@ -339,7 +339,7 @@ class LIFTPipeline:
                 suite_index=suite_index,
                 suite_name=suite.name,
             )
-        except BaseException:
+        except BaseException as exc:
             status_events.emit_stage(
                 kind="suite",
                 status="failed",
@@ -347,6 +347,7 @@ class LIFTPipeline:
                 repeat_index=repeat_index,
                 suite_index=suite_index,
                 suite_name=suite.name,
+                detail=_exc_summary(exc),
             )
             raise
         finally:
@@ -369,9 +370,25 @@ class LIFTPipeline:
 
         ``holdout_phase_policy`` 控制单 task 内 baseline / evolved 是否并行
         （二者镜像与 workspace 子目录互不依赖，并行后单题最多有 2 个容器存活）。
+
+        失败处理（核心约定）：
+
+        - **judge ``success=False`` 不算失败**：``run_task`` 内部已多轮重试到
+          ``max_conversation_turns``，``PhaseRun`` 正常返回 ``success=False`` +
+          ``content_score``；这种情况下 phase 仍 emit ``done``（detail 带 score），
+          dashboard 显示绿点而非 ✗。
+        - **真正的异常**（容器/网络/agent runtime 异常）才视作 phase 失败：
+          phase 内部**原地重试一次**，emit ``retrying`` 中间态；二次仍失败才
+          emit ``failed`` 并向上抛。
+        - **baseline / evolved 互不连坐**：phase parallel 时用
+          ``return_exceptions=True`` 隔离，一边失败不取消另一边。
+        - **task 间隔离**：单题最终失败不取消同 suite 内的其它 task；
+          单题级失败仍可被 suite 重试（pipeline 上层）兜住，但其它 task 至少能跑完。
         """
 
-        def _phase(task_name: str, phase: str, status: str) -> None:
+        def _phase(
+            task_name: str, phase: str, status: str, *, detail: str | None = None
+        ) -> None:
             status_events.emit_stage(
                 kind="phase",
                 status=status,
@@ -381,27 +398,56 @@ class LIFTPipeline:
                 suite_name=ctx.suite_name,
                 task_name=task_name,
                 phase=phase,
+                detail=detail,
             )
 
+        async def _run_phase(
+            task: SuiteTask,
+            phase: str,
+            runner,  # async () -> PhaseRun
+        ) -> PhaseRun:
+            """跑一个 phase（baseline 或 evolved），异常时**原地重试一次**。
+
+            judge ``success=False`` 不抛异常，phase 始终 emit ``done`` +
+            score detail；只有 runner 抛异常才会触发重试 / 最终 ``failed``。
+            """
+            _phase(task.name, phase, "running")
+            last_exc: BaseException | None = None
+            for attempt in range(2):
+                try:
+                    result = await runner()
+                except BaseException as exc:
+                    last_exc = exc
+                    if attempt == 0:
+                        _phase(
+                            task.name, phase, "retrying",
+                            detail=f"retry after: {_exc_summary(exc)}",
+                        )
+                        continue
+                    _phase(task.name, phase, "failed", detail=_exc_summary(exc))
+                    raise
+                # 成功路径（含 judge fail）：phase 视为完成
+                if result.success:
+                    _phase(task.name, phase, "done")
+                else:
+                    _phase(
+                        task.name, phase, "done",
+                        detail=f"judge fail (score={result.content_score:.2f})",
+                    )
+                return result
+            raise last_exc  # type: ignore[misc]
+
         async def _before(task: SuiteTask) -> PhaseRun:
-            _phase(task.name, "baseline", "running")
-            try:
-                result = await adapter.run_before_load(task, resources, ctx)
-            except BaseException:
-                _phase(task.name, "baseline", "failed")
-                raise
-            _phase(task.name, "baseline", "done" if result.success else "failed")
-            return result
+            return await _run_phase(
+                task, "baseline",
+                lambda: adapter.run_before_load(task, resources, ctx),
+            )
 
         async def _after(task: SuiteTask) -> PhaseRun:
-            _phase(task.name, "evolved", "running")
-            try:
-                result = await adapter.run_after_load(task, resources, delta, ctx)
-            except BaseException:
-                _phase(task.name, "evolved", "failed")
-                raise
-            _phase(task.name, "evolved", "done" if result.success else "failed")
-            return result
+            return await _run_phase(
+                task, "evolved",
+                lambda: adapter.run_after_load(task, resources, delta, ctx),
+            )
 
         async def _one_task(task: SuiteTask) -> TaskRun:
             status_events.emit_stage(
@@ -415,14 +461,24 @@ class LIFTPipeline:
             )
             try:
                 if options.holdout_phase_policy.phases_parallel:
-                    baseline, evolved = await asyncio.gather(
+                    # 关键：return_exceptions=True 让 baseline 和 evolved 互不连坐
+                    baseline_r, evolved_r = await asyncio.gather(
                         _before(task),
                         _after(task),
+                        return_exceptions=True,
                     )
+                    errs = [
+                        r for r in (baseline_r, evolved_r)
+                        if isinstance(r, BaseException)
+                    ]
+                    if errs:
+                        # 任一边最终失败 → task 失败抛出（phase 内部重试已用过）
+                        raise errs[0]
+                    baseline, evolved = baseline_r, evolved_r  # type: ignore[assignment]
                 else:
                     baseline = await _before(task)
                     evolved = await _after(task)
-            except BaseException:
+            except BaseException as exc:
                 status_events.emit_stage(
                     kind="task",
                     status="failed",
@@ -431,6 +487,7 @@ class LIFTPipeline:
                     suite_index=suite_index,
                     suite_name=ctx.suite_name,
                     task_name=task.name,
+                    detail=_exc_summary(exc),
                 )
                 raise
             LOGGER.info(
@@ -456,8 +513,21 @@ class LIFTPipeline:
             )
 
         if options.holdout_container_policy.tasks_parallel:
-            return await bounded_gather(
+            # 题间隔离：单题最终失败不取消同 suite 兄弟题
+            results = await bounded_gather(
                 (_one_task(t) for t in holdout_tasks),
                 limit=options.max_concurrent_tasks,
+                return_exceptions=True,
             )
-        return [await _one_task(t) for t in holdout_tasks]
+            return [r for r in results if isinstance(r, TaskRun)]
+        # 串行：单题失败也不中止后续题（保留隔离语义一致性）
+        out: list[TaskRun] = []
+        for t in holdout_tasks:
+            try:
+                out.append(await _one_task(t))
+            except BaseException as exc:  # noqa: BLE001
+                LOGGER.error(
+                    "LIFT hold-out task failed (serial isolated) suite=%s task=%s: %r",
+                    ctx.suite_name, t.name, exc,
+                )
+        return out

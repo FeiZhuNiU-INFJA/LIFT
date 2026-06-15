@@ -186,7 +186,12 @@ def emit_stage(
     phase: str | None = None,
     detail: str | None = None,
 ) -> None:
-    """广播编排维度状态变更。"""
+    """广播编排维度状态变更。
+
+    ``detail``: 可选的人类可读摘要，``status="failed"`` 时建议带异常类型 + 简短信息
+    （如 ``"RuntimeError: container ... is not running"``）；``status="done"`` 时
+    可带语义标签（如 judge 评分），由监听器自行决定是否展示。
+    """
     _emit(
         StageEvent(
             kind=kind,
