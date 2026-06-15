@@ -733,22 +733,32 @@ LIFT 在容器内通过 `agents add --model …` 注册 work / judge agent。Ope
 
 ---
 
-## 12.8 运行状态可视化（`--status-viz`）
+## 12.8 运行状态可视化（`--status-viz` / `--status-http`）
 
-LIFT 内置一个事件总线 + 终端 TUI，用于实时观察 repeat × suite × task × phase 的执行状态以及当前存活容器，对长时间多 suite 评测尤其有用。设计上完全可选——未启用时所有 `emit_*` 调用都是零成本 no-op。
+LIFT 内置一个事件总线 + 状态聚合器，可同时驱动两种实时观察方式：终端 TUI（`--status-viz`，基于 `rich.Live`）和浏览器 HTTP 仪表盘（`--status-http`，零依赖标准库实现）。两者完全可选、互不干扰，可单开也可同时开；未启用时所有 `emit_*` 调用都是零成本 no-op。
 
 ### 启用方式
 
 ```bash
+# 仅终端 TUI（适合 tmux 内前台观察）
 python -m src.cli.lift_main -r openclaw_with_evolve \
   --benchmark_dir assets/benchmarks --suite all \
   --run_id full-r2 --repeat 2 --max-parallel-suites 7 \
   --status-viz
+
+# 仅 HTTP Dashboard（适合 nohup 离线跑 + 浏览器看进度）
+python -m src.cli.lift_main -r openclaw_with_evolve ... \
+  --status-http 8765                 # 仅本机 127.0.0.1:8765
+# 或允许远端访问：
+python -m src.cli.lift_main ... --status-http 0.0.0.0:8765
+
+# 也可以同时开启
+python -m src.cli.lift_main ... --status-viz --status-http 8765
 ```
 
-启用后看板覆盖整个屏幕；为避免日志冲掉 Live 渲染区，console 日志会被自动静音，文件日志（`evolve_eval.log`）照常写入。
+`--status-viz` 期间 console 日志会被自动静音以保护 `rich.Live` 渲染区（文件日志 `evolve_eval.log` 照常写）；`--status-http` 不影响日志。
 
-### 看板布局
+### 终端 TUI 看板布局
 
 | 区块 | 内容 |
 |------|------|
@@ -759,35 +769,41 @@ python -m src.cli.lift_main -r openclaw_with_evolve \
 
 状态符号：`·` pending · `◔` running · `●` done · `✗` failed。
 
-### 离线场景注意
+### HTTP Dashboard
 
-`rich.Live` 依赖 tty。若用 `nohup` 把日志重定向到文件，`--status-viz` 不可读（输出全是 ANSI 转义）。两种推荐做法：
+打开浏览器访问 `http://<host>:<port>/`，看板包含与 TUI 相同的四个区块（Header / Repeats / Suites × Repeats 栅格 / Containers），并额外提供：
 
-- **`tmux` / `screen` 里前台跑** —— 程序在 host init 进程下，detach 不影响运行；`tmux attach` 即可看到完整看板。最适合开着看进度。
-- **`nohup` 跑但不开 viz** —— 直接 `tail -f logs/<run>.log`，看结构化日志（包含 suite/phase 进度事件）。
+- **filter** 输入框：按 suite 名子串过滤
+- **hide done** 复选框：折叠已完成 suite
+- 顶部连接状态徽标（live / disconnected）
 
-### 扩展点：HTTP / WebSocket Dashboard（**预留，未实现**）
+技术细节：
 
-事件总线 [src/lift/status/events.py](../src/lift/status/events.py) 的 `subscribe(listener)` 支持任意数量并行订阅者，因此 TUI 之外还可挂一个 HTTP 仪表盘，把同一份事件流通过 SSE / WebSocket 推到浏览器。这能解决终端 TUI 解决不了的痛点：
+- **路由**
+  - `GET /`：单文件 HTML（CSS/JS 内嵌，无外部资源依赖）
+  - `GET /snapshot`：JSON，返回完整 `RunSnapshot`（页面进入或断线重连时使用）
+  - `GET /events`：Server-Sent Events 长连接，建立后先推一份 snapshot，随后实时推送事件总线上的所有事件
+- **零额外依赖**：仅用标准库 `http.server.ThreadingHTTPServer`，不引入 FastAPI/uvicorn
+- **后台线程**：HTTP 服务在守护线程中运行，主 asyncio 事件循环不受影响
+- **失败降级**：端口被占用时仅 warning，不影响主流程
 
-- `nohup` / 远端机器跑评测时没有 tty 也想看实时状态
-- 多人同时观察一次 run（团队会议 / 协同调试）
-- 时间轴 / 甘特图 / suite 详情下钻等富交互
+### 离线场景建议
 
-实现轮廓（约 250 行；零额外依赖，标准库 `http.server` 即可）：
+| 场景 | 推荐方式 |
+|------|---------|
+| 本机前台 + 看进度 | `tmux` 里跑 `--status-viz`，detach 后随时 `tmux attach` |
+| 远端 / nohup 跑 + 看进度 | `nohup ... --status-http 0.0.0.0:8765 > log 2>&1 &`，浏览器访问 `http://<host>:8765` |
+| 多人同时观察 | `--status-http 0.0.0.0:8765`（单连接 ~1KB/event 级别开销） |
+| 仅看日志 | 直接 `tail -f logs/<run>.log`，事件以结构化 INFO 形式同样写入 |
 
-1. 新建 `src/lift/status/http_dashboard.py`，定义 `HttpDashboard` 类：
-   - `start(host, port)` 起后台线程跑 `ThreadingHTTPServer`。
-   - `__init__` 内 `events.subscribe(self._on_event)`，把事件追加到内存环形缓冲。
-   - 路由：`GET /` 返回内嵌单文件 HTML；`GET /events` 返回 SSE 事件流；`GET /snapshot` 返回 `RunStateTracker.snapshot()` 的 JSON。
-2. `src/cli/lift_main.py` 增加 `--status-http [HOST:]PORT`；与 `--status-viz` 独立，可分别开启或同时开启。
-3. 不需要新增依赖；如以后想换 FastAPI/uvicorn 也只是替换该模块的内部实现。
-4. `ContainerInfo.started_at` / `RunSnapshot.run_started_at` 字段已经具备，足以渲染时间轴 / 甘特图。
+⚠️ 不要 `nohup ... --status-viz`：`rich.Live` 依赖 tty，重定向到文件后输出全是 ANSI 转义符。
 
-代码 navigation：
+### 代码 navigation
+
 - 事件定义与发射：[src/lift/status/events.py](../src/lift/status/events.py)
 - 状态聚合：[src/lift/status/state.py](../src/lift/status/state.py)
 - 终端渲染：[src/lift/status/tui.py](../src/lift/status/tui.py)
+- HTTP 仪表盘：[src/lift/status/http_dashboard.py](../src/lift/status/http_dashboard.py)
 - CLI 集成：[src/cli/lift_main.py](../src/cli/lift_main.py)（`_status_dashboard` context manager）
 
 ---

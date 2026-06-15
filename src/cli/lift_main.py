@@ -174,6 +174,16 @@ def build_parser() -> argparse.ArgumentParser:
             "while the dashboard is active to avoid clobbering the display."
         ),
     )
+    parser.add_argument(
+        "--status-http",
+        default=None,
+        metavar="[HOST:]PORT",
+        help=(
+            "Start a browser-side HTTP status dashboard (zero extra deps; stdlib http.server). "
+            "Format: PORT (binds to 127.0.0.1) or HOST:PORT (e.g. 0.0.0.0:8765 for remote access). "
+            "Independent from --status-viz; both can be enabled simultaneously."
+        ),
+    )
     return parser
 
 
@@ -192,41 +202,83 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
 
 
 @contextmanager
-def _status_dashboard(enabled: bool) -> Iterator[None]:
-    """启用状态 TUI：注册 tracker、静音 console 日志、启动 rich.Live 看板。
+def _status_dashboard(
+    *, viz_enabled: bool, http_endpoint: str | None
+) -> Iterator[None]:
+    """启用状态面板：终端 TUI（``--status-viz``）与 / 或 HTTP 仪表盘（``--status-http``）。
 
-    ``enabled`` 为 False 时为 no-op。退出时恢复 console 日志并停止看板；
-    看板期间日志只写文件，避免日志行冲掉 Live 渲染区。
+    两者共享一份 ``RunStateTracker``：tracker 仅在至少一种面板被启用时注册到事件
+    总线，否则保持完全 no-op。``--status-viz`` 期间会暂时摘掉 console 日志
+    handler（保留 FileHandler），避免日志冲掉 ``rich.Live`` 渲染区；HTTP
+    dashboard 不动 console 日志。
     """
-    if not enabled:
+    if not viz_enabled and not http_endpoint:
         yield
         return
 
     from src.lift.status.state import RunStateTracker
-    from src.lift.status.tui import StatusDashboard
-
-    root_logger = logging.getLogger()
-    # 暂时摘掉 stdout/stderr StreamHandler（保留 FileHandler），避免日志冲掉 TUI
-    stream_handlers = [
-        h
-        for h in root_logger.handlers
-        if isinstance(h, logging.StreamHandler)
-        and not isinstance(h, logging.FileHandler)
-    ]
-    for h in stream_handlers:
-        root_logger.removeHandler(h)
 
     tracker = RunStateTracker()
     tracker.attach()
-    dashboard = StatusDashboard(tracker)
-    dashboard.start()
+
+    # --status-viz: 摘 console 日志 + rich.Live 看板
+    stream_handlers: list[logging.Handler] = []
+    dashboard = None
+    if viz_enabled:
+        from src.lift.status.tui import StatusDashboard
+
+        root_logger = logging.getLogger()
+        stream_handlers = [
+            h
+            for h in root_logger.handlers
+            if isinstance(h, logging.StreamHandler)
+            and not isinstance(h, logging.FileHandler)
+        ]
+        for h in stream_handlers:
+            root_logger.removeHandler(h)
+        dashboard = StatusDashboard(tracker)
+        dashboard.start()
+
+    # --status-http: 后台线程 HTTP 服务器
+    http_dashboard = None
+    if http_endpoint:
+        from src.lift.status.http_dashboard import HttpDashboard
+
+        host, port = _parse_http_endpoint(http_endpoint)
+        http_dashboard = HttpDashboard(tracker, host=host, port=port)
+        http_dashboard.start()
+
     try:
         yield
     finally:
-        dashboard.stop()
+        if http_dashboard is not None:
+            http_dashboard.stop()
+        if dashboard is not None:
+            dashboard.stop()
         tracker.detach()
         for h in stream_handlers:
-            root_logger.addHandler(h)
+            logging.getLogger().addHandler(h)
+
+
+def _parse_http_endpoint(endpoint: str) -> tuple[str, int]:
+    """解析 ``--status-http`` 参数为 ``(host, port)``。
+
+    - 纯数字：默认绑定 ``127.0.0.1``（仅本机访问）。
+    - ``HOST:PORT``：按 host:port 解析，host 可以是 ``0.0.0.0`` / 域名 / IP。
+    """
+    if ":" in endpoint:
+        host, _, port_str = endpoint.rpartition(":")
+        host = host.strip() or "127.0.0.1"
+    else:
+        host = "127.0.0.1"
+        port_str = endpoint
+    try:
+        port = int(port_str)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid --status-http endpoint {endpoint!r}; expected PORT or HOST:PORT"
+        ) from exc
+    return host, port
 
 
 async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
@@ -255,7 +307,9 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         args.agent_runtime,
         len(suite_paths),
     )
-    with _status_dashboard(args.status_viz):
+    with _status_dashboard(
+        viz_enabled=args.status_viz, http_endpoint=args.status_http
+    ):
         await pipeline.run(
             run_id=run_id,
             suite_paths=suite_paths,
