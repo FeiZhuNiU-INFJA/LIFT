@@ -84,6 +84,22 @@ async def _agent_chat(
     )
 
 
+async def _agent_chat_no_emit(agent, message: str, *, session_id: str) -> str:
+    """**不**发 pre-chat span 的 chat：用于 provider error 重试。
+
+    每次发 ``_agent_chat`` 都会在 langfuse 上落一条 ``*_agent`` pre-chat span，
+    然后插件侧（agent_end hook）紧随其后再写一条 plugin trace。如果 worker /
+    judge 因为 LLM 超时被原地重试 N 次，**第二次起跳过 pre-chat span**，让
+    多次 plugin trace 都"落在同一个 ``*_agent`` 之下"——后处理 ``_pair_single_session``
+    扩展贪心配对算法即可统计 ``provider_retry_count = 同 agent 下 plugin trace 数 - 1``，
+    跨 runtime 通用（不依赖 OpenClaw 特有的 ``plugin_metadata.success`` 字段）。
+    """
+    return await agent.chat(
+        format_outbound_message(message),
+        session_id=session_id,
+    )
+
+
 def _build_judge_prompt_retry(invalid_response: str, error_message: str) -> str:
     """构造 judge JSON 解析失败后的重试 prompt。"""
     return (
@@ -95,15 +111,48 @@ def _build_judge_prompt_retry(invalid_response: str, error_message: str) -> str:
     )
 
 
+# 命中即认为是 OpenClaw / runtime 自身的 provider 错误（LLM 超时、限流等），
+# 此时 judge 根本没机会真的输出 JSON——继续喂"修复 JSON"的重试 prompt 是
+# 浪费配额，应该用原始 judge_prompt 重发。
+_PROVIDER_ERROR_MARKERS: tuple[str, ...] = (
+    "LLM request timed out",
+    "model idle timeout",
+    "timeoutSeconds",
+    "rate limit",
+)
+
+
+def _looks_like_provider_error(text: str) -> str | None:
+    """判断 ``text`` 是否是 OpenClaw runtime 自带的非 JSON 错误回包。
+
+    返回 ``None`` 表示不是；否则返回首行作为简短摘要，供日志 / detail 使用。
+    """
+    if not text:
+        return None
+    if not any(m in text for m in _PROVIDER_ERROR_MARKERS):
+        return None
+    first = text.strip().splitlines()[0].strip() if text.strip() else ""
+    return first or "provider error"
+
+
 async def _judge_with_retry(
     *,
     task: SuiteTask,
-    run_id: str,
     pair: WorkerJudgerPair,
     tags: CustomTags,
     agent_result: str,
 ) -> EvalJudgeResult:
-    """调用 judge chat 并带重试地解析 ``EvalJudgeResult``。"""
+    """调用 judge chat 并带重试地解析 ``EvalJudgeResult``。
+
+    两条独立的重试通道：
+
+    - **provider 错误**（``LLM request timed out`` 这类 OpenClaw 自带英文错误）：
+      用 **原始 judge_prompt** 重发，最多 5 次。这种情况下 judge 根本没机会
+      生成内容，"修复 JSON" 的提示对它无意义。
+    - **JSON 解析错误**（judge 真的吐了内容但格式不对）：用
+      ``_build_judge_prompt_retry`` 把上一轮坏输出 + 错误信息塞回去让它修复，
+      最多 8 次。
+    """
     judge_user_prompt = pair.judge_agent.augment_judge_user_prompt(task, task.query)
     judge_prompt = _build_judge_prompt(
         user_prompt=judge_user_prompt,
@@ -119,9 +168,37 @@ async def _judge_with_retry(
         chat_role="judge_agent",
     )
 
-    max_judge_retry_times = 8  # 只重试 judge 输出解析，不重跑 work agent
+    max_judge_retry_times = 8  # JSON 解析重试上限（用 retry prompt）
+    max_provider_retry_times = 5  # provider 错误重试上限（用原始 prompt）
     judge_retry_count = 0
+    provider_retry_count = 0
     while True:
+        # 优先识别 provider error：避免被错当成 JSON 格式问题
+        provider_summary = _looks_like_provider_error(judge_result_text)
+        if provider_summary is not None:
+            provider_retry_count += 1
+            if provider_retry_count > max_provider_retry_times:
+                LOGGER.error(
+                    "Judge provider error after %d retries, session_id=%s, last=%r",
+                    max_provider_retry_times,
+                    pair.judge_session_id,
+                    provider_summary,
+                )
+                raise RuntimeError(f"provider error: {provider_summary}")
+            LOGGER.warning(
+                "Judge provider error (retry %d/%d), session_id=%s: %s",
+                provider_retry_count, max_provider_retry_times,
+                pair.judge_session_id, provider_summary,
+            )
+            # 用原始 judge_prompt 重发；**不再 emit pre-chat span**，让多次
+            # plugin trace 都挂在最初那条 ``judge_agent`` span 下，
+            # 后处理 _pair_single_session 据此统计 provider_retry_count。
+            judge_result_text = await _agent_chat_no_emit(
+                pair.judge_agent,
+                judge_prompt,
+                session_id=pair.judge_session_id,
+            )
+            continue
         try:
             return _extract_judge_result(judge_result_text)
         except ValueError as exc:
@@ -142,6 +219,59 @@ async def _judge_with_retry(
                 tags=tags,
                 chat_role="judge_agent",
             )
+
+
+async def _work_chat_with_provider_retry(
+    *,
+    pair: WorkerJudgerPair,
+    current_prompt: str,
+    tags: CustomTags,
+    max_provider_retry_times: int = 5,
+) -> str:
+    """worker chat + provider error 自动重试。
+
+    与 ``_judge_with_retry`` 的 provider 重试通道对称：
+
+    - 第一次正常发：``_agent_chat`` 落 ``work_agent`` pre-chat span +
+      transport.chat → plugin trace。
+    - 命中 ``LLM request timed out`` / ``rate limit`` 等 marker → 用
+      ``_agent_chat_no_emit`` 重发同 prompt（**不**再开新 pre-chat span），
+      让多次重试 plugin trace 全挂在最初那条 ``work_agent`` 之下，方便后处理
+      统计 ``provider_retry_count``。
+    - 超过 ``max_provider_retry_times`` 仍超时 → 抛
+      ``RuntimeError("provider error: ...")`` 让外层题级重试机制接管。
+    """
+    agent_result = await _agent_chat(
+        pair.work_agent,
+        current_prompt,
+        session_id=pair.work_session_id,
+        tags=tags,
+        chat_role="work_agent",
+    )
+    provider_retry_count = 0
+    while True:
+        provider_summary = _looks_like_provider_error(agent_result)
+        if provider_summary is None:
+            return agent_result
+        provider_retry_count += 1
+        if provider_retry_count > max_provider_retry_times:
+            LOGGER.error(
+                "Worker provider error after %d retries, session_id=%s, last=%r",
+                max_provider_retry_times,
+                pair.work_session_id,
+                provider_summary,
+            )
+            raise RuntimeError(f"provider error: {provider_summary}")
+        LOGGER.warning(
+            "Worker provider error (retry %d/%d), session_id=%s: %s",
+            provider_retry_count, max_provider_retry_times,
+            pair.work_session_id, provider_summary,
+        )
+        agent_result = await _agent_chat_no_emit(
+            pair.work_agent,
+            current_prompt,
+            session_id=pair.work_session_id,
+        )
 
 
 async def run_task(
@@ -172,12 +302,10 @@ async def run_task(
             current_prompt,
         )
         await pair.work_agent.activate_session(pair.work_session_id)
-        agent_result = await _agent_chat(
-            pair.work_agent,
-            current_prompt,
-            session_id=pair.work_session_id,
+        agent_result = await _work_chat_with_provider_retry(
+            pair=pair,
+            current_prompt=current_prompt,
             tags=tags,
-            chat_role="work_agent",
         )
         LOGGER.info(
             "[%s] [%s] Agent result: %s",
@@ -188,7 +316,6 @@ async def run_task(
 
         judge_result = await _judge_with_retry(
             task=task,
-            run_id=run_id,
             pair=pair,
             tags=tags,
             agent_result=agent_result,

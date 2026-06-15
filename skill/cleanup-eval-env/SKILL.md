@@ -14,6 +14,7 @@
 
 | 资源 | 默认行为 | 备注 |
 |---|---|---|
+| 正在跑的 `python -m src.cli.lift_main` 进程 | **SIGTERM → 5s → SIGKILL 兜底** | 必须先杀主进程，否则 dashboard 还活着但底层资源被删，会刷一屏 ✗ |
 | `evolve-openclaw-*` 容器（exited / running） | **删除** | running 容器先尝试 stop 再 rm -f |
 | `evolve-eval-delta:*` 镜像（warmup commit 产物） | **删除** | 评测期间会重新 commit，不必保留 |
 | dangling `<none>` 镜像 | **删除** | 旧构建的中间层 |

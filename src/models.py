@@ -225,6 +225,15 @@ class LangfuseTraceRef(BaseModel):
         default=None,
         description="当轮耗时（秒），合并后取配对 openclaw-plugin trace 的 latency",
     )
+    provider_retry_count: int = Field(
+        default=0,
+        description=(
+            "同一 turn 内 provider 错误（LLM 超时 / 限流等）重试次数 = "
+            "本 agent span 下挂的 plugin trace 数 - 1。"
+            "0 表示首发即成功，无重试。重试时 eval 侧不再 emit pre-chat span，"
+            "因此后处理 _pair_single_session 走扩展贪心累积同 agent 下的所有 plugin trace。"
+        ),
+    )
 
 
 class LangfuseObservationBrief(BaseModel):

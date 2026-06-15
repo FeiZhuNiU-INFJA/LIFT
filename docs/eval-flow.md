@@ -206,35 +206,71 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 
 ### 4.6 容器资源约束与运维（Colima / Docker VM）
 
-并发会按上一节公式放大**同时存活的容器数**。在资源受限的本地 Docker VM（尤其 macOS 上的 Colima / Docker Desktop）上，峰值容器一旦超过 VM 内存，会触发 **OOM kill 或整机卡死**，典型症状是 hold-out 阶段报 `container ... is not running` 或 `Failed to list agents in container`（容器被 kill / 卡死无响应），容器 `docker ps -a` 显示 **Exited (137)**。可用 `colima ssh -- sudo dmesg | grep -i oom` 确认 OOM 类型：`global_oom`（VM 整体内存耗尽）或 `Memory cgroup out of memory`（单容器撞 `--memory` 上限）。
+并发会按上一节公式放大**同时存活的容器数**。在资源受限的本地 Docker VM（macOS 上的 Colima / Docker Desktop）上，峰值容器一旦超过 VM 内存会触发 **OOM kill 或整机卡死**，典型症状：hold-out 报 `container ... is not running` / `Failed to list agents in container`、`docker ps -a` 显示 `Exited (137)`。`colima ssh -- sudo dmesg | grep -i oom` 区分 `global_oom`（VM 总内存耗尽）/ `Memory cgroup out of memory`（撞 `--memory` 上限）。
 
-> **实测教训**：单个 OpenClaw 容器内是 node/V8 多进程（gateway + 插件 + agent + V8Worker），常驻峰值可能超过 3g。给 `--container-memory 3g` 反而会让容器在**正常推理时**撞 cgroup 上限被 OOM-kill（`constraint=CONSTRAINT_MEMCG`）。因此**默认不设单容器上限**，把内存交给 VM 内核统一调度（溢出落 VM swap），靠并发开关 + VM 内存/swap 控制总量。
+> **实测教训**：单个 OpenClaw 容器是 node/V8 多进程，常驻峰值可能超过 3g。`--container-memory 3g` 反而会让正常推理被 cgroup OOM-kill（`constraint=CONSTRAINT_MEMCG`）。**默认不设单容器上限**，把内存交给 VM 内核统一调度（溢出落 swap）。
 
 **两道防线：**
 
-1. **单容器资源上限**（`docker run --memory` / `--cpus`，默认均不设）：
-   - `--container-memory`（默认**不限制**）→ `RunOptions.container_memory` → `start_openclaw_container` 透传给 `docker run --memory`。**仅在确知单容器内存可控、且想用 cgroup 硬隔离时才设**（如 `--container-memory 6g`）；设过小会导致正常推理被 `CONSTRAINT_MEMCG` OOM-kill。
-   - `--container-cpus`（默认不限制）→ `docker run --cpus`，如 `--container-cpus 2`。
-2. **VM 总资源**（Colima 示例，物理 16GB/10 核的 Mac 建议留 4GB/2 核给宿主机）：
-   ```bash
-   colima stop
-   colima start --cpu 8 --memory 12 --disk 60   # 设过一次后续直接 colima start 沿用
-   ```
-   VM 内存**不要 overcommit 超过物理内存**，否则会落到 macOS 主机 swap、整机更卡。需要额外缓冲时在 guest 内加 swapfile 作为**防瞬时峰值 OOM 的安全网**（不是扩容）：
-   ```bash
-   colima ssh
-   sudo fallocate -l 8G /swapfile && sudo chmod 600 /swapfile
-   sudo mkswap /swapfile && sudo swapon /swapfile
-   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab   # 持久化
-   exit
-   ```
-   注：agent 推理走线上 API，容器本身只跑 gateway + 插件 + 文件 IO，swap 命中时性能影响有限，主要价值是防止 VM 整体崩溃。去掉单容器 `--memory` 上限后，多容器总需求超过 VM 物理内存时会优先用 swap 兜底，**只有 RAM+swap 全部耗尽才触发全局 OOM**。
+1. **单容器上限**（默认均不设）：`--container-memory` / `--container-cpus` 透传 `docker run --memory` / `--cpus`；仅在需要 cgroup 硬隔离时才设（且要给足，如 `5~6g`）。
+2. **VM 总资源**：物理 16GB/10 核的 Mac 建议 `colima start --cpu 8 --memory 12 --disk 60`，**不要 overcommit 超过物理内存**；需要瞬时缓冲在 guest 内加 swapfile（`fallocate -l 8G /swapfile && mkswap && swapon`）。agent 推理走线上 API，容器只跑 gateway + 插件 + 文件 IO，swap 命中时性能影响有限。
 
-**容器名冲突自愈**（[`ContainerSession.start`](../src/lift/adapters/container/session.py)）：warmup 容器名是确定性的（无 `short_id` 后缀）。若上一次（被中断 / OOM）的同名容器残留、且启动前预删恰逢 daemon 抖动失败，重跑会报 `docker: Conflict. The container name "..." is already in use`。`start` 检测到该报错后会**强制再删一次同名容器并重试 `docker run`**，使 suite 级队尾重跑不会因残留容器直接失败。
+**容器名冲突自愈**（[`ContainerSession.start`](../src/lift/adapters/container/session.py)）：warmup 容器名是确定性的；若上一次同名容器残留 + 启动时预删抖动失败，会强制再删一次后重试，使 suite 队尾重跑不会因残留容器直接失败。
 
-**调参建议**：先用默认（不限单容器内存）+ `--max-parallel-suites` 控制并发，观察 `docker ps -a` 是否出现 Exited (137)；若仍全局 OOM，优先**下调 `--max-parallel-suites` 或 `--max-concurrent-tasks`**，再考虑扩 VM 内存 / swap；仅当需要对单容器做硬隔离时才设 `--container-memory`（且要给足，如 5~6g）。
+**调参建议**：先用默认（不限单容器内存）+ `--max-parallel-suites` 控制并发；若 `Exited (137)` 出现，优先**下调 `--max-parallel-suites` / `--max-concurrent-tasks`**，再考虑扩 VM 内存 / swap。
+
+### 4.7 异常处理与重试矩阵
+
+LIFT 框架在不同层级对异常采取**就地重试一次 + 同级隔离**的组合策略：让"瞬时抖动 / provider 抖动 / 容器抖动"在最近的层级吸收掉，同时保证一颗节点失败不会拖垮整个 run。下表汇总各层级当前的重试与隔离行为（自底向上）。
+
+| 层级 | 异常类型 | 重试 | 同级隔离 | 失败上抛后果 | 实现 |
+|------|----------|------|----------|--------------|------|
+| **chat** | LLM provider 错误（超时 / 限流 / `LLM request timed out`） | **5 次**用原始 prompt 原地重试，**不**新发 pre-chat span | — | 抛 `RuntimeError("provider error: ...")`，由外层 task 重试接管 | `_judge_with_retry` / `_work_chat_with_provider_retry`（[run_task.py](../src/lift/eval/run_task.py)） |
+| **chat** | judge 返回非 JSON / 解析失败 | **8 次**用 retry prompt 重发；判 provider 错误优先（避免误判） | — | 抛 `ValueError("Judge response is not valid JSON")` | `_judge_with_retry`（[run_task.py](../src/lift/eval/run_task.py)） |
+| **turn** | `judge.success=False` | run_task 内 work↔judge 多轮（`--max-conversation-turns`，默认 5）；judge fail **不抛异常** | — | 跑满后 `success=False` + 最后一轮 score 正常返回，**不视为失败** | `run_task`（[run_task.py L297-L343](../src/lift/eval/run_task.py#L297-L343)） |
+| **task（单题）** | `execute_task` 抛异常（如容器崩、agent runtime 异常） | **原地重试 1 次**（重新拿 factory、重新 run_task） | 由调用方决定 | 二次仍失败抛出，进入上层 phase / warmup 路径 | `execute_tasks` 的 `retry_each=True`（[task_exec.py L153-L194](../src/lift/eval/task_exec.py#L153-L194)） |
+| **phase（baseline / evolved）** | hold-out 单 phase 抛异常（`run_before_load` / `run_after_load`） | **原地重试 1 次**（重新起 hold-out 容器） | `parallel` 时 `asyncio.gather(return_exceptions=True)` ⇒ baseline ↔ evolved 互不连坐 | 二次仍失败 → task 标 failed | `_run_phase` / `_one_task`（[lift_pipeline.py L404-L477](../src/lift/pipeline/lift_pipeline.py#L404-L477)） |
+| **task（hold-out）** | 单题最终失败（baseline 或 evolved 二次失败） | — | `tasks_parallel`：`bounded_gather(return_exceptions=True)`；串行：`try/except` 跳过 | 该 task 不写入 `suite_run.tasks[]`，其余 task 正常落盘 | `_run_holdout_tasks`（[lift_pipeline.py L515-L532](../src/lift/pipeline/lift_pipeline.py#L515-L532)） |
+| **task（warmup，base 路径）** | 单题最终失败 | task 层已 `retry_each` 一次 | `bounded_gather(return_exceptions=True)`，单题失败不取消兄弟题 | 该 warmup 题被跳过；不影响后续 evolve_after_warmup / commit delta | `execute_tasks(tasks_isolated=True)`（[base.py L100-L113](../src/lift/adapters/base.py#L100-L113)） |
+| **task（warmup，GroupMemory 路径）** | 单题独立容器抛异常 | **原地重试 1 次**（重启容器、重跑该题） | `bounded_gather(return_exceptions=True)`，题间隔离 | 该 warmup 题被跳过；其余题独立容器照常运行 | `_run_warmup_in_isolated_container`（[mixin.py L126-L174](../src/lift/adapters/group_memory/mixin.py#L126-L174)） |
+| **suite** | 单 suite 抛异常（warmup / hold-out / produce_delta 任一阶段未捕获的失败） | **首轮失败队尾重跑 1 次** | 同 repeat 内并发 suite 用 `bounded_gather(return_exceptions=True)`，单 suite 失败不取消其它 suite | 二次仍失败 → 报告里该 suite 对应位置保留 `None` 占位（其它 suite 完整落盘） | `_attempt` + 队尾重跑（[lift_pipeline.py L167-L220](../src/lift/pipeline/lift_pipeline.py#L167-L220)） |
+| **repeat** | 单 repeat 抛异常 | — | repeat 之间默认并行（`bounded_gather` 默认 `return_exceptions=False`，**未启用隔离**） | 当前会 fail-fast 取消其他 repeat | `LIFTPipeline.run`（[lift_pipeline.py L99-L114](../src/lift/pipeline/lift_pipeline.py#L99-L114)） |
+
+#### 4.7.1 状态事件契约（对应 dashboard / TUI）
+
+每一层重试 / 失败都会通过 `status_events.emit_stage(detail=...)` 把异常摘要透出来，便于 dashboard hover / TUI 红框面板观察。摘要由 [`exc_summary`](../src/lift/eval/task_exec.py#L19-L31) 把 `Exception` 压成 `"<ClassName>: <first line>"` 单行；`asyncio.CancelledError` 单独标记为 `"CancelledError: cancelled by sibling failure"`，区分"自身失败"和"被兄弟节点 fail-fast 牵连"。
+
+| 状态 | 触发时机 | detail 内容 |
+|------|----------|-------------|
+| `running` | 每次 attempt 开始 | — |
+| `retrying` | 首次失败、即将重试 | `retry after: <exc_summary>` |
+| `done` | 成功；或 judge fail（`judge fail (score=0.42)`） | judge fail 时携带 score |
+| `failed` | 最终失败（重试已耗尽） | `<exc_summary>` |
+
+适用维度：`kind=warmup_task` / `phase` / `task` / `suite`。
+
+#### 4.7.2 设计取舍说明
+
+- **`judge.success=False` 不视为失败**：judge 是"模拟用户反馈"，跑满 turns 后返回 `success=False` 是正常评测信号，不应触发重试浪费 LLM 配额；phase 仍 emit `done`，detail 携带 score。
+- **重试只在最近一层 + 每层一次**：让"瞬时错误"被吸收，"持续性错误"快速暴露；chat 层 provider 重试 5 次因 LLM 抖动样本量更大。
+- **同级隔离普遍 `return_exceptions=True`**：避免兄弟节点 fail-fast 牵连；尤其 phase parallel 必须用——历史踩过坑（baseline 跑了 90% 被 evolved 异常取消）。
+- **provider 重试不 emit pre-chat span**：见 [§12.5.6](#1256-provider-错误重试--扩展贪心配对跨-runtime-通用)，与配对算法相耦合。
+- **repeat 层暂未隔离**：repeat 之间不共享 delta，单 repeat 异常通常是环境级问题（docker / Langfuse 整体不可用），fail-fast 更易暴露根因；如需更强容错可在 [`LIFTPipeline.run`](../src/lift/pipeline/lift_pipeline.py#L99-L114) 切到 `return_exceptions=True`。
+
+#### 4.7.3 不进入框架重试的失败模式
+
+下列情况框架**不会**自动重试，依赖运维 / 调用方处理：
+
+| 失败模式 | 现状 | 建议处理 |
+|---------|------|----------|
+| docker daemon 不可用 / VM OOM | 容器启动直接抛 `docker: ... is not running`，task / phase 重试也起不来 | §4.6 调 VM 内存 / `--max-parallel-suites` |
+| Langfuse 不可达 | `emit_pre_chat_state` warning 不阻塞主流程；trace 后处理时拉不到数据 | 检查 `.env` / 网络；后处理可单独 retry |
+| benchmark JSON 格式错 / 缺字段 | `load_lift_suite` 启动时直接抛 | 修正 suite JSON |
+| `MODEL_NAME` 未在镜像注册 | `agents add --model` 报错 | §12.6 重建镜像或换已 bake 的模型 |
+| 主进程被 kill / 机器重启 | report 落盘有节奏（每个 suite 完成都 write_json），但当前 suite 进度丢失 | 重新提交 run，已完成 suite 不会被重跑（设计上仍是新 run_id） |
 
 ---
+
 
 ## 5. 最小执行单元：`run_task`
 
@@ -631,71 +667,52 @@ class GroupMemoryAdapterMixin:
 
 实现入口：`stitch_phase_langfuse_traces`（[`src/report/langfuse_trace_stitch.py`](../src/report/langfuse_trace_stitch.py)）→ `pair_session_traces_to_agent_turns`（[`src/report/langfuse_trace_merge.py`](../src/report/langfuse_trace_merge.py)）。
 
-#### 12.5.1 写入契约（runtime 插件必须满足）
+#### 12.5.1 写入与检索契约
 
-**同一 Langfuse 项目**
+**runtime 插件须满足 4 条**：
 
-- 宿主机：`LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST`（`emit_pre_chat_state` 用 Python SDK）
-- 容器：同名 key + `LANGFUSE_BASE_URL` 能访问宿主机 Langfuse（Linux 需 `host.docker.internal:host-gateway`）
-- 容器启动时通过 `--env-file` 挂载仓库根 `.env`
+1. **同 Langfuse 项目**：宿主机与容器使用相同 `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST`（容器在 Linux 上需 `host.docker.internal:host-gateway`，仓库根 `.env` 通过 `--env-file` 挂入）。
+2. **`session_id` 必须一致**（最关键）：LIFT 为 work / judge 各生成独立 session id，同时用于 `propagate_attributes(session_id=…)`（pre-chat）与 `openclaw agent --session-id …`（容器侧）。插件优先取 hook `ctx.sessionId`，若回退到 `ctx.sessionKey` 与 `--session-id` 分叉，**配对会断裂**。
+3. **trace name 须符合约定**：pre-chat 以 `_agent` 结尾（[`is_agent_trace`](../src/report/langfuse_trace_parse.py)）；plugin 为 `openclaw-plugin` / `Hermes turn`（`LANGFUSE_PLUGIN_TRACE_NAMES`）。
+4. **`agent_end` 必须成功触发**：OpenClaw 须在 `openclaw.json` 为 `langfuse-tracer` 配置 `hooks.allowConversationAccess: true`，否则 plugin trace 缺失、pre-chat 变孤儿。
 
-**`session_id` 必须一致（最关键）**
+**backfill 检索路径**（OpenClaw 模式）：`tags=run_id`（pre-chat span） + `session_id=work/judge_session_id`（双侧 trace） + `tags=session_id`（兜底）。OpenClaw 容器启动时注入 `EVOBENCH_EVAL_RUN_TAG=run_id` 写入 plugin tags 便于按 run 过滤；插件**不强制**带 run tag，主要靠 `session_id`。
 
-LIFT 为 work / judge 各生成独立 session id（如 `user-…`、`judge-…`），并同时用于：
+#### 12.5.2 配对契约
 
-1. `emit_pre_chat_state` 的 `propagate_attributes(session_id=…)`
-2. OpenClaw `openclaw agent --session-id …`（见 [`chat_agent.py`](../src/lift/adapters/openclaw/chat_agent.py)）
+**Join key = `session_id` + 时间顺序 + trace name 模式**，不依赖两边 `input` 字段对齐（`user_id`：pre-chat 是 `run_id`，plugin 是 `agentId`，语义不同；`input` 也分别是 `CustomTags` dict 与用户 prompt 文本）。
 
-容器内 `langfuse-tracer` 上报 trace 时，`sessionId` 须与上述字符串相同。插件优先取 hook `ctx.sessionId`，否则回退 `ctx.sessionKey`；若回退值与 `--session-id` 不一致，**配对会断裂**。
+同 `session_id` 内按时间排序（[`pair_session_traces_to_agent_turns`](../src/report/langfuse_trace_merge.py)）：遇到 `*_agent` 暂存为 pending，下一条若是 plugin → 合并进上一条。plugin 的 timestamp 严格晚于 pre-chat（先 `emit_pre_chat_state`，再 `openclaw agent`）。
 
-**trace `name` 须符合约定**
+> **一句话**：插件与 pre-chat 配上的条件 = **同 Langfuse 项目** + **同 `session_id`** + plugin name 在 `LANGFUSE_PLUGIN_TRACE_NAMES` 中 + **`agent_end` 成功上报** + 时间晚于对应 `*_agent`。脆弱点：OpenClaw 升级后若 ctx 字段分叉，需在容器内查 `langfuse-tracer-plugin.log` 或设 `LANGFUSE_TRACER_DEBUG_MESSAGES=1` 核对。
 
-| 侧 | 识别规则 | 实现 |
-|----|----------|------|
-| pre-chat | name 以 `_agent` 结尾 | `is_agent_trace()` in [`langfuse_trace_parse.py`](../src/report/langfuse_trace_parse.py) |
-| plugin | name 为 `openclaw-plugin` 或 `Hermes turn` | `is_plugin_trace()`；常量见 `LANGFUSE_PLUGIN_TRACE_NAMES` in [`models.py`](../src/models.py) |
+**Hermes 差异**：`Hermes turn` 的 `session_id` 为内部 task id（与外部 work/judge session 不一致），但 tags 中带外部 session id；配对走 [`pair_hermes_traces_to_agent_turns`](../src/report/langfuse_trace_merge.py)。
 
-**插件须成功触发 `agent_end`**
+#### 12.5.3 Provider 错误重试 × 扩展贪心配对（跨 runtime 通用）
 
-OpenClaw 须在 `openclaw.json` 为 `langfuse-tracer` 配置 `hooks.allowConversationAccess: true`，否则只有 `before_agent_start` 日志、没有 `openclaw-plugin` trace，pre-chat 会变成孤儿。
+worker / judge 对 LLM provider 错误（超时 / 限流）原地用同一 prompt 重试 5 次（见 §4.7）。OpenClaw 的 `langfuse-tracer` 在 `agent_end` 必触发——成功/超时都会写 plugin trace，重试 N 次会产生 N 条同 `session_id`、时间戳依次递增的 plugin trace。若每次重试再 emit 一条新的 `*_agent` pre-chat span，配对算法会把重试当成新轮，吹大 `turn_index` 并重复累加 token / latency。
 
-#### 12.5.2 检索契约（backfill 如何找到两边数据）
+**eval 侧契约**：重试**不** emit pre-chat span——见 [`run_task.py`](../src/lift/eval/run_task.py) 的 `_agent_chat_no_emit` / `_work_chat_with_provider_retry` / `_judge_with_retry`。多次重试的 plugin trace 都挂在最初那条 `*_agent` 之后。
 
-`stitch_phase_langfuse_traces`（OpenClaw 模式）对单次 phase 会查询：
+**后处理侧契约**：[`_pair_single_session`](../src/report/langfuse_trace_merge.py) / [`pair_hermes_traces_to_agent_turns`](../src/report/langfuse_trace_merge.py) 改用扩展贪心配对：
 
-1. `tags = eval_run_tag`（= `CustomTags.run`）→ 定位 pre-chat span
-2. `session_id = work_session_id` / `judge_session_id` → 定位 work / judge 两侧 trace
-3. `tags = work_session_id` / `judge_session_id` → 兜底（插件会把 session id 写入 tags）
+```text
+按 timestamp 排序，桶状累积；遇到 *_agent 就 flush 上一个桶：
+  无 agent 有 plugin   -> 全部 _orphan_plugin_ref
+  有 agent 无 plugin   -> 保留 agent
+  有 agent 有 plugins  -> chosen = 最后一条 success=True 的 plugin（fallback 最后一条）
+                          merged = merge_plugin_into_agent(agent, chosen)
+                          merged.provider_retry_count = len(plugins) - 1
+```
 
-OpenClaw 容器启动时注入 `EVOBENCH_EVAL_RUN_TAG=run_id`，插件将其加入 trace tags，与 pre-chat 的 `tags.run` 对齐，便于按 run 过滤。插件**不强制**带 run tag 也能配对，主要靠 `session_id`。
+`provider_retry_count` 字段在 [`LangfuseTraceRef`](../src/models.py)：本 agent span 下挂的 plugin trace 数 - 1，0 即首发成功无重试。Hermes 模式不写 `metadata.success`，所以 `_choose_representative_plugin` 退化为"取最后一条"（通常就是最后一次重试，成功才会跳出循环）；5 次全超时由外层抛 `RuntimeError` 接管，桶内仍保留最后一条上下文便于定位。
 
-#### 12.5.3 配对契约（两条 trace 如何合成一轮）
+**新接入 runtime 必须满足**：
 
-同一 `session_id` 内按时间排序后（[`pair_session_traces_to_agent_turns`](../src/report/langfuse_trace_merge.py)）：
-
-1. 遇到 `work_agent` / `judge_agent` → 暂存为 pending
-2. 下一条若是 `openclaw-plugin` → 合并进上一条 pre-chat（`plugin_prompt`、`metadata.messages`、`tokens` 等写入 `LangfuseTraceRef`）
-3. plugin 的 timestamp 应**晚于** pre-chat（顺序：先 `emit_pre_chat_state`，再 `openclaw agent`）
-
-**Join key 是 `session_id` + 时间顺序 + trace name 模式**，不是两边 `input` 字段对齐。
-
-#### 12.5.4 刻意不要求对齐的字段
-
-| 字段 | pre-chat | plugin | 说明 |
-|------|----------|--------|------|
-| `user_id` | `tags.run`（run_id） | `agentId`（OpenClaw agent 名） | 语义不同，配对不用 |
-| `input` | `CustomTags` 全量 dict | 用户 prompt 文本 | 合并后分别为 `agent_input` / `plugin_prompt` |
-| `tags` | run、task、agent_name、session_id | `openclaw`、agentId、可选 run / session tag | 检索兜底；配对主要靠 session |
-
-#### 12.5.5 一句话总结
-
-> 插件能与 `emit_pre_chat_state` 对应上的条件：**同一 Langfuse 项目** + **同一 `session_id`（`--session-id`）** + plugin trace 名为 **`openclaw-plugin`** + **`agent_end` 成功上报** + 时间落在对应 **`*_agent`** 之后。
-
-评测上下文在 pre-chat 的 `input`；轨迹与 token 在 plugin 的 `metadata`；`trace_backfill` 负责拼接。
-
-**脆弱点**：OpenClaw 升级后若 `ctx.sessionKey` 与 `--session-id` 分叉，需在容器内查 `langfuse-tracer-plugin.log` 或设 `LANGFUSE_TRACER_DEBUG_MESSAGES=1` 核对 hook ctx。
-
-**Hermes 差异**：`Hermes turn` 的 `session_id` 为内部 task id，与外部 work/judge session 不一致，但 tags 中带外部 session id；配对走 `pair_hermes_traces_to_agent_turns`（见 [`langfuse_trace_stitch.py`](../src/report/langfuse_trace_stitch.py) `_stitch_hermes`）。
+1. plugin trace 的 `name` 在 `LANGFUSE_PLUGIN_TRACE_NAMES` 内；
+2. plugin trace 的时间戳严格晚于其 `*_agent` pre-chat；
+3. plugin trace 携带正确的 `session_id`（OpenClaw 路径）或 session tag（Hermes 路径）；
+4. 重试不发起新的 `*_agent` pre-chat span。配对算法不依赖任何 runtime 私有字段（`metadata.success` 仅供桶内挑代表，**不**作配对 key）。
 
 ### 12.6 Agent 模型配置契约（LIFT ↔ 容器运行时）
 
@@ -735,78 +752,25 @@ LIFT 在容器内通过 `agents add --model …` 注册 work / judge agent。Ope
 
 ---
 
-## 12.8 运行状态可视化（`--status-viz` / `--status-http`）
+### 12.8 运行状态可视化（`--status-viz` / `--status-http`）
 
-LIFT 内置一个事件总线 + 状态聚合器，可同时驱动两种实时观察方式：终端 TUI（`--status-viz`，基于 `rich.Live`）和浏览器 HTTP 仪表盘（`--status-http`，零依赖标准库实现）。两者完全可选、互不干扰，可单开也可同时开；未启用时所有 `emit_*` 调用都是零成本 no-op。
+LIFT 内置事件总线 + 状态聚合器，驱动两种可选的实时观察方式（互不干扰，可单开也可同开；未启用时 `emit_*` 是零成本 no-op）：
 
-### 启用方式
+- `--status-viz`：终端 TUI（基于 `rich.Live`），适合 tmux 内前台观察；启用时 console 日志被静音以保护渲染区，文件日志照常写。
+- `--status-http <[host:]port>`：浏览器仪表盘（标准库 `http.server.ThreadingHTTPServer`，零额外依赖），适合 nohup 离线跑 + 远端浏览器看进度；端口被占用时仅 warning，不影响主流程。
 
 ```bash
-# 仅终端 TUI（适合 tmux 内前台观察）
-python -m src.cli.lift_main -r openclaw_with_evolve \
-  --benchmark_dir assets/benchmarks --suite all \
-  --run_id full-r2 --repeat 2 --max-parallel-suites 7 \
-  --status-viz
-
-# 仅 HTTP Dashboard（适合 nohup 离线跑 + 浏览器看进度）
-python -m src.cli.lift_main -r openclaw_with_evolve ... \
-  --status-http 8765                 # 仅本机 127.0.0.1:8765
-# 或允许远端访问：
-python -m src.cli.lift_main ... --status-http 0.0.0.0:8765
-
-# 也可以同时开启
+# 单开 / 双开
+python -m src.cli.lift_main ... --status-viz
+python -m src.cli.lift_main ... --status-http 0.0.0.0:8765   # 默认仅本机；显式 0.0.0.0 允许远端
 python -m src.cli.lift_main ... --status-viz --status-http 8765
 ```
 
-`--status-viz` 期间 console 日志会被自动静音以保护 `rich.Live` 渲染区（文件日志 `evolve_eval.log` 照常写）；`--status-http` 不影响日志。
-
-### 终端 TUI 看板布局
-
-| 区块 | 内容 |
-|------|------|
-| Header | 总进度条（按 `repeat × suite` 单元统计）、已用时间、粗略 ETA |
-| Repeats | 每个 repeat 一行进度条，反映 `--max-parallel-repeats` 并发下不同轮次的实际推进 |
-| Suites × Repeats 栅格 | suite 行 × repeat 列，每格 `w b e` 三个状态符号（warmup / baseline / evolved）；done suite 自动折叠为 `+ N suites done` |
-| Containers | 当前存活容器，按启动时长降序，超过 10 个折叠为 `+ N more containers` |
-
-状态符号：`·` pending · `◔` running · `●` done · `✗` failed。
-
-### HTTP Dashboard
-
-打开浏览器访问 `http://<host>:<port>/`，看板包含与 TUI 相同的四个区块（Header / Repeats / Suites × Repeats 栅格 / Containers），并额外提供：
-
-- **filter** 输入框：按 suite 名子串过滤
-- **hide done** 复选框：折叠已完成 suite
-- 顶部连接状态徽标（live / disconnected）
-
-技术细节：
-
-- **路由**
-  - `GET /`：单文件 HTML（CSS/JS 内嵌，无外部资源依赖）
-  - `GET /snapshot`：JSON，返回完整 `RunSnapshot`（页面进入或断线重连时使用）
-  - `GET /events`：Server-Sent Events 长连接，建立后先推一份 snapshot，随后实时推送事件总线上的所有事件
-- **零额外依赖**：仅用标准库 `http.server.ThreadingHTTPServer`，不引入 FastAPI/uvicorn
-- **后台线程**：HTTP 服务在守护线程中运行，主 asyncio 事件循环不受影响
-- **失败降级**：端口被占用时仅 warning，不影响主流程
-
-### 离线场景建议
-
-| 场景 | 推荐方式 |
-|------|---------|
-| 本机前台 + 看进度 | `tmux` 里跑 `--status-viz`，detach 后随时 `tmux attach` |
-| 远端 / nohup 跑 + 看进度 | `nohup ... --status-http 0.0.0.0:8765 > log 2>&1 &`，浏览器访问 `http://<host>:8765` |
-| 多人同时观察 | `--status-http 0.0.0.0:8765`（单连接 ~1KB/event 级别开销） |
-| 仅看日志 | 直接 `tail -f logs/<run>.log`，事件以结构化 INFO 形式同样写入 |
-
 ⚠️ 不要 `nohup ... --status-viz`：`rich.Live` 依赖 tty，重定向到文件后输出全是 ANSI 转义符。
 
-### 代码 navigation
+**看板布局**（TUI / HTTP 一致）：Header（总进度 + ETA）/ Repeats（按 repeat 一行进度条）/ Suites × Repeats 栅格（每格 `w b e` 三状态符号 `· ◔ ● ✗`，done suite 自动折叠）/ Containers（按启动时长降序）。HTTP Dashboard 额外提供 suite 名 filter、hide done 折叠、连接状态徽标；通过 `GET /snapshot`（断线重连）+ `GET /events`（SSE 长连接）推送事件。
 
-- 事件定义与发射：[src/lift/status/events.py](../src/lift/status/events.py)
-- 状态聚合：[src/lift/status/state.py](../src/lift/status/state.py)
-- 终端渲染：[src/lift/status/tui.py](../src/lift/status/tui.py)
-- HTTP 仪表盘：[src/lift/status/http_dashboard.py](../src/lift/status/http_dashboard.py)
-- CLI 集成：[src/cli/lift_main.py](../src/cli/lift_main.py)（`_status_dashboard` context manager）
+**代码 navigation**：[events.py](../src/lift/status/events.py) / [state.py](../src/lift/status/state.py) / [tui.py](../src/lift/status/tui.py) / [http_dashboard.py](../src/lift/status/http_dashboard.py) / [lift_main.py](../src/cli/lift_main.py)（`_status_dashboard` context manager）。
 
 ---
 

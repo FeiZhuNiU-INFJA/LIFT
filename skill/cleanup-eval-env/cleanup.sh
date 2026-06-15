@@ -52,6 +52,37 @@ section() {
     echo "==== $* ===="
 }
 
+# 0. 评测主进程（python -m src.cli.lift_main ...）
+# 必须先杀进程再清容器/镜像，否则 dashboard 上会看到大片 ✗ 错误：
+# 主进程还活着但它正在用的容器/镜像被你删了。
+section "0. 清理 lift_main 主进程"
+mapfile -t lift_pids < <(pgrep -f 'python.* -m src\.cli\.lift_main' || true)
+if [[ ${#lift_pids[@]} -eq 0 ]]; then
+    echo "(无 lift_main 进程)"
+else
+    printf '将停止 %d 个 lift_main 进程:\n' "${#lift_pids[@]}"
+    for pid in "${lift_pids[@]}"; do
+        cmdline="$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null | head -c 160 || true)"
+        printf '  - PID=%s  %s\n' "$pid" "$cmdline"
+    done
+    if [[ $DRY_RUN -eq 1 ]]; then
+        echo "[dry-run] kill -TERM ${lift_pids[*]}"
+    else
+        kill -TERM "${lift_pids[@]}" 2>/dev/null || true
+        # 给 graceful shutdown 一点时间
+        for _ in 1 2 3 4 5; do
+            sleep 1
+            mapfile -t still_alive < <(pgrep -f 'python.* -m src\.cli\.lift_main' || true)
+            [[ ${#still_alive[@]} -eq 0 ]] && break
+        done
+        # 还活着 → SIGKILL 兜底
+        if [[ ${#still_alive[@]} -gt 0 ]]; then
+            echo "  graceful shutdown 超时, SIGKILL: ${still_alive[*]}"
+            kill -KILL "${still_alive[@]}" 2>/dev/null || true
+        fi
+    fi
+fi
+
 # 1. 评测容器（前缀 evolve-openclaw-）
 section "1. 清理 evolve-openclaw-* 容器"
 mapfile -t containers < <(docker ps -a --filter "name=evolve-openclaw" --format "{{.Names}}" || true)
