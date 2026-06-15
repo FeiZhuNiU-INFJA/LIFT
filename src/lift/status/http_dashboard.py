@@ -70,7 +70,7 @@ def _event_payload(event: object) -> dict[str, Any]:
 # ---- HTML 前端（单文件内嵌） ---------------------------------------------
 
 
-_INDEX_HTML = """<!doctype html>
+_INDEX_HTML = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -107,6 +107,25 @@ _INDEX_HTML = """<!doctype html>
   .params { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 16px; }
   .params .pk { color: var(--muted); margin-right: 6px; }
   .params .pv { color: var(--fg); word-break: break-all; }
+  /* 自定义 tooltip：hover 即弹（绕开浏览器原生 title 的 ~1s 延迟） */
+  .tip { position: relative; }
+  .tip:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 0; top: 100%;
+    margin-top: 4px;
+    z-index: 10;
+    background: #0f172a;
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 6px 8px;
+    white-space: pre;
+    font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
+    box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    pointer-events: none;
+    max-width: 480px;
+  }
 </style>
 </head>
 <body>
@@ -232,14 +251,15 @@ function suiteCellHtml(suite) {
     return `${label} [${st}]\n` + lines.join('\n');
   };
   const cell = (st, sym, title) =>
-    `<span class="${st}" title="${escapeAttr(title)}">${sym}</span>`;
-  return [
+    `<span class="${st} tip" data-tip="${escapeAttr(title)}">${sym}</span>`;
+  const html = [
     cell(w, STATUS_SYM[w] || '?', wTitle),
     cell(baseline.st, STATUS_SYM[baseline.st] || '?',
       phaseTooltip('baseline', 'baseline', baseline.st)),
     cell(evolved.st, STATUS_SYM[evolved.st] || '?',
       phaseTooltip('evolved', 'evolved', evolved.st)),
   ].join(' ');
+  return { html };
 }
 
 function render() {
@@ -317,7 +337,10 @@ function render() {
     if (hideDone && allDone) { hiddenDone += 1; continue; }
     if (filter && !sample.name.toLowerCase().includes(filter)) continue;
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${sample.name}</td>` + repeats.map(r => `<td class="cell">${suiteCellHtml(r.suites?.[i] || {})}</td>`).join('');
+    tr.innerHTML = `<td>${sample.name}</td>` + repeats.map(r => {
+      const c = suiteCellHtml(r.suites?.[i] || {});
+      return `<td class="cell">${c.html}</td>`;
+    }).join('');
     tbody.appendChild(tr);
   }
   if (hideDone && hiddenDone) {
@@ -391,6 +414,7 @@ async function refreshSnapshot(force = false) {
   return _snapshotInflight;
 }
 
+// 连接状态由 SSE 维护：onopen → live；onerror → disconnected（浏览器自带重连）
 function connect() {
   const conn = document.getElementById('conn');
   const es = new EventSource('/events');
