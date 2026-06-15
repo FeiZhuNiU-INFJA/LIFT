@@ -47,6 +47,15 @@ if [[ -n "${ARK_API_KEY}" ]]; then
   BUILD_ARGS+=(--build-arg "ARK_API_KEY=${ARK_API_KEY}")
   echo "==> Baking Ark provider (apiKey from ARK_API_KEY) into image"
 fi
+# APT_MIRROR / PIP_INDEX_URL 默认走公网；内网构建时通过环境变量传入即可（详见 README）。
+if [[ -n "${APT_MIRROR:-}" ]]; then
+  BUILD_ARGS+=(--build-arg "APT_MIRROR=${APT_MIRROR}")
+  echo "==> Using APT mirror: ${APT_MIRROR}"
+fi
+if [[ -n "${PIP_INDEX_URL:-}" ]]; then
+  BUILD_ARGS+=(--build-arg "PIP_INDEX_URL=${PIP_INDEX_URL}")
+  echo "==> Using pip index URL: ${PIP_INDEX_URL}"
+fi
 
 echo "==> Building ${TAG} (context: ${AGENT_DIR})"
 docker build -f "${AGENT_DIR}/Dockerfile" \

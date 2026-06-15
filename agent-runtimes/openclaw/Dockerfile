@@ -13,6 +13,17 @@ FROM ${OPENCLAW_BASE_IMAGE}
 
 USER root
 
+# APT 源：默认保留基础镜像自带（公网 deb.debian.org / security.debian.org）。
+# 在公网拉取不稳定时，可通过 --build-arg APT_MIRROR=<scheme://host> 指定 Debian 镜像
+# 仓库（要求布局与官方一致：<APT_MIRROR>/debian、<APT_MIRROR>/debian-security）。
+# 例：字节内网：APT_MIRROR=http://mirrors.byted.org
+ARG APT_MIRROR=
+RUN if [ -n "$APT_MIRROR" ]; then \
+      printf 'deb %s/debian bookworm main\ndeb %s/debian bookworm-updates main\ndeb %s/debian-security bookworm-security main\n' \
+        "$APT_MIRROR" "$APT_MIRROR" "$APT_MIRROR" > /etc/apt/sources.list \
+      && rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true ; \
+    fi
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     curl \
@@ -48,6 +59,13 @@ ENV ARK_API_KEY=${ARK_API_KEY}
 # 设为 false 构建不带进化插件的 raw 镜像（仍保留 langfuse-tracer / firecrawl）。
 ARG INSTALL_SELF_EVOLVING=true
 ENV INSTALL_SELF_EVOLVING=${INSTALL_SELF_EVOLVING}
+# Python 包索引：默认 https://pypi.org/simple/（公网官方源）。在公网拉取不稳定时，可通过
+# --build-arg PIP_INDEX_URL=<url> 指定镜像源（uv / pip 均生效）。
+# 例：字节内网：PIP_INDEX_URL=https://bytedpypi.byted.org/simple/
+ARG PIP_INDEX_URL=https://pypi.org/simple/
+ENV UV_INDEX_URL=${PIP_INDEX_URL} \
+    UV_DEFAULT_INDEX=${PIP_INDEX_URL} \
+    PIP_INDEX_URL=${PIP_INDEX_URL}
 
 RUN chmod +x /tmp/install-plugins-in-image.sh \
     && bash /tmp/install-plugins-in-image.sh

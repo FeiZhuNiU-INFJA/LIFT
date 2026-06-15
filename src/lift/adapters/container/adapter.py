@@ -9,6 +9,7 @@ from typing import override
 from src.lift.adapters.base import AgentRuntimeAdapter, SuiteRunContext
 from src.lift.adapters.container.delta import commit_delta_image
 from src.lift.adapters.container.session import ContainerSession
+from src.lift.adapters.container.session import clip_name_segment
 from src.lift.adapters.environment import ExecutionEnvironment
 from src.lift.eval.stage import HoldoutLoadState
 from src.lift.policies.container import WarmupContainerPolicy
@@ -72,15 +73,21 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         resources: SuiteRunResources,
         workspace_dir,
     ) -> ExecutionEnvironment:
-        """warmup 阶段：单容器 + base 镜像；``seed_workspace=False`` 以免干扰 evolve/onboard。"""
+        """warmup 阶段：单容器 + base 镜像；``seed_workspace=True`` 注入人设种子。
+
+        warmup 容器同样需要 IDENTITY/USER/SOUL 等 seed 文件，否则 agent 会在每次 warmup
+        首发时跑首次上线问名字 / emoji 的 onboarding 流程，浪费 turn 也污染评测语料。
+        """
         _ = resources
-        instance_id = f"{ctx.run_id}-r{ctx.repeat_index}-{ctx.suite_name}-warmup"
+        instance_id = (
+            f"{ctx.run_id}-r{ctx.repeat_index}-{clip_name_segment(ctx.suite_name)}-warmup"
+        )
         session = await self.start_container(
             instance_id=instance_id,
             image=self._docker_image,
             ctx=ctx,
             workspace_dir=workspace_dir,
-            seed_workspace=False,  # warmup 要真实 onboarding/evolve，不注入 hold-out 人设 seed
+            seed_workspace=True,
             task=None,
         )
         return ExecutionEnvironment(
@@ -108,9 +115,12 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         evolved-only 配置（如群体记忆 namespace）。
         """
         _ = resources
-        # short_id 保证并行 hold-out 或重跑时容器名不撞
+        # short_id 保证并行 hold-out 或重跑时容器名不撞；带上 suite_name 让运维能从
+        # 容器名直接看出对应的 suite（中文 suite/task 会经 clip_name_segment 转写为
+        # 拼音并各截到 20 字符，holdout 标记和 short_id 不再被截断）。
         instance_id = (
-            f"{ctx.run_id}-r{ctx.repeat_index}-{task.name}-holdout-{short_id()}"
+            f"{ctx.run_id}-r{ctx.repeat_index}-{clip_name_segment(ctx.suite_name)}"
+            f"-{clip_name_segment(task.name)}-holdout-{short_id()}"
         )
         session = await self.start_container(
             instance_id=instance_id,
@@ -161,7 +171,8 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         ``seed_workspace``: 挂载 ``workspace_dir`` 之前是否预置工作区内容。
         - **OpenClaw**（``True``）：``workspace_seed/`` → 跳过 BOOTSTRAP 首次上线。
         - **其他 runtime**：可实现为写入 AGENTS.md / 规则 / 空操作；框架不规定文件格式。
-        - **Warmup** 路径始终传 ``False``，由调用方保证。
+        - **Warmup / Hold-out** 路径均传 ``True`` 由调用方保证；避免 agent 重复跑首次
+          上线 onboarding。
 
         ``load_state``: 仅在 hold-out 路径有值（``BASELINE`` / ``EVOLVED``），warmup 路径
         为 ``None``。runtime 据此决定 evolved-only 注入（如群体记忆 namespace、token 等）。

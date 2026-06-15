@@ -158,7 +158,7 @@ def setup_logging() -> None:
             elif isinstance(handler, logging.FileHandler):
                 handler.setFormatter(plain_formatter)
         if not _has_file_handler_for_path(log_path):
-            file_handler = logging.FileHandler(log_path, encoding="utf-8")
+            file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
             file_handler.setFormatter(plain_formatter)
             root_logger.addHandler(file_handler)
         return
@@ -167,7 +167,7 @@ def setup_logging() -> None:
     stream_handler.setFormatter(color_formatter)
     root_logger.addHandler(stream_handler)
 
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
     file_handler.setFormatter(plain_formatter)
     root_logger.addHandler(file_handler)
 

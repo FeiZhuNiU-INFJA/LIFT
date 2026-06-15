@@ -24,6 +24,7 @@ from pathlib import Path
 
 from src.config import LOGGER
 from src.lift.adapters.base import SuiteRunContext
+from src.lift.adapters.container.session import clip_name_segment
 from src.lift.adapters.environment import ExecutionEnvironment
 from src.lift.eval.stage import SuiteRunPhase
 from src.lift.eval.task_exec import bounded_gather, execute_task
@@ -122,14 +123,15 @@ class GroupMemoryAdapterMixin:
         stage_task_materials(workspace, task.requirements.material_dir)
 
         instance_id = (
-            f"{ctx.run_id}-r{ctx.repeat_index}-{ctx.suite_name}-warmup-{task.name}-{short_id()}"
+            f"{ctx.run_id}-r{ctx.repeat_index}-{clip_name_segment(ctx.suite_name)}"
+            f"-warmup-{clip_name_segment(task.name)}-{short_id()}"
         )
         session = await self.start_container(  # type: ignore[attr-defined]
             instance_id=instance_id,
             image=self._docker_image,  # type: ignore[attr-defined]
             ctx=ctx,
             workspace_dir=workspace,
-            seed_workspace=False,
+            seed_workspace=True,  # 注入 IDENTITY/USER/SOUL，避免 warmup 跑首次上线 onboarding
             task=None,
             load_state=None,  # warmup 阶段不区分 baseline/evolved
         )

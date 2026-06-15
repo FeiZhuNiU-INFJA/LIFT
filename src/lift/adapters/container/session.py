@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, override
 
+from pypinyin import Style, lazy_pinyin
+
 from src.config import LOGGER
 from src.lift.adapters.container.exec import redact_docker_argv
 from src.lift.runtime.disposable import Disposable
@@ -19,27 +21,64 @@ from src.lift.status import events as status_events
 ContainerHook = Callable[["ContainerSession"], Awaitable[None]]  # 容器启动/销毁前后钩子
 
 
-def sanitize_container_id(value: str) -> str:
-    """将 instance id sanitize 为 Docker 容器名合法字符（最长 64）。
+def clip_name_segment(name: str, max_len: int = 20) -> str:
+    """把单段名字（如 ``suite_name`` / ``task.name``）转 ASCII 拼音并截到 ``max_len``。
 
-    Docker ``--name`` 仅接受 ``[a-zA-Z0-9._-]``。注意 ``str.isalnum()`` 对中文等
-    非 ASCII 字符返回 ``True``，故须额外要求 ``ch.isascii()``，否则中文 suite 名
-    会被原样保留导致 ``docker run`` 立即失败。非 ASCII 字符替换为 ``-`` 后，不同
-    中文名可能塌缩成相同串，因此当原值含非 ASCII 字符时追加原值的确定性短哈希，
-    既保证唯一性又保持容器名可复现（供 ``start`` 的同名容器预删/重试逻辑使用）。
+    用于拼装 ``instance_id`` 之前对各段做长度归一化，使容器名既携带可读信息
+    又不超过 Docker 总长度上限。中文等非 ASCII 字符会先经 ``pypinyin.lazy_pinyin``
+    转写为不带声调的拼音（用 ``-`` 连接），再 sanitize 到 Docker 容器名合法字符。
+    空值返回占位符 ``x``，避免拼装出连续 ``--``。
     """
-    out = []
-    for ch in value:
+    if not name:
+        return "x"
+    if not name.isascii():
+        translated = "-".join(lazy_pinyin(name, style=Style.NORMAL, errors="default"))
+    else:
+        translated = name
+    out: list[str] = []
+    for ch in translated:
         if ch.isascii() and (ch.isalnum() or ch in "._-"):
             out.append(ch)
         else:
             out.append("-")
     sanitized = "".join(out).strip("-")
+    while "--" in sanitized:
+        sanitized = sanitized.replace("--", "-")
+    clipped = sanitized[:max_len].strip("-")
+    return clipped or "x"
+
+
+def sanitize_container_id(value: str) -> str:
+    """将 instance id sanitize 为 Docker 容器名合法字符。
+
+    Docker ``--name`` 仅接受 ``[a-zA-Z0-9._-]``。注意 ``str.isalnum()`` 对中文等
+    非 ASCII 字符返回 ``True``，故须额外要求 ``ch.isascii()``，否则中文 suite 名
+    会被原样保留导致 ``docker run`` 立即失败。本函数仅做"字符级"清洗：
+
+    - 调用方应在拼装 ``instance_id`` 前用 ``clip_name_segment`` 对 ``suite_name`` /
+      ``task.name`` 等可能很长或含中文的"段"做长度归一化（默认每段最多 20 字符），
+      因此本函数不再对整体长度做截断，``holdout`` / ``short_id`` 等关键尾巴会原样保留。
+    - 兜底场景：若调用方未做段级处理而直接传入含非 ASCII 字符的整串，仍会触发
+      pypinyin 转写并追加原值的确定性 sha1 短哈希，避免不同同音中文塌缩成同名。
+    - 上层 ``ContainerSession.start`` 中的 ``[:128]`` 仍提供整体兜底（Docker 上限 255）。
+    """
+    if not value.isascii():
+        translated = "-".join(lazy_pinyin(value, style=Style.NORMAL, errors="default"))
+    else:
+        translated = value
+    out: list[str] = []
+    for ch in translated:
+        if ch.isascii() and (ch.isalnum() or ch in "._-"):
+            out.append(ch)
+        else:
+            out.append("-")
+    sanitized = "".join(out).strip("-")
+    while "--" in sanitized:
+        sanitized = sanitized.replace("--", "-")
     if not value.isascii():
         digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:8]
-        body = sanitized[:55].strip("-")
-        sanitized = f"{body}-{digest}" if body else digest
-    return sanitized[:64] or "session"
+        sanitized = f"{sanitized}-{digest}" if sanitized else digest
+    return sanitized or "session"
 
 
 @dataclass

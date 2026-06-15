@@ -37,6 +37,25 @@ INSTALL_SELF_EVOLVING=false bash agent-runtimes/openclaw/build-image.sh
 
 LIFT copies this seed into each task workspace before mount so agents skip first-run onboarding.
 
+### 内网/外网构建（APT 与 PyPI 镜像源）
+
+构建脚本默认走公网官方源（`deb.debian.org` + `https://pypi.org/simple/`）；公网拉取不
+稳定时（如字节内部环境），通过两个环境变量切换镜像源即可，**Dockerfile 与脚本本身无需
+改动**。
+
+| 环境 | 命令 |
+|------|------|
+| 公网（默认） | `bash agent-runtimes/openclaw/build-image.sh` |
+| 字节内网 | `APT_MIRROR=http://mirrors.byted.org \`<br>`PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \`<br>`  bash agent-runtimes/openclaw/build-image.sh` |
+| 其它内网/自建源 | 把 `APT_MIRROR` 指向布局与官方一致的 Debian 镜像（`<APT_MIRROR>/debian` + `<APT_MIRROR>/debian-security`）；`PIP_INDEX_URL` 指向 PEP 503 兼容的 simple 索引 |
+
+注意：
+- `APT_MIRROR` 仅在构建期生效（用于 `apt-get install` 系统包）。
+- `PIP_INDEX_URL` 既影响构建期（uv / pip 装 self-evolving plugin 等），也写入运行
+  期 ENV——容器内 plugin 装包时也走这里。
+- 同时切换的还有仓库根 `requirements.txt` 顶部的 `--extra-index-url`（用于宿主机
+  conda 环境装 `bytedtos` 等内部包）；纯外网用户若不需要 `bytedtos` 可直接删那行。
+
 Verify:
 
 ```bash

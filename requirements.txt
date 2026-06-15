@@ -11,3 +11,4 @@ tqdm
 rich
 pytest
 pytest-asyncio
+pypinyin

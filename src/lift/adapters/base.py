@@ -226,9 +226,11 @@ class AgentRuntimeAdapter(ABC):
         """Start the runtime used for one hold-out task.
 
         ``seed_workspace``: 是否在挂载 ``workspace_dir`` 前写入「评测用初始工作区」。
-        框架在 hold-out 传 ``True``、warmup 传 ``False``；具体文件与是否 no-op 由
-        runtime 的 ``start_container`` 实现决定（OpenClaw 复制 IDENTITY/USER/SOUL 并删
-        BOOTSTRAP；其他 agent 可注入项目指令、规则文件，或忽略该标志）。
+        框架在 hold-out 与 warmup 阶段均传 ``True``——避免 agent 在每次新建容器时重跑
+        首次上线 onboarding（问名字 / emoji 等），既浪费 turn 又污染评测语料；具体文件
+        与是否 no-op 由 runtime 的 ``start_container`` 实现决定（OpenClaw 复制
+        IDENTITY/USER/SOUL 并删 BOOTSTRAP；其他 agent 可注入项目指令、规则文件，或忽略
+        该标志）。
 
         ``load_state``: 当前 hold-out 加载态（``BASELINE`` / ``EVOLVED``）。多数
         runtime 通过 ``image`` 即可区分（base vs delta），但群体记忆等不依赖镜像
