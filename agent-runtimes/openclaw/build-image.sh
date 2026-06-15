@@ -22,6 +22,7 @@ if [[ -f "${ROOT}/.env" ]]; then
   set +a
 fi
 
+# 默认走官方 ghcr.io；国内拉取慢时可设 OPENCLAW_BASE_IMAGE=ghcr.milu.moe/openclaw/openclaw:latest 切到加速源
 BASE_IMAGE="${OPENCLAW_BASE_IMAGE:-ghcr.io/openclaw/openclaw:latest}"
 TAG="${OPENCLAW_IMAGE:-evolve-eval-openclaw:latest}"
 ARK_API_KEY="${ARK_API_KEY:-}"
