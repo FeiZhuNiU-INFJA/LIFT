@@ -11,7 +11,7 @@
 set -euo pipefail
 
 REGISTRY_DIR="${OPENCLAW_INSTANCE_REGISTRY:-/tmp/evolve-eval-openclaw-instances}"
-IMAGE="${OPENCLAW_IMAGE:-evolve-eval-openclaw:latest}"
+IMAGE="${OPENCLAW_IMAGE:-evolve-eval-openclaw-with-evolve:latest}"
 BASE_GATEWAY_PORT="${OPENCLAW_BASE_GATEWAY_PORT:-18789}"
 BASE_FASTAPI_PORT="${OPENCLAW_BASE_FASTAPI_PORT:-18090}"
 PORT_STEP="${OPENCLAW_PORT_STEP:-20}"
@@ -295,7 +295,7 @@ Commands:
   destroy <id>       Stop container and remove registry file
 
 Environment:
-  OPENCLAW_IMAGE              (default: evolve-eval-openclaw:latest)
+  OPENCLAW_IMAGE              (default: evolve-eval-openclaw-with-evolve:latest)
   OPENCLAW_INSTANCE_REGISTRY  (default: /tmp/evolve-eval-openclaw-instances)
   Repo .env supplies ARK_API_KEY, LANGFUSE_*, etc.
 

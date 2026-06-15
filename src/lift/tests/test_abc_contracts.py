@@ -39,7 +39,7 @@ def test_openclaw_resolve_docker_image_default() -> None:
 
     验证 OpenClaw 默认 Docker 镜像为评测镜像 tag。
     """
-    assert OpenClawAdapter.resolve_docker_image() == "evolve-eval-openclaw:latest"
+    assert OpenClawAdapter.resolve_docker_image() == "evolve-eval-openclaw-base:latest"
 
 
 def test_openclaw_resolve_docker_image_override() -> None:

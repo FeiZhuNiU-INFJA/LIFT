@@ -6,6 +6,9 @@ export OPENCLAW_STATE_DIR="${OPENCLAW_STATE_DIR:-/root/.openclaw}"
 export HOME="${HOME:-/root}"
 mkdir -p "${OPENCLAW_STATE_DIR}/extensions"
 
+# 是否安装并启用 self-evolving-plugin-pro。默认 true；raw 镜像传 false 跳过安装/启用并删除 entry。
+INSTALL_SELF_EVOLVING="${INSTALL_SELF_EVOLVING:-true}"
+
 CONFIG_DIR="/tmp/config"
 MODELS_FRAGMENT="${CONFIG_DIR}/models.fragment.json"
 MODELS_RESOLVED="/tmp/models.fragment.resolved.json"
@@ -14,20 +17,28 @@ MODELS_RESOLVED="/tmp/models.fragment.resolved.json"
 cp -r /tmp/langfuse-tracer "${OPENCLAW_STATE_DIR}/extensions/langfuse-tracer"
 
 # 2) Self-evolving plugin (official install script + runtime venv)
-cd /tmp
-unzip -q self-evolving-plugin-pro.zip
-cd self-evolving-plugin-pro
-bash scripts/install-openclaw-plugin.sh
+if [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
+  cd /tmp
+  unzip -q self-evolving-plugin-pro.zip
+  cd self-evolving-plugin-pro
+  bash scripts/install-openclaw-plugin.sh
+else
+  echo "INSTALL_SELF_EVOLVING=${INSTALL_SELF_EVOLVING}: skip self-evolving-plugin-pro install (raw image)"
+fi
 
 # 3) Ensure required plugins enabled (含 OpenClaw 自带 stock firecrawl，运行时读 FIRECRAWL_API_KEY)
 openclaw plugins enable langfuse-tracer 2>/dev/null || true
-openclaw plugins enable self-evolving-plugin-pro 2>/dev/null || true
+if [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
+  openclaw plugins enable self-evolving-plugin-pro 2>/dev/null || true
+fi
 openclaw plugins enable firecrawl 2>/dev/null || true
 
 # Ark / custom providers often only support thinking=off (plugin defaults to low).
-WORKER_JS="${OPENCLAW_STATE_DIR}/extensions/self-evolving-plugin-pro/src/review/worker.js"
-if [[ -f "${WORKER_JS}" ]]; then
-  sed -i 's/"--thinking", "low"/"--thinking", "off"/g' "${WORKER_JS}" || true
+if [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
+  WORKER_JS="${OPENCLAW_STATE_DIR}/extensions/self-evolving-plugin-pro/src/review/worker.js"
+  if [[ -f "${WORKER_JS}" ]]; then
+    sed -i 's/"--thinking", "low"/"--thinking", "off"/g' "${WORKER_JS}" || true
+  fi
 fi
 
 # 4) Resolve models fragment (inject ARK_API_KEY at build time)
@@ -47,6 +58,12 @@ node /tmp/merge-openclaw-config.mjs "${TARGET}" /tmp/openclaw.json.template
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/gateway.fragment.json"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/agents.fragment.json"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${MODELS_RESOLVED}"
+
+# raw 镜像：openclaw.json.template 仍会 merge 进 self-evolving-plugin-pro entry，
+# 这里把它从最终配置中删掉，避免 gateway 启动时加载缺失的扩展。
+if [[ "${INSTALL_SELF_EVOLVING}" != "true" ]]; then
+  node -e "const fs=require('fs');const p='${TARGET}';const j=JSON.parse(fs.readFileSync(p,'utf8'));if(j.plugins&&j.plugins.entries){delete j.plugins.entries['self-evolving-plugin-pro'];}fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
+fi
 
 echo "Plugins installed under ${OPENCLAW_STATE_DIR}/extensions:"
 ls -la "${OPENCLAW_STATE_DIR}/extensions" || true

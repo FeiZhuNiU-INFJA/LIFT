@@ -10,9 +10,9 @@ Three adapter layers:
 
 1. **`SuiteRunContext`** + **`AgentRuntimeAdapter`** (`adapters/base.py`) — per `(repeat, suite)` coordinates; template `produce_delta` / hold-out; calls `lift/eval`
 2. **`ContainerAgentRuntimeAdapter`** (`adapters/container/`) — Docker lifecycle; default delta via `docker commit`
-3. **`OpenClawAdapter`** (`adapters/openclaw/`) — image config, `start_container`, chat factory, `learn review`
+3. **`OpenClawAdapter`** (`adapters/openclaw/`) — base image + `start_container` + chat factory; **不带**进化插件，`evolve_after_warmup` 为 no-op；带进化插件的变体为 `OpenClawWithEvolveAdapter`（`adapters/openclaw_with_evolve/`，warmup 后 `openclaw learn review`）
 
-- **before-load**: fresh container from base image (`evolve-eval-openclaw:latest`)
+- **before-load**: fresh container from base image (`evolve-eval-openclaw-base:latest` / `evolve-eval-openclaw-with-evolve:latest`)
 - **after-load**: fresh container from **delta image** (committed after warmup)
 - **Cleanup**: `SuiteRunResources.cleanup()` removes containers and delta images
 
@@ -20,7 +20,8 @@ Three adapter layers:
 
 ```bash
 bash agent-runtimes/openclaw/build-image.sh
-# or: docker build -f agent-runtimes/openclaw/Dockerfile -t evolve-eval-openclaw:latest agent-runtimes/openclaw
+# 默认产出 evolve-eval-openclaw-with-evolve:latest（带进化插件）；
+# INSTALL_SELF_EVOLVING=false bash agent-runtimes/openclaw/build-image.sh → evolve-eval-openclaw-base:latest（不带进化插件）
 ```
 
 ## Run

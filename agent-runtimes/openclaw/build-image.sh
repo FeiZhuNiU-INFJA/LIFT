@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build evolve-eval-openclaw image from agent-runtimes/openclaw build context.
+# Build evolve-eval-openclaw image (base 或 with-evolve) from agent-runtimes/openclaw build context.
 set -euo pipefail
 
 AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -24,7 +24,13 @@ fi
 
 # 默认走官方 ghcr.io；国内拉取慢时可设 OPENCLAW_BASE_IMAGE=ghcr.milu.moe/openclaw/openclaw:latest 切到加速源
 BASE_IMAGE="${OPENCLAW_BASE_IMAGE:-ghcr.io/openclaw/openclaw:latest}"
-TAG="${OPENCLAW_IMAGE:-evolve-eval-openclaw:latest}"
+# 是否安装并启用 self-evolving-plugin-pro。默认 true（with-evolve 镜像）；设 false 构建 base 镜像（不带进化插件）
+INSTALL_SELF_EVOLVING="${INSTALL_SELF_EVOLVING:-true}"
+if [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
+  TAG="${OPENCLAW_IMAGE:-evolve-eval-openclaw-with-evolve:latest}"
+else
+  TAG="${OPENCLAW_IMAGE:-evolve-eval-openclaw-base:latest}"
+fi
 ARK_API_KEY="${ARK_API_KEY:-}"
 
 if [[ -z "${ARK_API_KEY}" ]]; then
@@ -36,6 +42,7 @@ echo "==> Pulling base image (if needed): ${BASE_IMAGE}"
 docker pull "${BASE_IMAGE}" || echo "WARN: docker pull failed; using local image if available"
 
 BUILD_ARGS=(--build-arg "OPENCLAW_BASE_IMAGE=${BASE_IMAGE}")
+BUILD_ARGS+=(--build-arg "INSTALL_SELF_EVOLVING=${INSTALL_SELF_EVOLVING}")
 if [[ -n "${ARK_API_KEY}" ]]; then
   BUILD_ARGS+=(--build-arg "ARK_API_KEY=${ARK_API_KEY}")
   echo "==> Baking Ark provider (apiKey from ARK_API_KEY) into image"

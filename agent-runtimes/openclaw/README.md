@@ -26,14 +26,21 @@ From the **repository root**:
 bash agent-runtimes/openclaw/build-image.sh
 ```
 
-Produces `evolve-eval-openclaw:latest` (includes `workspace_seed` at `/opt/evolve-eval/workspace_seed`).
+Produces `evolve-eval-openclaw-with-evolve:latest` by default (includes `workspace_seed` at `/opt/evolve-eval/workspace_seed`).
+
+变体（不带 self-evolving-plugin-pro 进化插件，对应 LIFT `-r openclaw`）：
+
+```bash
+INSTALL_SELF_EVOLVING=false bash agent-runtimes/openclaw/build-image.sh
+# 产出 evolve-eval-openclaw-base:latest
+```
 
 LIFT copies this seed into each task workspace before mount so agents skip first-run onboarding.
 
 Verify:
 
 ```bash
-bash agent-runtimes/openclaw/verify-image.sh evolve-eval-openclaw:latest
+bash agent-runtimes/openclaw/verify-image.sh evolve-eval-openclaw-with-evolve:latest
 ```
 
 ## Environment
@@ -61,11 +68,16 @@ Full write / fetch / pairing contract: [docs/eval-flow.md §12.5](../../docs/eva
 
 ```bash
 bash agent-runtimes/openclaw/build-image.sh
-python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --warmup-only
-python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json
+python -m src.cli.lift_main -r openclaw_with_evolve --benchmark_dir assets/benchmarks_demo --suite hello.json --warmup-only
+python -m src.cli.lift_main -r openclaw_with_evolve --benchmark_dir assets/benchmarks_demo --suite hello.json
 ```
 
-Default image: `evolve-eval-openclaw:latest` (constant `OPENCLAW_DOCKER_IMAGE` in `src/paths.py`).
+Default images:
+
+- `-r openclaw` → `evolve-eval-openclaw-base:latest`（不带进化插件，常量 `OPENCLAW_BASE_DOCKER_IMAGE`）
+- `-r openclaw_with_evolve` → `evolve-eval-openclaw-with-evolve:latest`（带 self-evolving-plugin-pro，常量 `OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE`）
+
+均定义于 `src/paths.py`。
 
 ## Instance lifecycle (manual debugging)
 

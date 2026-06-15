@@ -4,7 +4,9 @@
 #   bash agent-runtimes/openclaw/build-image.sh
 #
 # Or:
-#   docker build -f agent-runtimes/openclaw/Dockerfile -t evolve-eval-openclaw:latest agent-runtimes/openclaw
+#   docker build -f agent-runtimes/openclaw/Dockerfile -t evolve-eval-openclaw-with-evolve:latest agent-runtimes/openclaw
+#   # 不带进化插件的 base 变体（推荐通过 build-image.sh 走 INSTALL_SELF_EVOLVING=false）：
+#   docker build --build-arg INSTALL_SELF_EVOLVING=false -f agent-runtimes/openclaw/Dockerfile -t evolve-eval-openclaw-base:latest agent-runtimes/openclaw
 
 ARG OPENCLAW_BASE_IMAGE=ghcr.io/openclaw/openclaw:latest
 FROM ${OPENCLAW_BASE_IMAGE}
@@ -41,6 +43,11 @@ COPY workspace_seed /opt/evolve-eval/workspace_seed
 
 ARG ARK_API_KEY=
 ENV ARK_API_KEY=${ARK_API_KEY}
+
+# 是否安装并启用 self-evolving-plugin-pro 进化插件。默认 true（带进化插件的标准镜像）；
+# 设为 false 构建不带进化插件的 raw 镜像（仍保留 langfuse-tracer / firecrawl）。
+ARG INSTALL_SELF_EVOLVING=true
+ENV INSTALL_SELF_EVOLVING=${INSTALL_SELF_EVOLVING}
 
 RUN chmod +x /tmp/install-plugins-in-image.sh \
     && bash /tmp/install-plugins-in-image.sh

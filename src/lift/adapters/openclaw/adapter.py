@@ -1,4 +1,16 @@
-"""OpenClaw runtime adapter：镜像解析、容器启动、chat factory 与 evolve 钩子。"""
+"""OpenClaw runtime adapter（基础版）：镜像解析、容器启动、chat factory。
+
+本类对应**不带** ``self-evolving-plugin-pro`` 进化插件的 OpenClaw runtime：
+
+    1. 使用基础镜像 ``OPENCLAW_BASE_DOCKER_IMAGE``（构建时 ``INSTALL_SELF_EVOLVING=false``）；
+    2. ``evolve_after_warmup`` 为 no-op，不调用 ``openclaw learn review``。
+
+仍**保留**继承自 ``ContainerAgentRuntimeAdapter`` 的 ``docker commit`` delta 物化：warmup
+阶段 OpenClaw 在使用过程中自然产生的 skill/memory 文件系统变化，会被 commit 进 delta 镜像并
+带到 hold-out 的 evolved 阶段。
+
+带进化插件的变体见 ``OpenClawWithEvolveAdapter``（继承本类，仅 override 镜像与 evolve 钩子）。
+"""
 
 from __future__ import annotations
 
@@ -10,22 +22,21 @@ from src.lift.adapters.container.adapter import ContainerAgentRuntimeAdapter
 from src.lift.adapters.container.session import ContainerSession
 from src.lift.adapters.environment import ExecutionEnvironment
 from src.lift.adapters.openclaw.chat_agent import OpenClawWorkerJudgerPairFactory
-from src.lift.adapters.openclaw.evolve import openclaw_learn_review
 from src.lift.adapters.openclaw.session import openclaw_context, start_openclaw_container
 from src.lift.eval.stage import HoldoutLoadState, SuiteRunPhase
 from src.lift.eval.worker_judger import WorkerJudgerPairFactory
 from src.models import SuiteTask
-from src.paths import OPENCLAW_DOCKER_IMAGE
+from src.paths import OPENCLAW_BASE_DOCKER_IMAGE
 
 
 class OpenClawAdapter(ContainerAgentRuntimeAdapter):
-    """OpenClaw：镜像配置、容器启动、chat factory 与 evolve 钩子。"""
+    """OpenClaw（不带进化插件）：镜像配置、容器启动、chat factory。"""
 
     @classmethod
     @override
     def resolve_docker_image(cls, *, override: str | None = None) -> str:
-        """``RunOptions.docker_image`` 覆盖优先，否则 ``OPENCLAW_DOCKER_IMAGE``。"""
-        return override or OPENCLAW_DOCKER_IMAGE
+        """``RunOptions.docker_image`` 覆盖优先，否则用基础（不带进化）镜像。"""
+        return override or OPENCLAW_BASE_DOCKER_IMAGE
 
     @override
     async def start_container(
@@ -78,7 +89,9 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
     async def evolve_after_warmup(
         self, env: ExecutionEnvironment, ctx: SuiteRunContext
     ) -> None:
-        """warmup 完成后在容器内执行 ``openclaw learn review``。"""
-        _ = ctx
-        session: ContainerSession = env.handle
-        await openclaw_learn_review(openclaw_context(session))
+        """不带进化插件：warmup 后不做显式 learn review。
+
+        OpenClaw 运行中自然产生的 skill/memory 变化由 docker commit 带入 delta 镜像。
+        """
+        _ = (env, ctx)
+        return None

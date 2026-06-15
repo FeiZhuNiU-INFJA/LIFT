@@ -139,3 +139,4 @@ results/
 .cursor/
 evobench-reports/
 !assets/benchmarks_demo/*
+.trae/

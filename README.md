@@ -81,7 +81,8 @@ pip install -r requirements.txt
 
 ```bash
 bash agent-runtimes/openclaw/build-image.sh
-# 产出 evolve-eval-openclaw:latest，详见 agent-runtimes/openclaw/README.md
+# 默认产出 evolve-eval-openclaw-with-evolve:latest（带进化插件）；
+# 设 INSTALL_SELF_EVOLVING=false 可产出 evolve-eval-openclaw-base:latest（不带进化插件）。详见 agent-runtimes/openclaw/README.md
 ```
 
 Benchmark 预处理（从 TOS 拉取 `benchmark_mds.zip` 并生成 `assets/benchmarks/*.json`，与 LIFT CLI 解耦）：

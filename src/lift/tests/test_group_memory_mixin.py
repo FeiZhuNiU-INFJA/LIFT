@@ -64,7 +64,7 @@ def test_multi_user_openclaw_defaults_to_parallel_multi() -> None:
 
 async def test_delta_ref_unowned_cleanup_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     """``owned=False`` 时 ``DeltaRef.cleanup`` 不调用 docker rmi。"""
-    delta = DeltaRef(image_tag="evolve-eval-openclaw:latest", owned=False)
+    delta = DeltaRef(image_tag="evolve-eval-openclaw-base:latest", owned=False)
 
     called: list[str] = []
 
