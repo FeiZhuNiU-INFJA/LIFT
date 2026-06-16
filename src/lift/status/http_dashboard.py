@@ -500,7 +500,7 @@ _INDEX_HTML = r"""<!doctype html>
   input[type=checkbox] { accent-color: var(--amber); }
 
   /* ---- tooltip (callout) ---- */
-  .tip { position: relative; cursor: help; }
+  .tip { position: relative; cursor: copy; }  /* 点击复制 data-tip 内容 */
   .tip:hover::after {
     content: attr(data-tip);
     position: absolute;
@@ -518,6 +518,24 @@ _INDEX_HTML = r"""<!doctype html>
     pointer-events: none;
     max-width: 540px;
   }
+
+  /* 点击 .tip 后右下角短暂提示「copied」 */
+  #copy-toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 200;
+    background: var(--bg-elev2);
+    color: var(--amber);
+    border: 1px solid var(--amber);
+    padding: 6px 12px;
+    font: 11px 'JetBrains Mono', monospace;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    pointer-events: none;
+  }
+  #copy-toast.show { opacity: 1; }
 
   /* errors detail */
   #errors td.detail {
@@ -635,7 +653,7 @@ _INDEX_HTML = r"""<!doctype html>
         <span class="done">● done</span>
         <span class="failed">✗ failed</span>
         <span class="sep">·</span>
-        <span style="color:var(--muted)">hover any cell for detail</span>
+        <span style="color:var(--muted)">hover any cell for detail · click to copy</span>
       </div>
     </div>
   </section>
@@ -972,6 +990,45 @@ function connect() {
 // 控件
 document.getElementById('hide-done').addEventListener('change', render);
 document.getElementById('filter').addEventListener('input', render);
+
+// 点击任意 .tip 元素：把 data-tip 复制到剪贴板，闪一个 toast。
+// 用事件委托 + closest，不依赖每次 render 重绑监听器。
+function showCopyToast(msg) {
+  let el = document.getElementById('copy-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'copy-toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 1200);
+}
+document.addEventListener('click', (ev) => {
+  const el = ev.target.closest('.tip');
+  if (!el) return;
+  const text = el.getAttribute('data-tip') || '';
+  if (!text) return;
+  // 优先 navigator.clipboard，失败回退 textarea + execCommand（HTTP 场景兼容）
+  const copy = (s) => {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(s);
+    }
+    return new Promise((resolve, reject) => {
+      const ta = document.createElement('textarea');
+      ta.value = s;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); resolve(); }
+      catch (e) { reject(e); }
+      finally { document.body.removeChild(ta); }
+    });
+  };
+  copy(text).then(() => showCopyToast('copied')).catch(() => showCopyToast('copy failed'));
+});
 
 // 启动
 refreshSnapshot(true).then(connect);
