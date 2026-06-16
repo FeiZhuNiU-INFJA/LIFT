@@ -17,6 +17,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from threading import Lock
 
+from src.config import LOGGER
+
 # ---- 事件数据结构 ---------------------------------------------------------
 
 
@@ -128,8 +130,12 @@ def _emit(event: object) -> None:
     for listener in listeners:
         try:
             listener(event)
-        except Exception:  # noqa: BLE001 — 可视化绝不能拖垮评测
-            pass
+        except Exception as exc:  # noqa: BLE001 — 可视化绝不能拖垮评测
+            # 只记一行 warning 暴露根因（参数类型不匹配、字段缺失等），不向上抛
+            LOGGER.warning(
+                "status event listener %r raised on %r: %r",
+                listener, type(event).__name__, exc,
+            )
 
 
 # ---- 便捷发射函数（供 pipeline / container 调用） -------------------------
