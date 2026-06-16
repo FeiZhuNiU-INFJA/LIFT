@@ -116,6 +116,8 @@ class ContainerSession(Disposable):
     # 可视化用：由 instance_id 推断的阶段（warmup/baseline/evolved/holdout）与题名
     viz_stage: str | None = field(default=None, repr=False)
     viz_task: str | None = field(default=None, repr=False)
+    viz_repeat_index: int | None = field(default=None, repr=False)
+    viz_suite_name: str | None = field(default=None, repr=False)
     _cleaner: EnvironmentCleaner = field(default_factory=EnvironmentCleaner)  # 容器/镜像清理
     _pre_cleanup_hooks: list[ContainerHook] = field(default_factory=list, repr=False)  # rm 前钩子
     _cleaned: bool = field(default=False, repr=False)  # 幂等 cleanup 标记
@@ -142,6 +144,8 @@ class ContainerSession(Disposable):
             image=self.image,
             task_name=self.viz_task,
             stage=self.viz_stage,
+            repeat_index=self.viz_repeat_index,
+            suite_name=self.viz_suite_name,
         )
 
     @classmethod
@@ -161,6 +165,8 @@ class ContainerSession(Disposable):
         post_start_hooks: list[ContainerHook] | None = None,
         pre_cleanup_hooks: list[ContainerHook] | None = None,
         metadata: dict[str, Any] | None = None,
+        viz_repeat_index: int | None = None,
+        viz_suite_name: str | None = None,
     ) -> ContainerSession:
         """组装 ``docker run -d`` 命令并启动容器，可选 readiness 与 post-start 钩子。
 
@@ -221,7 +227,12 @@ class ContainerSession(Disposable):
             [container_port for _, container_port in port_mappings],
         )
 
-        stage, task = _infer_stage_task(instance_id)
+        stage, task, inferred_repeat, inferred_suite = _infer_stage_task(instance_id)
+        # 显式参数优先于从 instance_id 反解（中文 suite 名经拼音转写后无法还原原文）
+        repeat_index = (
+            viz_repeat_index if viz_repeat_index is not None else inferred_repeat
+        )
+        suite_name = viz_suite_name if viz_suite_name is not None else inferred_suite
         session = cls(
             instance_id=safe_id,
             container_name=container_name,
@@ -230,6 +241,8 @@ class ContainerSession(Disposable):
             published_ports=published,
             viz_stage=stage,
             viz_task=task,
+            viz_repeat_index=repeat_index,
+            viz_suite_name=suite_name,
             _pre_cleanup_hooks=list(pre_cleanup_hooks or []),
         )
         status_events.emit_container(
@@ -238,6 +251,8 @@ class ContainerSession(Disposable):
             image=image,
             task_name=task,
             stage=stage,
+            repeat_index=repeat_index,
+            suite_name=suite_name,
         )
         if readiness_check is not None:
             await readiness_check(session)  # 如 OpenClaw gateway curl
@@ -246,29 +261,42 @@ class ContainerSession(Disposable):
         return session
 
 
-def _infer_stage_task(instance_id: str) -> tuple[str | None, str | None]:
-    """从 instance_id 命名约定推断展示用的阶段与题名（尽力而为）。
+def _infer_stage_task(
+    instance_id: str,
+) -> tuple[str | None, str | None, int | None, str | None]:
+    """从 instance_id 命名约定推断展示用的阶段、题名、repeat 序号、suite 名（尽力而为）。
 
     约定（见 container/adapter.py、group_memory/mixin.py）：
-    - warmup 单容器：``...-{suite}-warmup``
-    - warmup 多容器：``...-{suite}-warmup-{task}-{short_id}``
-    - holdout 每题：``...-{task}-holdout-{baseline|evolved}-{short_id}``
-    无法解析时返回 ``(None, None)``，不影响功能。
+    - warmup 单容器：``...-r{N}-{suite}-warmup``
+    - warmup 多容器：``...-r{N}-{suite}-warmup-{task}-{short_id}``
+    - holdout 每题：``...-r{N}-{suite}-{task}-holdout-{baseline|evolved}-{short_id}``
+    无法解析的字段返回 ``None``，不影响功能。
+
+    注意 suite 段已经过 ``clip_name_segment`` 转拼音 / 截断，调用方若有原始 suite_name
+    应通过 ``ContainerSession.start(viz_suite_name=...)`` 显式传入；本函数仅作兜底。
     """
     parts = instance_id.split("-")
+    repeat_idx: int | None = None
+    suite: str | None = None
+    # 找 ``r{N}`` 段；其后紧跟的是 suite 段
+    for i, p in enumerate(parts):
+        if len(p) >= 2 and p[0] == "r" and p[1:].isdigit():
+            repeat_idx = int(p[1:])
+            if i + 1 < len(parts):
+                suite = parts[i + 1]
+            break
     if "holdout" in parts:
         idx = parts.index("holdout")
         task = parts[idx - 1] if idx > 0 else None
-        # 紧跟 holdout 的若是 baseline/evolved 则一并返回作为更精确的 stage
         load_state = parts[idx + 1] if idx + 1 < len(parts) else None
         if load_state in ("baseline", "evolved"):
-            return f"holdout/{load_state}", task
-        return "holdout", task
+            return f"holdout/{load_state}", task, repeat_idx, suite
+        return "holdout", task, repeat_idx, suite
     if "warmup" in parts:
         idx = parts.index("warmup")
         task = parts[idx + 1] if idx + 1 < len(parts) else None
-        return "warmup", task
-    return None, None
+        return "warmup", task, repeat_idx, suite
+    return None, None, repeat_idx, suite
 
 
 async def _docker_run(cmd: list[str]) -> str | None:

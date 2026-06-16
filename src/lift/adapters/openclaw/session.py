@@ -184,6 +184,8 @@ async def start_openclaw_container(
         metadata={
             "gateway_token": token,
         },
+        viz_repeat_index=ctx.repeat_index,
+        viz_suite_name=ctx.suite_name,
     )
 
 

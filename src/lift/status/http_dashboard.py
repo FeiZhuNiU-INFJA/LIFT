@@ -204,23 +204,50 @@ function suiteOverall(suite) {
   return 'pending';
 }
 
-function suiteCellHtml(suite) {
+function suiteCellHtml(suite, containers, repeatIndex) {
   const w = suite.warmup_status || 'pending';
   // suite.last_error 主要承载 warmup 错误摘要
   const wErr = suite.last_error || '';
-  // warmup 题级 tooltip：列出每个 warmup_task 的状态符号 + 名字 + 可选错误摘要
+  // 先构建 (repeat, suite, task, stage) → container_name 的索引
+  // —— 每个 cell 的 tooltip 末尾会附 ``docker kill <name>`` 救火命令
+  const ctrFor = (taskName, stagePrefix) => {
+    if (!containers) return null;
+    for (const c of containers) {
+      if (c.repeat_index !== repeatIndex) continue;
+      if (c.suite_name && suite.name && c.suite_name !== suite.name) continue;
+      if (taskName != null && c.task_name && c.task_name !== taskName) {
+        // task 名经拼音 / 截断后可能不一致；保留 stage 匹配作兜底
+        if (!c.task_name.includes(taskName) && !taskName.includes(c.task_name)) continue;
+      }
+      if (stagePrefix && c.stage && !c.stage.startsWith(stagePrefix)) continue;
+      return c.container_name;
+    }
+    return null;
+  };
+  const killHint = (name) => name ? `\n\n[copy to kill] docker kill ${name}` : '';
+  // warmup 题级 tooltip：列出每个 warmup_task 的状态符号 + 名字 + 可选错误摘要 + 容器名
   const wTasks = Object.values(suite.warmup_tasks || {});
   let wTitle = `warmup [${w}]`;
+  let wKill = '';
   if (wTasks.length) {
     const lines = wTasks.map(t => {
       const sym = STATUS_SYM[t.status] || '?';
+      const status = t.status || 'pending';
       const err = t.last_error ? `  (${t.last_error})` : '';
-      return `  ${sym} ${t.name}${err}`;
+      const ctr = (status === 'running' || status === 'retrying')
+        ? ctrFor(t.name, 'warmup') : null;
+      return `  ${sym} ${t.name.padEnd(8)} [${status}]${err}${ctr ? `\n      docker kill ${ctr}` : ''}`;
     });
     wTitle = `warmup [${w}]\n` + lines.join('\n');
   } else if (wErr) {
     wTitle = `warmup [${w}]: ${wErr}`;
+    if (w === 'running' || w === 'retrying') {
+      wKill = killHint(ctrFor(null, 'warmup'));
+    }
+  } else if (w === 'running' || w === 'retrying') {
+    wKill = killHint(ctrFor(null, 'warmup'));
   }
+  wTitle += wKill;
   // 取所有 holdout 题里的 baseline/evolved 聚合状态 + 第一条错误摘要
   const phaseAgg = (phase) => {
     const tasks = Object.values(suite.holdout_tasks || {});
@@ -244,9 +271,12 @@ function suiteCellHtml(suite) {
     if (!tasks.length) return `${label} [${st}]`;
     const lines = tasks.map(t => {
       const p = (t.phases || {})[phase];
-      const sym = STATUS_SYM[p?.status || 'pending'] || '?';
+      const status = p?.status || 'pending';
+      const sym = STATUS_SYM[status] || '?';
       const err = p?.last_error ? `  (${p.last_error})` : '';
-      return `  ${sym} ${t.name}${err}`;
+      const ctr = (status === 'running' || status === 'retrying')
+        ? ctrFor(t.name, `holdout/${phase}`) : null;
+      return `  ${sym} ${t.name.padEnd(8)} [${status}]${err}${ctr ? `\n      docker kill ${ctr}` : ''}`;
     });
     return `${label} [${st}]\n` + lines.join('\n');
   };
@@ -338,7 +368,7 @@ function render() {
     if (filter && !sample.name.toLowerCase().includes(filter)) continue;
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${sample.name}</td>` + repeats.map(r => {
-      const c = suiteCellHtml(r.suites?.[i] || {});
+      const c = suiteCellHtml(r.suites?.[i] || {}, snapshot.containers || [], r.index);
       return `<td class="cell">${c.html}</td>`;
     }).join('');
     tbody.appendChild(tr);
@@ -358,7 +388,11 @@ function render() {
     const up = c.started_at ? fmtDuration(Date.now() / 1000 - c.started_at) : '-';
     const tr = document.createElement('tr');
     const elide = (s) => (s && s.length > 36 ? '…' + s.slice(-35) : (s || '-'));
-    tr.innerHTML = `<td title="${c.container_name || ''}">${elide(c.container_name)}</td>`
+    // hover 整行显示完整名 + docker kill 命令（方便复制救火）
+    const tip = `${c.container_name || ''}\n\ndocker kill ${c.container_name || ''}`;
+    tr.className = 'tip';
+    tr.setAttribute('data-tip', tip);
+    tr.innerHTML = `<td>${elide(c.container_name)}</td>`
       + `<td>${c.repeat_index ?? '-'}</td>`
       + `<td>${c.stage || '-'}</td>`
       + `<td>${c.suite_name || '-'}</td>`
