@@ -1,6 +1,6 @@
 """Render post-process comparison metrics as an HTML report.
 
-Builds summary tables, success-rate badges, and per-task metric tables from
+duiyuBuilds summary tables, success-rate badges, and per-task metric tables from
 comparison and summary DataFrames produced by ``metrics.py``. Output is a
 self-contained HTML document with collapsible run blocks, top-level legend,
 and direction-aware coloring (green = better, red = worse).

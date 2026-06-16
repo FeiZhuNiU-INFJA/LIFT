@@ -87,10 +87,37 @@ async def docker_exec_async(
     if proc.returncode != 0:
         detail = stderr_text or stdout_text
         hint = label or " ".join(command)
+        # 失败时抓容器最后 200 行 docker logs：plugin / gateway 自身的报错
+        # （如 self-evolving plugin 18090 FastAPI 返回 400 的 body）通常被
+        # ``curl -fsS`` 吞掉，但 plugin 进程的 stderr 都落在 docker logs 里。
+        container_log = await _capture_container_logs(container_name, tail=200)
+        if container_log:
+            LOGGER.error(
+                "docker exec failed (%s); last container logs:\n%s",
+                hint, container_log,
+            )
         raise RuntimeError(
             f"docker exec failed for {container_name} ({hint}): {detail}"
         )
     return stdout_text
+
+
+async def _capture_container_logs(container_name: str, *, tail: int = 200) -> str:
+    """抓容器最后 ``tail`` 行 ``docker logs`` 用于失败诊断（best-effort）。"""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "logs", "--tail", str(tail), container_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            return ""
+        text = stdout.decode("utf-8", errors="replace")
+        err = stderr.decode("utf-8", errors="replace")
+        return f"{text}\n{err}".strip()
+    except Exception:  # noqa: BLE001 — 诊断功能不能拖垮主流程
+        return ""
 
 
 def docker_exec_sync(

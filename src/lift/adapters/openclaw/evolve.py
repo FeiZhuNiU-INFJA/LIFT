@@ -15,12 +15,25 @@ async def openclaw_learn_review(container: OpenClawContainerContext) -> None:
     所有 runtime env（``LANGFUSE_BASE_URL`` 等）已在 ``docker run`` 阶段写入容器
     ``Config.Env``，``docker exec`` 自动继承，因此这里不再显式 ``-e`` 注入。
     """
-    # 预备：git safe.directory + 降低 review worker thinking（加速 warmup evolve）
+    # 预备：
+    # 1. self-evolving-plugin-pro `/instances/onboard` 要求 workspace_root 是个
+    #    git repo（git_root == workspace_root）且至少有一个 HEAD commit；warmup
+    #    workspace 是 LIFT 现 seed 的目录，没初始化过，需要在调用 `learn review`
+    #    前 `git init` + 一次空 commit，否则会被 plugin 拒为 400。
+    # 2. git safe.directory：容器内 git 默认拒绝 owner 不符的目录（host bind mount）。
+    # 3. review worker 改 thinking=off：Ark 不支持 thinking=low，加速 warmup evolve。
     await docker_exec_shell_async(
         container.container_name,
         """
 mkdir -p /workspace/task
 git config --global --add safe.directory /workspace/task
+git config --global user.email "evobench@local"
+git config --global user.name "evobench"
+if [[ ! -d /workspace/task/.git ]]; then
+  git -C /workspace/task init -q
+  git -C /workspace/task add -A
+  git -C /workspace/task commit -q --allow-empty -m "evobench: warmup baseline"
+fi
 WORKER_JS="${HOME}/.openclaw/extensions/self-evolving-plugin-pro/src/review/worker.js"
 if [[ -f "${WORKER_JS}" ]]; then
   sed -i 's/"--thinking", "low"/"--thinking", "off"/g' "${WORKER_JS}" || true

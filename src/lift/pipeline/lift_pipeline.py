@@ -271,6 +271,7 @@ class LIFTPipeline:
         ctx = SuiteRunContext(
             run_id=run_id,
             repeat_index=repeat_index,
+            suite_index=suite_index,
             suite_path=suite_path,
             category_name=category_name,
             suite_name=suite.name,

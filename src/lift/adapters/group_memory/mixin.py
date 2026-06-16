@@ -143,6 +143,7 @@ class GroupMemoryAdapterMixin:
                 status=status,
                 run_id=ctx.run_id,
                 repeat_index=ctx.repeat_index,
+                suite_index=ctx.suite_index,
                 suite_name=ctx.suite_name,
                 task_name=task.name,
                 detail=detail,

@@ -27,6 +27,7 @@ class SuiteRunContext(BaseModel):
 
     run_id: str = Field(description="评测批次 ID（如 evobench-runid-hello-full）")
     repeat_index: int = Field(description="当前 repeat 序号（0 起，对应 --repeat 第几轮）")
+    suite_index: int = Field(description="当前 suite 在 repeat 内的索引（0 起，与 status 事件维度一致）")
     suite_path: Path = Field(description="suite JSON 文件路径")
     category_name: str = Field(description="场景分类名（来自 Suite.category）")
     suite_name: str = Field(description="suite 名称（来自 Suite.name）")
@@ -88,6 +89,7 @@ class AgentRuntimeAdapter(ABC):
                 status=status,
                 run_id=ctx.run_id,
                 repeat_index=ctx.repeat_index,
+                suite_index=ctx.suite_index,
                 suite_name=ctx.suite_name,
                 task_name=task.name,
                 detail=detail,
