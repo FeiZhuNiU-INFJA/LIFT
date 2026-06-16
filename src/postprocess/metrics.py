@@ -113,7 +113,7 @@ def build_comparison_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 def _outlier_mask(comparison_df: pd.DataFrame) -> pd.Series:
     """返回 summary 聚合时应剔除的样本布尔掩码。
 
-    - ``impr_trials`` / ``impr_tool_use_num`` 任一项 > ``SUMMARY_IMPR_OUTLIER_THRESHOLD``
+    - ``impr_trials`` / ``impr_tool_use_num`` 任一项 >= ``SUMMARY_IMPR_OUTLIER_THRESHOLD``
       表示进化后比基线退化过强（消耗过高），视为离群。
     """
     if comparison_df.empty:
@@ -124,7 +124,7 @@ def _outlier_mask(comparison_df: pd.DataFrame) -> pd.Series:
         if col not in comparison_df.columns:
             continue
         series = pd.to_numeric(comparison_df[col], errors="coerce")
-        mask = mask | (series > SUMMARY_IMPR_OUTLIER_THRESHOLD)
+        mask = mask | (series >= SUMMARY_IMPR_OUTLIER_THRESHOLD)
     return mask
 
 
@@ -135,7 +135,7 @@ def build_summary_row(
     original_df: pd.DataFrame,
 ) -> dict[str, Any]:
     """Build one summary dict for a category or global scope, excluding outlier tasks."""
-    # Summary 聚合：剔除 impr_trials / impr_tool_use_num > 阈值的离群样本。
+    # Summary 聚合：剔除 impr_trials / impr_tool_use_num >= 阈值的离群样本。
     outlier_mask = _outlier_mask(comparison_df)
     aggregate_df = comparison_df.loc[~outlier_mask] if not comparison_df.empty else comparison_df
     excluded_count = int(outlier_mask.sum()) if not comparison_df.empty else 0
