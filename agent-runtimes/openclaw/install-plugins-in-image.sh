@@ -17,10 +17,14 @@ MODELS_RESOLVED="/tmp/models.fragment.resolved.json"
 cp -r /tmp/langfuse-tracer "${OPENCLAW_STATE_DIR}/extensions/langfuse-tracer"
 
 # 2) Self-evolving plugin (official install script + runtime venv)
+# 注意：repo_root 不能落在 /tmp，因为 LIFT 启容器时会 ``-v /tmp:/tmp`` 把宿主机
+# /tmp 整个挂进来屏蔽镜像里的 /tmp/self-evolving-plugin-pro。
+# install 脚本基于 cwd 推 repo_root 写入 runtime-ready.json，所以解到 /opt 下。
 if [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
-  cd /tmp
-  unzip -q self-evolving-plugin-pro.zip
-  cd self-evolving-plugin-pro
+  mkdir -p /opt
+  cd /opt
+  unzip -q /tmp/self-evolving-plugin-pro.zip
+  cd /opt/self-evolving-plugin-pro
   bash scripts/install-openclaw-plugin.sh
 else
   echo "INSTALL_SELF_EVOLVING=${INSTALL_SELF_EVOLVING}: skip self-evolving-plugin-pro install (raw image)"
