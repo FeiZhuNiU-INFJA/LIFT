@@ -141,3 +141,4 @@ evobench-reports/
 !assets/benchmarks_demo/*
 .trae/
 *.tar.gz
+temp/

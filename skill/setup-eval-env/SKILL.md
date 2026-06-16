@@ -135,6 +135,20 @@ bash agent-runtimes/openclaw/build-image.sh
 #   INSTALL_SELF_EVOLVING=false bash agent-runtimes/openclaw/build-image.sh
 ```
 
+> **内网/拉取慢**（构建阶段卡在 `Get:1 http://deb.debian.org/...` 或后续 pip / uv 安装）：
+> 同时设置 apt 与 pip 镜像源（详见 [agent-runtimes/openclaw/README.md](../../agent-runtimes/openclaw/README.md)）：
+>
+> ```bash
+> # 字节内网
+> APT_MIRROR=http://mirrors.byted.org \
+> PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \
+>   bash agent-runtimes/openclaw/build-image.sh
+> ```
+>
+> - `APT_MIRROR` 仅构建期生效（替换基础镜像内 `deb.debian.org`），需指向 PEP 一致布局的 Debian 源（`<APT_MIRROR>/debian` + `<APT_MIRROR>/debian-security`）。
+> - `PIP_INDEX_URL` 同时影响 `uv` / `pip`（self-evolving-plugin-pro 装 Python runtime 用）。
+> - 其它内网源把上面两个变量替换成自己的镜像即可。
+
 验证：
 ```bash
 docker images | grep evolve-eval-openclaw
