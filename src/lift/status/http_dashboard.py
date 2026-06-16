@@ -74,103 +74,599 @@ _INDEX_HTML = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>LIFT status</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LIFT · observatory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@200;400;600;700;800&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
 <style>
+  /* ---- design tokens : observatory mission control ---- */
   :root {
-    --fg: #e5e7eb; --bg: #0b1020; --muted: #94a3b8; --line: #1f2937;
-    --green: #10b981; --yellow: #f59e0b; --red: #ef4444; --blue: #3b82f6;
-    --grey: #475569;
+    --bg: #060912;
+    --bg-elev: #0c1322;
+    --bg-elev2: #131c30;
+    --fg: #d8deea;
+    --muted: #5a6886;
+    --line: #1a2238;
+    --line-strong: #283556;
+
+    --amber: #ffb547;          /* primary signal color */
+    --amber-dim: rgba(255, 181, 71, 0.45);
+    --green: #00d68f;          /* done / nominal */
+    --yellow: #ffcb45;         /* running / active */
+    --red: #ff5470;            /* failed / alarm */
+    --cyan: #6ec1ff;           /* informational */
+    --grey: #364056;           /* pending / inert */
   }
-  body { background: var(--bg); color: var(--fg); font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; margin: 0; padding: 16px; }
-  h1 { font-size: 14px; font-weight: 600; margin: 0 0 8px; color: var(--blue); }
-  .panel { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; }
-  .panel-title { color: var(--blue); margin-bottom: 6px; font-weight: 600; }
-  .row { display: flex; align-items: center; gap: 8px; }
-  .bar { background: var(--line); height: 8px; border-radius: 4px; overflow: hidden; flex: 1; min-width: 80px; }
-  .bar > div { background: var(--blue); height: 100%; transition: width .3s ease; }
-  .muted { color: var(--muted); }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-weight: 500; }
-  td.cell { font-family: ui-monospace; letter-spacing: 1px; white-space: nowrap; }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 13px/1.5 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+    min-height: 100vh;
+    background-image:
+      linear-gradient(rgba(110, 193, 255, 0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(110, 193, 255, 0.022) 1px, transparent 1px),
+      radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255, 181, 71, 0.05), transparent 70%);
+    background-size: 40px 40px, 40px 40px, 100% 600px;
+    background-attachment: fixed;
+  }
+
+  /* ---- mast (sticky top bar) ---- */
+  .mast {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 24px;
+    background: linear-gradient(180deg, rgba(12, 19, 34, 0.94), rgba(12, 19, 34, 0.78));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .mast::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    height: 1px;
+    width: 100%;
+    background: linear-gradient(90deg, transparent, var(--amber) 25%, var(--amber) 75%, transparent);
+    opacity: 0.5;
+  }
+  .brand {
+    font: 800 24px/1 'Barlow Condensed', 'Arial Narrow', sans-serif;
+    letter-spacing: 0.06em;
+    color: var(--amber);
+    text-transform: uppercase;
+    position: relative;
+    padding-left: 14px;
+  }
+  .brand::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 2px;
+    bottom: 2px;
+    width: 4px;
+    background: var(--amber);
+    box-shadow: 0 0 12px var(--amber-dim);
+  }
+  .subtitle {
+    font: 400 11px/1 'Barlow Condensed', 'Arial Narrow', sans-serif;
+    letter-spacing: 0.32em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .conn-status {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 11px;
+    border: 1px solid var(--line-strong);
+    font: 500 11px/1 'JetBrains Mono', monospace;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .conn-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 8px currentColor;
+  }
+  .conn-status.live { color: var(--green); border-color: rgba(0, 214, 143, 0.4); }
+  .conn-status.live .conn-dot {
+    background: var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .conn-status.dead { color: var(--red); border-color: rgba(255, 84, 112, 0.3); }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 6px currentColor; transform: scale(1); }
+    50% { box-shadow: 0 0 14px currentColor, 0 0 2px currentColor; transform: scale(1.18); }
+  }
+
+  /* ---- layout ---- */
+  .container {
+    padding: 20px 24px 48px;
+    max-width: 1680px;
+    margin: 0 auto;
+  }
+
+  /* ---- panel (HUD instrument w/ corner brackets) ---- */
+  .panel {
+    position: relative;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--bg-elev) 0%, rgba(6, 9, 18, 0.4) 100%);
+    margin-bottom: 18px;
+  }
+  .panel::before, .panel::after {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--amber);
+    pointer-events: none;
+  }
+  .panel::before {
+    top: -1px;
+    left: -1px;
+    border-right: none;
+    border-bottom: none;
+  }
+  .panel::after {
+    bottom: -1px;
+    right: -1px;
+    border-left: none;
+    border-top: none;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(90deg, rgba(255, 181, 71, 0.06), transparent 60%);
+  }
+  .panel-title {
+    font: 600 12px/1 'Barlow Condensed', 'Arial Narrow', sans-serif;
+    letter-spacing: 0.22em;
+    color: var(--amber);
+    text-transform: uppercase;
+  }
+  .panel-meta {
+    font: 400 11px/1 'JetBrains Mono', monospace;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+  .panel-body { padding: 16px; }
+
+  /* ---- hero (primary telemetry) ---- */
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) 2.2fr;
+    gap: 32px;
+    align-items: center;
+  }
+  .hero-label {
+    font: 400 10px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.4em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .hero-id {
+    font: 700 30px/1.1 'Barlow Condensed', 'Arial Narrow', sans-serif;
+    color: var(--fg);
+    letter-spacing: 0.02em;
+    word-break: break-all;
+  }
+  .hero-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .progress-track {
+    position: relative;
+    height: 22px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .progress-track::before {
+    /* tick marks every 10% */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 10% 100%;
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .progress-fill {
+    position: relative;
+    height: 100%;
+    background: linear-gradient(90deg, rgba(255, 181, 71, 0.45), var(--amber));
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .progress-fill::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+    animation: shimmer 2.5s linear infinite;
+  }
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  .progress-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    font: 400 12px/1 'JetBrains Mono', monospace;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+  .progress-stats b {
+    color: var(--fg);
+    font-weight: 500;
+    margin: 0 5px;
+  }
+
+  /* ---- params grid ---- */
+  .params {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1px;
+    background: var(--line);
+  }
+  .param {
+    background: var(--bg-elev);
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .param-key {
+    font: 400 10px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.22em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .param-val {
+    color: var(--fg);
+    font-size: 12px;
+    word-break: break-all;
+  }
+
+  /* ---- repeats ---- */
+  .repeat-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 8px;
+  }
+  .repeat-row:last-child { margin-bottom: 0; }
+  .repeat-label {
+    font: 600 12px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.18em;
+    color: var(--amber);
+    text-transform: uppercase;
+    width: 100px;
+  }
+  .repeat-bar {
+    flex: 1;
+    height: 10px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    overflow: hidden;
+    position: relative;
+  }
+  .repeat-bar > div {
+    height: 100%;
+    background: linear-gradient(90deg, rgba(255, 181, 71, 0.4), var(--amber));
+    transition: width 0.3s ease;
+  }
+  .repeat-meta {
+    font: 400 11px/1 'JetBrains Mono', monospace;
+    color: var(--muted);
+    width: 200px;
+    text-align: right;
+    letter-spacing: 0.04em;
+  }
+
+  /* ---- tables ---- */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  thead th {
+    font: 600 10px/1.3 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.22em;
+    color: var(--muted);
+    text-transform: uppercase;
+    background: rgba(255, 181, 71, 0.03);
+    border-bottom: 1px solid var(--line-strong);
+  }
+  tbody tr { transition: background 0.15s ease; }
+  tbody tr:hover { background: rgba(255, 181, 71, 0.04); }
+  td.suite-name {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--fg);
+  }
+  td.cell {
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 3px;
+    white-space: nowrap;
+    text-align: center;
+    font-size: 14px;
+  }
+  thead th.cell-head {
+    text-align: center;
+    text-transform: none;
+    letter-spacing: normal;
+  }
+  thead th.cell-head .legend {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 3px;
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: lowercase;
+  }
+  thead th.cell-head .rid {
+    display: block;
+    font: 600 10px/1.3 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.22em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  /* status colors — glowing instrument readouts */
   .pending { color: var(--grey); }
-  .running { color: var(--yellow); }
-  .retrying { color: var(--yellow); }
-  .done { color: var(--green); }
-  .failed { color: var(--red); }
-  .legend { color: var(--muted); font-size: 12px; margin-top: 6px; }
-  .controls { float: right; }
-  input[type=text] { background: #0f172a; color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; }
-  .conn { font-size: 11px; padding: 2px 6px; border-radius: 4px; }
-  .conn.live { background: #064e3b; color: #6ee7b7; }
-  .conn.dead { background: #7f1d1d; color: #fecaca; }
-  .params { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 16px; }
-  .params .pk { color: var(--muted); margin-right: 6px; }
-  .params .pv { color: var(--fg); word-break: break-all; }
-  /* 自定义 tooltip：hover 即弹（绕开浏览器原生 title 的 ~1s 延迟） */
-  .tip { position: relative; }
+  .running { color: var(--yellow); text-shadow: 0 0 6px currentColor; animation: blink 1.6s ease-in-out infinite; }
+  .retrying { color: var(--yellow); text-shadow: 0 0 6px currentColor; animation: blink 0.7s ease-in-out infinite; }
+  .done { color: var(--green); text-shadow: 0 0 4px currentColor; }
+  .failed { color: var(--red); text-shadow: 0 0 6px currentColor; }
+  .muted { color: var(--muted); }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+
+  /* ---- legend ---- */
+  .legend {
+    padding: 10px 14px;
+    border-top: 1px solid var(--line);
+    font: 400 11px/1.5 'JetBrains Mono', monospace;
+    color: var(--muted);
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    align-items: center;
+    letter-spacing: 0.04em;
+  }
+  .legend .sep { color: var(--line-strong); }
+
+  /* ---- controls ---- */
+  .controls {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+  }
+  .controls label {
+    font: 400 11px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.15s ease;
+  }
+  .controls label:hover { color: var(--fg); }
+  input[type=text] {
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--line-strong);
+    padding: 5px 10px;
+    font: 400 12px 'JetBrains Mono', monospace;
+    outline: none;
+    width: 240px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  input[type=text]::placeholder { color: var(--grey); }
+  input[type=text]:focus {
+    border-color: var(--amber);
+    box-shadow: 0 0 0 1px var(--amber-dim);
+  }
+  input[type=checkbox] { accent-color: var(--amber); }
+
+  /* ---- tooltip (callout) ---- */
+  .tip { position: relative; cursor: help; }
   .tip:hover::after {
     content: attr(data-tip);
     position: absolute;
-    left: 0; top: 100%;
-    margin-top: 4px;
-    z-index: 10;
-    background: #0f172a;
+    left: 0;
+    top: 100%;
+    margin-top: 8px;
+    z-index: 100;
+    background: var(--bg-elev2);
     color: var(--fg);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 6px 8px;
+    border: 1px solid var(--amber);
+    padding: 10px 12px;
     white-space: pre;
-    font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
-    box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    font: 11px/1.55 'JetBrains Mono', monospace;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 181, 71, 0.18);
     pointer-events: none;
+    max-width: 540px;
+  }
+
+  /* errors detail */
+  #errors td.detail {
+    color: var(--red);
     max-width: 480px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* slow observatory sweep — subtle, never distracts */
+  .scan {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--amber), transparent);
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0;
+    animation: scan 8s linear infinite;
+  }
+  @keyframes scan {
+    0% { transform: translateY(-2px); opacity: 0; }
+    8% { opacity: 0.32; }
+    92% { opacity: 0.32; }
+    100% { transform: translateY(100vh); opacity: 0; }
+  }
+
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: 1fr; gap: 18px; }
+    .controls { flex-direction: column; align-items: flex-start; }
+    input[type=text] { width: 100%; }
+    .container { padding: 16px; }
+    .mast { padding: 12px 16px; }
+    .subtitle { display: none; }
   }
 </style>
 </head>
 <body>
-<h1 id="title">LIFT status <span id="conn" class="conn dead">disconnected</span></h1>
+<div class="scan"></div>
 
-<div class="panel" id="header-panel">
-  <div class="panel-title">run</div>
-  <div class="row">
-    <div id="run-id" class="muted"></div>
-    <div class="bar"><div id="overall-bar" style="width:0"></div></div>
-    <div id="overall-stats" class="muted"></div>
+<header class="mast">
+  <div class="brand">LIFT</div>
+  <div class="subtitle">observatory · evaluation telemetry</div>
+  <div id="conn" class="conn-status dead">
+    <span class="conn-dot"></span>
+    <span class="conn-label">offline</span>
   </div>
-</div>
+</header>
 
-<div class="panel" id="params-panel" style="display:none">
-  <div class="panel-title">run params</div>
-  <div id="params" class="params"></div>
-</div>
+<main class="container">
 
-<div class="panel" id="repeats-panel">
-  <div class="panel-title">repeats</div>
-  <div id="repeats"></div>
-</div>
+  <section class="panel">
+    <div class="panel-head">
+      <div class="panel-title">primary telemetry</div>
+      <div class="panel-meta" id="overall-stats">awaiting first signal</div>
+    </div>
+    <div class="panel-body">
+      <div class="hero">
+        <div>
+          <div class="hero-label">run identifier</div>
+          <div id="run-id" class="hero-id">(no signal)</div>
+        </div>
+        <div class="hero-progress">
+          <div class="progress-track">
+            <div id="overall-bar" class="progress-fill" style="width:0"></div>
+          </div>
+          <div class="progress-stats">
+            <span>completion<b id="stat-done">0</b>/<b id="stat-total">0</b></span>
+            <span>active<b id="stat-running">0</b></span>
+            <span>elapsed<b id="stat-elapsed">—</b></span>
+            <span>eta<b id="stat-eta">—</b></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 
-<div class="panel">
-  <div class="panel-title">
-    suites × repeats
-    <span class="controls">
-      <label class="muted"><input type="checkbox" id="hide-done" /> hide done</label>
-      <input type="text" id="filter" placeholder="filter suite..." />
-    </span>
-  </div>
-  <table id="grid"><thead></thead><tbody></tbody></table>
-  <div class="legend">legend: w=warmup b=baseline e=evolved · · pending ◔ running ↻ retrying ● done ✗ failed · hover for details</div>
-</div>
+  <section class="panel" id="params-panel" style="display:none">
+    <div class="panel-head">
+      <div class="panel-title">run configuration</div>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <div id="params" class="params"></div>
+    </div>
+  </section>
 
-<div class="panel">
-  <div class="panel-title">alive containers <span id="ctr-count" class="muted"></span></div>
-  <table id="ctr"><thead><tr><th>container</th><th>repeat</th><th>stage</th><th>suite</th><th>task</th><th>uptime</th></tr></thead><tbody></tbody></table>
-</div>
+  <section class="panel" id="repeats-panel">
+    <div class="panel-head">
+      <div class="panel-title">repeat channels</div>
+    </div>
+    <div class="panel-body">
+      <div id="repeats"></div>
+    </div>
+  </section>
 
-<div class="panel" id="errors-panel" style="display:none">
-  <div class="panel-title">recent failures <span id="err-count" class="muted"></span></div>
-  <table id="errors"><thead><tr><th>time</th><th>kind</th><th>where</th><th>detail</th></tr></thead><tbody></tbody></table>
-</div>
+  <section class="panel">
+    <div class="panel-head">
+      <div class="panel-title">suites &times; repeats matrix</div>
+      <div class="controls">
+        <label><input type="checkbox" id="hide-done" /> suppress completed</label>
+        <input type="text" id="filter" placeholder="filter by suite designation..." />
+      </div>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <table id="grid"><thead></thead><tbody></tbody></table>
+      <div class="legend">
+        <span><b style="color:var(--amber)">w</b> warmup</span>
+        <span><b style="color:var(--amber)">b</b> baseline</span>
+        <span><b style="color:var(--amber)">e</b> evolved</span>
+        <span class="sep">·</span>
+        <span class="pending">· pending</span>
+        <span class="running">◔ running</span>
+        <span class="retrying">↻ retrying</span>
+        <span class="done">● done</span>
+        <span class="failed">✗ failed</span>
+        <span class="sep">·</span>
+        <span style="color:var(--muted)">hover any cell for detail</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div class="panel-title">active containers</div>
+      <div class="panel-meta" id="ctr-count">(0)</div>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <table id="ctr">
+        <thead><tr><th>container</th><th>repeat</th><th>stage</th><th>suite</th><th>task</th><th>uptime</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" id="errors-panel" style="display:none">
+    <div class="panel-head">
+      <div class="panel-title">recent anomalies</div>
+      <div class="panel-meta" id="err-count">(0)</div>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <table id="errors">
+        <thead><tr><th>timestamp</th><th>kind</th><th>coordinates</th><th>detail</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
 
 <script>
 const STATUS_SYM = { pending: '·', running: '◔', retrying: '↻', done: '●', failed: '✗' };
@@ -236,7 +732,7 @@ function suiteCellHtml(suite, containers, repeatIndex) {
       const err = t.last_error ? `  (${t.last_error})` : '';
       const ctr = (status === 'running' || status === 'retrying')
         ? ctrFor(t.name, 'warmup') : null;
-      return `  ${sym} ${t.name.padEnd(8)} [${status}]${err}${ctr ? `\n      docker kill ${ctr}` : ''}`;
+      return `${sym} ${t.name.padEnd(8)} [${status}]${err}${ctr ? `\n  docker kill ${ctr}` : ''}`;
     });
     wTitle = `warmup [${w}]\n` + lines.join('\n');
   } else if (wErr) {
@@ -276,7 +772,7 @@ function suiteCellHtml(suite, containers, repeatIndex) {
       const err = p?.last_error ? `  (${p.last_error})` : '';
       const ctr = (status === 'running' || status === 'retrying')
         ? ctrFor(t.name, `holdout/${phase}`) : null;
-      return `  ${sym} ${t.name.padEnd(8)} [${status}]${err}${ctr ? `\n      docker kill ${ctr}` : ''}`;
+      return `${sym} ${t.name.padEnd(8)} [${status}]${err}${ctr ? `\n  docker kill ${ctr}` : ''}`;
     });
     return `${label} [${st}]\n` + lines.join('\n');
   };
@@ -295,7 +791,7 @@ function suiteCellHtml(suite, containers, repeatIndex) {
 function render() {
   if (!snapshot) return;
   const repeats = snapshot.repeats || [];
-  document.getElementById('run-id').textContent = snapshot.run_id || '(no run)';
+  document.getElementById('run-id').textContent = snapshot.run_id || '(no signal)';
 
   // run params 面板：来自 RunPlanEvent.params
   const params = snapshot.params || [];
@@ -304,7 +800,7 @@ function render() {
   if (params.length) {
     paramsPanel.style.display = '';
     paramsDiv.innerHTML = params.map(([k, v]) =>
-      `<div><span class="pk">${k}</span><span class="pv">${v}</span></div>`
+      `<div class="param"><span class="param-key">${k}</span><span class="param-val">${v}</span></div>`
     ).join('');
   } else {
     paramsPanel.style.display = 'none';
@@ -324,9 +820,16 @@ function render() {
   document.getElementById('overall-bar').style.width = pct + '%';
   const elapsed = snapshot.run_started_at ? (Date.now() / 1000 - snapshot.run_started_at) : 0;
   const eta = (done > 0) ? (elapsed * (total - done) / done) : null;
-  document.getElementById('overall-stats').textContent =
-    `${done}/${total} suites · running ${running} · elapsed ${fmtDuration(elapsed)}` +
-    (eta != null ? ` · ETA ${fmtDuration(eta)}` : '');
+  // 顶部 panel-meta：百分比 + 完成数
+  document.getElementById('overall-stats').textContent = total
+    ? `${pct}% complete · ${done}/${total} suites`
+    : 'awaiting first signal';
+  // 进度条下方的细分读数
+  document.getElementById('stat-done').textContent = done;
+  document.getElementById('stat-total').textContent = total;
+  document.getElementById('stat-running').textContent = running;
+  document.getElementById('stat-elapsed').textContent = elapsed ? fmtDuration(elapsed) : '—';
+  document.getElementById('stat-eta').textContent = eta != null ? fmtDuration(eta) : '—';
 
   // repeats 进度条
   const rDiv = document.getElementById('repeats');
@@ -338,10 +841,10 @@ function render() {
     const run_r = suites.filter(s => suiteOverall(s) === 'running').length;
     const pct_r = total_r ? Math.round(done_r * 100 / total_r) : 0;
     const row = document.createElement('div');
-    row.className = 'row';
-    row.innerHTML = `<div style="width:60px">repeat ${r.index}</div>`
-      + `<div class="bar"><div style="width:${pct_r}%"></div></div>`
-      + `<div class="muted" style="width:140px;text-align:right">${done_r}/${total_r} · running ${run_r}</div>`;
+    row.className = 'repeat-row';
+    row.innerHTML = `<div class="repeat-label">repeat ${r.index}</div>`
+      + `<div class="repeat-bar"><div style="width:${pct_r}%"></div></div>`
+      + `<div class="repeat-meta">${done_r}/${total_r} done · ${run_r} active</div>`;
     rDiv.appendChild(row);
   }
 
@@ -354,7 +857,7 @@ function render() {
   const idxArr = [...allIdx].sort((a, b) => a - b);
   // 表头
   const thead = document.querySelector('#grid thead');
-  thead.innerHTML = '<tr><th>suite</th>' + repeats.map(r => `<th>r${r.index}<br><span class="muted">w b e</span></th>`).join('') + '</tr>';
+  thead.innerHTML = '<tr><th>suite</th>' + repeats.map(r => `<th class="cell-head"><span class="rid">r${r.index}</span><span class="legend">w b e</span></th>`).join('') + '</tr>';
   const tbody = document.querySelector('#grid tbody');
   tbody.innerHTML = '';
   let hiddenDone = 0;
@@ -367,7 +870,7 @@ function render() {
     if (hideDone && allDone) { hiddenDone += 1; continue; }
     if (filter && !sample.name.toLowerCase().includes(filter)) continue;
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${sample.name}</td>` + repeats.map(r => {
+    tr.innerHTML = `<td class="suite-name">${sample.name}</td>` + repeats.map(r => {
       const c = suiteCellHtml(r.suites?.[i] || {}, snapshot.containers || [], r.index);
       return `<td class="cell">${c.html}</td>`;
     }).join('');
@@ -375,7 +878,7 @@ function render() {
   }
   if (hideDone && hiddenDone) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="${repeats.length + 1}" class="muted done">+ ${hiddenDone} suites done</td>`;
+    tr.innerHTML = `<td colspan="${repeats.length + 1}" class="muted done">+ ${hiddenDone} suites complete</td>`;
     tbody.appendChild(tr);
   }
 
@@ -419,7 +922,7 @@ function render() {
       tr.innerHTML = `<td class="muted">${ts}</td>`
         + `<td>${e.kind || ''}</td>`
         + `<td>${escapeAttr(coord)}</td>`
-        + `<td class="failed" title="${escapeAttr(e.detail || '')}">${escapeAttr(e.detail || '')}</td>`;
+        + `<td class="detail" title="${escapeAttr(e.detail || '')}">${escapeAttr(e.detail || '')}</td>`;
       errsTbody.appendChild(tr);
     }
   } else {
@@ -451,9 +954,15 @@ async function refreshSnapshot(force = false) {
 // 连接状态由 SSE 维护：onopen → live；onerror → disconnected（浏览器自带重连）
 function connect() {
   const conn = document.getElementById('conn');
+  const connLabel = conn.querySelector('.conn-label');
+  const setConn = (live) => {
+    conn.classList.toggle('live', live);
+    conn.classList.toggle('dead', !live);
+    if (connLabel) connLabel.textContent = live ? 'online' : 'offline';
+  };
   const es = new EventSource('/events');
-  es.onopen = () => { conn.textContent = 'live'; conn.className = 'conn live'; };
-  es.onerror = () => { conn.textContent = 'disconnected'; conn.className = 'conn dead'; };
+  es.onopen = () => setConn(true);
+  es.onerror = () => setConn(false);
   es.onmessage = (m) => {
     try { const env = JSON.parse(m.data); applyEvent(env); }
     catch (e) { console.warn('bad sse payload', e); }

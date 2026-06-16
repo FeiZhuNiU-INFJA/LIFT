@@ -174,19 +174,22 @@ class RunStateTracker:
     def _handle_suite_plan(self, e: ev.SuitePlanEvent) -> None:
         with self._lock:
             suite = self._ensure_suite(e.repeat_index, e.suite_index, e.suite_name)
-            suite.warmup_tasks = {
-                n: WarmupTaskNode(name=n) for n in e.warmup_task_names
-            }
-            suite.holdout_tasks = {
-                n: TaskNode(
-                    name=n,
-                    phases={
-                        "baseline": PhaseNode("baseline"),
-                        "evolved": PhaseNode("evolved"),
-                    },
+            # 只**补缺**节点，不覆盖已存在节点的 status/last_error
+            # 否则：suite 重跑（队尾重跑）/ stage 事件先于 plan 到达时，
+            # 已经 done 的题会被覆盖回 pending
+            for n in e.warmup_task_names:
+                suite.warmup_tasks.setdefault(n, WarmupTaskNode(name=n))
+            for n in e.holdout_task_names:
+                suite.holdout_tasks.setdefault(
+                    n,
+                    TaskNode(
+                        name=n,
+                        phases={
+                            "baseline": PhaseNode("baseline"),
+                            "evolved": PhaseNode("evolved"),
+                        },
+                    ),
                 )
-                for n in e.holdout_task_names
-            }
             suite.planned = True
 
     # ---- 状态翻转 --------------------------------------------------------
@@ -207,6 +210,15 @@ class RunStateTracker:
                 suite = self._ensure_suite(
                     e.repeat_index, e.suite_index, e.suite_name or ""
                 )
+            elif e.suite_name:
+                # 兜底：emit 端没传 suite_index 时（如 warmup_task 状态事件），
+                # 在已有 repeat 的 suites 里按 name 查找
+                repeat = self._repeats.get(e.repeat_index)
+                if repeat is not None:
+                    for s in repeat.suites.values():
+                        if s.name == e.suite_name:
+                            suite = s
+                            break
 
             if e.kind == "suite" and suite is not None:
                 suite.status = e.status
