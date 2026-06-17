@@ -62,4 +62,11 @@ def extract_agent_text(stdout: str) -> str:
     if media_urls:
         LOGGER.info("mediaUrls: %s", "\n".join(media_urls))
 
-    return "\n".join(texts)
+    result = "\n".join(texts)
+    
+    if len(result) < 10:
+        # 完整原始 stdout
+        LOGGER.info("[extract_agent_text] result: %s, input stdout (%d chars):\n%s", result, len(stdout), stdout)
+
+
+    return result

@@ -9,21 +9,21 @@
 <style>
   /* ---- design tokens : observatory mission control ---- */
   :root {
-    --bg: #060912;
-    --bg-elev: #0c1322;
-    --bg-elev2: #131c30;
-    --fg: #d8deea;
-    --muted: #5a6886;
-    --line: #1a2238;
-    --line-strong: #283556;
+    --bg: #0a0d12;
+    --bg-elev: #0e131c;
+    --bg-elev2: #141b27;
+    --fg: #e8edf4;
+    --muted: #7382a0;
+    --line: #1c2434;
+    --line-strong: #2a3548;
 
-    --amber: #ffb547;          /* primary signal color */
-    --amber-dim: rgba(255, 181, 71, 0.45);
-    --green: #00d68f;          /* done / nominal */
-    --yellow: #ffcb45;         /* running / active */
-    --red: #ff5470;            /* failed / alarm */
-    --cyan: #6ec1ff;           /* informational */
-    --grey: #364056;           /* pending / inert */
+    --amber: #ffb547;          /* 活信号：running / failed / 关键 delta */
+    --amber-dim: rgba(255, 181, 71, 0.4);
+    --green: #34d399;          /* done / 正向 delta */
+    --yellow: #ffcb45;         /* active */
+    --red: #f87171;            /* failed / 负向 delta */
+    --cyan: #6ec1ff;           /* 标识（task name） */
+    --grey: #3a465e;           /* pending */
   }
 
   * { box-sizing: border-box; }
@@ -32,14 +32,8 @@
   body {
     background: var(--bg);
     color: var(--fg);
-    font: 13px/1.5 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+    font: 15px/1.55 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
     min-height: 100vh;
-    background-image:
-      linear-gradient(rgba(110, 193, 255, 0.022) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(110, 193, 255, 0.022) 1px, transparent 1px),
-      radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255, 181, 71, 0.05), transparent 70%);
-    background-size: 40px 40px, 40px 40px, 100% 600px;
-    background-attachment: fixed;
   }
 
   /* ---- mast (sticky top bar) ---- */
@@ -56,16 +50,7 @@
     -webkit-backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--line);
   }
-  .mast::after {
-    content: '';
-    position: absolute;
-    bottom: -1px;
-    left: 0;
-    height: 1px;
-    width: 100%;
-    background: linear-gradient(90deg, transparent, var(--amber) 25%, var(--amber) 75%, transparent);
-    opacity: 0.5;
-  }
+  .mast::after { display: none; }
   .brand {
     font: 800 24px/1 'Barlow Condensed', 'Arial Narrow', sans-serif;
     letter-spacing: 0.06em;
@@ -97,8 +82,8 @@
     gap: 8px;
     padding: 5px 11px;
     border: 1px solid var(--line-strong);
-    font: 500 11px/1 'JetBrains Mono', monospace;
-    letter-spacing: 0.15em;
+    font: 500 12px/1 'JetBrains Mono', monospace;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--muted);
   }
@@ -127,54 +112,45 @@
     margin: 0 auto;
   }
 
-  /* ---- panel (HUD instrument w/ corner brackets) ---- */
+  /* ---- panel: hairline 分组，无框无角标 ---- */
   .panel {
     position: relative;
-    border: 1px solid var(--line);
-    background: linear-gradient(180deg, var(--bg-elev) 0%, rgba(6, 9, 18, 0.4) 100%);
-    margin-bottom: 18px;
+    z-index: 1;
+    background: transparent;
+    margin-bottom: 26px;
+    padding-bottom: 26px;
+    border-bottom: 1px solid var(--line);
   }
-  .panel::before, .panel::after {
-    content: '';
-    position: absolute;
-    width: 12px;
-    height: 12px;
-    border: 1px solid var(--amber);
-    pointer-events: none;
-  }
-  .panel::before {
-    top: -1px;
-    left: -1px;
-    border-right: none;
-    border-bottom: none;
-  }
-  .panel::after {
-    bottom: -1px;
-    right: -1px;
-    border-left: none;
-    border-top: none;
-  }
+  .panel:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+  /* 当 panel 内有 tooltip 正在 hover 时，把整个 panel 提到上层，避免被下方 panel 遮挡 */
+  .panel:has(.tip:hover) { z-index: 50; }
   .panel-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px 16px;
+    padding: 0 0 14px;
     border-bottom: 1px solid var(--line);
-    background: linear-gradient(90deg, rgba(255, 181, 71, 0.06), transparent 60%);
   }
   .panel-title {
-    font: 600 12px/1 'Barlow Condensed', 'Arial Narrow', sans-serif;
-    letter-spacing: 0.22em;
+    font: 700 15px/1 'Barlow Condensed', 'Arial Narrow', sans-serif;
+    letter-spacing: 0.2em;
     color: var(--amber);
     text-transform: uppercase;
   }
-  .panel-meta {
-    font: 400 11px/1 'JetBrains Mono', monospace;
-    color: var(--muted);
-    letter-spacing: 0.05em;
+  .panel-title-group { display: flex; align-items: center; gap: 10px; }
+  .panel-fold {
+    background: transparent; border: none; cursor: pointer;
+    color: var(--muted); font: 700 13px/1 'JetBrains Mono', monospace;
+    padding: 0; width: 14px; text-align: left; transition: color 0.15s;
   }
-  .panel-body { padding: 16px; }
+  .panel-fold:hover { color: var(--amber); }
+  .panel-meta {
+    font: 400 12px/1 'JetBrains Mono', monospace;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+  .panel-body { padding: 18px 0 0; }
 
   /* ---- hero (primary telemetry) ---- */
   .hero {
@@ -184,17 +160,23 @@
     align-items: center;
   }
   .hero-label {
-    font: 400 10px/1 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.4em;
+    font: 400 11px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.32em;
     color: var(--muted);
     text-transform: uppercase;
     margin-bottom: 10px;
   }
   .hero-id {
-    font: 700 30px/1.1 'Barlow Condensed', 'Arial Narrow', sans-serif;
-    color: var(--fg);
-    letter-spacing: 0.02em;
+    font: 700 32px/1.15 'Barlow Condensed', 'Arial Narrow', sans-serif;
+    color: var(--cyan);
+    letter-spacing: 0.01em;
     word-break: break-all;
+  }
+  .hero-readout { display: flex; align-items: baseline; gap: 26px; flex-wrap: wrap; }
+  .hero-pct {
+    font: 700 56px/1 'Barlow Condensed', sans-serif;
+    color: var(--fg);
+    letter-spacing: -0.01em;
   }
   .hero-progress {
     display: flex;
@@ -203,9 +185,8 @@
   }
   .progress-track {
     position: relative;
-    height: 22px;
-    background: var(--bg);
-    border: 1px solid var(--line);
+    height: 6px;
+    background: var(--bg-elev2);
     overflow: hidden;
   }
   .progress-track::before {
@@ -213,35 +194,24 @@
     content: '';
     position: absolute;
     inset: 0;
-    background-image: linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-image: linear-gradient(90deg, var(--line-strong) 1px, transparent 1px);
     background-size: 10% 100%;
-    opacity: 0.55;
+    opacity: 0.5;
     pointer-events: none;
   }
   .progress-fill {
     position: relative;
     height: 100%;
-    background: linear-gradient(90deg, rgba(255, 181, 71, 0.45), var(--amber));
+    background: var(--amber);
     transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .progress-fill::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.32), transparent);
-    animation: shimmer 2.5s linear infinite;
-  }
-  @keyframes shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
   }
   .progress-stats {
     display: flex;
     flex-wrap: wrap;
-    gap: 24px;
-    font: 400 12px/1 'JetBrains Mono', monospace;
+    gap: 22px;
+    font: 400 14px/1.4 'JetBrains Mono', monospace;
     color: var(--muted);
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
   }
   .progress-stats b {
     color: var(--fg);
@@ -257,98 +227,131 @@
   }
   .repeat-ring {
     display: inline-grid;
-    grid-template-columns: 34px auto;
+    grid-template-columns: 38px auto;
     align-items: center;
-    gap: 8px;
-    min-width: 104px;
+    gap: 9px;
+    min-width: 112px;
     color: var(--muted);
-    font: 400 10px/1.1 'JetBrains Mono', monospace;
+    font: 400 12px/1.2 'JetBrains Mono', monospace;
   }
   .repeat-ring-gauge {
-    width: 34px;
-    height: 34px;
+    width: 38px;
+    height: 38px;
     border-radius: 50%;
     background:
       radial-gradient(circle at center, var(--bg-elev) 0 55%, transparent 56%),
       conic-gradient(var(--ring-color) var(--ring-pct), var(--line) 0);
     border: 1px solid var(--line-strong);
-    box-shadow: 0 0 8px rgba(255, 181, 71, 0.08);
   }
   .repeat-ring-label {
-    font: 600 11px/1 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.16em;
-    color: var(--amber);
+    font: 600 13px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.14em;
+    color: var(--fg);
     text-transform: uppercase;
   }
   .repeat-ring-meta { margin-top: 3px; white-space: nowrap; }
   .repeat-ring-active { color: var(--yellow); }
 
-  /* ---- params grid ---- */
-  .params {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 1px;
-    background: var(--line);
+  /* ---- params：紧凑内联（静态参考信息，高密度低存在感）---- */
+  .params { display: flex; flex-direction: column; }
+  .param-group {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: baseline;
+    gap: 18px;
+  }
+  .param-group:last-child { border-bottom: none; }
+  .param-group-label {
+    font: 600 11px/1.4 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.2em;
+    color: var(--amber);
+    text-transform: uppercase;
+    flex: 0 0 120px;
+  }
+  .param-cells {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 22px;
+    align-items: baseline;
+    flex: 1;
   }
   .param {
-    background: var(--bg-elev);
-    padding: 10px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 7px;
   }
   .param-key {
-    font: 400 10px/1 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.22em;
+    font: 400 11px/1.4 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.14em;
     color: var(--muted);
     text-transform: uppercase;
   }
   .param-val {
     color: var(--fg);
-    font-size: 12px;
+    font: 400 13px/1.4 'JetBrains Mono', monospace;
     word-break: break-all;
   }
 
-  /* ---- KPI strip ---- */
+  /* ---- KPI strip：按维度分组（overview / success / turns / score）---- */
   .kpi-strip {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     gap: 1px;
     background: var(--line);
   }
-  .kpi {
+  .kpi-group {
     background: var(--bg-elev);
-    padding: 14px 18px;
+    padding: 14px 20px 18px;
+  }
+  .kpi-group-label {
+    font: 600 11px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.22em;
+    color: var(--amber);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .kpi-cells {
+    display: flex;
+    gap: 22px 26px;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  /* task deltas 独占第二行：值 + Δ 在第一行 */
+  .kpi-cells > .kpi:has(.kpi-deltas) { flex-basis: 100%; }
+  .kpi {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
   }
   .kpi-label {
-    font: 400 10px/1 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.22em;
+    font: 400 12px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.18em;
     color: var(--muted);
     text-transform: uppercase;
   }
   .kpi-value {
-    font: 700 28px/1 'Barlow Condensed', sans-serif;
+    font: 700 40px/1 'Barlow Condensed', sans-serif;
     color: var(--fg);
-    letter-spacing: 0.02em;
+    letter-spacing: 0.01em;
   }
-  .kpi-value b { color: var(--amber); font-weight: 700; }
-  .kpi-suffix { font-size: 16px; color: var(--muted); margin-left: 4px; }
+  .kpi-value b { color: var(--fg); font-weight: 700; }
+  .kpi-suffix { font-size: 22px; color: var(--muted); margin-left: 4px; }
   .kpi-suffix i { font-style: normal; color: var(--muted); }
   .kpi-up { color: var(--green); }
   .kpi-down { color: var(--red); }
   .kpi-flat { color: var(--muted); }
+  .kpi-deltas { display: flex; gap: 18px; font-size: 30px; align-items: baseline; }
+  .kpi-deltas b { font-weight: 700; }
 
   /* ---- phase comparison ---- */
   .ghost-btn {
     background: transparent;
     border: 1px solid var(--line-strong);
     color: var(--muted);
-    padding: 4px 10px;
-    font: 500 10px/1 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.18em;
+    padding: 5px 12px;
+    font: 500 11px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     cursor: pointer;
     border-radius: 2px;
@@ -362,7 +365,7 @@
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 10px 18px;
+    padding: 12px 0;
     cursor: pointer;
     user-select: none;
     background: var(--bg-elev);
@@ -371,18 +374,18 @@
   .cmp-suite-head:hover { background: var(--bg-elev2); border-left-color: var(--amber-dim); }
   .cmp-suite-head .arrow {
     color: var(--muted);
-    font: 600 10px/1 'JetBrains Mono';
-    width: 12px;
+    font: 600 12px/1 'JetBrains Mono';
+    width: 14px;
   }
   .cmp-suite[data-open="true"] .arrow { color: var(--amber); }
   .cmp-suite-name {
-    font: 600 13px/1.1 'JetBrains Mono';
-    color: var(--fg);
+    font: 600 15px/1.2 'JetBrains Mono';
+    color: var(--cyan);
     flex: 1;
   }
   .cmp-suite-meta {
-    font: 400 11px/1 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.15em;
+    font: 400 12px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.12em;
     color: var(--muted);
     text-transform: uppercase;
     display: flex;
@@ -395,49 +398,43 @@
   .cmp-suite-meta .delta-down { color: var(--red); }
   .cmp-tasks {
     display: none;
-    padding: 6px 18px 12px;
+    padding: 8px 0 14px;
     background: var(--bg);
   }
   .cmp-suite[data-open="true"] .cmp-tasks { display: block; }
-  .cmp-row {
-    display: grid;
-    grid-template-columns: 80px 1fr auto 1fr 70px;
-    gap: 10px;
-    align-items: center;
-    padding: 6px 0;
+  .cmp-task {
+    padding: 10px 0;
     border-top: 1px dashed var(--line);
-    font: 400 11px/1.2 'JetBrains Mono';
   }
-  .cmp-row:first-child { border-top: none; }
-  .cmp-task-name { color: var(--cyan); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cmp-bar {
-    position: relative;
-    height: 16px;
-    background: var(--bg-elev);
-    border: 1px solid var(--line);
-    overflow: hidden;
+  .cmp-task:first-child { border-top: none; }
+  .cmp-task-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
   }
-  .cmp-bar-fill {
-    position: absolute;
-    inset: 0 auto 0 0;
-    background: var(--amber-dim);
+  .cmp-task-name {
+    color: var(--cyan); font-weight: 600; font-size: 14px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .cmp-bar.evolved .cmp-bar-fill { background: rgba(0, 214, 143, 0.42); }
-  .cmp-bar.failed .cmp-bar-fill { background: rgba(255, 84, 112, 0.45); width: 100% !important; }
-  .cmp-bar.pending .cmp-bar-fill { background: var(--grey); width: 0; }
-  .cmp-bar-text {
-    position: relative;
-    z-index: 1;
-    padding: 0 6px;
-    line-height: 16px;
+  .cmp-dims { display: flex; flex-direction: column; gap: 1px; }
+  .cmp-dim {
+    display: grid;
+    grid-template-columns: 56px 64px 14px 64px 56px;
+    gap: 12px;
+    align-items: baseline;
+    padding: 2px 0;
+    font: 400 13px/1.4 'JetBrains Mono';
     color: var(--fg);
-    font-size: 10px;
-    letter-spacing: 0.05em;
   }
-  .cmp-delta {
-    text-align: right;
-    font-weight: 700;
+  .cmp-dim-label {
+    font: 400 11px/1.4 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.16em;
+    color: var(--muted);
+    text-transform: uppercase;
   }
+  .cmp-arrow { color: var(--muted); text-align: center; }
+  .cmp-delta { font-weight: 700; }
   .cmp-delta.up { color: var(--green); }
   .cmp-delta.down { color: var(--red); }
   .cmp-delta.flat { color: var(--muted); }
@@ -446,10 +443,10 @@
   .fs-table {
     width: 100%;
     border-collapse: collapse;
-    font: 400 11px/1.4 'JetBrains Mono', monospace;
+    font: 400 13px/1.4 'JetBrains Mono', monospace;
   }
   .fs-table th, .fs-table td {
-    padding: 6px 10px;
+    padding: 8px 12px;
     border-bottom: 1px solid var(--line);
     text-align: right;
     white-space: nowrap;
@@ -457,8 +454,8 @@
   .fs-table th {
     background: var(--bg-elev2);
     color: var(--amber);
-    font: 600 10px/1.4 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.18em;
+    font: 600 11px/1.4 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     text-align: right;
     position: sticky;
@@ -470,7 +467,7 @@
   .fs-down { color: var(--red); }
   .fs-flat { color: var(--muted); }
   .fs-na { color: var(--muted); opacity: 0.6; }
-  .fs-meta { color: var(--muted); font-size: 10px; }
+  .fs-meta { color: var(--muted); font-size: 12px; }
 
   /* collapsible panel: when collapsed body hidden */
   .panel.collapsed .panel-body { display: none; }
@@ -478,9 +475,9 @@
     background: transparent;
     border: 1px solid var(--line-strong);
     color: var(--muted);
-    padding: 4px 10px;
-    font: 500 10px/1 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.18em;
+    padding: 5px 12px;
+    font: 500 11px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     cursor: pointer;
     border-radius: 2px;
@@ -493,62 +490,69 @@
   .dlg-modal { width: min(96vw, 1100px); max-height: 88vh; display: flex; flex-direction: column; }
   .dlg-modal .panel-body { max-height: 88vh; overflow: auto; }
   .dlg-phase { margin-bottom: 14px; }
-  .dlg-phase-head { font: 600 11px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.18em;
-    text-transform: uppercase; color: var(--amber); margin-bottom: 8px;
-    border-bottom: 1px solid var(--line-strong); padding-bottom: 4px; }
-  .dlg-src { color: var(--muted); font-weight: 400; letter-spacing: 0.05em;
-    text-transform: none; font-size: 10px; margin-left: 8px; }
-  .dlg-turn { border-bottom: 1px solid var(--line); padding: 8px 0; }
-  .dlg-role { font: 600 10px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.18em;
-    text-transform: uppercase; color: var(--cyan); margin-bottom: 3px; }
+  .dlg-phase-head { font: 600 13px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--amber); margin-bottom: 10px;
+    border-bottom: 1px solid var(--line-strong); padding-bottom: 6px; }
+  .dlg-src { color: var(--muted); font-weight: 400; letter-spacing: 0.04em;
+    text-transform: none; font-size: 11px; margin-left: 8px; }
+  .dlg-turn { border-bottom: 1px solid var(--line); padding: 10px 0; }
+  .dlg-role { font: 600 12px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--cyan); margin-bottom: 4px; }
   .dlg-role.judge { color: var(--amber); }
   .dlg-content { white-space: pre-wrap; word-break: break-word;
-    font-family: 'JetBrains Mono', monospace; font-size: 12px;
-    max-height: 280px; overflow: auto; background: rgba(255, 181, 71, 0.03);
-    border: 1px solid var(--line); padding: 8px; border-radius: 3px; }
+    font-family: 'JetBrains Mono', monospace; font-size: 14px;
+    max-height: 320px; overflow: auto; background: var(--bg-elev);
+    border: 1px solid var(--line); padding: 12px; border-radius: 3px; }
   .dlg-score { float: right; font-weight: 600; }
   .dlg-btn {
-    display: inline-block; cursor: pointer; width: 38px; text-align: center;
-    font: 600 10px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.12em;
+    display: inline-block; cursor: pointer; width: 44px; text-align: center;
+    font: 600 11px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.1em;
     color: var(--muted); border: 1px solid var(--line-strong);
-    padding: 3px 0; border-radius: 2px; background: transparent; user-select: none;
+    padding: 4px 0; border-radius: 2px; background: transparent; user-select: none;
   }
   .dlg-btn:hover { color: var(--amber); border-color: var(--amber-dim); }
   /* 无 dialogue 时的占位：与 .dlg-btn 同宽，保持每行 grid 列宽一致 */
-  .cmp-dlg-slot { display: inline-block; width: 38px; }
+  .cmp-dlg-slot { display: inline-block; width: 44px; }
 
   /* ---- tables ---- */
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 12px;
+    font-size: 13px;
   }
   th, td {
     text-align: left;
-    padding: 8px 14px;
+    padding: 10px 14px;
     border-bottom: 1px solid var(--line);
   }
   thead th {
-    font: 600 10px/1.3 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.22em;
+    font: 600 11px/1.3 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.2em;
     color: var(--muted);
     text-transform: uppercase;
-    background: rgba(255, 181, 71, 0.03);
+    background: var(--bg-elev);
     border-bottom: 1px solid var(--line-strong);
   }
   tbody tr { transition: background 0.15s ease; }
-  tbody tr:hover { background: rgba(255, 181, 71, 0.04); }
+  tbody tr:hover { background: rgba(255, 181, 71, 0.05); }
   td.suite-name {
     font-family: 'JetBrains Mono', monospace;
-    color: var(--fg);
+    color: var(--cyan);
+  }
+  /* 标识符统一 cyan：active containers 的容器名（第一列） */
+  #ctr tbody td:first-child {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--cyan);
   }
   td.cell {
     font-family: 'JetBrains Mono', monospace;
-    letter-spacing: 3px;
+    letter-spacing: 4px;
     white-space: nowrap;
     text-align: center;
-    font-size: 14px;
+    font-size: 18px;
   }
+  /* done 的 score 数字：去掉状态符号的字距、加粗（避免 0.8 被拉成 0 . 8） */
+  td.cell .cell-score { letter-spacing: 0; font-weight: 600; }
   thead th.cell-head {
     text-align: center;
     text-transform: none;
@@ -557,26 +561,28 @@
   thead th.cell-head .legend {
     display: inline-block;
     font-family: 'JetBrains Mono', monospace;
-    letter-spacing: 3px;
-    font-size: 11px;
+    letter-spacing: 4px;
+    font-size: 12px;
     color: var(--muted);
     text-transform: lowercase;
   }
   thead th.cell-head .rid {
     display: block;
-    font: 600 10px/1.3 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.22em;
+    font: 600 11px/1.3 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.2em;
     color: var(--muted);
     text-transform: uppercase;
-    margin-bottom: 2px;
+    margin-bottom: 3px;
   }
 
-  /* status colors — glowing instrument readouts */
+  /* status colors — amber 只点活信号（running / failed），完成态不发光 */
   .pending { color: var(--grey); }
-  .running { color: var(--yellow); text-shadow: 0 0 6px currentColor; animation: blink 1.6s ease-in-out infinite; }
-  .retrying { color: var(--yellow); text-shadow: 0 0 6px currentColor; animation: blink 0.7s ease-in-out infinite; }
-  .done { color: var(--green); text-shadow: 0 0 4px currentColor; }
-  .failed { color: var(--red); text-shadow: 0 0 6px currentColor; }
+  .running { color: var(--amber); text-shadow: 0 0 6px currentColor; animation: blink 1.6s ease-in-out infinite; }
+  .retrying { color: var(--amber); text-shadow: 0 0 6px currentColor; animation: blink 0.7s ease-in-out infinite; }
+  /* hover 时停止闪烁，避免 tooltip 阅读干扰 */
+  .running:hover, .retrying:hover { animation: none; opacity: 1; }
+  .done { color: var(--green); }
+  .failed { color: var(--red); text-shadow: 0 0 5px currentColor; }
   .muted { color: var(--muted); }
   @keyframes blink {
     0%, 100% { opacity: 1; }
@@ -585,15 +591,15 @@
 
   /* ---- legend ---- */
   .legend {
-    padding: 10px 14px;
-    border-top: 1px solid var(--line);
-    font: 400 11px/1.5 'JetBrains Mono', monospace;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    font: 400 12px/1.5 'JetBrains Mono', monospace;
     color: var(--muted);
     display: flex;
     gap: 18px;
     flex-wrap: wrap;
     align-items: center;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
   }
   .legend .sep { color: var(--line-strong); }
 
@@ -604,8 +610,8 @@
     align-items: center;
   }
   .controls label {
-    font: 400 11px/1 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.18em;
+    font: 400 12px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--muted);
     cursor: pointer;
@@ -619,8 +625,8 @@
     background: var(--bg);
     color: var(--fg);
     border: 1px solid var(--line-strong);
-    padding: 5px 10px;
-    font: 400 12px 'JetBrains Mono', monospace;
+    padding: 7px 12px;
+    font: 400 13px 'JetBrains Mono', monospace;
     outline: none;
     width: 240px;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -640,13 +646,13 @@
     left: 0;
     top: 100%;
     margin-top: 8px;
-    z-index: 100;
+    z-index: 1000;
     background: var(--bg-elev2);
     color: var(--fg);
     border: 1px solid var(--amber);
     padding: 10px 12px;
     white-space: pre;
-    font: 11px/1.55 'JetBrains Mono', monospace;
+    font: 12px/1.55 'JetBrains Mono', monospace;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 181, 71, 0.18);
     pointer-events: none;
     max-width: 540px;
@@ -661,8 +667,8 @@
     background: var(--bg-elev2);
     color: var(--amber);
     border: 1px solid var(--amber);
-    padding: 6px 12px;
-    font: 11px 'JetBrains Mono', monospace;
+    padding: 7px 13px;
+    font: 12px 'JetBrains Mono', monospace;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
     opacity: 0;
     transition: opacity 0.18s ease;
@@ -679,23 +685,8 @@
     white-space: nowrap;
   }
 
-  /* slow observatory sweep — subtle, never distracts */
-  .scan {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, var(--amber), transparent);
-    z-index: 100;
-    pointer-events: none;
-    opacity: 0;
-    animation: scan 8s linear infinite;
-  }
-  @keyframes scan {
-    0% { transform: translateY(-2px); opacity: 0; }
-    8% { opacity: 0.32; }
-    92% { opacity: 0.32; }
-    100% { transform: translateY(100vh); opacity: 0; }
-  }
+  /* scan sweep removed — data terminal keeps decoration near-zero */
+  .scan { display: none; }
 
   @media (max-width: 820px) {
     .hero { grid-template-columns: 1fr; gap: 18px; }
@@ -721,9 +712,12 @@
 
 <main class="container">
 
-  <section class="panel">
+  <section class="panel" id="telemetry-panel">
     <div class="panel-head">
-      <div class="panel-title">primary telemetry</div>
+      <div class="panel-title-group">
+        <button class="panel-fold" aria-label="toggle panel">▾</button>
+        <div class="panel-title">primary telemetry</div>
+      </div>
       <div class="panel-meta" id="overall-stats">awaiting first signal</div>
     </div>
     <div class="panel-body">
@@ -733,14 +727,17 @@
           <div id="run-id" class="hero-id">(no signal)</div>
         </div>
         <div class="hero-progress">
+          <div class="hero-readout">
+            <span class="hero-pct" id="overall-pct">—</span>
+            <div class="progress-stats">
+              <span>completion<b id="stat-done">0</b>/<b id="stat-total">0</b></span>
+              <span>active<b id="stat-running">0</b></span>
+              <span>elapsed<b id="stat-elapsed">—</b></span>
+              <span>eta<b id="stat-eta">—</b></span>
+            </div>
+          </div>
           <div class="progress-track">
             <div id="overall-bar" class="progress-fill" style="width:0"></div>
-          </div>
-          <div class="progress-stats">
-            <span>completion<b id="stat-done">0</b>/<b id="stat-total">0</b></span>
-            <span>active<b id="stat-running">0</b></span>
-            <span>elapsed<b id="stat-elapsed">—</b></span>
-            <span>eta<b id="stat-eta">—</b></span>
           </div>
           <div id="repeat-rings" class="repeat-rings"></div>
         </div>
@@ -750,34 +747,66 @@
 
   <section class="panel" id="kpi-panel" style="display:none">
     <div class="panel-head">
-      <div class="panel-title">key indicators</div>
+      <div class="panel-title-group">
+        <button class="panel-fold" aria-label="toggle panel">▾</button>
+        <div class="panel-title">key indicators</div>
+      </div>
       <div class="panel-meta" id="kpi-source">live</div>
     </div>
     <div class="panel-body">
       <div class="kpi-strip">
-        <div class="kpi"><div class="kpi-label">tasks done</div>
-          <div class="kpi-value"><b id="kpi-done">0</b><span class="kpi-suffix">/<i id="kpi-total">0</i></span></div></div>
-        <div class="kpi"><div class="kpi-label">failed</div>
-          <div class="kpi-value" id="kpi-failed">0</div></div>
-        <div class="kpi"><div class="kpi-label">success rate</div>
-          <div class="kpi-value"><span id="kpi-base-sr">—</span><span class="kpi-suffix">→<i id="kpi-evo-sr">—</i></span></div></div>
-        <div class="kpi"><div class="kpi-label">&Delta; success rate</div>
-          <div class="kpi-value" id="kpi-delta-sr">—</div></div>
-        <div class="kpi"><div class="kpi-label">avg turns</div>
-          <div class="kpi-value"><span id="kpi-base-turns">—</span><span class="kpi-suffix">→<i id="kpi-evo-turns">—</i></span></div></div>
-        <div class="kpi"><div class="kpi-label">&Delta; turns</div>
-          <div class="kpi-value" id="kpi-delta-turns">—</div></div>
-        <div class="kpi"><div class="kpi-label">mean score</div>
-          <div class="kpi-value"><span id="kpi-base-score">—</span><span class="kpi-suffix">→<i id="kpi-evo-score">—</i></span></div></div>
-        <div class="kpi"><div class="kpi-label">&Delta; score</div>
-          <div class="kpi-value" id="kpi-delta-score">—</div></div>
+        <div class="kpi-group">
+          <div class="kpi-group-label">overview</div>
+          <div class="kpi-cells">
+            <div class="kpi"><div class="kpi-label">tasks done</div>
+              <div class="kpi-value"><b id="kpi-done">0</b><span class="kpi-suffix">/<i id="kpi-total">0</i></span></div></div>
+            <div class="kpi"><div class="kpi-label">failed</div>
+              <div class="kpi-value" id="kpi-failed">0</div></div>
+          </div>
+        </div>
+        <div class="kpi-group">
+          <div class="kpi-group-label">success</div>
+          <div class="kpi-cells">
+            <div class="kpi"><div class="kpi-label">success rate</div>
+              <div class="kpi-value"><span id="kpi-base-sr">—</span><span class="kpi-suffix">→<i id="kpi-evo-sr">—</i></span></div></div>
+            <div class="kpi"><div class="kpi-label">&Delta; success rate</div>
+              <div class="kpi-value" id="kpi-delta-sr">—</div></div>
+            <div class="kpi"><div class="kpi-label">task deltas &middot; success</div>
+              <div class="kpi-value kpi-deltas" id="kpi-td-success">—</div></div>
+          </div>
+        </div>
+        <div class="kpi-group">
+          <div class="kpi-group-label">turns</div>
+          <div class="kpi-cells">
+            <div class="kpi"><div class="kpi-label">avg turns</div>
+              <div class="kpi-value"><span id="kpi-base-turns">—</span><span class="kpi-suffix">→<i id="kpi-evo-turns">—</i></span></div></div>
+            <div class="kpi"><div class="kpi-label">&Delta; turns</div>
+              <div class="kpi-value" id="kpi-delta-turns">—</div></div>
+            <div class="kpi"><div class="kpi-label">task deltas &middot; turns</div>
+              <div class="kpi-value kpi-deltas" id="kpi-td-turns">—</div></div>
+          </div>
+        </div>
+        <div class="kpi-group">
+          <div class="kpi-group-label">score</div>
+          <div class="kpi-cells">
+            <div class="kpi"><div class="kpi-label">mean score</div>
+              <div class="kpi-value"><span id="kpi-base-score">—</span><span class="kpi-suffix">→<i id="kpi-evo-score">—</i></span></div></div>
+            <div class="kpi"><div class="kpi-label">&Delta; score</div>
+              <div class="kpi-value" id="kpi-delta-score">—</div></div>
+            <div class="kpi"><div class="kpi-label">task deltas &middot; score</div>
+              <div class="kpi-value kpi-deltas" id="kpi-td-score">—</div></div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 
   <section class="panel" id="compare-panel" style="display:none">
     <div class="panel-head">
-      <div class="panel-title">phase comparison · baseline vs evolved</div>
+      <div class="panel-title-group">
+        <button class="panel-fold" aria-label="toggle panel">▾</button>
+        <div class="panel-title">phase comparison · baseline vs evolved</div>
+      </div>
       <div class="controls">
         <label><input type="checkbox" id="cmp-only-done" /> only done</label>
         <button type="button" id="cmp-expand-all" class="ghost-btn">expand all</button>
@@ -791,10 +820,12 @@
 
   <section class="panel" id="final-panel" style="display:none">
     <div class="panel-head">
-      <div class="panel-title">final summary · post-processed metrics</div>
+      <div class="panel-title-group">
+        <button class="panel-fold" aria-label="toggle panel">▾</button>
+        <div class="panel-title">final summary · post-processed metrics</div>
+      </div>
       <div class="controls">
         <span class="panel-meta" id="final-meta"></span>
-        <button type="button" id="final-toggle" class="panel-toggle">collapse</button>
       </div>
     </div>
     <div class="panel-body" style="padding:0; overflow:auto;">
@@ -821,44 +852,53 @@
 
   <section class="panel" id="params-panel" style="display:none">
     <div class="panel-head">
-      <div class="panel-title">run configuration</div>
+      <div class="panel-title-group">
+        <button class="panel-fold" aria-label="toggle panel">▾</button>
+        <div class="panel-title">run configuration</div>
+      </div>
     </div>
     <div class="panel-body" style="padding:0">
       <div id="params" class="params"></div>
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel" id="matrix-panel">
     <div class="panel-head">
-      <div class="panel-title">suites &times; repeats matrix</div>
+      <div class="panel-title-group">
+        <button class="panel-fold" aria-label="toggle panel">▾</button>
+        <div class="panel-title">suites &times; repeats matrix</div>
+      </div>
       <div class="controls">
         <label><input type="checkbox" id="hide-done" /> suppress completed</label>
         <input type="text" id="filter" placeholder="filter by suite designation..." />
       </div>
     </div>
     <div class="panel-body" style="padding:0">
-      <table id="grid"><thead></thead><tbody></tbody></table>
       <div class="legend">
         <span><b style="color:var(--amber)">w</b> warmup</span>
         <span><b style="color:var(--amber)">b</b> baseline</span>
         <span><b style="color:var(--amber)">e</b> evolved</span>
         <span class="sep">·</span>
-        <span class="pending">· pending</span>
+        <span class="pending">○ pending</span>
         <span class="running">◔ running</span>
         <span class="retrying">↻ retrying</span>
         <span class="done">● done</span>
         <span class="failed">✗ failed</span>
         <span class="sep">·</span>
-        <span><b style="color:var(--green)">0-9</b> score &times;10 (done)</span>
+        <span><b style="color:var(--green)">0.0–1.0</b> score (done)</span>
         <span class="sep">·</span>
         <span style="color:var(--muted)">hover any cell for detail · click to copy</span>
       </div>
+      <table id="grid"><thead></thead><tbody></tbody></table>
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel" id="containers-panel">
     <div class="panel-head">
-      <div class="panel-title">active containers</div>
+      <div class="panel-title-group">
+        <button class="panel-fold" aria-label="toggle panel">▾</button>
+        <div class="panel-title">active containers</div>
+      </div>
       <div class="panel-meta" id="ctr-count">(0)</div>
     </div>
     <div class="panel-body" style="padding:0">
@@ -871,7 +911,10 @@
 
   <section class="panel" id="errors-panel" style="display:none">
     <div class="panel-head">
-      <div class="panel-title">recent anomalies</div>
+      <div class="panel-title-group">
+        <button class="panel-fold" aria-label="toggle panel">▾</button>
+        <div class="panel-title">recent anomalies</div>
+      </div>
       <div class="panel-meta" id="err-count">(0)</div>
     </div>
     <div class="panel-body" style="padding:0">
@@ -885,7 +928,7 @@
 </main>
 
 <script>
-const STATUS_SYM = { pending: '·', running: '◔', retrying: '↻', done: '●', failed: '✗' };
+const STATUS_SYM = { pending: '○', running: '◔', retrying: '↻', done: '●', failed: '✗' };
 let snapshot = null;
 
 function escapeAttr(s) {
@@ -1003,22 +1046,20 @@ function suiteCellHtml(suite, containers, repeatIndex) {
     });
     return `${header}\n` + lines.join('\n');
   };
-  // phase 色块：done 且有平均分时把 sym 改为 0-9 整数（avg * 10 floor，clamp）
+  // phase 色块：done 且有平均分时直接显示 score（0.0–1.0，一位小数，无歧义）
   const phaseSym = (agg) => {
-    if (agg.st === 'done' && agg.avg != null) {
-      const v = Math.max(0, Math.min(9, Math.floor(agg.avg * 10)));
-      return String(v);
-    }
+    if (agg.st === 'done' && agg.avg != null) return agg.avg.toFixed(1);
     return STATUS_SYM[agg.st] || '?';
   };
-  const cell = (st, sym, title) =>
-    `<span class="${st} tip" data-tip="${escapeAttr(title)}">${sym}</span>`;
+  const isDoneScore = (agg) => agg.st === 'done' && agg.avg != null;
+  const cell = (st, sym, title, score = false) =>
+    `<span class="${st} tip${score ? ' cell-score' : ''}" data-tip="${escapeAttr(title)}">${sym}</span>`;
   const html = [
     cell(w, STATUS_SYM[w] || '?', wTitle),
     cell(baseline.st, phaseSym(baseline),
-      phaseTooltip('baseline', 'baseline', baseline)),
+      phaseTooltip('baseline', 'baseline', baseline), isDoneScore(baseline)),
     cell(evolved.st, phaseSym(evolved),
-      phaseTooltip('evolved', 'evolved', evolved)),
+      phaseTooltip('evolved', 'evolved', evolved), isDoneScore(evolved)),
   ].join(' ');
   return { html };
 }
@@ -1074,27 +1115,38 @@ function renderCompare(repeats) {
     const bad = invert ? (d > 0.001) : (d < -0.001);
     return good ? 'delta-up' : bad ? 'delta-down' : '';
   };
-  const phaseHtml = (cls, ph) => {
-    const done = ph.status === 'done';
-    const failed = ph.status === 'failed';
-    const score = (typeof ph.score === 'number') ? ph.score : null;
-    let kls = cls;
-    if (failed) kls += ' failed';
-    else if (!done) kls += ' pending';
-    const w = (score != null) ? Math.round(score * 100) : 0;
-    const txt = failed ? 'failed'
-      : (done ? (score != null ? fmt(score) : '—')
-        : (ph.status || 'pending'));
-    return `<div class="cmp-bar ${kls}"><div class="cmp-bar-fill" style="width:${w}%"></div><div class="cmp-bar-text">${txt}</div></div>`;
+  // 三维度对比行：每行 label | baseline → evolved | delta（score / turns / pass）
+  const fmt2 = (v) => (typeof v === 'number') ? v.toFixed(2) : '—';
+  const fmtT = (v) => (typeof v === 'number') ? v.toFixed(1) : '—';
+  const passSym = (v) => (v === true) ? '✓' : (v === false) ? '✗' : '—';
+  const dimRow = (label, baseText, evoText, deltaText, cls) =>
+    `<div class="cmp-dim">`
+    + `<span class="cmp-dim-label">${label}</span>`
+    + `<span class="cmp-dim-base">${baseText}</span>`
+    + `<span class="cmp-arrow">→</span>`
+    + `<span class="cmp-dim-evo">${evoText}</span>`
+    + `<span class="cmp-delta ${cls}">${deltaText}</span>`
+    + `</div>`;
+  const scoreDim = (b, e) => {
+    const d = (typeof b === 'number' && typeof e === 'number') ? e - b : null;
+    const cls = (d == null) ? 'flat' : (d > 0.001 ? 'up' : d < -0.001 ? 'down' : 'flat');
+    const txt = (d == null) ? '—' : (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(2);
+    return dimRow('score', fmt2(b), fmt2(e), txt, cls);
   };
-  const deltaHtml = (rowBase, rowEvo) => {
-    if (typeof rowBase.score !== 'number' || typeof rowEvo.score !== 'number') {
-      return `<div class="cmp-delta flat">—</div>`;
+  const turnsDim = (b, e) => {  // 轮数越少越好：负 delta = 进步
+    const d = (typeof b === 'number' && typeof e === 'number' && b > 0 && e > 0) ? e - b : null;
+    const cls = (d == null) ? 'flat' : (d < -0.001 ? 'up' : d > 0.001 ? 'down' : 'flat');
+    const txt = (d == null) ? '—' : (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(1);
+    return dimRow('turns', fmtT(b), fmtT(e), txt, cls);
+  };
+  const passDim = (b, e) => {
+    let txt = '—', cls = 'flat';
+    if (typeof b === 'boolean' && typeof e === 'boolean') {
+      if (!b && e) { txt = '▲'; cls = 'up'; }        // fail → pass
+      else if (b && !e) { txt = '▼'; cls = 'down'; } // pass → fail
+      else { txt = '='; cls = 'flat'; }
     }
-    const d = rowEvo.score - rowBase.score;
-    const cls = d > 0.001 ? 'up' : (d < -0.001 ? 'down' : 'flat');
-    const sign = d > 0 ? '+' : (d < 0 ? '' : '±');
-    return `<div class="cmp-delta ${cls}">${sign}${d.toFixed(2)}</div>`;
+    return dimRow('pass', passSym(b), passSym(e), txt, cls);
   };
   // 对话记录入口：位于 baseline ↔ evolved 中间列。仅在该 task 有 dialogue 时显示按钮，
   // 否则占位（保持每行 grid 列宽一致，baseline/evolved 宽度对齐）。
@@ -1129,14 +1181,16 @@ function renderCompare(repeats) {
     const tb = mean(baseTurns), te = mean(evoTurns);
     const open = cmpOpen[idx] === true;  // 默认收起
     const rowsHtml = rows.map(r => {
-      const taskLabel = (repeats.length > 1)
-        ? `r${r.repeat}/${r.task}` : r.task;
-      return `<div class="cmp-row">`
-        + `<div class="cmp-task-name" title="${escapeAttr(taskLabel)}">${taskLabel}</div>`
-        + phaseHtml('baseline', r.base)
+      const taskLabel = (repeats.length > 1) ? `r${r.repeat}/${r.task}` : r.task;
+      const dims = scoreDim(r.base.score, r.evo.score)
+        + turnsDim(r.base.turns, r.evo.turns)
+        + passDim(r.base.success, r.evo.success);
+      return `<div class="cmp-task">`
+        + `<div class="cmp-task-head">`
+        + `<span class="cmp-task-name" title="${escapeAttr(taskLabel)}">${taskLabel}</span>`
         + dialogueBtnHtml(r.repeat, idx, r.task, r.baseDlg, r.evoDlg)
-        + phaseHtml('evolved', r.evo)
-        + deltaHtml(r.base, r.evo)
+        + `</div>`
+        + `<div class="cmp-dims">${dims}</div>`
         + `</div>`;
     }).join('');
     return `<div class="cmp-suite" data-suite-idx="${idx}" data-open="${open}">`
@@ -1166,6 +1220,15 @@ const FS_METRICS = [
   'total_tokens', 'cached_token', 'cached_token_ratio',
 ];
 const FS_PANEL_COLLAPSED = { v: false };
+const PARAMS_COLLAPSED = { v: true };  // run configuration 默认折叠（静态参考信息）
+// 各 panel 折叠状态（by id）；默认展开，仅 run configuration 默认折叠
+const PANEL_COLLAPSED = { 'params-panel': true };
+function applyFold(panel) {
+  const collapsed = PANEL_COLLAPSED[panel.id] === true;
+  panel.classList.toggle('collapsed', collapsed);
+  const fold = panel.querySelector('.panel-fold');
+  if (fold) fold.textContent = collapsed ? '▸' : '▾';
+}
 function renderFinalSummary(fs) {
   const panel = document.getElementById('final-panel');
   if (!fs || !fs.rows || !fs.rows.length) {
@@ -1173,9 +1236,6 @@ function renderFinalSummary(fs) {
     return;
   }
   panel.style.display = '';
-  panel.classList.toggle('collapsed', FS_PANEL_COLLAPSED.v);
-  document.getElementById('final-toggle').textContent =
-    FS_PANEL_COLLAPSED.v ? 'expand' : 'collapse';
 
   const meta = document.getElementById('final-meta');
   if (fs.completed_at) {
@@ -1259,6 +1319,9 @@ function renderKpiStrip(repeats) {
     baseScores: [], evoScores: [],
     baseTurns: [], evoTurns: [],
     baseSuccess: { done: 0, ok: 0 }, evoSuccess: { done: 0, ok: 0 },
+    dSuccess: { i: 0, w: 0, f: 0 },
+    dTurns: { i: 0, w: 0, f: 0 },
+    dScore: { i: 0, w: 0, f: 0 },
   };
   for (const r of repeats) {
     for (const s of Object.values(r.suites || {})) {
@@ -1277,6 +1340,31 @@ function renderKpiStrip(repeats) {
         };
         collect('baseline', stats.baseScores, stats.baseTurns, stats.baseSuccess);
         collect('evolved', stats.evoScores, stats.evoTurns, stats.evoSuccess);
+        // per-task 三维度变化方向（success / turns / score），两边都 done 才计入
+        const bPh = (t.phases || {}).baseline, ePh = (t.phases || {}).evolved;
+        if (bPh && ePh && bPh.status === 'done' && ePh.status === 'done') {
+          // success：fail→success=进步，success→fail=退步，否则持平
+          if (typeof bPh.success === 'boolean' && typeof ePh.success === 'boolean') {
+            if (!bPh.success && ePh.success) stats.dSuccess.i++;
+            else if (bPh.success && !ePh.success) stats.dSuccess.w++;
+            else stats.dSuccess.f++;
+          }
+          // turns：evolved 更少=进步（一次到位优于反复改进）
+          if (typeof bPh.turns === 'number' && bPh.turns > 0
+              && typeof ePh.turns === 'number' && ePh.turns > 0) {
+            const d = ePh.turns - bPh.turns;
+            if (d < -0.001) stats.dTurns.i++;
+            else if (d > 0.001) stats.dTurns.w++;
+            else stats.dTurns.f++;
+          }
+          // score：evolved 更高=进步
+          if (typeof bPh.score === 'number' && typeof ePh.score === 'number') {
+            const d = ePh.score - bPh.score;
+            if (d > 0.001) stats.dScore.i++;
+            else if (d < -0.001) stats.dScore.w++;
+            else stats.dScore.f++;
+          }
+        }
       }
     }
   }
@@ -1322,6 +1410,21 @@ function renderKpiStrip(repeats) {
   document.getElementById('kpi-base-score').textContent = fmt(baseAvg);
   document.getElementById('kpi-evo-score').textContent = fmt(evoAvg);
   setDelta('kpi-delta-score', baseAvg, evoAvg, (d) => d.toFixed(2));
+  // per-task 三维度变化分布：↑进步 ↓退步 =持平
+  const deltasHtml = (d) => {
+    const tot = d.i + d.w + d.f;
+    return tot
+      ? `<span class="kpi-up">↑<b>${d.i}</b></span>`
+        + `<span class="kpi-down">↓<b>${d.w}</b></span>`
+      : '—';
+  };
+  const setDeltas = (id, d) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = deltasHtml(d);
+  };
+  setDeltas('kpi-td-success', stats.dSuccess);
+  setDeltas('kpi-td-turns', stats.dTurns);
+  setDeltas('kpi-td-score', stats.dScore);
   // 对话轮数：越少越好（agent 一次到位优于反复改进），所以 invert=true。
   document.getElementById('kpi-base-turns').textContent = fmt(baseTurnsAvg, 1);
   document.getElementById('kpi-evo-turns').textContent = fmt(evoTurnsAvg, 1);
@@ -1335,6 +1438,8 @@ function render() {
   if (!snapshot) return;
   const repeats = snapshot.repeats || [];
   document.getElementById('run-id').textContent = snapshot.run_id || '(no signal)';
+  // 应用各 panel 折叠态（标题左箭头 + collapsed）
+  for (const p of document.querySelectorAll('main .panel')) applyFold(p);
 
   // KPI strip（A 路径：基于 phase.score / phase.success 实时聚合）
   renderKpiStrip(repeats);
@@ -1343,15 +1448,32 @@ function render() {
   // FINAL SUMMARY（B 路径：postprocess 完成后由 final_summary 注入）
   renderFinalSummary(snapshot.final_summary);
 
-  // run params 面板：来自 RunPlanEvent.params
+  // run params 面板：按语义分组（run / concurrency / containers，其余落 misc）
   const params = snapshot.params || [];
   const paramsPanel = document.getElementById('params-panel');
   const paramsDiv = document.getElementById('params');
   if (params.length) {
     paramsPanel.style.display = '';
-    paramsDiv.innerHTML = params.map(([k, v]) =>
-      `<div class="param"><span class="param-key">${k}</span><span class="param-val">${v}</span></div>`
-    ).join('');
+    const byKey = Object.fromEntries(params);
+    const used = new Set();
+    const PARAM_GROUPS = [
+      { label: 'run', keys: ['suites', 'repeat', 'warmup_only', 'evaluate', 'max_conversation_turns'] },
+      { label: 'concurrency', keys: ['max_parallel_repeats', 'max_parallel_suites', 'max_concurrent_tasks'] },
+      { label: 'containers', keys: ['warmup_container_policy', 'holdout_container_policy', 'holdout_phase_policy', 'container_memory', 'container_cpus'] },
+    ];
+    const renderGroup = (label, keys) => {
+      const items = keys.filter(k => byKey[k] != null);
+      if (!items.length) return '';
+      items.forEach(k => used.add(k));
+      const cells = items.map(k =>
+        `<div class="param"><span class="param-key">${k}</span><span class="param-val">${byKey[k]}</span></div>`
+      ).join('');
+      return `<div class="param-group"><div class="param-group-label">${label}</div><div class="param-cells">${cells}</div></div>`;
+    };
+    let html = PARAM_GROUPS.map(g => renderGroup(g.label, g.keys)).join('');
+    const miscKeys = params.map(([k]) => k).filter(k => !used.has(k));  // 未分组 → misc
+    html += renderGroup('misc', miscKeys);
+    paramsDiv.innerHTML = html;
   } else {
     paramsPanel.style.display = 'none';
   }
@@ -1368,6 +1490,7 @@ function render() {
   }
   const pct = total ? Math.round(done * 100 / total) : 0;
   document.getElementById('overall-bar').style.width = pct + '%';
+  document.getElementById('overall-pct').textContent = total ? pct + '%' : '—';
   const elapsed = snapshot.run_started_at ? (Date.now() / 1000 - snapshot.run_started_at) : 0;
   const eta = (done > 0) ? (elapsed * (total - done) / done) : null;
   // 顶部 panel-meta：百分比 + 完成数
@@ -1391,7 +1514,7 @@ function render() {
     const run_r = suites.filter(s => suiteOverall(s) === 'running').length;
     const pct_r = total_r ? Math.round(done_r * 100 / total_r) : 0;
     const color = total_r && done_r === total_r ? 'var(--green)'
-      : run_r ? 'var(--yellow)' : 'var(--amber)';
+      : run_r ? 'var(--amber)' : 'var(--muted)';
     const row = document.createElement('div');
     row.className = 'repeat-ring';
     row.title = `repeat ${r.index}: ${done_r}/${total_r} suites done, ${run_r} active`;
@@ -1412,7 +1535,7 @@ function render() {
   const idxArr = [...allIdx].sort((a, b) => a - b);
   // 表头
   const thead = document.querySelector('#grid thead');
-  thead.innerHTML = '<tr><th>suite</th>' + repeats.map(r => `<th class="cell-head"><span class="rid">r${r.index}</span><span class="legend">w b e</span></th>`).join('') + '</tr>';
+  thead.innerHTML = '<tr><th>suite</th>' + repeats.map(r => `<th class="cell-head"><span class="rid">Repeat ${r.index}</span><span class="legend">w b e</span></th>`).join('') + '</tr>';
   const tbody = document.querySelector('#grid tbody');
   tbody.innerHTML = '';
   let hiddenDone = 0;
@@ -1573,10 +1696,15 @@ document.addEventListener('click', (ev) => {
   render();
 });
 
-// FINAL SUMMARY 折叠按钮
-document.getElementById('final-toggle').addEventListener('click', () => {
-  FS_PANEL_COLLAPSED.v = !FS_PANEL_COLLAPSED.v;
-  render();
+// 任意 panel 标题左的折叠箭头：切换该 panel（事件委托）
+document.addEventListener('click', (ev) => {
+  const fold = ev.target.closest('.panel-fold');
+  if (!fold) return;
+  const panel = fold.closest('.panel');
+  if (!panel || !panel.id) return;
+  PANEL_COLLAPSED[panel.id] = !(PANEL_COLLAPSED[panel.id] === true);
+  applyFold(panel);
+  ev.stopPropagation();
 });
 
 // ---- holdout 对话记录 Modal（运行期 A 路径逐轮 / 后处理 B 路径文本覆盖）----
