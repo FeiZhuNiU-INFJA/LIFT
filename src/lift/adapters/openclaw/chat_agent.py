@@ -99,7 +99,7 @@ class OpenClawContainerAgent(ChatAgent):
                 attempt + 1,
                 max_attempts,
             )
-            self._agent_name = f"evobench-agent_name-{short_id()}"  # 名冲突时换名重试
+            self._agent_name = f"lift-agent_name-{short_id()}"  # 名冲突时换名重试
         raise ValueError("Failed to create container agent")
 
 
@@ -123,7 +123,7 @@ class OpenClawWorkerJudgerPairFactory:
             _ = session_role  # work/judge 各独立 agent 实例，session 由下方 id 区分
             return OpenClawContainerAgent(
                 container=self._container,
-                agent_name=f"evobench-agent_name-{short_id()}",
+                agent_name=f"lift-agent_name-{short_id()}",
                 workspace_dir=self._workspace_dir,
             )
 

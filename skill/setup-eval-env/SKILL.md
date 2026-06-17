@@ -176,7 +176,7 @@ python -m src.cli.lift_main \
 
 - **TUI**：终端实时刷新 warmup / hold-out / phase 状态面板（依赖 `rich`）。
 - **Dashboard**：浏览器打开 `http://localhost:8080`（`--status-http` 也可写 `HOST:PORT`）。
-- 运行结束后默认自动后处理，产物在 `results/evobench-runid-hello-smoke/`：
+- 运行结束后默认自动后处理，产物在 `results/lift-runid-hello-smoke/`：
   `report.json`、`outcome/`、`*_backfilled.json`（Langfuse trace 回填）、对比 CSV / HTML。
 
 仅重跑后处理：
@@ -193,7 +193,7 @@ python -m src.cli.lift_main -r openclaw --evaluate-only --run_id hello-smoke
 - [ ] `http://localhost:3000` 可登录 Langfuse，`.env` 已填 `LANGFUSE_*`
 - [ ] `docker images` 含 `evolve-eval-openclaw-with-evolve:latest`
 - [ ] hello.json 冒烟结束，TUI 正常刷新、`http://localhost:8080` 可见 dashboard
-- [ ] `results/evobench-runid-hello-smoke/report.json` 生成
+- [ ] `results/lift-runid-hello-smoke/report.json` 生成
 
 ## 常见问题
 

@@ -23,6 +23,6 @@ def test_seed_eval_workspace_copies_identity_and_removes_bootstrap() -> None:
         workspace = Path(tmp) / "task"
         seed_eval_workspace(workspace)
         assert (workspace / "IDENTITY.md").is_file()
-        assert "EvoBench Assistant" in (workspace / "IDENTITY.md").read_text(encoding="utf-8")
+        assert "LIFT Assistant" in (workspace / "IDENTITY.md").read_text(encoding="utf-8")
         assert not (workspace / "BOOTSTRAP.md").exists()
         assert (workspace / WORKSPACE_READY_MARKER).is_file()

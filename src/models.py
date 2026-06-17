@@ -1,4 +1,4 @@
-"""Evobench / LIFT 评测的数据模型：suite 定义、phase 执行结果、Langfuse trace 结构与报告 JSON。"""
+"""LIFT 评测的数据模型：suite 定义、phase 执行结果、Langfuse trace 结构与报告 JSON。"""
 
 from __future__ import annotations
 
@@ -460,7 +460,7 @@ class EvalRepeat(BaseModel):
 
 
 class EvalReport(BaseModel):
-    """一次 evobench 评测 run 的汇总（``run_id`` 对应一份 report JSON）。"""
+    """一次 LIFT 评测 run 的汇总（``run_id`` 对应一份 report JSON）。"""
 
     run_id: str = Field(description="评测批次 ID")
     categories: list[str] = Field(

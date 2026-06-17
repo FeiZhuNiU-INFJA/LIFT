@@ -73,7 +73,7 @@ Copy [`.env.docker.example`](.env.docker.example) into the repo root `.env`:
 - `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` — runtime
 - `LANGFUSE_BASE_URL` — use `http://host.docker.internal:3000` inside containers
 - LIFT `ContainerSession` adds `--add-host=host.docker.internal:host-gateway` (required on Linux for langfuse-tracer ingestion)
-- `EVOBENCH_EVAL_RUN_TAG` — set by LIFT to `run_id`; plugin adds it to trace tags (pairs with framework pre-chat `tags.run`)
+- `LIFT_EVAL_RUN_TAG` — set by LIFT to `run_id`; plugin adds it to trace tags (pairs with framework pre-chat `tags.run`)
 
 ### Langfuse correlation with LIFT pre-chat
 

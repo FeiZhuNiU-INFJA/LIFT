@@ -259,7 +259,7 @@ function pickTrimmedString(v) {
 /** Langfuse trace tags: fixed markers + ctx.runId / ctx.sessionId when present (raw values, no key prefix). */
 function buildTraceTags({ agentId, runId, sessionId }) {
   const tags = ['openclaw', agentId ?? 'unknown'];
-  const evalRunTag = pickTrimmedString(process.env.EVOBENCH_EVAL_RUN_TAG);
+  const evalRunTag = pickTrimmedString(process.env.LIFT_EVAL_RUN_TAG);
   if (evalRunTag) tags.push(evalRunTag);
   if (runId) tags.push(runId);
   if (sessionId && sessionId !== runId) tags.push(sessionId);

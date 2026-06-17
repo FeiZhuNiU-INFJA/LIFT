@@ -45,7 +45,7 @@ async def test_pipeline_two_holdout_task_runs() -> None:
         _suite_json(suite_path)
         adapter = MockAdapter()
         pipeline = LIFTPipeline()
-        run_id = "evobench-runid-test-pipeline"
+        run_id = "lift-runid-test-pipeline"
         prev_cwd = Path.cwd()
         os.chdir(tmp_path)
         try:
@@ -80,7 +80,7 @@ async def test_pipeline_warmup_only_skips_holdout() -> None:
         _suite_json(suite_path)
         adapter = MockAdapter()
         pipeline = LIFTPipeline()
-        run_id = "evobench-runid-test-warmup-only"
+        run_id = "lift-runid-test-warmup-only"
         prev_cwd = Path.cwd()
         os.chdir(tmp_path)
         try:

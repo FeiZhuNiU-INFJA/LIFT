@@ -148,7 +148,7 @@ async def start_openclaw_container(
 
     env_vars = {
         "OPENCLAW_GATEWAY_TOKEN": token,
-        "EVOBENCH_EVAL_RUN_TAG": ctx.run_id,  # langfuse-tracer 写入 trace tags，对齐 pre-chat run
+        "LIFT_EVAL_RUN_TAG": ctx.run_id,  # langfuse-tracer 写入 trace tags，对齐 pre-chat run
         **container_runtime_env(),
     }
 

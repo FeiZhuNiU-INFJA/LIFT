@@ -10,7 +10,7 @@ from src.paths import OPENCLAW_WORKSPACE_SEED_DIR
 
 HOST_WORKSPACE_SEED_DIR = OPENCLAW_WORKSPACE_SEED_DIR
 CONTAINER_WORKSPACE_SEED_DIR = "/opt/evolve-eval/workspace_seed"  # 镜像内 seed 路径
-WORKSPACE_READY_MARKER = ".evobench-workspace-ready"  # seed 完成标记文件
+WORKSPACE_READY_MARKER = ".lift-workspace-ready"  # seed 完成标记文件
 
 
 def default_workspace_seed_dir() -> Path:

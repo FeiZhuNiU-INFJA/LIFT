@@ -25,7 +25,7 @@ class SuiteRunContext(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    run_id: str = Field(description="评测批次 ID（如 evobench-runid-hello-full）")
+    run_id: str = Field(description="评测批次 ID（如 lift-runid-hello-full）")
     repeat_index: int = Field(description="当前 repeat 序号（0 起，对应 --repeat 第几轮）")
     suite_index: int = Field(description="当前 suite 在 repeat 内的索引（0 起，与 status 事件维度一致）")
     suite_path: Path = Field(description="suite JSON 文件路径")

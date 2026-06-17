@@ -27,12 +27,12 @@ async def openclaw_learn_review(container: OpenClawContainerContext) -> None:
         """
 mkdir -p /workspace/task
 git config --global --add safe.directory /workspace/task
-git config --global user.email "evobench@local"
-git config --global user.name "evobench"
+git config --global user.email "lift@local"
+git config --global user.name "lift"
 if [[ ! -d /workspace/task/.git ]]; then
   git -C /workspace/task init -q
   git -C /workspace/task add -A
-  git -C /workspace/task commit -q --allow-empty -m "evobench: warmup baseline"
+  git -C /workspace/task commit -q --allow-empty -m "lift: warmup baseline"
 fi
 WORKER_JS="${HOME}/.openclaw/extensions/self-evolving-plugin-pro/src/review/worker.js"
 if [[ -f "${WORKER_JS}" ]]; then

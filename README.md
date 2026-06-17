@@ -142,7 +142,7 @@ TOS_SECRET_KEY=your_secret_key
 
 | 术语 | 含义 | 示例 | CLI / 代码 |
 |------|------|------|------------|
-| **eval run** | 一次完整评测（一个 `run_id`、一份 report） | `evobench-runid-my-run` | `EvalReport`；`--run_id` |
+| **eval run** | 一次完整评测（一个 `run_id`、一份 report） | `lift-runid-my-run` | `EvalReport`；`--run_id` |
 | **repeat** | `--repeat` 的一轮完整 LIFT | 第 2 次 `--repeat 3` | `EvalReport.runs[]` |
 | **suite** | 一份规格 JSON | `hello.json` | `--suite`；`SuiteRun` |
 | **task** | suite 内 `tasks[]` 的一条 | `Q1`、`Q2` | `TaskRun` |
@@ -176,7 +176,7 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 | `-r` / `--agent-runtime` | **必填** | 当前支持 `openclaw` |
 | `--benchmark_dir` | `assets/benchmarks` | suite JSON 目录 |
 | `--suite` | `all` | 逗号分隔文件名或 `all` |
-| `--run_id` | 自动生成 | 后缀，生成 `evobench-runid-{run_id}` |
+| `--run_id` | 自动生成 | 后缀，生成 `lift-runid-{run_id}` |
 | `--warmup-only` | off | 只跑 warmup + evolve + delta，跳过 hold-out |
 | `--repeat` | `1` | 重复完整 LIFT N 次 |
 | `--warmup-container-policy` | `parallel_single` | warmup 容器编排：`serial_single` / `parallel_single` / `parallel_multi`（替代旧的 `-p/--parallel`） |
@@ -231,7 +231,7 @@ flowchart TD
 单独跑后处理：
 
 ```bash
-python -m src.postprocess.run_post_process results/evobench-runid-my-run/report.json
+python -m src.postprocess.run_post_process results/lift-runid-my-run/report.json
 # 或通过 CLI（自动解析 report 路径）
 python -m src.cli.lift_main -r openclaw --evaluate-only --run_id my-run
 ```
