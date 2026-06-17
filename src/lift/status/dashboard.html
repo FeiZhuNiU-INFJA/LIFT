@@ -487,6 +487,29 @@
   }
   .panel-toggle:hover { color: var(--amber); border-color: var(--amber-dim); }
 
+  /* ---- dialogue modal (holdout work↔judge 对话) ---- */
+  .dlg-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75);
+    z-index: 1000; display: flex; align-items: center; justify-content: center; }
+  .dlg-modal { width: min(96vw, 1100px); max-height: 88vh; display: flex; flex-direction: column; }
+  .dlg-modal .panel-body { max-height: 88vh; overflow: auto; }
+  .dlg-phase { margin-bottom: 14px; }
+  .dlg-phase-head { font: 600 11px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--amber); margin-bottom: 8px;
+    border-bottom: 1px solid var(--line-strong); padding-bottom: 4px; }
+  .dlg-src { color: var(--muted); font-weight: 400; letter-spacing: 0.05em;
+    text-transform: none; font-size: 10px; margin-left: 8px; }
+  .dlg-turn { border-bottom: 1px solid var(--line); padding: 8px 0; }
+  .dlg-role { font: 600 10px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--cyan); margin-bottom: 3px; }
+  .dlg-role.judge { color: var(--amber); }
+  .dlg-content { white-space: pre-wrap; word-break: break-word;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    max-height: 280px; overflow: auto; background: rgba(255, 181, 71, 0.03);
+    border: 1px solid var(--line); padding: 8px; border-radius: 3px; }
+  .dlg-score { float: right; font-weight: 600; }
+  .dlg-btn { cursor: pointer; font-size: 13px; opacity: 0.7; padding: 0 4px; }
+  .dlg-btn:hover { opacity: 1; }
+
   /* ---- tables ---- */
   table {
     width: 100%;
@@ -776,6 +799,19 @@
     </div>
   </section>
 
+  <!-- dialogue modal: holdout work↔judge 完整对话（运行期 A 路径 / 后处理 B 路径） -->
+  <div id="dlg-overlay" class="dlg-overlay" style="display:none">
+    <div class="panel dlg-modal">
+      <div class="panel-head">
+        <div class="panel-title" id="dlg-title">dialogue</div>
+        <div class="controls">
+          <button type="button" id="dlg-close" class="panel-toggle">close</button>
+        </div>
+      </div>
+      <div class="panel-body" id="dlg-body"></div>
+    </div>
+  </div>
+
   <section class="panel" id="params-panel" style="display:none">
     <div class="panel-head">
       <div class="panel-title">run configuration</div>
@@ -1002,6 +1038,8 @@ function renderCompare(repeats) {
           repeat: r.index, task: t.name,
           base: { status: base.status, score: base.score, success: base.success, turns: base.turns },
           evo: { status: evo.status, score: evo.score, success: evo.success, turns: evo.turns },
+          baseDlg: (base.dialogue || []).length,
+          evoDlg: (evo.dialogue || []).length,
         });
       }
     }
@@ -1051,6 +1089,14 @@ function renderCompare(repeats) {
     const sign = d > 0 ? '+' : (d < 0 ? '' : '±');
     return `<div class="cmp-delta ${cls}">${sign}${d.toFixed(2)}</div>`;
   };
+  // 💬 对话记录入口：仅在该 task 的 baseline/evolved 有 dialogue 时显示。
+  const dialogueBtnHtml = (repeat, suiteIdx, task, baseN, evoN) => {
+    if (!baseN && !evoN) return '';
+    const tot = (baseN || 0) + (evoN || 0);
+    return `<span class="dlg-btn" title="view dialogue (${tot} turns)"`
+      + ` data-repeat="${repeat}" data-suite-idx="${suiteIdx}"`
+      + ` data-task="${escapeAttr(task)}">💬</span>`;
+  };
   const html = sortedIdx.map(idx => {
     const b = suiteAcc.get(idx);
     let rows = b.rows;
@@ -1082,6 +1128,7 @@ function renderCompare(repeats) {
         + phaseHtml('baseline', r.base)
         + phaseHtml('evolved', r.evo)
         + deltaHtml(r.base, r.evo)
+        + dialogueBtnHtml(r.repeat, idx, r.task, r.baseDlg, r.evoDlg)
         + `</div>`;
     }).join('');
     return `<div class="cmp-suite" data-suite-idx="${idx}" data-open="${open}">`
@@ -1442,6 +1489,8 @@ function render() {
   } else {
     errsPanel.style.display = 'none';
   }
+  // 已打开的对话 Modal：随 snapshot 刷新（实时追加新 turn，保留滚动位置）
+  if (openDialogue) renderDialogue(openDialogue);
 }
 
 // 应用单条事件到本地 snapshot（与服务端 RunStateTracker 大致同步；遇到不熟悉的事件
@@ -1520,6 +1569,62 @@ document.addEventListener('click', (ev) => {
 document.getElementById('final-toggle').addEventListener('click', () => {
   FS_PANEL_COLLAPSED.v = !FS_PANEL_COLLAPSED.v;
   render();
+});
+
+// ---- holdout 对话记录 Modal（运行期 A 路径逐轮 / 后处理 B 路径文本覆盖）----
+let openDialogue = null;
+function getDialogue(repeat, suiteIdx, task, phase) {
+  return snapshot?.repeats?.[repeat]?.suites?.[suiteIdx]?.holdout_tasks?.[task]?.phases?.[phase]?.dialogue || [];
+}
+function getPhaseObj(repeat, suiteIdx, task, phase) {
+  return snapshot?.repeats?.[repeat]?.suites?.[suiteIdx]?.holdout_tasks?.[task]?.phases?.[phase] || {};
+}
+function renderDialogue(d) {
+  const overlay = document.getElementById('dlg-overlay');
+  const body = document.getElementById('dlg-body');
+  const baseTurns = getDialogue(d.repeat, d.suiteIdx, d.task, 'baseline');
+  const evoTurns = getDialogue(d.repeat, d.suiteIdx, d.task, 'evolved');
+  if (!baseTurns.length && !evoTurns.length) { overlay.style.display = 'none'; return; }
+  overlay.style.display = 'flex';
+  document.getElementById('dlg-title').textContent = `dialogue · r${d.repeat} ${d.task}`;
+  const basePh = getPhaseObj(d.repeat, d.suiteIdx, d.task, 'baseline');
+  const evoPh = getPhaseObj(d.repeat, d.suiteIdx, d.task, 'evolved');
+  const phaseBlock = (label, turns, phObj) => {
+    if (!turns.length) return '';
+    const src = phObj.dialogue_source || 'runtime';
+    // 只展示 worker 对话（prompt + result）。judge 的反馈在 run_task 里被拼成下一轮
+    // 的 work_prompt（current_prompt = judge.reason + "你再试一次..."），故不单独
+    // 渲染 judge 行——它已作为下一轮的问题自然出现，避免与下一轮 prompt 重复。
+    const rows = turns.map(t => `<div class="dlg-turn">
+        <div class="dlg-role">turn ${t.turn_index} · work prompt</div>
+        <div class="dlg-content">${escapeAttr(t.work_prompt || '')}</div>
+        <div class="dlg-role" style="margin-top:8px">work result</div>
+        <div class="dlg-content">${escapeAttr(t.work_result || '')}</div>
+      </div>`).join('');
+    return `<div class="dlg-phase"><div class="dlg-phase-head">${label}<span class="dlg-src">${src} · ${turns.length} turns</span></div>${rows}</div>`;
+  };
+  const scrollTop = body.scrollTop;  // 保留滚动位置（实时刷新新 turn 不丢位置）
+  body.innerHTML = phaseBlock('baseline', baseTurns, basePh) + phaseBlock('evolved', evoTurns, evoPh);
+  body.scrollTop = scrollTop;
+}
+// 点击 💬 打开；点击 close / 遮罩关闭（事件委托，不依赖每次 render 重绑）。
+document.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.dlg-btn');
+  if (btn) {
+    openDialogue = {
+      repeat: parseInt(btn.dataset.repeat, 10),
+      suiteIdx: parseInt(btn.dataset.suiteIdx, 10),
+      task: btn.dataset.task,
+    };
+    renderDialogue(openDialogue);
+    ev.stopPropagation();
+    return;
+  }
+  if (ev.target.id === 'dlg-close' || ev.target.id === 'dlg-overlay') {
+    const ov = document.getElementById('dlg-overlay');
+    if (ov) ov.style.display = 'none';
+    openDialogue = null;
+  }
 });
 
 // 点击任意 .tip 元素：把 data-tip 复制到剪贴板，闪一个 toast。

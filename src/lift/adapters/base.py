@@ -20,6 +20,15 @@ from src.models import PhaseRun, SuiteTask
 from src.utils import outcome_workspace, stage_task_materials
 
 
+def _truncate(text: str, limit: int = 8000) -> str:
+    """截断超长文本，保护 SSE / snapshot 体量（对话内容可能很长）。"""
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
 class SuiteRunContext(BaseModel):
     """单次 suite 评测的不可变运行坐标，由 pipeline 构造并传给 adapter 各方法。"""
 
@@ -183,6 +192,25 @@ class AgentRuntimeAdapter(ABC):
             factory = self.worker_judger_factory(
                 env, ctx, run_phase=run_phase, workspace_dir=workspace
             )
+
+            # 每轮 work↔judge 完成后 emit 对话事件，驱动 dashboard 对话视图。
+            # load_state.value（"baseline" / "evolved"）即 phase 坐标。
+            def _on_turn(turn_idx, work_prompt, work_result, judge_result):  # noqa: ANN001
+                status_events.emit_dialogue_turn(
+                    run_id=ctx.run_id,
+                    repeat_index=ctx.repeat_index,
+                    suite_index=ctx.suite_index,
+                    suite_name=ctx.suite_name,
+                    task_name=task.name,
+                    phase=load_state.value,
+                    turn_index=turn_idx,
+                    work_prompt=_truncate(work_prompt),
+                    work_result=_truncate(work_result),
+                    judge_success=judge_result.success,
+                    judge_score=judge_result.score,
+                    judge_reason=_truncate(judge_result.reason, 4000),
+                )
+
             return await execute_task(
                 task=task,
                 run_id=ctx.run_id,
@@ -190,6 +218,7 @@ class AgentRuntimeAdapter(ABC):
                 factory=factory,
                 run_phase=run_phase,
                 max_conversation_turns=self._options.max_conversation_turns,
+                on_turn=_on_turn,
             )
         finally:
             await env.disposable.cleanup()

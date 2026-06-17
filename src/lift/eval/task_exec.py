@@ -10,7 +10,7 @@ from typing import TypeVar
 from src.config import LOGGER
 from src.lift.eval.stage import SuiteRunPhase
 from src.lift.eval.worker_judger import WorkerJudgerPairFactory
-from src.lift.eval.run_task import run_task
+from src.lift.eval.run_task import OnTurnCallback, run_task
 from src.models import PhaseRun, SuiteTask
 
 _T = TypeVar("_T")
@@ -78,6 +78,7 @@ async def execute_task(
     factory: WorkerJudgerPairFactory,
     run_phase: SuiteRunPhase,
     max_conversation_turns: int = 5,
+    on_turn: OnTurnCallback | None = None,
 ) -> PhaseRun:
     """Run a single task via ``factory`` → ``run_task`` → ``PhaseRun``."""
     pair = factory(task)  # 每题新建 work/judge agent + 独立 Langfuse session id
@@ -96,6 +97,7 @@ async def execute_task(
         max_conversation_turns=max_conversation_turns,
         is_evolve_turn=run_phase.is_evolve_turn,
         is_final_task=run_phase.is_final_task,
+        on_turn=on_turn,
     )
     return PhaseRun(
         work_session_id=work_sid,

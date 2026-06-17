@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from threading import Lock
 
 from src.lift.status import events as ev
@@ -23,6 +23,25 @@ RUNNING = "running"
 RETRYING = "retrying"
 DONE = "done"
 FAILED = "failed"
+
+
+@dataclass
+class DialogueTurn:
+    """单轮 work↔judge 对话快照（已脱离锁，纯展示用）。
+
+    A 路径（运行期）由 ``DialogueTurnEvent`` 折叠而来，``latency_seconds`` 为 None；
+    B 路径（后处理）从 Langfuse ``trace_chain`` 注入，``latency_seconds`` 有值、
+    ``judge_*`` 留空（trace_chain 仅 work 侧）。
+    """
+
+    turn_index: int  # 1-based 轮序
+    work_prompt: str
+    work_result: str
+    judge_success: bool
+    judge_score: float
+    judge_reason: str
+    timestamp: float = 0.0
+    latency_seconds: float | None = None
 
 
 @dataclass
@@ -39,6 +58,10 @@ class PhaseNode:
     turns: int | None = None
     # 后处理回填（FinalSummary 注入）：完整轨迹 / token / latency 指标
     trajectory_score: float | None = None
+    # work↔judge 完整对话记录（A 路径逐轮追加；B 路径后处理整体覆盖）
+    dialogue: list[DialogueTurn] = field(default_factory=list)
+    # 对话来源标记："runtime"（A 路径）/ "postprocess"（B 路径）/ None
+    dialogue_source: str | None = None
 
 
 @dataclass
@@ -154,6 +177,10 @@ class RunSnapshot:
     final_summary: FinalSummary | None = None
 
 
+DialogueBundle = dict[tuple[int, int, str, str], list[DialogueTurn]]
+"""按 (repeat_index, suite_index, task_name, phase) 索引的对话集合（B 路径注入用）。"""
+
+
 class RunStateTracker:
     """订阅事件总线，维护一棵线程安全的运行状态树。"""
 
@@ -179,6 +206,30 @@ class RunStateTracker:
         with self._lock:
             self._final_summary = summary
 
+    def set_dialogue(self, bundle: DialogueBundle) -> None:
+        """后处理完成后注入含完整对话的 dialogue，覆盖运行期文本版本（B 路径）。
+
+        ``bundle`` 按 ``(repeat_index, suite_index, task_name, phase)`` 索引；定位失败的
+        坐标静默跳过。注入后置 ``dialogue_source="postprocess"``，后续运行期
+        ``DialogueTurnEvent`` 不再追加（见 ``_handle_dialogue_turn``）。
+        """
+        with self._lock:
+            for (repeat_index, suite_index, task_name, phase), turns in bundle.items():
+                repeat = self._repeats.get(repeat_index)
+                if repeat is None:
+                    continue
+                suite = repeat.suites.get(suite_index)
+                if suite is None:
+                    continue
+                tnode = suite.holdout_tasks.get(task_name)
+                if tnode is None:
+                    continue
+                pnode = tnode.phases.get(phase)
+                if pnode is None:
+                    continue
+                pnode.dialogue = [DialogueTurn(**asdict(t)) for t in turns]
+                pnode.dialogue_source = "postprocess"
+
     # ---- 订阅生命周期 ----------------------------------------------------
 
     def attach(self) -> None:
@@ -200,6 +251,8 @@ class RunStateTracker:
             self._handle_stage(event)
         elif isinstance(event, ev.ContainerEvent):
             self._handle_container(event)
+        elif isinstance(event, ev.DialogueTurnEvent):
+            self._handle_dialogue_turn(event)
 
     # ---- 计划（预建骨架） ------------------------------------------------
 
@@ -357,6 +410,32 @@ class RunStateTracker:
             elif e.status == "stopped":
                 self._containers.pop(e.container_name, None)
 
+    def _handle_dialogue_turn(self, e: ev.DialogueTurnEvent) -> None:
+        """把一轮对话追加到对应 PhaseNode（A 路径运行期）。
+
+        后处理已覆盖（``dialogue_source == "postprocess"``）则丢弃迟到的运行期事件；
+        按 ``turn_index`` 单调追加，防同轮重试重复。
+        """
+        with self._lock:
+            suite = self._ensure_suite(e.repeat_index, e.suite_index, e.suite_name)
+            tnode = suite.holdout_tasks.setdefault(e.task_name, TaskNode(name=e.task_name))
+            pnode = tnode.phases.setdefault(e.phase, PhaseNode(e.phase))
+            if pnode.dialogue_source == "postprocess":
+                return
+            turn = DialogueTurn(
+                turn_index=e.turn_index,
+                work_prompt=e.work_prompt,
+                work_result=e.work_result,
+                judge_success=e.judge_success,
+                judge_score=e.judge_score,
+                judge_reason=e.judge_reason,
+                timestamp=e.timestamp,
+            )
+            if not pnode.dialogue or pnode.dialogue[-1].turn_index < e.turn_index:
+                pnode.dialogue.append(turn)
+            if not pnode.dialogue_source:
+                pnode.dialogue_source = "runtime"
+
     # ---- 工具 ------------------------------------------------------------
 
     def _ensure_suite(
@@ -406,6 +485,8 @@ class RunStateTracker:
                                             success=p.success,
                                             turns=p.turns,
                                             trajectory_score=p.trajectory_score,
+                                            dialogue=[DialogueTurn(**asdict(d)) for d in p.dialogue],
+                                            dialogue_source=p.dialogue_source,
                                         )
                                         for pk, p in t.phases.items()
                                     },

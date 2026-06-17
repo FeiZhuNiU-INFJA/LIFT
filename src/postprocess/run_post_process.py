@@ -201,6 +201,59 @@ def build_final_summary_from_df(
     )
 
 
+def _stringify(value: object) -> str:
+    """把 input/output（可能是 str / dict / list[message]）统一转成可读文本。"""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def build_dialogue_bundle_from_report(data: dict):
+    """从 backfilled report dict 抽取 per-phase 对话（B 路径）。
+
+    对话来自 ``runs[r].suites[s].tasks[t].{baseline|evolved}.langfuse.work_analytics.trace_chain``
+    （每轮 input/output 文本）。坐标：``r``→repeat_index、``s``→suite_index（数组下标，
+    与 pipeline ``repeat_run.suites[suite_index]`` 占位回填一致），task 用 ``task["task_name"]``。
+    ``trace_chain`` 仅 work 侧，``judge_*`` 留空；无 ``trace_chain`` 的 phase 不进 bundle
+    （保留运行期 dialogue）。返回 ``{(repeat_index, suite_index, task_name, phase): [DialogueTurn]}``。
+    """
+    from src.lift.status.state import DialogueTurn
+
+    bundle: dict[tuple[int, int, str, str], list[DialogueTurn]] = {}
+    for r_idx, run in enumerate(data.get("runs", [])):
+        for s_idx, suite in enumerate(run.get("suites", [])):
+            for task in suite.get("tasks", []):
+                task_name = task.get("task_name")
+                if not task_name:
+                    continue
+                for phase in ("baseline", "evolved"):
+                    pr = task.get(phase) or {}
+                    wa = (pr.get("langfuse") or {}).get("work_analytics") or {}
+                    trace_chain = wa.get("trace_chain") or []
+                    if not trace_chain:
+                        continue
+                    turns: list[DialogueTurn] = []
+                    for i, tc in enumerate(trace_chain):
+                        turns.append(
+                            DialogueTurn(
+                                turn_index=int(tc.get("turn_index", i)),
+                                work_prompt=_stringify(tc.get("input")),
+                                work_result=_stringify(tc.get("output")),
+                                judge_success=False,
+                                judge_score=0.0,
+                                judge_reason="",
+                                latency_seconds=tc.get("latency_seconds"),
+                            )
+                        )
+                    bundle[(r_idx, s_idx, task_name, phase)] = turns
+    return bundle
+
+
 def run_post_process_pipeline(
     run_id: str,
     report_path: Path,
@@ -246,6 +299,18 @@ def run_post_process_pipeline(
                 tracker.set_final_summary(summary)
             except Exception:
                 LOGGER.exception("Failed to forward final summary to tracker.")
+            # B 路径：把后处理拉取的 work 对话注入 snapshot，供 dashboard 对话视图
+            # 覆盖运行期文本版本（含 latency，更完整）。从已写盘的 backfilled JSON
+            # 读取（含完整 work_analytics.trace_chain）。
+            try:
+                if backfilled_json is not None and backfilled_json.exists():
+                    bundle = build_dialogue_bundle_from_report(
+                        json.loads(backfilled_json.read_text(encoding="utf-8"))
+                    )
+                    if bundle:
+                        tracker.set_dialogue(bundle)
+            except Exception:
+                LOGGER.exception("Failed to forward dialogue to tracker.")
     except Exception:
         LOGGER.exception("Post-process pipeline failed.")
         LOGGER.error("Benchmark report was still saved successfully at: %s", report_path)

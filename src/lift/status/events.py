@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from threading import Lock
@@ -92,6 +93,29 @@ class ContainerEvent:
     suite_name: str | None = None
     task_name: str | None = None
     stage: str | None = None  # warmup / baseline / evolved
+
+
+@dataclass(frozen=True)
+class DialogueTurnEvent:
+    """一轮 work↔judge 对话完成（A 路径运行期）。每轮一条，坐标精确到 phase。
+
+    由 ``run_task`` 的 ``on_turn`` 回调经 ``_run_holdout`` 的 emitter 发出，
+    驱动 dashboard 的"完整对话记录"视图。监听器把 turn 追加到对应 PhaseNode。
+    """
+
+    run_id: str
+    repeat_index: int
+    suite_index: int
+    suite_name: str
+    task_name: str
+    phase: str  # baseline / evolved
+    turn_index: int  # 1-based 轮序
+    work_prompt: str
+    work_result: str
+    judge_success: bool
+    judge_score: float
+    judge_reason: str
+    timestamp: float = field(default_factory=time.time)
 
 
 Listener = Callable[[object], None]
@@ -253,5 +277,44 @@ def emit_container(
             suite_name=suite_name,
             task_name=task_name,
             stage=stage,
+        )
+    )
+
+
+def emit_dialogue_turn(
+    *,
+    run_id: str,
+    repeat_index: int,
+    suite_index: int,
+    suite_name: str,
+    task_name: str,
+    phase: str,
+    turn_index: int,
+    work_prompt: str,
+    work_result: str,
+    judge_success: bool,
+    judge_score: float,
+    judge_reason: str,
+) -> None:
+    """广播一轮 work↔judge 对话（运行期），供 dashboard 实时展示完整对话记录。
+
+    坐标与 ``emit_stage`` 一致（repeat/suite/task/phase）；``turn_index`` 为 1-based
+    轮序。``work_prompt`` / ``work_result`` / ``judge_reason`` 建议由调用方截断
+    （见 ``adapters/base._truncate``）以控制 SSE / snapshot 体量。无监听器时为 no-op。
+    """
+    _emit(
+        DialogueTurnEvent(
+            run_id=run_id,
+            repeat_index=repeat_index,
+            suite_index=suite_index,
+            suite_name=suite_name,
+            task_name=task_name,
+            phase=phase,
+            turn_index=turn_index,
+            work_prompt=work_prompt,
+            work_result=work_result,
+            judge_success=judge_success,
+            judge_score=judge_score,
+            judge_reason=judge_reason,
         )
     )

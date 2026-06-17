@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
 from json_repair import repair_json
 from pydantic import BaseModel, Field
@@ -20,6 +21,13 @@ class EvalJudgeResult(BaseModel):
     success: bool = Field(description="是否成功")
     reason: str = Field(description="失败原因")
     score: float = Field(description="任务完成率，0-1的分数，成功的时候应该是1")
+
+
+OnTurnCallback = Callable[[int, str, str, EvalJudgeResult], None]
+"""``run_task`` 每轮 work↔judge 完成后的回调：(turn_index, work_prompt, work_result, judge_result)。
+
+供 adapter 基类 ``_run_holdout`` 注入，把对话坐标 + 内容 emit 到 status 事件总线，
+驱动 dashboard 的"完整对话记录"视图。回调异常被 ``run_task`` 吞掉，绝不拖垮评测。"""
 
 
 def _extract_judge_result(raw_text: str) -> EvalJudgeResult:
@@ -282,6 +290,7 @@ async def run_task(
     max_conversation_turns: int = 5,
     is_evolve_turn: bool = False,
     is_final_task: bool = False,
+    on_turn: OnTurnCallback | None = None,
 ) -> tuple[bool, str, str, float, int]:
     """Run one task: work chat + judge loop until success or ``max_conversation_turns``.
 
@@ -324,6 +333,12 @@ async def run_task(
             tags=tags,
             agent_result=agent_result,
         )
+
+        if on_turn is not None:
+            try:
+                on_turn(turns_executed, current_prompt, agent_result, judge_result)
+            except Exception:  # noqa: BLE001 — 回调绝不能拖垮评测
+                LOGGER.warning("on_turn callback failed", exc_info=True)
 
         tags.content_score = judge_result.score  # 下一轮 pre-chat 会带上最新 score
         last_content_score = float(judge_result.score)
