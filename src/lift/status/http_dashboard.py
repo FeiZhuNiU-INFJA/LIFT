@@ -801,18 +801,18 @@ _INDEX_HTML = r"""<!doctype html>
           <div class="kpi-value"><b id="kpi-done">0</b><span class="kpi-suffix">/<i id="kpi-total">0</i></span></div></div>
         <div class="kpi"><div class="kpi-label">failed</div>
           <div class="kpi-value" id="kpi-failed">0</div></div>
-        <div class="kpi"><div class="kpi-label">baseline avg</div>
-          <div class="kpi-value" id="kpi-baseline-avg">—</div></div>
-        <div class="kpi"><div class="kpi-label">evolved avg</div>
-          <div class="kpi-value" id="kpi-evolved-avg">—</div></div>
-        <div class="kpi"><div class="kpi-label">&Delta; avg</div>
-          <div class="kpi-value" id="kpi-delta-score">—</div></div>
-        <div class="kpi"><div class="kpi-label">&Delta; success-rate</div>
+        <div class="kpi"><div class="kpi-label">success rate</div>
+          <div class="kpi-value"><span id="kpi-base-sr">—</span><span class="kpi-suffix">→<i id="kpi-evo-sr">—</i></span></div></div>
+        <div class="kpi"><div class="kpi-label">&Delta; success rate</div>
           <div class="kpi-value" id="kpi-delta-sr">—</div></div>
         <div class="kpi"><div class="kpi-label">avg turns</div>
           <div class="kpi-value"><span id="kpi-base-turns">—</span><span class="kpi-suffix">→<i id="kpi-evo-turns">—</i></span></div></div>
         <div class="kpi"><div class="kpi-label">&Delta; turns</div>
           <div class="kpi-value" id="kpi-delta-turns">—</div></div>
+        <div class="kpi"><div class="kpi-label">mean score</div>
+          <div class="kpi-value"><span id="kpi-base-score">—</span><span class="kpi-suffix">→<i id="kpi-evo-score">—</i></span></div></div>
+        <div class="kpi"><div class="kpi-label">&Delta; score</div>
+          <div class="kpi-value" id="kpi-delta-score">—</div></div>
       </div>
     </div>
   </section>
@@ -1124,7 +1124,7 @@ function renderCompare(repeats) {
       rows = rows.filter(r => r.base.status === 'done' && r.evo.status === 'done');
     }
     if (!rows.length) return '';
-    // suite-level meta：完成 task 数 / mean Δ / Δ success-rate
+    // suite-level meta：完成 task 数 / mean score Δ / success rate Δ
     let baseS = [], evoS = [], baseSucc = [], evoSucc = [];
     for (const r of b.rows) {
       if (r.base.status === 'done' && typeof r.base.score === 'number') baseS.push(r.base.score);
@@ -1161,9 +1161,9 @@ function renderCompare(repeats) {
       +   `<span class="cmp-suite-name">${b.name}</span>`
       +   `<span class="cmp-suite-meta">`
       +     `<span>tasks <b>${rows.length}</b></span>`
-      +     `<span>base <b>${fmt(mb)}</b></span>`
-      +     `<span>evo <b>${fmt(me)}</b></span>`
-      +     `<span>&Delta;avg <b class="${dScoreCls}">${dScore}</b></span>`
+      +     `<span>base score <b>${fmt(mb)}</b></span>`
+      +     `<span>evo score <b>${fmt(me)}</b></span>`
+      +     `<span>&Delta;score <b class="${dScoreCls}">${dScore}</b></span>`
       +     `<span>&Delta;sr <b class="${dSrCls}">${dSr}</b></span>`
       +   `</span>`
       + `</div>`
@@ -1267,8 +1267,8 @@ function renderFinalSummary(fs) {
 }
 
 function renderKpiStrip(repeats) {
-  // 聚合所有 repeat × suite 的 holdout 题，统计 phase 完成数 / 失败数 / 平均分。
-  // 仅 status === 'done' 且 score 非空的 phase 才计入 avg；success-rate 用 phase.success。
+  // 聚合所有 repeat × suite 的 holdout 题，统计 phase 完成数 / 失败数 / score 平均分。
+  // 仅 status === 'done' 且 score 非空的 phase 才计入 mean score；success rate 用 phase.success。
   const stats = {
     taskTotal: 0, taskDone: 0, taskFailed: 0,
     baseScores: [], evoScores: [],
@@ -1331,10 +1331,12 @@ function renderKpiStrip(repeats) {
   document.getElementById('kpi-done').textContent = stats.taskDone;
   document.getElementById('kpi-total').textContent = stats.taskTotal;
   document.getElementById('kpi-failed').textContent = stats.taskFailed;
-  document.getElementById('kpi-baseline-avg').textContent = fmt(baseAvg);
-  document.getElementById('kpi-evolved-avg').textContent = fmt(evoAvg);
-  setDelta('kpi-delta-score', baseAvg, evoAvg, (d) => d.toFixed(2));
+  document.getElementById('kpi-base-sr').textContent = fmtPct(baseSr);
+  document.getElementById('kpi-evo-sr').textContent = fmtPct(evoSr);
   setDelta('kpi-delta-sr', baseSr, evoSr, (d) => `${(d * 100).toFixed(0)}%`);
+  document.getElementById('kpi-base-score').textContent = fmt(baseAvg);
+  document.getElementById('kpi-evo-score').textContent = fmt(evoAvg);
+  setDelta('kpi-delta-score', baseAvg, evoAvg, (d) => d.toFixed(2));
   // 对话轮数：越少越好（agent 一次到位优于反复改进），所以 invert=true。
   document.getElementById('kpi-base-turns').textContent = fmt(baseTurnsAvg, 1);
   document.getElementById('kpi-evo-turns').textContent = fmt(evoTurnsAvg, 1);
