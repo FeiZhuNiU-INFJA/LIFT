@@ -81,7 +81,7 @@ async def execute_task(
     on_turn: OnTurnCallback | None = None,
 ) -> PhaseRun:
     """Run a single task via ``factory`` → ``run_task`` → ``PhaseRun``."""
-    pair = factory(task)  # 每题新建 work/judge agent + 独立 Langfuse session id
+    pair = await factory(task)  # 每题新建 work/judge agent + 独立 Langfuse session id
     LOGGER.info(
         "Running %s %s: %s run_id=%s workspace=%s",
         run_phase.stage.value,

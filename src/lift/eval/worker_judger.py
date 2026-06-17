@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Awaitable, Protocol
 
 from src.lift.eval.chat_agent import ChatAgent
 from src.models import SuiteTask
@@ -27,7 +27,12 @@ class WorkerJudgerPair:
 
 
 class WorkerJudgerPairFactory(Protocol):
-    """Build a ``WorkerJudgerPair`` for a single ``SuiteTask`` (after env is bound)."""
+    """Build a ``WorkerJudgerPair`` for a single ``SuiteTask`` (after env is bound).
 
-    def __call__(self, task: SuiteTask) -> WorkerJudgerPair:
+    工厂返回 awaitable：单题构建可能需要 docker exec 注册 agent 等同步阻塞操作，
+    必须走 async 让事件循环可以调度其它就绪协程；否则 PARALLEL_SINGLE 下多题
+    会因前一题 initialize 占据事件循环而被串行化。
+    """
+
+    def __call__(self, task: SuiteTask) -> Awaitable[WorkerJudgerPair]:
         """Create and initialize worker/judger agents for ``task``."""

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from src.config import CONFIG, LOGGER
 from src.lift.adapters.openclaw.container_exec import (
     OpenClawContainerContext,
     exec_openclaw_async,
-    exec_openclaw_sync,
 )
 from src.lift.adapters.openclaw.json_output import extract_agent_text
 from src.lift.eval.chat_agent import ChatAgent
@@ -37,10 +37,14 @@ class OpenClawContainerAgent(ChatAgent):
     def agent_name(self) -> str:
         return self._agent_name
 
-    def initialize(self) -> None:
-        """确保宿主机 workspace 存在并在容器内 ``openclaw agents add``。"""
-        self._workspace_dir.mkdir(parents=True, exist_ok=True)
-        self._register_agent_in_container()
+    async def initialize(self) -> None:
+        """确保宿主机 workspace 存在并在容器内 ``openclaw agents add``。
+
+        ``agents list/add`` 走 ``exec_openclaw_async``，不阻塞事件循环；
+        PARALLEL_SINGLE 下多题工厂可真正并发。
+        """
+        self._workspace_dir.mkdir(parents=True, exist_ok=True)  # 本地 FS，瞬时完成
+        await self._register_agent_in_container()
 
     async def chat(self, message: str, *, session_id: str) -> str:
         """``openclaw agent --json --local`` → 解析 payloads 文本。"""
@@ -60,23 +64,22 @@ class OpenClawContainerAgent(ChatAgent):
         )
         return extract_agent_text(stdout)
 
-    def _register_agent_in_container(self, max_attempts: int = 5) -> None:
-        def exists() -> bool:
-            result = exec_openclaw_sync(
-                self._container,
-                ["agents", "list"],
-                check=False,
-            )
-            if result.returncode != 0:
-                raise ValueError("Failed to list agents in container")
-            return self._agent_name in (result.stdout or "")
+    async def _register_agent_in_container(self, max_attempts: int = 5) -> None:
+        async def exists() -> bool:
+            try:
+                stdout = await exec_openclaw_async(
+                    self._container, ["agents", "list"]
+                )
+            except RuntimeError as exc:
+                raise ValueError("Failed to list agents in container") from exc
+            return self._agent_name in (stdout or "")
 
         for attempt in range(max_attempts):
-            if exists():
+            if await exists():
                 LOGGER.info("Container agent %s already exists", self._agent_name)
                 return
             try:
-                exec_openclaw_sync(
+                await exec_openclaw_async(
                     self._container,
                     [
                         "agents",
@@ -87,11 +90,10 @@ class OpenClawContainerAgent(ChatAgent):
                         "--workspace",
                         CONTAINER_WORKSPACE,
                     ],
-                    check=False,
                 )
             except RuntimeError:
-                pass
-            if exists():
+                pass  # 名字冲突等错误下面靠 exists() 二次确认 / 改名重试
+            if await exists():
                 return
             LOGGER.warning(
                 "Retry container agent create %s (%d/%d)",
@@ -115,7 +117,8 @@ class OpenClawWorkerJudgerPairFactory:
         self._container = container
         self._workspace_dir = workspace_dir
 
-    def __call__(self, task: SuiteTask) -> WorkerJudgerPair:
+    async def __call__(self, task: SuiteTask) -> WorkerJudgerPair:
+        _ = task  # task 留给子类做 per-task 定制；当前 OpenClaw 路径不依赖
         work_session_id = f"user-{short_id()}"
         judge_session_id = f"judge-{short_id()}"
 
@@ -129,8 +132,8 @@ class OpenClawWorkerJudgerPairFactory:
 
         work_agent = create_agent("work")
         judge_agent = create_agent("judge")
-        work_agent.initialize()
-        judge_agent.initialize()
+        # 两个 agent 的 initialize 是独立的 docker exec 链路，可以并发跑
+        await asyncio.gather(work_agent.initialize(), judge_agent.initialize())
         return WorkerJudgerPair(
             work_agent=work_agent,
             judge_agent=judge_agent,

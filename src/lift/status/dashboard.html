@@ -1592,7 +1592,7 @@ function render() {
       + `<td>${c.stage || '-'}</td>`
       + `<td>${c.suite_name || '-'}</td>`
       + `<td>${taskCell}</td>`
-      + `<td>${up}</td>`;
+      + `<td class="ctr-up" data-started="${c.started_at || ''}">${up}</td>`;
     ctrTbody.appendChild(tr);
   }
 
@@ -1804,8 +1804,24 @@ document.addEventListener('click', (ev) => {
 
 // 启动
 refreshSnapshot(true).then(connect);
-// 即使没有事件也每秒重绘一次（计算 elapsed/uptime）
-setInterval(() => render(), 1000);
+// 每秒只刷新时间相关读数（elapsed / eta / container uptime），不调全量 render
+// —— 否则每秒 innerHTML 重建会把 running/retrying 的 blink 动画打断，造成“一抽一抽”
+function tick() {
+  if (!snapshot) return;
+  let total = 0, done = 0;
+  for (const r of (snapshot.repeats || []))
+    for (const s of Object.values(r.suites || {})) { total++; if (suiteOverall(s) === 'done') done++; }
+  const elapsed = snapshot.run_started_at ? (Date.now() / 1000 - snapshot.run_started_at) : 0;
+  const eta = (done > 0) ? (elapsed * (total - done) / done) : null;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('stat-elapsed', elapsed ? fmtDuration(elapsed) : '—');
+  set('stat-eta', eta != null ? fmtDuration(eta) : '—');
+  document.querySelectorAll('.ctr-up').forEach(el => {
+    const s = el.dataset.started;
+    el.textContent = s ? fmtDuration(Date.now() / 1000 - +s) : '-';
+  });
+}
+setInterval(tick, 1000);
 </script>
 </body>
 </html>
