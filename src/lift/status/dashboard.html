@@ -401,7 +401,7 @@
   .cmp-suite[data-open="true"] .cmp-tasks { display: block; }
   .cmp-row {
     display: grid;
-    grid-template-columns: 80px 1fr 1fr 70px;
+    grid-template-columns: 80px 1fr auto 1fr 70px;
     gap: 10px;
     align-items: center;
     padding: 6px 0;
@@ -507,8 +507,15 @@
     max-height: 280px; overflow: auto; background: rgba(255, 181, 71, 0.03);
     border: 1px solid var(--line); padding: 8px; border-radius: 3px; }
   .dlg-score { float: right; font-weight: 600; }
-  .dlg-btn { cursor: pointer; font-size: 13px; opacity: 0.7; padding: 0 4px; }
-  .dlg-btn:hover { opacity: 1; }
+  .dlg-btn {
+    display: inline-block; cursor: pointer; width: 38px; text-align: center;
+    font: 600 10px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.12em;
+    color: var(--muted); border: 1px solid var(--line-strong);
+    padding: 3px 0; border-radius: 2px; background: transparent; user-select: none;
+  }
+  .dlg-btn:hover { color: var(--amber); border-color: var(--amber-dim); }
+  /* 无 dialogue 时的占位：与 .dlg-btn 同宽，保持每行 grid 列宽一致 */
+  .cmp-dlg-slot { display: inline-block; width: 38px; }
 
   /* ---- tables ---- */
   table {
@@ -1089,13 +1096,14 @@ function renderCompare(repeats) {
     const sign = d > 0 ? '+' : (d < 0 ? '' : '±');
     return `<div class="cmp-delta ${cls}">${sign}${d.toFixed(2)}</div>`;
   };
-  // 💬 对话记录入口：仅在该 task 的 baseline/evolved 有 dialogue 时显示。
+  // 对话记录入口：位于 baseline ↔ evolved 中间列。仅在该 task 有 dialogue 时显示按钮，
+  // 否则占位（保持每行 grid 列宽一致，baseline/evolved 宽度对齐）。
   const dialogueBtnHtml = (repeat, suiteIdx, task, baseN, evoN) => {
-    if (!baseN && !evoN) return '';
     const tot = (baseN || 0) + (evoN || 0);
+    if (!tot) return `<span class="cmp-dlg-slot"></span>`;
     return `<span class="dlg-btn" title="view dialogue (${tot} turns)"`
       + ` data-repeat="${repeat}" data-suite-idx="${suiteIdx}"`
-      + ` data-task="${escapeAttr(task)}">💬</span>`;
+      + ` data-task="${escapeAttr(task)}">log</span>`;
   };
   const html = sortedIdx.map(idx => {
     const b = suiteAcc.get(idx);
@@ -1126,9 +1134,9 @@ function renderCompare(repeats) {
       return `<div class="cmp-row">`
         + `<div class="cmp-task-name" title="${escapeAttr(taskLabel)}">${taskLabel}</div>`
         + phaseHtml('baseline', r.base)
+        + dialogueBtnHtml(r.repeat, idx, r.task, r.baseDlg, r.evoDlg)
         + phaseHtml('evolved', r.evo)
         + deltaHtml(r.base, r.evo)
-        + dialogueBtnHtml(r.repeat, idx, r.task, r.baseDlg, r.evoDlg)
         + `</div>`;
     }).join('');
     return `<div class="cmp-suite" data-suite-idx="${idx}" data-open="${open}">`
@@ -1441,7 +1449,7 @@ function render() {
     if (c.stage !== 'warmup') return null;
     const rep = (snapshot.repeats || [])[c.repeat_index];
     if (!rep) return null;
-    const suite = (rep.suites || []).find(s => s && s.name === c.suite_name);
+    const suite = Object.values(rep.suites || {}).find(s => s && s.name === c.suite_name);
     if (!suite) return null;
     const tasks = Object.values(suite.warmup_tasks || {});
     const names = tasks.filter(t => t && t.status === 'running').map(t => t.name);
@@ -1607,7 +1615,7 @@ function renderDialogue(d) {
   body.innerHTML = phaseBlock('baseline', baseTurns, basePh) + phaseBlock('evolved', evoTurns, evoPh);
   body.scrollTop = scrollTop;
 }
-// 点击 💬 打开；点击 close / 遮罩关闭（事件委托，不依赖每次 render 重绑）。
+// 点击 log 打开；点击 close / 遮罩关闭（事件委托，不依赖每次 render 重绑）。
 document.addEventListener('click', (ev) => {
   const btn = ev.target.closest('.dlg-btn');
   if (btn) {
