@@ -56,6 +56,9 @@ class StageEvent:
     ``kind`` 取值：``repeat`` / ``suite`` / ``warmup`` / ``task`` / ``phase``。
     ``status`` 取值：``running`` / ``done`` / ``failed``。
     其余字段按维度选填，未用到的维度留 ``None``。
+
+    ``score`` / ``success``: phase done 时携带 ``content_score`` 与 judge 是否通过，
+    供 dashboard 实时展示 per-phase 分数与汇总 KPI（A 路径，运行期就有数据）。
     """
 
     kind: str
@@ -69,6 +72,11 @@ class StageEvent:
     phase: str | None = None
     # 任务/阶段成败的可选附加信息（如 judge 是否通过、错误摘要）
     detail: str | None = None
+    # phase done 时 judge 给出的内容分（0–1）和是否通过
+    score: float | None = None
+    success: bool | None = None
+    # phase done 时实际进行的 work↔judge 对话轮数（dashboard KPI 用）
+    turns: int | None = None
 
 
 @dataclass(frozen=True)
@@ -191,12 +199,19 @@ def emit_stage(
     task_name: str | None = None,
     phase: str | None = None,
     detail: str | None = None,
+    score: float | None = None,
+    success: bool | None = None,
+    turns: int | None = None,
 ) -> None:
     """广播编排维度状态变更。
 
     ``detail``: 可选的人类可读摘要，``status="failed"`` 时建议带异常类型 + 简短信息
     （如 ``"RuntimeError: container ... is not running"``）；``status="done"`` 时
     可带语义标签（如 judge 评分），由监听器自行决定是否展示。
+
+    ``score`` / ``success``: phase done 时上报 ``content_score`` 与是否 judge 通过，
+    驱动 dashboard 的 per-phase 分数渲染与 KPI 聚合。
+    ``turns``: phase done 时上报实际对话轮数，驱动 dashboard "avg turns" KPI。
     """
     _emit(
         StageEvent(
@@ -209,6 +224,9 @@ def emit_stage(
             task_name=task_name,
             phase=phase,
             detail=detail,
+            score=score,
+            success=success,
+            turns=turns,
         )
     )
 

@@ -282,10 +282,12 @@ async def run_task(
     max_conversation_turns: int = 5,
     is_evolve_turn: bool = False,
     is_final_task: bool = False,
-) -> tuple[bool, str, str, float]:
+) -> tuple[bool, str, str, float, int]:
     """Run one task: work chat + judge loop until success or ``max_conversation_turns``.
 
-    Returns ``(success, work_session_id, judge_session_id, content_score)``.
+    Returns ``(success, work_session_id, judge_session_id, content_score, turns)``。
+    ``turns`` 是实际进行的 work↔judge 对话轮数（成功时为达成成功的那轮序号 +1，
+    超出最大轮数时等于 ``max_conversation_turns``）。
     Does not schedule multiple tasks; use ``execute_tasks`` for that.
     """
     tags = CustomTags.init_tags(task, run_id)
@@ -293,8 +295,10 @@ async def run_task(
     tags.is_evolve_turn = is_evolve_turn  # after-load → 标记加载了 warmup delta
     current_prompt = pair.work_agent.augment_work_prompt(task, task.query)
     last_content_score: float = 0.0
+    turns_executed: int = 0
 
-    for _ in range(max_conversation_turns):
+    for turn_idx in range(max_conversation_turns):
+        turns_executed = turn_idx + 1
         LOGGER.info(
             "[%s] [%s] User Prompt: %s",
             run_id,
@@ -329,6 +333,7 @@ async def run_task(
                 pair.work_session_id,
                 pair.judge_session_id,
                 last_content_score,
+                turns_executed,
             )
 
         # judge reason 作为下一轮 work 的用户消息（多轮改进循环）
@@ -339,4 +344,5 @@ async def run_task(
         pair.work_session_id,
         pair.judge_session_id,
         last_content_score,
+        turns_executed,
     )

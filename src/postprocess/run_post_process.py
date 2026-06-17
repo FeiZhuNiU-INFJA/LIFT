@@ -6,9 +6,13 @@ and HTML report generation from a benchmark report or pre-backfilled JSON.
 
 import argparse
 import json
+import math
+import time
 from pathlib import Path
 import sys
-from typing import Literal
+from typing import Literal, TYPE_CHECKING
+
+import pandas as pd
 
 # Project root added to ``sys.path`` so the module can be run as a script.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +27,9 @@ from src.postprocess.report_html import render_report_html
 from src.config import LOGGER
 from src.models import EvalReport
 from src.paths import results_run_dir
+
+if TYPE_CHECKING:
+    from src.lift.status.state import RunStateTracker
 
 
 # Agent backend for trace stitching and metric derivation.
@@ -99,8 +106,12 @@ def process_report_to_outputs(
     summary_csv: Path,
     report_html: Path,
     agent_source: AgentSource = "openclaw",
-) -> tuple[Path | None, Path, Path, Path]:
-    """Run the full post-process pipeline and write CSV/HTML (and optional backfilled JSON)."""
+) -> tuple[Path | None, Path, Path, Path, pd.DataFrame]:
+    """Run the full post-process pipeline and write CSV/HTML (and optional backfilled JSON).
+
+    Returns the tuple of output paths plus the summary DataFrame so callers can
+    forward it to a status tracker / dashboard for live display.
+    """
     data, title_stem = load_or_backfill_report(input_path, agent_source)
     extracted_df = build_extracted_dataframe(data, agent_source)
     scored_df = attach_trajectory_scores(extracted_df)
@@ -126,7 +137,7 @@ def process_report_to_outputs(
     )
     report_html.write_text(html_text, encoding="utf-8")
     print_summary_to_console(summary_df)
-    return backfilled_json, comparison_csv, summary_csv, report_html
+    return backfilled_json, comparison_csv, summary_csv, report_html, summary_df
 
 
 def post_process_results_dir(run_id: str) -> Path:
@@ -136,29 +147,105 @@ def post_process_results_dir(run_id: str) -> Path:
     return results_dir
 
 
+def _coerce_metric_value(v: object) -> float | None:
+    """``NaN`` / non-numeric → None, otherwise float."""
+    try:
+        f = float(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(f) or math.isinf(f):
+        return None
+    return f
+
+
+def build_final_summary_from_df(
+    summary_df: pd.DataFrame,
+    *,
+    artifacts: dict[str, Path],
+):
+    """Convert the post-process ``summary_df`` into a ``FinalSummary`` dataclass
+    suitable for ``RunStateTracker.set_final_summary``.
+
+    Imported lazily so this module stays importable without the status package.
+    """
+    from src.lift.status.state import FinalSummary, FinalSummaryRow
+
+    rows: list[FinalSummaryRow] = []
+    for _, raw in summary_df.iterrows():
+        scope = str(raw.get("scope") or "")
+        # category 行用 "category" 字段，global 用固定 "ALL"
+        label = str(raw.get("category") or raw.get("label") or "")
+        metrics: dict[str, float | None] = {}
+        for col, val in raw.items():
+            if not isinstance(col, str):
+                continue
+            if col.startswith("mean_impr_") or col.startswith("mean_diff_"):
+                metrics[col] = _coerce_metric_value(val)
+        rows.append(
+            FinalSummaryRow(
+                scope=scope,
+                label=label,
+                task_count=int(raw.get("task_count") or 0),
+                task_count_aggregated=int(raw.get("task_count_aggregated") or 0),
+                task_count_excluded=int(raw.get("task_count_excluded") or 0),
+                baseline_success_rate=_coerce_metric_value(raw.get("baseline_success_rate")),
+                evolved_success_rate=_coerce_metric_value(raw.get("evolved_success_rate")),
+                metrics=metrics,
+            )
+        )
+
+    return FinalSummary(
+        rows=rows,
+        artifact_paths={k: str(v) for k, v in artifacts.items() if v is not None},
+        completed_at=time.time(),
+    )
+
+
 def run_post_process_pipeline(
     run_id: str,
     report_path: Path,
     agent_source: AgentSource = "openclaw",
+    *,
+    tracker: "RunStateTracker | None" = None,
 ) -> None:
-    """对已生成的 benchmark report JSON 执行后处理（trace_backfill + 指标 + HTML）。"""
+    """对已生成的 benchmark report JSON 执行后处理（trace_backfill + 指标 + HTML）。
+
+    若提供 ``tracker``，后处理完成后把 ``FinalSummary`` 注入快照，供 dashboard
+    展示并用于静态 HTML 导出。
+    """
     results_dir = post_process_results_dir(run_id)
     backfilled_json, comparison_csv, summary_csv, report_html = default_output_paths(
         results_dir, run_id
     )
     try:
-        backfilled_json, comparison_csv, summary_csv, report_html = process_report_to_outputs(
-            report_path,
-            backfilled_json=backfilled_json,
-            comparison_csv=comparison_csv,
-            summary_csv=summary_csv,
-            report_html=report_html,
-            agent_source=agent_source,
+        backfilled_json, comparison_csv, summary_csv, report_html, summary_df = (
+            process_report_to_outputs(
+                report_path,
+                backfilled_json=backfilled_json,
+                comparison_csv=comparison_csv,
+                summary_csv=summary_csv,
+                report_html=report_html,
+                agent_source=agent_source,
+            )
         )
         LOGGER.info("Post-process backfilled JSON: %s", backfilled_json)
         LOGGER.info("Post-process comparison CSV: %s", comparison_csv)
         LOGGER.info("Post-process summary CSV: %s", summary_csv)
         LOGGER.info("Post-process HTML report: %s", report_html)
+        if tracker is not None:
+            try:
+                summary = build_final_summary_from_df(
+                    summary_df,
+                    artifacts={
+                        "backfilled_json": backfilled_json,
+                        "comparison_csv": comparison_csv,
+                        "summary_csv": summary_csv,
+                        "report_html": report_html,
+                    },
+                )
+                tracker.set_final_summary(summary)
+            except Exception:
+                LOGGER.exception("Failed to forward final summary to tracker.")
     except Exception:
         LOGGER.exception("Post-process pipeline failed.")
         LOGGER.error("Benchmark report was still saved successfully at: %s", report_path)
@@ -212,13 +299,15 @@ def main() -> None:
     if args.report_html:
         report_html = Path(args.report_html).resolve()
 
-    backfilled_json, comparison_csv, summary_csv, report_html = process_report_to_outputs(
-        input_path,
-        backfilled_json=backfilled_json,
-        comparison_csv=comparison_csv,
-        summary_csv=summary_csv,
-        report_html=report_html,
-        agent_source=args.agent_source,
+    backfilled_json, comparison_csv, summary_csv, report_html, _summary_df = (
+        process_report_to_outputs(
+            input_path,
+            backfilled_json=backfilled_json,
+            comparison_csv=comparison_csv,
+            summary_csv=summary_csv,
+            report_html=report_html,
+            agent_source=args.agent_source,
+        )
     )
 
     print(f"Input: {input_path}")

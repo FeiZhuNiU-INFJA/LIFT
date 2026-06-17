@@ -32,6 +32,13 @@ class PhaseNode:
     name: str  # baseline / evolved
     status: str = PENDING
     last_error: str | None = None  # status=failed 时的异常摘要 / judge 拒因
+    # phase 完成时由 emit_stage(score=, success=) 写入，供 dashboard 展示分数 & KPI
+    score: float | None = None
+    success: bool | None = None
+    # phase 完成时 emit_stage(turns=) 写入，供 dashboard "avg turns" KPI 聚合
+    turns: int | None = None
+    # 后处理回填（FinalSummary 注入）：完整轨迹 / token / latency 指标
+    trajectory_score: float | None = None
 
 
 @dataclass
@@ -105,6 +112,32 @@ class ContainerInfo:
 
 
 @dataclass
+class FinalSummaryRow:
+    """后处理 summary CSV 单行（per-suite / per-category / global）。"""
+
+    scope: str  # suite | category | global
+    label: str  # suite_path / category 名 / "global"
+    task_count: int = 0
+    task_count_aggregated: int = 0
+    task_count_excluded: int = 0
+    baseline_success_rate: float | None = None
+    evolved_success_rate: float | None = None
+    # mean_impr_* / mean_diff_* 动态列；key 为列名（如 mean_impr_content_score），
+    # value 为 float 或 None（缺失值）。前端按需渲染。
+    metrics: dict[str, float | None] = field(default_factory=dict)
+
+
+@dataclass
+class FinalSummary:
+    """后处理跑完后的最终汇总，写入 RunSnapshot.final_summary 供前端展示。"""
+
+    rows: list[FinalSummaryRow] = field(default_factory=list)
+    # 后处理已写出的产物绝对路径，前端可生成下载链接
+    artifact_paths: dict[str, str] = field(default_factory=dict)
+    completed_at: float = 0.0
+
+
+@dataclass
 class RunSnapshot:
     """供 TUI 渲染的只读快照（已脱离锁）。"""
 
@@ -117,6 +150,8 @@ class RunSnapshot:
     params: list[tuple[str, str]] = field(default_factory=list)
     # 最近的失败事件（最新在前），便于 dashboard / TUI 一眼看到失败原因
     recent_errors: list[ErrorRecord] = field(default_factory=list)
+    # 后处理完成后的汇总数据（B 路径），未完成时为 None
+    final_summary: FinalSummary | None = None
 
 
 class RunStateTracker:
@@ -134,6 +169,15 @@ class RunStateTracker:
         # 最近 N 条失败事件（环形）；首条最新
         self._recent_errors: list[ErrorRecord] = []
         self._recent_errors_max: int = 50
+        # 后处理结果（B 路径），由 ``set_final_summary`` 写入
+        self._final_summary: FinalSummary | None = None
+
+    # ---- 后处理钩子 ------------------------------------------------------
+
+    def set_final_summary(self, summary: FinalSummary) -> None:
+        """后处理 pipeline 完成后写入最终汇总，供 dashboard 展示。"""
+        with self._lock:
+            self._final_summary = summary
 
     # ---- 订阅生命周期 ----------------------------------------------------
 
@@ -238,7 +282,9 @@ class RunStateTracker:
                 node.status = e.status
                 if e.status == FAILED:
                     node.last_error = e.detail
-                    self._record_error(e)
+                    # hold-out task fail 一定来自其下 phase fail（phase 那层已 record_error），
+                    # 这里只更新 TaskNode.status/last_error，不再写入 recent_errors，避免
+                    # dashboard / TUI 同一次失败重复显示 task + phase 两条。
             elif e.kind == "warmup_task" and suite is not None and e.task_name:
                 wnode = suite.warmup_tasks.get(e.task_name)
                 if wnode is None:
@@ -259,6 +305,14 @@ class RunStateTracker:
                 )
                 pnode = tnode.phases.setdefault(e.phase, PhaseNode(e.phase))
                 pnode.status = e.status
+                # phase done 时把 judge 给出的分数 / 是否通过落到 PhaseNode，
+                # 供 dashboard grid 色块叠分数 & KPI strip 聚合（A 路径）。
+                if e.score is not None:
+                    pnode.score = e.score
+                if e.success is not None:
+                    pnode.success = e.success
+                if e.turns is not None:
+                    pnode.turns = e.turns
                 if e.status == RETRYING:
                     # 中间态：把首次错误摘要落到节点供 hover；不计入 recent_errors
                     pnode.last_error = e.detail
@@ -348,6 +402,10 @@ class RunStateTracker:
                                             name=p.name,
                                             status=p.status,
                                             last_error=p.last_error,
+                                            score=p.score,
+                                            success=p.success,
+                                            turns=p.turns,
+                                            trajectory_score=p.trajectory_score,
                                         )
                                         for pk, p in t.phases.items()
                                     },
@@ -365,6 +423,7 @@ class RunStateTracker:
             ]
             containers = list(self._containers.values())
             recent_errors = list(self._recent_errors)
+            final_summary = self._final_summary
         return RunSnapshot(
             run_id=self._run_id,
             repeats=repeats,
@@ -373,4 +432,5 @@ class RunStateTracker:
             snapshot_at=time.time(),
             params=list(self._params),
             recent_errors=recent_errors,
+            final_summary=final_summary,
         )

@@ -388,7 +388,14 @@ class LIFTPipeline:
         """
 
         def _phase(
-            task_name: str, phase: str, status: str, *, detail: str | None = None
+            task_name: str,
+            phase: str,
+            status: str,
+            *,
+            detail: str | None = None,
+            score: float | None = None,
+            success: bool | None = None,
+            turns: int | None = None,
         ) -> None:
             status_events.emit_stage(
                 kind="phase",
@@ -400,6 +407,9 @@ class LIFTPipeline:
                 task_name=task_name,
                 phase=phase,
                 detail=detail,
+                score=score,
+                success=success,
+                turns=turns,
             )
 
         async def _run_phase(
@@ -429,11 +439,17 @@ class LIFTPipeline:
                     raise
                 # 成功路径（含 judge fail）：phase 视为完成
                 if result.success:
-                    _phase(task.name, phase, "done")
+                    _phase(
+                        task.name, phase, "done",
+                        score=result.content_score, success=True,
+                        turns=result.turns,
+                    )
                 else:
                     _phase(
                         task.name, phase, "done",
                         detail=f"judge fail (score={result.content_score:.2f})",
+                        score=result.content_score, success=False,
+                        turns=result.turns,
                     )
                 return result
             raise last_exc  # type: ignore[misc]

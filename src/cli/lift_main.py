@@ -204,16 +204,19 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
 @contextmanager
 def _status_dashboard(
     *, viz_enabled: bool, http_endpoint: str | None
-) -> Iterator[None]:
+) -> Iterator["RunStateTracker | None"]:
     """启用状态面板：终端 TUI（``--status-viz``）与 / 或 HTTP 仪表盘（``--status-http``）。
 
     两者共享一份 ``RunStateTracker``：tracker 仅在至少一种面板被启用时注册到事件
     总线，否则保持完全 no-op。``--status-viz`` 期间会暂时摘掉 console 日志
     handler（保留 FileHandler），避免日志冲掉 ``rich.Live`` 渲染区；HTTP
     dashboard 不动 console 日志。
+
+    yield 出 tracker（未启用时为 ``None``），调用方可以在 pipeline 之后把后处理
+    结果通过 ``tracker.set_final_summary(...)`` 注入快照供 dashboard 展示。
     """
     if not viz_enabled and not http_endpoint:
-        yield
+        yield None
         return
 
     from src.lift.status.state import RunStateTracker
@@ -249,7 +252,7 @@ def _status_dashboard(
         http_dashboard.start()
 
     try:
-        yield
+        yield tracker
     finally:
         if http_dashboard is not None:
             http_dashboard.stop()
@@ -309,7 +312,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
     )
     with _status_dashboard(
         viz_enabled=args.status_viz, http_endpoint=args.status_http
-    ):
+    ) as tracker:
         await pipeline.run(
             run_id=run_id,
             suite_paths=suite_paths,
@@ -322,13 +325,40 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
             ),
         )
 
-    if args.evaluate:
-        # 执行期 report 无 langfuse 字段；此处 trace_backfill + CSV/HTML
-        from src.postprocess.run_post_process import run_post_process_pipeline
+        if args.evaluate:
+            # 执行期 report 无 langfuse 字段；此处 trace_backfill + CSV/HTML。
+            # 在 dashboard 仍在线时跑后处理：完成后把 FinalSummary 注入 tracker，
+            # 浏览器侧立即看到 final summary 表；随后 ctx 退出关停 dashboard。
+            from src.postprocess.run_post_process import run_post_process_pipeline
 
-        report_path = report_json_path(run_id)
-        LOGGER.info("LIFT post-process run_id=%s", run_id)
-        run_post_process_pipeline(run_id, report_path, agent_source=args.agent_runtime)
+            report_path = report_json_path(run_id)
+            LOGGER.info("LIFT post-process run_id=%s", run_id)
+            run_post_process_pipeline(
+                run_id,
+                report_path,
+                agent_source=args.agent_runtime,
+                tracker=tracker,
+            )
+
+            # dashboard 关停前导出一份静态 HTML 快照，便于会后回看。
+            if tracker is not None and args.status_http:
+                _export_dashboard_snapshot(run_id, tracker)
+
+
+def _export_dashboard_snapshot(run_id: str, tracker) -> None:
+    """把当前 tracker 快照渲染为静态 HTML 写到 ``results/<run_id>/dashboard.html``。"""
+    from src.paths import results_run_dir
+    from src.lift.status.http_dashboard import build_static_dashboard_html
+
+    out = results_run_dir(run_id) / "dashboard.html"
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            build_static_dashboard_html(tracker.snapshot()), encoding="utf-8"
+        )
+        LOGGER.info("Dashboard static snapshot: %s", out)
+    except Exception:
+        LOGGER.exception("Failed to export dashboard snapshot to %s", out)
 
 
 def main(argv: list[str] | None = None) -> None:

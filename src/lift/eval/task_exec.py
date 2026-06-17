@@ -89,7 +89,7 @@ async def execute_task(
         run_id,
         workspace_dir,
     )
-    success, work_sid, judge_sid, content_score = await run_task(
+    success, work_sid, judge_sid, content_score, turns = await run_task(
         task,
         run_id,
         pair,
@@ -102,6 +102,7 @@ async def execute_task(
         judge_session_id=judge_sid,
         success=success,
         content_score=content_score,
+        turns=turns,
         workspace_dir=str(workspace_dir.resolve()),
     )
 

@@ -348,6 +348,182 @@ _INDEX_HTML = r"""<!doctype html>
     word-break: break-all;
   }
 
+  /* ---- KPI strip ---- */
+  .kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1px;
+    background: var(--line);
+  }
+  .kpi {
+    background: var(--bg-elev);
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .kpi-label {
+    font: 400 10px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.22em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .kpi-value {
+    font: 700 28px/1 'Barlow Condensed', sans-serif;
+    color: var(--fg);
+    letter-spacing: 0.02em;
+  }
+  .kpi-value b { color: var(--amber); font-weight: 700; }
+  .kpi-suffix { font-size: 16px; color: var(--muted); margin-left: 4px; }
+  .kpi-suffix i { font-style: normal; color: var(--muted); }
+  .kpi-up { color: var(--green); }
+  .kpi-down { color: var(--red); }
+  .kpi-flat { color: var(--muted); }
+
+  /* ---- phase comparison ---- */
+  .ghost-btn {
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--muted);
+    padding: 4px 10px;
+    font: 500 10px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  .ghost-btn:hover { color: var(--amber); border-color: var(--amber-dim); }
+  .cmp-suite {
+    border-bottom: 1px solid var(--line);
+  }
+  .cmp-suite:last-child { border-bottom: none; }
+  .cmp-suite-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 18px;
+    cursor: pointer;
+    user-select: none;
+    background: var(--bg-elev);
+    border-left: 2px solid transparent;
+  }
+  .cmp-suite-head:hover { background: var(--bg-elev2); border-left-color: var(--amber-dim); }
+  .cmp-suite-head .arrow {
+    color: var(--muted);
+    font: 600 10px/1 'JetBrains Mono';
+    width: 12px;
+  }
+  .cmp-suite[data-open="true"] .arrow { color: var(--amber); }
+  .cmp-suite-name {
+    font: 600 13px/1.1 'JetBrains Mono';
+    color: var(--fg);
+    flex: 1;
+  }
+  .cmp-suite-meta {
+    font: 400 11px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    text-transform: uppercase;
+    display: flex;
+    gap: 14px;
+  }
+  .cmp-suite-meta b { color: var(--fg); font-weight: 600; }
+  .cmp-suite-meta .delta-up { color: var(--green); }
+  .cmp-suite-meta .delta-down { color: var(--red); }
+  .cmp-tasks {
+    display: none;
+    padding: 6px 18px 12px;
+    background: var(--bg);
+  }
+  .cmp-suite[data-open="true"] .cmp-tasks { display: block; }
+  .cmp-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 1fr 70px;
+    gap: 10px;
+    align-items: center;
+    padding: 6px 0;
+    border-top: 1px dashed var(--line);
+    font: 400 11px/1.2 'JetBrains Mono';
+  }
+  .cmp-row:first-child { border-top: none; }
+  .cmp-task-name { color: var(--cyan); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmp-bar {
+    position: relative;
+    height: 16px;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .cmp-bar-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--amber-dim);
+  }
+  .cmp-bar.evolved .cmp-bar-fill { background: rgba(0, 214, 143, 0.42); }
+  .cmp-bar.failed .cmp-bar-fill { background: rgba(255, 84, 112, 0.45); width: 100% !important; }
+  .cmp-bar.pending .cmp-bar-fill { background: var(--grey); width: 0; }
+  .cmp-bar-text {
+    position: relative;
+    z-index: 1;
+    padding: 0 6px;
+    line-height: 16px;
+    color: var(--fg);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+  }
+  .cmp-delta {
+    text-align: right;
+    font-weight: 700;
+  }
+  .cmp-delta.up { color: var(--green); }
+  .cmp-delta.down { color: var(--red); }
+  .cmp-delta.flat { color: var(--muted); }
+
+  /* ---- final summary (postprocess) ---- */
+  .fs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font: 400 11px/1.4 'JetBrains Mono', monospace;
+  }
+  .fs-table th, .fs-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--line);
+    text-align: right;
+    white-space: nowrap;
+  }
+  .fs-table th {
+    background: var(--bg-elev2);
+    color: var(--amber);
+    font: 600 10px/1.4 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    text-align: right;
+    position: sticky;
+    top: 0;
+  }
+  .fs-table th.fs-label, .fs-table td.fs-label { text-align: left; color: var(--cyan); }
+  .fs-table tr.fs-global td { background: rgba(255, 181, 71, 0.06); font-weight: 600; }
+  .fs-up { color: var(--green); }
+  .fs-down { color: var(--red); }
+  .fs-flat { color: var(--muted); }
+  .fs-na { color: var(--muted); opacity: 0.6; }
+  .fs-meta { color: var(--muted); font-size: 10px; }
+
+  /* collapsible panel: when collapsed body hidden */
+  .panel.collapsed .panel-body { display: none; }
+  .panel-toggle {
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--muted);
+    padding: 4px 10px;
+    font: 500 10px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  .panel-toggle:hover { color: var(--amber); border-color: var(--amber-dim); }
+
   /* ---- repeats ---- */
   .repeat-row {
     display: flex;
@@ -614,6 +790,64 @@ _INDEX_HTML = r"""<!doctype html>
     </div>
   </section>
 
+  <section class="panel" id="kpi-panel" style="display:none">
+    <div class="panel-head">
+      <div class="panel-title">key indicators</div>
+      <div class="panel-meta" id="kpi-source">live</div>
+    </div>
+    <div class="panel-body">
+      <div class="kpi-strip">
+        <div class="kpi"><div class="kpi-label">tasks done</div>
+          <div class="kpi-value"><b id="kpi-done">0</b><span class="kpi-suffix">/<i id="kpi-total">0</i></span></div></div>
+        <div class="kpi"><div class="kpi-label">failed</div>
+          <div class="kpi-value" id="kpi-failed">0</div></div>
+        <div class="kpi"><div class="kpi-label">baseline avg</div>
+          <div class="kpi-value" id="kpi-baseline-avg">—</div></div>
+        <div class="kpi"><div class="kpi-label">evolved avg</div>
+          <div class="kpi-value" id="kpi-evolved-avg">—</div></div>
+        <div class="kpi"><div class="kpi-label">&Delta; avg</div>
+          <div class="kpi-value" id="kpi-delta-score">—</div></div>
+        <div class="kpi"><div class="kpi-label">&Delta; success-rate</div>
+          <div class="kpi-value" id="kpi-delta-sr">—</div></div>
+        <div class="kpi"><div class="kpi-label">avg turns</div>
+          <div class="kpi-value"><span id="kpi-base-turns">—</span><span class="kpi-suffix">→<i id="kpi-evo-turns">—</i></span></div></div>
+        <div class="kpi"><div class="kpi-label">&Delta; turns</div>
+          <div class="kpi-value" id="kpi-delta-turns">—</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="compare-panel" style="display:none">
+    <div class="panel-head">
+      <div class="panel-title">phase comparison · baseline vs evolved</div>
+      <div class="controls">
+        <label><input type="checkbox" id="cmp-only-done" /> only done</label>
+        <button type="button" id="cmp-expand-all" class="ghost-btn">expand all</button>
+        <button type="button" id="cmp-collapse-all" class="ghost-btn">collapse all</button>
+      </div>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <div id="compare"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="final-panel" style="display:none">
+    <div class="panel-head">
+      <div class="panel-title">final summary · post-processed metrics</div>
+      <div class="controls">
+        <span class="panel-meta" id="final-meta"></span>
+        <button type="button" id="final-toggle" class="panel-toggle">collapse</button>
+      </div>
+    </div>
+    <div class="panel-body" style="padding:0; overflow:auto;">
+      <table class="fs-table" id="final-table">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+      <div id="final-artifacts" class="fs-meta" style="padding:10px 14px;"></div>
+    </div>
+  </section>
+
   <section class="panel" id="params-panel" style="display:none">
     <div class="panel-head">
       <div class="panel-title">run configuration</div>
@@ -652,6 +886,8 @@ _INDEX_HTML = r"""<!doctype html>
         <span class="retrying">↻ retrying</span>
         <span class="done">● done</span>
         <span class="failed">✗ failed</span>
+        <span class="sep">·</span>
+        <span><b style="color:var(--green)">0-9</b> score &times;10 (done)</span>
         <span class="sep">·</span>
         <span style="color:var(--muted)">hover any cell for detail · click to copy</span>
       </div>
@@ -762,54 +998,363 @@ function suiteCellHtml(suite, containers, repeatIndex) {
     wKill = killHint(ctrFor(null, 'warmup'));
   }
   wTitle += wKill;
-  // 取所有 holdout 题里的 baseline/evolved 聚合状态 + 第一条错误摘要
+  // 取所有 holdout 题里的 baseline/evolved 聚合状态 + 第一条错误摘要 + 平均分
   const phaseAgg = (phase) => {
     const tasks = Object.values(suite.holdout_tasks || {});
     const xs = tasks.map(t => (t.phases || {})[phase]?.status || 'pending');
     const errs = tasks
       .map(t => (t.phases || {})[phase]?.last_error)
       .filter(Boolean);
+    const scores = tasks
+      .map(t => (t.phases || {})[phase]?.score)
+      .filter(v => typeof v === 'number');
     let st;
     if (!xs.length) st = 'pending';
     else if (xs.includes('failed')) st = 'failed';
     else if (xs.every(x => x === 'done')) st = 'done';
     else if (xs.includes('running') || xs.includes('retrying') || xs.includes('done')) st = 'running';
     else st = 'pending';
-    return { st, err: errs.join(' | ') };
+    const avg = scores.length
+      ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+    return { st, err: errs.join(' | '), avg, n: scores.length };
   };
   const baseline = phaseAgg('baseline');
   const evolved = phaseAgg('evolved');
-  // baseline / evolved 也按题展开 tooltip
-  const phaseTooltip = (phase, label, st) => {
+  // baseline / evolved 也按题展开 tooltip（含每题 score）
+  const phaseTooltip = (phase, label, agg) => {
     const tasks = Object.values(suite.holdout_tasks || {});
-    if (!tasks.length) return `${label} [${st}]`;
+    let header = `${label} [${agg.st}]`;
+    if (agg.avg != null) {
+      header += `  avg=${agg.avg.toFixed(2)} (n=${agg.n})`;
+    }
+    if (!tasks.length) return header;
     const lines = tasks.map(t => {
       const p = (t.phases || {})[phase];
       const status = p?.status || 'pending';
       const sym = STATUS_SYM[status] || '?';
+      const score = (typeof p?.score === 'number')
+        ? `  score=${p.score.toFixed(2)}` : '';
       const err = p?.last_error ? `  (${p.last_error})` : '';
       const ctr = (status === 'running' || status === 'retrying')
         ? ctrFor(t.name, `holdout/${phase}`) : null;
-      return `${sym} ${t.name.padEnd(8)} [${status}]${err}${ctr ? `\n  docker kill ${ctr}` : ''}`;
+      return `${sym} ${t.name.padEnd(8)} [${status}]${score}${err}${ctr ? `\n  docker kill ${ctr}` : ''}`;
     });
-    return `${label} [${st}]\n` + lines.join('\n');
+    return `${header}\n` + lines.join('\n');
+  };
+  // phase 色块：done 且有平均分时把 sym 改为 0-9 整数（avg * 10 floor，clamp）
+  const phaseSym = (agg) => {
+    if (agg.st === 'done' && agg.avg != null) {
+      const v = Math.max(0, Math.min(9, Math.floor(agg.avg * 10)));
+      return String(v);
+    }
+    return STATUS_SYM[agg.st] || '?';
   };
   const cell = (st, sym, title) =>
     `<span class="${st} tip" data-tip="${escapeAttr(title)}">${sym}</span>`;
   const html = [
     cell(w, STATUS_SYM[w] || '?', wTitle),
-    cell(baseline.st, STATUS_SYM[baseline.st] || '?',
-      phaseTooltip('baseline', 'baseline', baseline.st)),
-    cell(evolved.st, STATUS_SYM[evolved.st] || '?',
-      phaseTooltip('evolved', 'evolved', evolved.st)),
+    cell(baseline.st, phaseSym(baseline),
+      phaseTooltip('baseline', 'baseline', baseline)),
+    cell(evolved.st, phaseSym(evolved),
+      phaseTooltip('evolved', 'evolved', evolved)),
   ].join(' ');
   return { html };
+}
+
+// PHASE COMPARISON：folded by suite，每条 task 一行 baseline/evolved 横条 + Δ。
+// 折叠状态保存在 cmpOpen[suite_key]，render 时复用避免每次重绘都收起。
+const cmpOpen = {};
+function renderCompare(repeats) {
+  const panel = document.getElementById('compare-panel');
+  const root = document.getElementById('compare');
+  const onlyDone = document.getElementById('cmp-only-done').checked;
+  // 把同一 suite_index 跨 repeat 的 task 聚合（同一 suite 多个 repeat 视为多次采样）。
+  // 这里不强行平均 —— 默认按 repeat 拆行，task name 前缀 r{idx}/ 区分。
+  const suiteAcc = new Map();  // index -> { name, rows: [{repeat, task, base, evo}] }
+  for (const r of repeats) {
+    for (const [k, s] of Object.entries(r.suites || {})) {
+      const idx = parseInt(k, 10);
+      if (!suiteAcc.has(idx)) suiteAcc.set(idx, { name: s.name, rows: [] });
+      const bucket = suiteAcc.get(idx);
+      for (const t of Object.values(s.holdout_tasks || {})) {
+        const base = (t.phases || {}).baseline || {};
+        const evo = (t.phases || {}).evolved || {};
+        bucket.rows.push({
+          repeat: r.index, task: t.name,
+          base: { status: base.status, score: base.score, success: base.success },
+          evo: { status: evo.status, score: evo.score, success: evo.success },
+        });
+      }
+    }
+  }
+  const sortedIdx = [...suiteAcc.keys()].sort((a, b) => a - b);
+  if (!sortedIdx.length) { panel.style.display = 'none'; return; }
+  // 任意一条 row 有 phase done 就让面板出现（避免 KPI 还没数据时已显示空骨架）
+  const hasAnyDone = [...suiteAcc.values()].some(b =>
+    b.rows.some(r => r.base.status === 'done' || r.evo.status === 'done'));
+  if (!hasAnyDone) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  const fmt = (v) => (typeof v === 'number') ? v.toFixed(2) : '—';
+  const phaseHtml = (cls, ph) => {
+    const done = ph.status === 'done';
+    const failed = ph.status === 'failed';
+    const score = (typeof ph.score === 'number') ? ph.score : null;
+    let kls = cls;
+    if (failed) kls += ' failed';
+    else if (!done) kls += ' pending';
+    const w = (score != null) ? Math.round(score * 100) : 0;
+    const txt = failed ? 'failed'
+      : (done ? (score != null ? fmt(score) : '—')
+        : (ph.status || 'pending'));
+    return `<div class="cmp-bar ${kls}"><div class="cmp-bar-fill" style="width:${w}%"></div><div class="cmp-bar-text">${txt}</div></div>`;
+  };
+  const deltaHtml = (rowBase, rowEvo) => {
+    if (typeof rowBase.score !== 'number' || typeof rowEvo.score !== 'number') {
+      return `<div class="cmp-delta flat">—</div>`;
+    }
+    const d = rowEvo.score - rowBase.score;
+    const cls = d > 0.001 ? 'up' : (d < -0.001 ? 'down' : 'flat');
+    const sign = d > 0 ? '+' : (d < 0 ? '' : '±');
+    return `<div class="cmp-delta ${cls}">${sign}${d.toFixed(2)}</div>`;
+  };
+  const html = sortedIdx.map(idx => {
+    const b = suiteAcc.get(idx);
+    let rows = b.rows;
+    if (onlyDone) {
+      rows = rows.filter(r => r.base.status === 'done' && r.evo.status === 'done');
+    }
+    if (!rows.length) return '';
+    // suite-level meta：完成 task 数 / mean Δ / Δ success-rate
+    let baseS = [], evoS = [], baseSucc = [], evoSucc = [];
+    for (const r of b.rows) {
+      if (r.base.status === 'done' && typeof r.base.score === 'number') baseS.push(r.base.score);
+      if (r.evo.status === 'done' && typeof r.evo.score === 'number') evoS.push(r.evo.score);
+      if (r.base.status === 'done' && typeof r.base.success === 'boolean') baseSucc.push(r.base.success);
+      if (r.evo.status === 'done' && typeof r.evo.success === 'boolean') evoSucc.push(r.evo.success);
+    }
+    const mean = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+    const mb = mean(baseS), me = mean(evoS);
+    const sb = baseSucc.length ? baseSucc.filter(Boolean).length / baseSucc.length : null;
+    const se = evoSucc.length ? evoSucc.filter(Boolean).length / evoSucc.length : null;
+    const dScoreCls = (mb != null && me != null) ?
+      (me - mb > 0.001 ? 'delta-up' : (me - mb < -0.001 ? 'delta-down' : '')) : '';
+    const dScore = (mb != null && me != null) ?
+      `${me - mb >= 0 ? '+' : ''}${(me - mb).toFixed(2)}` : '—';
+    const dSrCls = (sb != null && se != null) ?
+      (se - sb > 0.001 ? 'delta-up' : (se - sb < -0.001 ? 'delta-down' : '')) : '';
+    const dSr = (sb != null && se != null) ?
+      `${se - sb >= 0 ? '+' : ''}${((se - sb) * 100).toFixed(0)}%` : '—';
+    const open = cmpOpen[idx] !== false;  // 默认展开
+    const rowsHtml = rows.map(r => {
+      const taskLabel = (repeats.length > 1)
+        ? `r${r.repeat}/${r.task}` : r.task;
+      return `<div class="cmp-row">`
+        + `<div class="cmp-task-name" title="${escapeAttr(taskLabel)}">${taskLabel}</div>`
+        + phaseHtml('baseline', r.base)
+        + phaseHtml('evolved', r.evo)
+        + deltaHtml(r.base, r.evo)
+        + `</div>`;
+    }).join('');
+    return `<div class="cmp-suite" data-suite-idx="${idx}" data-open="${open}">`
+      + `<div class="cmp-suite-head">`
+      +   `<span class="arrow">${open ? '▾' : '▸'}</span>`
+      +   `<span class="cmp-suite-name">${b.name}</span>`
+      +   `<span class="cmp-suite-meta">`
+      +     `<span>tasks <b>${rows.length}</b></span>`
+      +     `<span>base <b>${fmt(mb)}</b></span>`
+      +     `<span>evo <b>${fmt(me)}</b></span>`
+      +     `<span>&Delta;avg <b class="${dScoreCls}">${dScore}</b></span>`
+      +     `<span>&Delta;sr <b class="${dSrCls}">${dSr}</b></span>`
+      +   `</span>`
+      + `</div>`
+      + `<div class="cmp-tasks">${rowsHtml}</div>`
+      + `</div>`;
+  }).join('');
+  root.innerHTML = html;
+}
+
+// FINAL SUMMARY：postprocess 完成后由 RunSnapshot.final_summary 注入。
+// 列：scope/label/tasks · baseline_sr/evolved_sr · 8 个 metric 的 mean_impr / mean_diff。
+const FS_METRICS = [
+  'content_score', 'trajectory_score', 'trials',
+  'tool_use_num', 'total_latency_seconds',
+  'total_tokens', 'cached_token', 'cached_token_ratio',
+];
+const FS_PANEL_COLLAPSED = { v: false };
+function renderFinalSummary(fs) {
+  const panel = document.getElementById('final-panel');
+  if (!fs || !fs.rows || !fs.rows.length) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  panel.classList.toggle('collapsed', FS_PANEL_COLLAPSED.v);
+  document.getElementById('final-toggle').textContent =
+    FS_PANEL_COLLAPSED.v ? 'expand' : 'collapse';
+
+  const meta = document.getElementById('final-meta');
+  if (fs.completed_at) {
+    const dt = new Date(fs.completed_at * 1000);
+    meta.textContent = 'completed ' + dt.toISOString().replace('T', ' ').slice(0, 19) + 'Z';
+  } else {
+    meta.textContent = '';
+  }
+
+  const fmtNum = (v, digits = 2) =>
+    (v == null || isNaN(v)) ? '<span class="fs-na">—</span>' : Number(v).toFixed(digits);
+  const fmtPct = (v) =>
+    (v == null || isNaN(v)) ? '<span class="fs-na">—</span>' :
+    (Number(v) * 100).toFixed(1) + '%';
+  const fmtDelta = (v, asPct) => {
+    if (v == null || isNaN(v)) return '<span class="fs-na">—</span>';
+    const n = Number(v);
+    const cls = n > 0.0001 ? 'fs-up' : (n < -0.0001 ? 'fs-down' : 'fs-flat');
+    const sign = n > 0 ? '+' : '';
+    const txt = asPct ? (n * 100).toFixed(1) + '%' : n.toFixed(3);
+    return `<span class="${cls}">${sign}${txt}</span>`;
+  };
+
+  // 表头：第一组身份列 + success rate + 每个 metric 一组 (mean_impr / mean_diff)
+  const thead = document.querySelector('#final-table thead');
+  let theadHtml = '<tr>'
+    + '<th class="fs-label">scope</th>'
+    + '<th class="fs-label">label</th>'
+    + '<th>tasks</th>'
+    + '<th>base sr</th>'
+    + '<th>evo sr</th>';
+  for (const m of FS_METRICS) {
+    theadHtml += `<th>impr ${m}</th><th>diff ${m}</th>`;
+  }
+  theadHtml += '</tr>';
+  thead.innerHTML = theadHtml;
+
+  // 排序：global 行置底，category 按 label 字母序
+  const rows = [...fs.rows];
+  rows.sort((a, b) => {
+    if (a.scope === 'global' && b.scope !== 'global') return 1;
+    if (b.scope === 'global' && a.scope !== 'global') return -1;
+    return String(a.label).localeCompare(String(b.label));
+  });
+
+  const tbody = document.querySelector('#final-table tbody');
+  tbody.innerHTML = rows.map(r => {
+    const m = r.metrics || {};
+    const cells = [
+      `<td class="fs-label">${escapeAttr(r.scope || '')}</td>`,
+      `<td class="fs-label">${escapeAttr(r.label || '')}</td>`,
+      `<td>${r.task_count != null ? r.task_count : '—'}</td>`,
+      `<td>${fmtPct(r.baseline_success_rate)}</td>`,
+      `<td>${fmtPct(r.evolved_success_rate)}</td>`,
+    ];
+    for (const k of FS_METRICS) {
+      cells.push(`<td>${fmtDelta(m[`mean_impr_${k}`], true)}</td>`);
+      cells.push(`<td>${fmtDelta(m[`mean_diff_${k}`], false)}</td>`);
+    }
+    const cls = r.scope === 'global' ? 'fs-global' : '';
+    return `<tr class="${cls}">${cells.join('')}</tr>`;
+  }).join('');
+
+  // artifact 路径列表
+  const artDiv = document.getElementById('final-artifacts');
+  const arts = fs.artifact_paths || {};
+  const keys = Object.keys(arts);
+  if (keys.length) {
+    artDiv.innerHTML = 'artifacts: '
+      + keys.map(k => `<span class="tip" data-tip="${escapeAttr(arts[k])}">${escapeAttr(k)}</span>`).join(' · ');
+  } else {
+    artDiv.innerHTML = '';
+  }
+}
+
+function renderKpiStrip(repeats) {
+  // 聚合所有 repeat × suite 的 holdout 题，统计 phase 完成数 / 失败数 / 平均分。
+  // 仅 status === 'done' 且 score 非空的 phase 才计入 avg；success-rate 用 phase.success。
+  const stats = {
+    taskTotal: 0, taskDone: 0, taskFailed: 0,
+    baseScores: [], evoScores: [],
+    baseTurns: [], evoTurns: [],
+    baseSuccess: { done: 0, ok: 0 }, evoSuccess: { done: 0, ok: 0 },
+  };
+  for (const r of repeats) {
+    for (const s of Object.values(r.suites || {})) {
+      for (const t of Object.values(s.holdout_tasks || {})) {
+        stats.taskTotal++;
+        if (t.status === 'done') stats.taskDone++;
+        if (t.status === 'failed') stats.taskFailed++;
+        const collect = (phase, scoreList, turnsList, sr) => {
+          const p = (t.phases || {})[phase];
+          if (!p || p.status !== 'done') return;
+          if (typeof p.score === 'number') scoreList.push(p.score);
+          if (typeof p.turns === 'number' && p.turns > 0) turnsList.push(p.turns);
+          if (typeof p.success === 'boolean') {
+            sr.done++; if (p.success) sr.ok++;
+          }
+        };
+        collect('baseline', stats.baseScores, stats.baseTurns, stats.baseSuccess);
+        collect('evolved', stats.evoScores, stats.evoTurns, stats.evoSuccess);
+      }
+    }
+  }
+  const mean = (xs) =>
+    xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+  const baseAvg = mean(stats.baseScores);
+  const evoAvg = mean(stats.evoScores);
+  const baseTurnsAvg = mean(stats.baseTurns);
+  const evoTurnsAvg = mean(stats.evoTurns);
+  const baseSr = stats.baseSuccess.done
+    ? stats.baseSuccess.ok / stats.baseSuccess.done : null;
+  const evoSr = stats.evoSuccess.done
+    ? stats.evoSuccess.ok / stats.evoSuccess.done : null;
+  const fmt = (v, digits = 2) => v == null ? '—' : v.toFixed(digits);
+  const fmtPct = (v) => v == null ? '—' : `${(v * 100).toFixed(0)}%`;
+  // ``invert=true`` 表示该指标越小越好（如 turns）：负 delta 染绿 / 正染红。
+  const setDelta = (id, a, b, fmtFn, invert = false) => {
+    const el = document.getElementById(id);
+    if (a == null || b == null) {
+      el.textContent = '—'; el.className = 'kpi-value kpi-flat'; return;
+    }
+    const d = b - a;
+    const sign = d > 0 ? '+' : (d < 0 ? '' : '±');
+    el.textContent = sign + fmtFn(d);
+    const good = invert ? (d < -0.001) : (d > 0.001);
+    const bad  = invert ? (d > 0.001)  : (d < -0.001);
+    el.className = 'kpi-value ' + (good ? 'kpi-up' : bad ? 'kpi-down' : 'kpi-flat');
+  };
+  const panel = document.getElementById('kpi-panel');
+  // 没有任何 phase 完成时面板隐藏（避免空数据干扰）
+  if (!stats.baseScores.length && !stats.evoScores.length
+      && stats.taskTotal === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  document.getElementById('kpi-done').textContent = stats.taskDone;
+  document.getElementById('kpi-total').textContent = stats.taskTotal;
+  document.getElementById('kpi-failed').textContent = stats.taskFailed;
+  document.getElementById('kpi-baseline-avg').textContent = fmt(baseAvg);
+  document.getElementById('kpi-evolved-avg').textContent = fmt(evoAvg);
+  setDelta('kpi-delta-score', baseAvg, evoAvg, (d) => d.toFixed(2));
+  setDelta('kpi-delta-sr', baseSr, evoSr, (d) => `${(d * 100).toFixed(0)}%`);
+  // 对话轮数：越少越好（agent 一次到位优于反复改进），所以 invert=true。
+  document.getElementById('kpi-base-turns').textContent = fmt(baseTurnsAvg, 1);
+  document.getElementById('kpi-evo-turns').textContent = fmt(evoTurnsAvg, 1);
+  setDelta('kpi-delta-turns', baseTurnsAvg, evoTurnsAvg, (d) => d.toFixed(1), true);
+  // KPI 数据源标记：postprocess 完成后由 final_summary 接管时显示 "final"
+  document.getElementById('kpi-source').textContent =
+    snapshot.final_summary ? 'final (post-processed)' : 'live';
 }
 
 function render() {
   if (!snapshot) return;
   const repeats = snapshot.repeats || [];
   document.getElementById('run-id').textContent = snapshot.run_id || '(no signal)';
+
+  // KPI strip（A 路径：基于 phase.score / phase.success 实时聚合）
+  renderKpiStrip(repeats);
+  // PHASE COMPARISON（A 路径：per-task baseline/evolved 横条对比）
+  renderCompare(repeats);
+  // FINAL SUMMARY（B 路径：postprocess 完成后由 final_summary 注入）
+  renderFinalSummary(snapshot.final_summary);
 
   // run params 面板：来自 RunPlanEvent.params
   const params = snapshot.params || [];
@@ -905,6 +1450,19 @@ function render() {
   ctrTbody.innerHTML = '';
   const ctrs = (snapshot.containers || []).slice().sort((a, b) => (a.started_at || 0) - (b.started_at || 0));
   document.getElementById('ctr-count').textContent = `(${ctrs.length})`;
+  // warmup 容器是 suite 级共享的（多题串行或 PARALLEL_SINGLE 同容器并发），
+  // started 时没单一 task；这里通过 repeat/suite 反查所有 status=running 的
+  // warmup_task 名一起展示（PARALLEL_SINGLE 下同容器可能多题同时 running）。
+  const liveWarmupTask = (c) => {
+    if (c.stage !== 'warmup') return null;
+    const rep = (snapshot.repeats || [])[c.repeat_index];
+    if (!rep) return null;
+    const suite = (rep.suites || []).find(s => s && s.name === c.suite_name);
+    if (!suite) return null;
+    const tasks = Object.values(suite.warmup_tasks || {});
+    const names = tasks.filter(t => t && t.status === 'running').map(t => t.name);
+    return names.length ? names.join(', ') : null;
+  };
   for (const c of ctrs) {
     const up = c.started_at ? fmtDuration(Date.now() / 1000 - c.started_at) : '-';
     const tr = document.createElement('tr');
@@ -913,11 +1471,12 @@ function render() {
     const tip = `${c.container_name || ''}\n\ndocker kill ${c.container_name || ''}`;
     tr.className = 'tip';
     tr.setAttribute('data-tip', tip);
+    const taskCell = c.task_name || liveWarmupTask(c) || '-';
     tr.innerHTML = `<td>${elide(c.container_name)}</td>`
       + `<td>${c.repeat_index ?? '-'}</td>`
       + `<td>${c.stage || '-'}</td>`
       + `<td>${c.suite_name || '-'}</td>`
-      + `<td>${c.task_name || '-'}</td>`
+      + `<td>${taskCell}</td>`
       + `<td>${up}</td>`;
     ctrTbody.appendChild(tr);
   }
@@ -991,6 +1550,41 @@ function connect() {
 document.getElementById('hide-done').addEventListener('change', render);
 document.getElementById('filter').addEventListener('input', render);
 
+// PHASE COMPARISON 控件：only-done 过滤 / 全展开 / 全收起 / 点击 suite-head 切折叠。
+document.getElementById('cmp-only-done').addEventListener('change', render);
+document.getElementById('cmp-expand-all').addEventListener('click', () => {
+  for (const el of document.querySelectorAll('.cmp-suite')) {
+    const idx = parseInt(el.dataset.suiteIdx, 10);
+    if (!Number.isNaN(idx)) cmpOpen[idx] = true;
+  }
+  render();
+});
+document.getElementById('cmp-collapse-all').addEventListener('click', () => {
+  for (const el of document.querySelectorAll('.cmp-suite')) {
+    const idx = parseInt(el.dataset.suiteIdx, 10);
+    if (!Number.isNaN(idx)) cmpOpen[idx] = false;
+  }
+  render();
+});
+// 事件委托：点击 .cmp-suite-head 切换该 suite 的折叠状态。
+document.addEventListener('click', (ev) => {
+  const head = ev.target.closest('.cmp-suite-head');
+  if (!head) return;
+  const suite = head.parentElement;
+  if (!suite || !suite.classList.contains('cmp-suite')) return;
+  const idx = parseInt(suite.dataset.suiteIdx, 10);
+  if (Number.isNaN(idx)) return;
+  // 默认展开（cmpOpen[idx] === undefined 视为 true），所以"未取过 false"即收起。
+  cmpOpen[idx] = !(cmpOpen[idx] !== false);
+  render();
+});
+
+// FINAL SUMMARY 折叠按钮
+document.getElementById('final-toggle').addEventListener('click', () => {
+  FS_PANEL_COLLAPSED.v = !FS_PANEL_COLLAPSED.v;
+  render();
+});
+
 // 点击任意 .tip 元素：把 data-tip 复制到剪贴板，闪一个 toast。
 // 用事件委托 + closest，不依赖每次 render 重绑监听器。
 function showCopyToast(msg) {
@@ -1038,6 +1632,41 @@ setInterval(() => render(), 1000);
 </body>
 </html>
 """
+# ---- 静态 HTML 快照导出 --------------------------------------------------
+
+
+_STATIC_BOOT_PLACEHOLDER = "// 启动\nrefreshSnapshot(true).then(connect);\n// 即使没有事件也每秒重绘一次（计算 elapsed/uptime）\nsetInterval(() => render(), 1000);"
+
+
+_STATIC_BOOT_REPLACEMENT = """// 静态快照启动：使用嵌入的 INITIAL_SNAPSHOT，不发起任何网络请求。
+snapshot = window.__INITIAL_SNAPSHOT__ || null;
+const _conn = document.getElementById('conn');
+if (_conn) {
+  _conn.classList.remove('live');
+  _conn.classList.add('dead');
+  const lbl = _conn.querySelector('.conn-label');
+  if (lbl) lbl.textContent = 'snapshot';
+}
+render();
+// 不再发起 SSE 或 fetch；这是冻结的最终状态快照。"""
+
+
+def build_static_dashboard_html(snapshot: RunSnapshot) -> str:
+    """渲染一份脱机可看的 dashboard HTML，把当前 ``snapshot`` 作为初始数据嵌入。
+
+    生成的 HTML 不依赖 ``/snapshot`` 与 ``/events`` 接口，可直接用浏览器打开
+    （或拷贝到他人电脑）查看；所有交互（折叠 / 切换 / 过滤）仍然有效，但不会
+    再有实时更新——SSE 与定时 refresh 已被禁用。
+    """
+    payload = json.dumps(_snapshot_payload(snapshot), ensure_ascii=False)
+    # 把 ``</`` 转义，防止字符串里出现 ``</script>`` 提前结束嵌入脚本
+    payload_safe = payload.replace("</", "<\\/")
+    injected = (
+        f"<script>window.__INITIAL_SNAPSHOT__ = {payload_safe};</script>\n</head>"
+    )
+    html = _INDEX_HTML.replace("</head>", injected, 1)
+    html = html.replace(_STATIC_BOOT_PLACEHOLDER, _STATIC_BOOT_REPLACEMENT, 1)
+    return html
 
 
 # ---- SSE 客户端注册表 ----------------------------------------------------

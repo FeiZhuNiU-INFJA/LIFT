@@ -59,7 +59,7 @@ async def test_run_task_success_on_first_turn() -> None:
         judge_session_id="judge-1",
     )
 
-    success, work_sid, judge_sid, score = await run_task(
+    success, work_sid, judge_sid, score, turns = await run_task(
         _task(),
         "run-1",
         pair,
@@ -70,6 +70,7 @@ async def test_run_task_success_on_first_turn() -> None:
     assert work_sid == "work-1"
     assert judge_sid == "judge-1"
     assert score == 1.0
+    assert turns == 1
     assert work.chat_calls[0][0] == "work-1"
     assert judge.chat_calls[0][0] == "judge-1"
     assert work.activate_calls == ["work-1"]
@@ -91,10 +92,11 @@ async def test_run_task_retries_work_after_judge_failure() -> None:
         judge_session_id="judge-1",
     )
 
-    success, _, _, score = await run_task(_task(), "run-1", pair, max_conversation_turns=2)
+    success, _, _, score, turns = await run_task(_task(), "run-1", pair, max_conversation_turns=2)
 
     assert success is True
     assert score == 1.0
+    assert turns == 2
     assert len(work.chat_calls) == 2
     assert "missing greeting" in work.chat_calls[1][1]
 
@@ -111,8 +113,9 @@ async def test_run_task_judge_parse_retry() -> None:
         judge_session_id="judge-1",
     )
 
-    success, _, _, score = await run_task(_task(), "run-1", pair, max_conversation_turns=1)
+    success, _, _, score, turns = await run_task(_task(), "run-1", pair, max_conversation_turns=1)
 
     assert success is True
     assert score == 1.0
+    assert turns == 1
     assert len(judge.chat_calls) == 2
