@@ -9,6 +9,7 @@ from json_repair import repair_json
 from pydantic import BaseModel, Field
 
 from src.config import LOGGER
+from src.lift.adapters.openclaw.json_output import MAX_TOKENS_TRUNCATION_MARKER
 from src.lift.eval.chat_agent import format_outbound_message
 from src.lift.eval.worker_judger import WorkerJudgerPair
 from src.models import CustomTags, SuiteTask
@@ -127,6 +128,7 @@ _PROVIDER_ERROR_MARKERS: tuple[str, ...] = (
     "model idle timeout",
     "timeoutSeconds",
     "rate limit",
+    MAX_TOKENS_TRUNCATION_MARKER,  # output_tokens 触达 maxTokens 视同 provider 错误
 )
 
 

@@ -26,13 +26,13 @@ From the **repository root**:
 bash agent-runtimes/openclaw/build-image.sh
 ```
 
-Produces `evolve-eval-openclaw-with-evolve:latest` by default (includes `workspace_seed` at `/opt/evolve-eval/workspace_seed`).
+默认产出 `evolve-eval-openclaw-base:latest`（不带 self-evolving-plugin-pro 进化插件，对应 LIFT `-r openclaw`，包含 `workspace_seed` 于 `/opt/evolve-eval/workspace_seed`）。
 
-变体（不带 self-evolving-plugin-pro 进化插件，对应 LIFT `-r openclaw`）：
+变体（带 self-evolving-plugin-pro 进化插件）：
 
 ```bash
-INSTALL_SELF_EVOLVING=false bash agent-runtimes/openclaw/build-image.sh
-# 产出 evolve-eval-openclaw-base:latest
+bash agent-runtimes/openclaw/build-image.sh --with-evolve
+# 产出 evolve-eval-openclaw-with-evolve:latest
 ```
 
 LIFT copies this seed into each task workspace before mount so agents skip first-run onboarding.

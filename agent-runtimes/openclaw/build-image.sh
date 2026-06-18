@@ -22,10 +22,37 @@ if [[ -f "${ROOT}/.env" ]]; then
   set +a
 fi
 
+# 是否安装并启用 self-evolving-plugin-pro。默认 false（base 镜像）；传 --with-evolve 构建 with-evolve 镜像
+INSTALL_SELF_EVOLVING="false"
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [--with-evolve] [-h|--help]
+
+Options:
+  --with-evolve   构建带 self-evolving-plugin-pro 的 with-evolve 镜像（默认不带）
+  -h, --help      显示本帮助
+EOF
+}
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --with-evolve)
+      INSTALL_SELF_EVOLVING="true"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
 # 默认走官方 ghcr.io；国内拉取慢时可设 OPENCLAW_BASE_IMAGE=ghcr.milu.moe/openclaw/openclaw:latest 切到加速源
 BASE_IMAGE="${OPENCLAW_BASE_IMAGE:-ghcr.io/openclaw/openclaw:latest}"
-# 是否安装并启用 self-evolving-plugin-pro。默认 true（with-evolve 镜像）；设 false 构建 base 镜像（不带进化插件）
-INSTALL_SELF_EVOLVING="${INSTALL_SELF_EVOLVING:-true}"
 if [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
   TAG="${OPENCLAW_IMAGE:-evolve-eval-openclaw-with-evolve:latest}"
 else
