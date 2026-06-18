@@ -8,7 +8,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from src.lift.adapters.openclaw.workspace_seed import (
+from src.lift.adapters.openclaw.session import (
     WORKSPACE_READY_MARKER,
     seed_eval_workspace,
 )
