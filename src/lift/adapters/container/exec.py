@@ -90,7 +90,7 @@ async def docker_exec_async(
         # 失败时抓容器最后 200 行 docker logs：plugin / gateway 自身的报错
         # （如 self-evolving plugin 18090 FastAPI 返回 400 的 body）通常被
         # ``curl -fsS`` 吞掉，但 plugin 进程的 stderr 都落在 docker logs 里。
-        container_log = await _capture_container_logs(container_name, tail=200)
+        container_log = await capture_container_logs(container_name, tail=200)
         if container_log:
             LOGGER.error(
                 "docker exec failed (%s); last container logs:\n%s",
@@ -102,8 +102,8 @@ async def docker_exec_async(
     return stdout_text
 
 
-async def _capture_container_logs(container_name: str, *, tail: int = 200) -> str:
-    """抓容器最后 ``tail`` 行 ``docker logs`` 用于失败诊断（best-effort）。"""
+async def capture_container_logs(container_name: str, *, tail: int = 200) -> str:
+    """抓容器最后 ``tail`` 行 ``docker logs``（best-effort，失败返回空串）。"""
     try:
         proc = await asyncio.create_subprocess_exec(
             "docker", "logs", "--tail", str(tail), container_name,

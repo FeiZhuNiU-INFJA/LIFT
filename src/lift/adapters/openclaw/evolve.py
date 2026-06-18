@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from src.lift.adapters.container.exec import docker_exec_shell_async
+from src.config import LOGGER
+from src.lift.adapters.container.exec import (
+    capture_container_logs,
+    docker_exec_shell_async,
+)
 from src.lift.adapters.openclaw.container_exec import (
     OpenClawContainerContext,
     exec_openclaw_async,
@@ -40,5 +44,18 @@ if [[ -f "${WORKER_JS}" ]]; then
 fi
 """.strip(),
     )
-    await exec_openclaw_async(container, ["learn", "review"])  # 产物写入容器层，供 commit delta
+    review_stdout = await exec_openclaw_async(container, ["learn", "review"])
+    if review_stdout.strip():
+        LOGGER.info(
+            "openclaw learn review stdout (%s):\n%s",
+            container.container_name,
+            review_stdout.strip(),
+        )
+    container_log = await capture_container_logs(container.container_name, tail=500)
+    if container_log:
+        LOGGER.info(
+            "openclaw learn review container logs (%s, last 500 lines):\n%s",
+            container.container_name,
+            container_log,
+        )
 
