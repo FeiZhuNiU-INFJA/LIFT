@@ -42,12 +42,11 @@ RUN mkdir -p /root/.openclaw/extensions /root/.openclaw/skills /workspace
 
 # Firecrawl 通过 OpenClaw 自带的 stock plugin (`stock:firecrawl/index.js`) 提供
 # search/scrape/browser 能力；运行时只需在容器 env 注入 FIRECRAWL_API_KEY 鉴权。
-# 启用动作放在 install-plugins-in-image.sh，allowlist 在 openclaw.base.json。
+# 启用动作放在 install-plugins-in-image.sh，allowlist 在 config/plugins.fragment.json。
 
 COPY plugins/langfuse-tracer /tmp/langfuse-tracer
 COPY plugins/self-evolving-plugin-pro-2026.4.23.zip /tmp/self-evolving-plugin-pro.zip
 COPY config /tmp/config
-COPY openclaw.json.template /tmp/openclaw.json.template
 COPY merge-openclaw-config.mjs /tmp/merge-openclaw-config.mjs
 COPY install-plugins-in-image.sh /tmp/install-plugins-in-image.sh
 COPY workspace_seed /opt/evolve-eval/workspace_seed

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Deep-merge LIFT openclaw.json.template into the config produced by plugin install.
+ * Deep-merge a LIFT config fragment into the config produced by plugin install.
  * Usage: node merge-openclaw-config.mjs <target.json> <template.json>
  */
 import { readFileSync, writeFileSync } from "node:fs";
