@@ -12,7 +12,7 @@ import pandas as pd
 
 
 # Agent backend used when deriving metrics from Langfuse work analytics.
-AgentSource = Literal["openclaw", "hermes"]
+AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes"]
 
 
 def load_json(path: Path) -> dict[str, Any]:

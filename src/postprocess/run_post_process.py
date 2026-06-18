@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 
 # Agent backend for trace stitching and metric derivation.
-AgentSource = Literal["openclaw", "hermes"]
+AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes"]
 
 
 def default_output_paths(output_dir: Path, output_prefix: str) -> tuple[Path, Path, Path, Path]:
@@ -340,7 +340,7 @@ def main() -> None:
     parser.add_argument("--report-html", help="Optional override for HTML report output path.")
     parser.add_argument(
         "--agent-source",
-        choices=["openclaw", "hermes"],
+        choices=["openclaw", "openclaw_with_evolve", "hermes"],
         default="openclaw",
         help="Agent source for trace stitching (default: openclaw).",
     )

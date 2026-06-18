@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 from contextlib import contextmanager
 from collections.abc import Iterator
@@ -305,10 +306,11 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
     adapter = create_adapter(args.agent_runtime, options)
     pipeline = LIFTPipeline()
     LOGGER.info(
-        "LIFT run_id=%s agent_runtime=%s suites=%d",
+        "LIFT run_id=%s agent_runtime=%s suites=%d args=\n%s",
         run_id,
         args.agent_runtime,
         len(suite_paths),
+        json.dumps(vars(args), default=str, ensure_ascii=False, sort_keys=True, indent=2),
     )
     with _status_dashboard(
         viz_enabled=args.status_viz, http_endpoint=args.status_http
