@@ -93,6 +93,7 @@ async def post_signal_via_container(
     tags: list[str] | None = None,
     source: str = "lift_eval_critique",
     classifier_note: str = "lift posted signal on behalf of agent",
+    raise_on_error: bool = False,
 ) -> None:
     """在容器内 ``curl POST /signals``，把一条 signal 直接写入 self-evolving-plugin-pro 后端。
 
@@ -105,7 +106,8 @@ async def post_signal_via_container(
     ``/root/.openclaw/evolution-runtime/runtime-state.json`` 读取——这是
     ``self-evolving-plugin`` 自身落地的权威源。
 
-    失败仅 ``LOGGER.warning``，不抛——signal 上报是评测旁路，绝不能拖垮 warmup。
+    ``raise_on_error=True`` 时将容器执行失败 / 非 2xx HTTP / runtime state 缺失
+    抛给上层 retry 包装；默认仍只 ``LOGGER.warning``，保持旁路调用的宽松语义。
     """
     payload = {
         "session_id": session_id,
@@ -118,6 +120,7 @@ async def post_signal_via_container(
         "classifier_note": classifier_note,
     }
     payload_json = json.dumps(payload, ensure_ascii=False)
+    strict = "1" if raise_on_error else "0"
     # 用 python 解析 runtime-state.json + 注入 instance_id（容器里不一定装了 jq；
     # plugin runtime 自带 python，更稳）。``payload_json`` / ``endpoint`` /
     # ``state_path`` 经 ``shlex.quote`` 安全嵌入 bash。
@@ -125,9 +128,10 @@ async def post_signal_via_container(
 STATE_FILE={shlex.quote(_RUNTIME_STATE_PATH)}
 ENDPOINT={shlex.quote(_PLUGIN_SERVICE_ENDPOINT)}
 PAYLOAD_BASE={shlex.quote(payload_json)}
+STRICT={strict}
 if [[ ! -f "${{STATE_FILE}}" ]]; then
   echo "post_signal: runtime-state.json missing at ${{STATE_FILE}}"
-  exit 0
+  [[ "${{STRICT}}" == "1" ]] && exit 1 || exit 0
 fi
 read -r INSTANCE_ID INSTANCE_TOKEN < <(python3 - "${{STATE_FILE}}" <<'PY'
 import json, sys
@@ -140,7 +144,7 @@ PY
 )
 if [[ -z "${{INSTANCE_ID}}" || -z "${{INSTANCE_TOKEN}}" ]]; then
   echo "post_signal: instance_id/token not yet provisioned"
-  exit 0
+  [[ "${{STRICT}}" == "1" ]] && exit 1 || exit 0
 fi
 PAYLOAD=$(IID="${{INSTANCE_ID}}" PAYLOAD_BASE="${{PAYLOAD_BASE}}" python3 - <<'PY'
 import json, os
@@ -151,7 +155,7 @@ PY
 )
 if [[ -z "${{PAYLOAD}}" ]]; then
   echo "post_signal: failed to inject instance_id into payload"
-  exit 0
+  [[ "${{STRICT}}" == "1" ]] && exit 1 || exit 0
 fi
 HTTP_CODE=$(curl -sS -o /tmp/_lift_signal_resp.txt -w '%{{http_code}}' \\
   -X POST "${{ENDPOINT}}/signals" \\
@@ -162,6 +166,10 @@ HTTP_CODE=$(curl -sS -o /tmp/_lift_signal_resp.txt -w '%{{http_code}}' \\
 echo "post_signal: http_code=${{HTTP_CODE}}"
 cat /tmp/_lift_signal_resp.txt 2>/dev/null || true
 echo
+if [[ ! "${{HTTP_CODE}}" =~ ^2 ]]; then
+  echo "post_signal: non-2xx response"
+  [[ "${{STRICT}}" == "1" ]] && exit 1 || true
+fi
 """.strip()
     try:
         out = await docker_exec_shell_async(container.container_name, script)
@@ -170,6 +178,8 @@ echo
             "post_signal failed (%s, kind=%s, session=%s): %s",
             container.container_name, kind, session_id, exc,
         )
+        if raise_on_error:
+            raise
         return
     LOGGER.info(
         "post_signal (%s, kind=%s, session=%s, trust=%.2f):\n%s",
@@ -198,11 +208,14 @@ fi
 """.strip(),
     )
 
-    review_stdout = await exec_openclaw_async(container, ["learn", "review"])
+    try:
+        review_stdout = await exec_openclaw_async(container, ["learn", "review"])
+    except Exception:
+        LOGGER.exception("openclaw learn review failed (%s)", container.container_name)
+        raise
     if review_stdout.strip():
         LOGGER.info(
             "openclaw learn review stdout (%s):\n%s",
             container.container_name,
             review_stdout.strip(),
         )
-

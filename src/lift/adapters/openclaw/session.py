@@ -26,6 +26,7 @@ _CONTAINER_PREFIX = "evolve-openclaw"  # docker 容器名前缀
 
 CONTAINER_LANGFUSE_BASE_URL = "http://host.docker.internal:3000"  # 容器内访问宿主机 Langfuse
 CONTAINER_WORKSPACE_SEED_DIR = "/opt/evolve-eval/workspace_seed"  # 镜像内 seed 路径
+CONTAINER_EXTRA_SKILLS_DIR = "/workspace/task/skills"  # task.requirements.extra_skills_dir 挂载点
 WORKSPACE_READY_MARKER = ".lift-workspace-ready"  # seed 完成标记文件
 
 
@@ -96,6 +97,24 @@ touch /workspace/task/{WORKSPACE_READY_MARKER} 2>/dev/null || true
 """.strip()
 
 
+def _container_extra_skills_shell() -> str:
+    """Install task-provided skills into OpenClaw's state dir.
+
+    ``/workspace/task/skills`` is a bind mount and will not be captured by
+    ``docker commit``. Copying it into ``$OPENCLAW_STATE_DIR/skills`` makes the
+    skills visible from OpenClaw's own state tree and preserves them in evolved
+    delta images.
+    """
+    return f"""
+if [[ -d "{CONTAINER_EXTRA_SKILLS_DIR}" ]]; then
+  state_dir="${{OPENCLAW_STATE_DIR:-/root/.openclaw}}"
+  mkdir -p "${{state_dir}}/skills"
+  find "{CONTAINER_EXTRA_SKILLS_DIR}" -mindepth 1 -maxdepth 1 -exec cp -a {{}} "${{state_dir}}/skills/" \\;
+  chmod -R u+rwX,go+rX "${{state_dir}}/skills" 2>/dev/null || true
+fi
+""".strip()
+
+
 async def _wait_gateway(session: ContainerSession, tries: int = 90) -> None:
     """轮询 curl gateway health，超时仅 warning 不抛错。"""
     gateway_port = int(session.metadata["gateway_port"])
@@ -151,6 +170,21 @@ async def _ensure_workspace_seed(session: ContainerSession) -> None:
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning(
             "Failed to apply workspace seed in %s: %s",
+            session.container_name,
+            exc,
+        )
+
+
+async def _install_extra_skills(session: ContainerSession) -> None:
+    """把 task 级 extra skills 从 bind mount 安装进 OpenClaw state dir。"""
+    try:
+        await docker_exec_shell_async(
+            session.container_name,
+            _container_extra_skills_shell(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning(
+            "Failed to install extra skills in %s: %s",
             session.container_name,
             exc,
         )
@@ -229,6 +263,8 @@ async def start_openclaw_container(
         post_start_hooks.append(_reset_workspace_attestations)  # 清跨题 attestations 状态
         if seed_workspace:
             post_start_hooks.append(_ensure_workspace_seed)  # 容器内删 BOOTSTRAP、同步 seed
+    if task is not None:
+        post_start_hooks.append(_install_extra_skills)  # 注册 workspace skills 到 OpenClaw state
 
     return await ContainerSession.start(
         instance_id=instance_id,

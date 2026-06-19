@@ -52,6 +52,7 @@ EvalReport（一次 eval run，一份 report JSON）
 
 - `query`：交给 work agent 的任务描述
 - `requirements`：技能目录、材料目录等
+  - `extra_skills_dir`：任务级自定义技能目录；由 runtime adapter 挂载/加载到对应 agent 的 skills 搜索路径
 - `expected_result.content_reqs`：内容质量判定依据（judge 使用）
 - `expected_result.trajectory_reqs`：轨迹质量判定依据（后处理 trajectory judge 使用）
 

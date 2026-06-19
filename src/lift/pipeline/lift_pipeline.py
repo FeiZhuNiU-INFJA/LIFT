@@ -396,6 +396,7 @@ class LIFTPipeline:
             score: float | None = None,
             success: bool | None = None,
             turns: int | None = None,
+            tool_calls: int | None = None,
         ) -> None:
             status_events.emit_stage(
                 kind="phase",
@@ -410,6 +411,7 @@ class LIFTPipeline:
                 score=score,
                 success=success,
                 turns=turns,
+                tool_calls=tool_calls,
             )
 
         async def _run_phase(
@@ -443,6 +445,7 @@ class LIFTPipeline:
                         task.name, phase, "done",
                         score=result.content_score, success=True,
                         turns=result.turns,
+                        tool_calls=result.tool_calls,
                     )
                 else:
                     _phase(
@@ -450,6 +453,7 @@ class LIFTPipeline:
                         detail=f"judge fail (score={result.content_score:.2f})",
                         score=result.content_score, success=False,
                         turns=result.turns,
+                        tool_calls=result.tool_calls,
                     )
                 return result
             raise last_exc  # type: ignore[misc]

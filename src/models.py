@@ -411,6 +411,10 @@ class PhaseRun(BaseModel):
         default=0,
         description="该 phase 实际进行的 work↔judge 对话轮数（成功时为达成成功的那轮序号；失败/超限时等于 max_conversation_turns）",
     )
+    tool_calls: int | None = Field(
+        default=None,
+        description="该 phase work agent 调用 tool 的总次数；adapter 自报（OpenClaw 读 trajectory.jsonl），其他 runtime 默认 None",
+    )
     workspace_dir: str | None = Field(default=None, description="该 phase 使用的 agent workspace 目录")
     langfuse: PhaseLangfuseBundle | None = Field(
         default=None,

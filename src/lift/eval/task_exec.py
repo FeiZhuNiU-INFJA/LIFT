@@ -154,9 +154,14 @@ async def execute_tasks(
             LOGGER.warning("on_task_status callback failed: %r", exc)
 
     async def run_one(task: SuiteTask) -> PhaseRun:
-        """单题包装：execute_task → 可选 on_task_done；可选异常重试一次。"""
+        """单题包装：execute_task 可选异常重试；成功后再调用 on_task_done。
+
+        ``on_task_done`` 通常承载 evolve 钩子，它有自己的重试语义。这里不要把
+        hook 失败算进 ``execute_task`` 的 retry，否则会把已经完成的 warmup 题整题重跑。
+        """
         attempts = 2 if retry_each else 1
         last_exc: BaseException | None = None
+        result: PhaseRun | None = None
         for attempt in range(attempts):
             _emit(task, "running")
             try:
@@ -168,17 +173,7 @@ async def execute_tasks(
                     run_phase=run_phase,
                     max_conversation_turns=max_conversation_turns,
                 )
-                if on_task_done is not None:
-                    await on_task_done(task, result)
-                # judge fail 不当作失败：仍发 done，把 score 放到 detail 里给 hover 看
-                if result.success:
-                    _emit(task, "done")
-                else:
-                    _emit(
-                        task, "done",
-                        f"judge fail (score={result.content_score:.2f})",
-                    )
-                return result
+                break
             except BaseException as exc:  # noqa: BLE001
                 last_exc = exc
                 if attempt + 1 < attempts:
@@ -193,8 +188,25 @@ async def execute_tasks(
                     continue
                 _emit(task, "failed", exc_summary(exc))
                 raise
-        # 不可达：循环不是 break 就是 return / raise
-        raise last_exc  # type: ignore[misc]
+        if result is None:
+            raise last_exc  # type: ignore[misc]
+
+        try:
+            if on_task_done is not None:
+                await on_task_done(task, result)
+        except BaseException as exc:  # noqa: BLE001
+            _emit(task, "failed", exc_summary(exc))
+            raise
+
+        # judge fail 不当作失败：仍发 done，把 score 放到 detail 里给 hover 看
+        if result.success:
+            _emit(task, "done")
+        else:
+            _emit(
+                task, "done",
+                f"judge fail (score={result.content_score:.2f})",
+            )
+        return result
 
     if parallel:
         # 共享同一 factory/env/workspace：仅当 runtime 支持 warmup 多题并发时使用

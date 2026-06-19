@@ -56,6 +56,9 @@ class PhaseNode:
     success: bool | None = None
     # phase 完成时 emit_stage(turns=) 写入，供 dashboard "avg turns" KPI 聚合
     turns: int | None = None
+    # phase 完成时 emit_stage(tool_calls=) 写入；adapter 自报 work agent tool 调用次数
+    # （OpenClaw 走 trajectory.jsonl 计 toolCall block；其他 runtime 拿不到时为 None）
+    tool_calls: int | None = None
     # 后处理回填（FinalSummary 注入）：完整轨迹 / token / latency 指标
     trajectory_score: float | None = None
     # work↔judge 完整对话记录（A 路径逐轮追加；B 路径后处理整体覆盖）
@@ -324,6 +327,10 @@ class RunStateTracker:
                     self._record_error(e)
             elif e.kind == "warmup" and suite is not None:
                 suite.warmup_status = e.status
+                if e.status in (RUNNING, DONE):
+                    suite.last_error = None
+                elif e.status == RETRYING:
+                    suite.last_error = e.detail
                 if e.status == FAILED:
                     suite.last_error = e.detail
                     self._record_error(e)
@@ -344,8 +351,17 @@ class RunStateTracker:
                     wnode = WarmupTaskNode(name=e.task_name)
                     suite.warmup_tasks[e.task_name] = wnode
                 wnode.status = e.status
+                if e.status in (RUNNING, DONE):
+                    wnode.last_error = None
+                elif e.status == RETRYING:
+                    wnode.last_error = e.detail
+                    if suite.warmup_status != FAILED:
+                        suite.warmup_status = RETRYING
+                        suite.last_error = e.detail
                 if e.status == FAILED:
                     wnode.last_error = e.detail
+                    suite.warmup_status = FAILED
+                    suite.last_error = e.detail
                     self._record_error(e)
             elif (
                 e.kind == "phase"
@@ -366,6 +382,8 @@ class RunStateTracker:
                     pnode.success = e.success
                 if e.turns is not None:
                     pnode.turns = e.turns
+                if e.tool_calls is not None:
+                    pnode.tool_calls = e.tool_calls
                 if e.status == RETRYING:
                     # 中间态：把首次错误摘要落到节点供 hover；不计入 recent_errors
                     pnode.last_error = e.detail
@@ -484,6 +502,7 @@ class RunStateTracker:
                                             score=p.score,
                                             success=p.success,
                                             turns=p.turns,
+                                            tool_calls=p.tool_calls,
                                             trajectory_score=p.trajectory_score,
                                             dialogue=[DialogueTurn(**asdict(d)) for d in p.dialogue],
                                             dialogue_source=p.dialogue_source,

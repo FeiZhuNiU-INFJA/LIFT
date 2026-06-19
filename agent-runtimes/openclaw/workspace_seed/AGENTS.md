@@ -124,6 +124,10 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
 
+## Task Skills
+
+Evaluation tasks may provide extra skills. They are mounted at `skills/` in this workspace and installed into `/root/.openclaw/skills` at container startup. Check the relevant `SKILL.md` before using a task-specific workflow.
+
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 
 **📝 Platform Formatting:**

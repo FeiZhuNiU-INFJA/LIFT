@@ -78,6 +78,9 @@ class StageEvent:
     success: bool | None = None
     # phase done 时实际进行的 work↔judge 对话轮数（dashboard KPI 用）
     turns: int | None = None
+    # phase done 时 work agent 工具调用总数（adapter 自报；OpenClaw 读 trajectory.jsonl，
+    # 其他 runtime 拿不到时为 None，dashboard 显示 "—"）
+    tool_calls: int | None = None
 
 
 @dataclass(frozen=True)
@@ -226,6 +229,7 @@ def emit_stage(
     score: float | None = None,
     success: bool | None = None,
     turns: int | None = None,
+    tool_calls: int | None = None,
 ) -> None:
     """广播编排维度状态变更。
 
@@ -236,6 +240,8 @@ def emit_stage(
     ``score`` / ``success``: phase done 时上报 ``content_score`` 与是否 judge 通过，
     驱动 dashboard 的 per-phase 分数渲染与 KPI 聚合。
     ``turns``: phase done 时上报实际对话轮数，驱动 dashboard "avg turns" KPI。
+    ``tool_calls``: phase done 时 adapter 自报 work agent tool 调用总次数；缺失时
+    dashboard 显示 "—"，仅 OpenClaw 路径会真填。
     """
     _emit(
         StageEvent(
@@ -251,6 +257,7 @@ def emit_stage(
             score=score,
             success=success,
             turns=turns,
+            tool_calls=tool_calls,
         )
     )
 

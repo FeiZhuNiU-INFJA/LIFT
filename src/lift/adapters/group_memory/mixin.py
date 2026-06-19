@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from src.config import LOGGER
@@ -35,6 +36,10 @@ from src.lift.runtime.suite_run_resources import SuiteRunResources
 from src.lift.status import events as status_events
 from src.models import SuiteTask
 from src.utils import short_id, stage_task_materials
+
+
+class _EvolveHookFailed(RuntimeError):
+    """Marker exception: evolve hook exhausted its own retry budget."""
 
 
 class GroupMemoryAdapterMixin:
@@ -102,7 +107,11 @@ class GroupMemoryAdapterMixin:
                         "Warmup task failed after retry (isolated) suite=%s task=%s: %r",
                         ctx.suite_name, task.name, r,
                     )
+            errors = [r for r in results if isinstance(r, BaseException)]
+            if errors:
+                raise errors[0]
         else:
+            first_error: BaseException | None = None
             for task, coro in zip(warmup_tasks, coros):
                 try:
                     await coro
@@ -111,6 +120,10 @@ class GroupMemoryAdapterMixin:
                         "Warmup task failed after retry (serial isolated) suite=%s task=%s: %r",
                         ctx.suite_name, task.name, exc,
                     )
+                    if first_error is None:
+                        first_error = exc
+            if first_error is not None:
+                raise first_error
 
         delta = DeltaRef(
             image_tag=self._docker_image,  # type: ignore[attr-defined]
@@ -161,6 +174,9 @@ class GroupMemoryAdapterMixin:
                 )
                 _emit("done")
                 return
+            except _EvolveHookFailed as exc:
+                _emit("failed", str(exc) or "evolve_after_task failed after retry")
+                raise
             except BaseException as exc:  # noqa: BLE001
                 last_exc = exc
                 if attempt == 0:
@@ -221,9 +237,54 @@ class GroupMemoryAdapterMixin:
                 max_conversation_turns=self._options.max_conversation_turns,  # type: ignore[attr-defined]
             )
             # 题级 evolve 钩子：默认 no-op；子类可覆盖为外部记忆 flush
-            await self.evolve_after_task(env, task, ctx)  # type: ignore[attr-defined]
+            await self._run_evolve_after_task_with_retry(env, task, ctx)
         finally:
             await session.cleanup()
+
+    async def _run_evolve_after_task_with_retry(
+        self,
+        env: ExecutionEnvironment,
+        task: SuiteTask,
+        ctx: SuiteRunContext,
+    ) -> None:
+        """为 GroupMemory 自定义 produce_delta 路径补齐 evolve hook 3 次重试。"""
+        attempts = 3
+        last_exc: BaseException | None = None
+
+        def _emit(status: str, detail: str | None = None) -> None:
+            status_events.emit_stage(
+                kind="warmup_task",
+                status=status,
+                run_id=ctx.run_id,
+                repeat_index=ctx.repeat_index,
+                suite_index=ctx.suite_index,
+                suite_name=ctx.suite_name,
+                task_name=task.name,
+                detail=detail,
+            )
+
+        final_detail = "evolve_after_task failed after retry"
+        for attempt in range(1, attempts + 1):
+            try:
+                await self.evolve_after_task(env, task, ctx)  # type: ignore[attr-defined]
+                return
+            except BaseException as exc:  # noqa: BLE001
+                last_exc = exc
+                detail = f"evolve_after_task retry {attempt}/{attempts}: {exc_summary(exc)}"
+                final_detail = detail
+                if attempt >= attempts:
+                    LOGGER.error(
+                        "GroupMemory evolve_after_task failed after %d attempts suite=%s task=%s: %r",
+                        attempts, ctx.suite_name, task.name, exc,
+                    )
+                    break
+                LOGGER.warning(
+                    "GroupMemory evolve_after_task failed suite=%s task=%s attempt=%d/%d: %r; retrying",
+                    ctx.suite_name, task.name, attempt, attempts, exc,
+                )
+                _emit("retrying", detail)
+                await asyncio.sleep(min(attempt, 3))
+        raise _EvolveHookFailed(final_detail) from last_exc
 
     async def evolve_after_task(  # type: ignore[override]
         self,

@@ -50,7 +50,7 @@ def task_volume_binds(task: SuiteTask) -> list[tuple[str, str, str]]:
     binds: list[tuple[str, str, str]] = []
     skills = resolve_host_path(task.requirements.extra_skills_dir)
     if skills is not None and skills.is_dir():
-        binds.append((str(skills), "/workspace/skills", "ro"))
+        binds.append((str(skills), "/workspace/task/skills", "ro"))
     return binds
 
 

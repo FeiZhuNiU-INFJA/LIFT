@@ -126,4 +126,5 @@ class OpenClawWithEvolveAdapter(OpenClawAdapter):
             content=content,
             trust=trust,
             tags=["lift_eval", kind, f"task:{task.name}"],
+            raise_on_error=True,
         )

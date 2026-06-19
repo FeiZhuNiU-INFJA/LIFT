@@ -676,6 +676,76 @@
   }
   #copy-toast.show { opacity: 1; }
 
+  /* ---- rich popover (per-task detail + per-task kill-copy) ----
+     取代 suites 矩阵里的 data-tip 文本 tooltip：docker kill 命令不再整体塞进 hover
+     文本（超框 + 只能整块复制），改成按题一行展开，每题一个 copy 按钮。 */
+  #popover {
+    position: fixed;
+    z-index: 1100;
+    display: none;
+    min-width: 200px;
+    max-width: 340px;
+    background: var(--bg-elev2);
+    border: 1px solid var(--amber);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 181, 71, 0.18);
+    padding: 10px 12px;
+    font: 12px/1.5 'JetBrains Mono', monospace;
+    color: var(--fg);
+  }
+  .pop-head {
+    font: 700 11px/1.3 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line-strong);
+    word-break: break-word;
+  }
+  .pop-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+  }
+  .pop-sym { width: 14px; flex: 0 0 14px; text-align: center; }
+  .pop-name {
+    flex: 1 1 auto;
+    color: var(--cyan);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pop-meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .pop-err {
+    color: var(--red);
+    font-size: 11px;
+    padding: 0 0 3px 22px;
+    word-break: break-word;
+  }
+  .pop-empty { color: var(--muted); font-size: 11px; padding: 3px 0; }
+
+  /* per-task / per-container kill-copy button */
+  .kill-btn {
+    flex: 0 0 auto;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--muted);
+    font: 600 10px/1 'Barlow Condensed', sans-serif;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 2px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .kill-btn:hover { color: var(--amber); border-color: var(--amber-dim); }
+
+  /* matrix cell that opens the rich popover on hover */
+  .cell-pop { cursor: help; }
+  /* containers panel: inline name + copy button */
+  .ctr-name { margin-right: 8px; }
+
   /* errors detail */
   #errors td.detail {
     color: var(--red);
@@ -700,6 +770,7 @@
 </head>
 <body>
 <div class="scan"></div>
+<div id="popover"></div>
 
 <header class="mast">
   <div class="brand">LIFT</div>
@@ -784,6 +855,17 @@
               <div class="kpi-value" id="kpi-delta-turns">—</div></div>
             <div class="kpi"><div class="kpi-label">task deltas &middot; turns</div>
               <div class="kpi-value kpi-deltas" id="kpi-td-turns">—</div></div>
+          </div>
+        </div>
+        <div class="kpi-group">
+          <div class="kpi-group-label">tools</div>
+          <div class="kpi-cells">
+            <div class="kpi"><div class="kpi-label">avg tool calls</div>
+              <div class="kpi-value"><span id="kpi-base-tools">—</span><span class="kpi-suffix">→<i id="kpi-evo-tools">—</i></span></div></div>
+            <div class="kpi"><div class="kpi-label">&Delta; tool calls</div>
+              <div class="kpi-value" id="kpi-delta-tools">—</div></div>
+            <div class="kpi"><div class="kpi-label">task deltas &middot; tools</div>
+              <div class="kpi-value kpi-deltas" id="kpi-td-tools">—</div></div>
           </div>
         </div>
         <div class="kpi-group">
@@ -887,7 +969,7 @@
         <span class="sep">·</span>
         <span><b style="color:var(--green)">0.0–1.0</b> score (done)</span>
         <span class="sep">·</span>
-        <span style="color:var(--muted)">hover any cell for detail · click to copy</span>
+        <span style="color:var(--muted)">hover a cell for per-task detail · <b style="color:var(--amber)">copy</b> button copies the kill command</span>
       </div>
       <table id="grid"><thead></thead><tbody></tbody></table>
     </div>
@@ -948,6 +1030,7 @@ function fmtDuration(sec) {
 
 function suiteOverall(suite) {
   // 与 TUI 取最差状态：failed > running/retrying > pending > done
+  if (suite.status === 'failed') return 'failed';
   const all = [];
   if (suite.warmup_status) all.push(suite.warmup_status);
   for (const t of Object.values(suite.holdout_tasks || {})) {
@@ -959,16 +1042,68 @@ function suiteOverall(suite) {
   return 'pending';
 }
 
-function suiteCellHtml(suite, containers, repeatIndex) {
+function suiteCellHtml(suite, repeatIndex, suiteIdx) {
   const w = suite.warmup_status || 'pending';
-  // suite.last_error 主要承载 warmup 错误摘要
-  const wErr = suite.last_error || '';
-  // 先构建 (repeat, suite, task, stage) → container_name 的索引
-  // —— 每个 cell 的 tooltip 末尾会附 ``docker kill <name>`` 救火命令
+  // 聚合 baseline / evolved 的整体状态 + 平均分（仅用于色块符号；详情走 rich popover）
+  const phaseAgg = (phase) => {
+    const tasks = Object.values(suite.holdout_tasks || {});
+    const xs = tasks.map(t => (t.phases || {})[phase]?.status || 'pending');
+    const scores = tasks
+      .map(t => (t.phases || {})[phase]?.score)
+      .filter(v => typeof v === 'number');
+    let st;
+    if (!xs.length) st = 'pending';
+    else if (xs.includes('failed')) st = 'failed';
+    else if (xs.every(x => x === 'done')) st = 'done';
+    else if (xs.includes('running') || xs.includes('retrying') || xs.includes('done')) st = 'running';
+    else st = 'pending';
+    const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+    return { st, avg, n: scores.length };
+  };
+  const baseline = phaseAgg('baseline');
+  const evolved = phaseAgg('evolved');
+  // phase 色块：done 且有平均分时直接显示 score（0.0–1.0，一位小数，无歧义）
+  const phaseSym = (agg) =>
+    (agg.st === 'done' && agg.avg != null) ? agg.avg.toFixed(1) : (STATUS_SYM[agg.st] || '?');
+  const isDoneScore = (agg) => agg.st === 'done' && agg.avg != null;
+  // 每个 phase 色块 hover 弹 rich popover（按题展开 + 每题独立 copy kill 命令），
+  // 不再把多题 + docker kill 全塞进 data-tip 文本（既超框又只能整块复制）。
+  const cell = (st, sym, phase, score = false) =>
+    `<span class="${st} cell-pop${score ? ' cell-score' : ''}"`
+    + ` data-pop-repeat="${repeatIndex}" data-pop-suite="${suiteIdx}" data-pop-phase="${phase}">${sym}</span>`;
+  const html = [
+    cell(w, STATUS_SYM[w] || '?', 'warmup'),
+    cell(baseline.st, phaseSym(baseline), 'baseline', isDoneScore(baseline)),
+    cell(evolved.st, phaseSym(evolved), 'evolved', isDoneScore(evolved)),
+  ].join(' ');
+  return { html };
+}
+
+// rich popover：按 phase 把每个 task 一行展开，running/retrying 的 task 附 copy 按钮，
+// 点击只复制该题的 ``docker kill <container>``（不再整块复制 tooltip 文本）。
+function popRow({ sym, status, name, ctr, score, err }) {
+  const e = escapeAttr;
+  let row = `<div class="pop-row">`
+    + `<span class="pop-sym ${e(status)}">${sym}</span>`
+    + `<span class="pop-name" title="${e(name)}">${e(name)}</span>`;
+  if (score != null) row += `<span class="pop-meta">score ${e(score)}</span>`;
+  row += ctr ? killBtn(ctr) : '';
+  row += `</div>`;
+  if (err) row += `<div class="pop-err">${e(err)}</div>`;
+  return row;
+}
+function killBtn(name) {
+  const cmd = 'docker kill ' + name;
+  return `<button class="kill-btn" data-kill="${escapeAttr(cmd)}" title="${escapeAttr('copy: ' + cmd)}">copy</button>`;
+}
+function buildPopover(d) {
+  const rep = snapshot?.repeats?.[d.repeat];
+  const suite = rep?.suites?.[d.suiteIdx];
+  if (!suite) return '';
+  const containers = snapshot?.containers || [];
   const ctrFor = (taskName, stagePrefix) => {
-    if (!containers) return null;
     for (const c of containers) {
-      if (c.repeat_index !== repeatIndex) continue;
+      if (c.repeat_index !== d.repeat) continue;
       if (c.suite_name && suite.name && c.suite_name !== suite.name) continue;
       if (taskName != null && c.task_name && c.task_name !== taskName) {
         // task 名经拼音 / 截断后可能不一致；保留 stage 匹配作兜底
@@ -979,89 +1114,47 @@ function suiteCellHtml(suite, containers, repeatIndex) {
     }
     return null;
   };
-  const killHint = (name) => name ? `\n\n[copy to kill] docker kill ${name}` : '';
-  // warmup 题级 tooltip：列出每个 warmup_task 的状态符号 + 名字 + 可选错误摘要 + 容器名
-  const wTasks = Object.values(suite.warmup_tasks || {});
-  let wTitle = `warmup [${w}]`;
-  let wKill = '';
-  if (wTasks.length) {
-    const lines = wTasks.map(t => {
-      const sym = STATUS_SYM[t.status] || '?';
-      const status = t.status || 'pending';
-      const err = t.last_error ? `  (${t.last_error})` : '';
-      const ctr = (status === 'running' || status === 'retrying')
-        ? ctrFor(t.name, 'warmup') : null;
-      return `${sym} ${t.name.padEnd(8)} [${status}]${err}${ctr ? `\n  docker kill ${ctr}` : ''}`;
-    });
-    wTitle = `warmup [${w}]\n` + lines.join('\n');
-  } else if (wErr) {
-    wTitle = `warmup [${w}]: ${wErr}`;
-    if (w === 'running' || w === 'retrying') {
-      wKill = killHint(ctrFor(null, 'warmup'));
+  const e = escapeAttr;
+  let head = '', rows = '';
+  if (d.phase === 'warmup') {
+    const w = suite.warmup_status || 'pending';
+    const wErr = suite.last_error || '';
+    head = `warmup [${e(w)}]` + (wErr ? ` · ${e(wErr)}` : '');
+    const tasks = Object.values(suite.warmup_tasks || {});
+    if (tasks.length) {
+      rows = tasks.map(t => {
+        const status = t.status || 'pending';
+        const ctr = (status === 'running' || status === 'retrying') ? ctrFor(t.name, 'warmup') : null;
+        return popRow({ sym: STATUS_SYM[status] || '?', status, name: t.name, ctr, err: t.last_error || '' });
+      }).join('');
+    } else {
+      const ctr = (w === 'running' || w === 'retrying') ? ctrFor(null, 'warmup') : null;
+      rows = ctr
+        ? `<div class="pop-row">${killBtn(ctr)}</div>`
+        : '<div class="pop-empty">no active container</div>';
     }
-  } else if (w === 'running' || w === 'retrying') {
-    wKill = killHint(ctrFor(null, 'warmup'));
-  }
-  wTitle += wKill;
-  // 取所有 holdout 题里的 baseline/evolved 聚合状态 + 第一条错误摘要 + 平均分
-  const phaseAgg = (phase) => {
+  } else {
+    const phase = d.phase;
     const tasks = Object.values(suite.holdout_tasks || {});
     const xs = tasks.map(t => (t.phases || {})[phase]?.status || 'pending');
-    const errs = tasks
-      .map(t => (t.phases || {})[phase]?.last_error)
-      .filter(Boolean);
+    let st = 'pending';
+    if (xs.includes('failed')) st = 'failed';
+    else if (xs.length && xs.every(x => x === 'done')) st = 'done';
+    else if (xs.includes('running') || xs.includes('retrying') || xs.includes('done')) st = 'running';
     const scores = tasks
       .map(t => (t.phases || {})[phase]?.score)
       .filter(v => typeof v === 'number');
-    let st;
-    if (!xs.length) st = 'pending';
-    else if (xs.includes('failed')) st = 'failed';
-    else if (xs.every(x => x === 'done')) st = 'done';
-    else if (xs.includes('running') || xs.includes('retrying') || xs.includes('done')) st = 'running';
-    else st = 'pending';
-    const avg = scores.length
-      ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
-    return { st, err: errs.join(' | '), avg, n: scores.length };
-  };
-  const baseline = phaseAgg('baseline');
-  const evolved = phaseAgg('evolved');
-  // baseline / evolved 也按题展开 tooltip（含每题 score）
-  const phaseTooltip = (phase, label, agg) => {
-    const tasks = Object.values(suite.holdout_tasks || {});
-    let header = `${label} [${agg.st}]`;
-    if (agg.avg != null) {
-      header += `  avg=${agg.avg.toFixed(2)} (n=${agg.n})`;
-    }
-    if (!tasks.length) return header;
-    const lines = tasks.map(t => {
+    const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+    head = `${e(phase)} [${e(st)}]` + (avg != null ? ` · avg ${avg.toFixed(2)} (n=${scores.length})` : '');
+    rows = tasks.length ? tasks.map(t => {
       const p = (t.phases || {})[phase];
       const status = p?.status || 'pending';
-      const sym = STATUS_SYM[status] || '?';
-      const score = (typeof p?.score === 'number')
-        ? `  score=${p.score.toFixed(2)}` : '';
-      const err = p?.last_error ? `  (${p.last_error})` : '';
-      const ctr = (status === 'running' || status === 'retrying')
-        ? ctrFor(t.name, `holdout/${phase}`) : null;
-      return `${sym} ${t.name.padEnd(8)} [${status}]${score}${err}${ctr ? `\n  docker kill ${ctr}` : ''}`;
-    });
-    return `${header}\n` + lines.join('\n');
-  };
-  // phase 色块：done 且有平均分时直接显示 score（0.0–1.0，一位小数，无歧义）
-  const phaseSym = (agg) => {
-    if (agg.st === 'done' && agg.avg != null) return agg.avg.toFixed(1);
-    return STATUS_SYM[agg.st] || '?';
-  };
-  const isDoneScore = (agg) => agg.st === 'done' && agg.avg != null;
-  const cell = (st, sym, title, score = false) =>
-    `<span class="${st} tip${score ? ' cell-score' : ''}" data-tip="${escapeAttr(title)}">${sym}</span>`;
-  const html = [
-    cell(w, STATUS_SYM[w] || '?', wTitle),
-    cell(baseline.st, phaseSym(baseline),
-      phaseTooltip('baseline', 'baseline', baseline), isDoneScore(baseline)),
-    cell(evolved.st, phaseSym(evolved),
-      phaseTooltip('evolved', 'evolved', evolved), isDoneScore(evolved)),
-  ].join(' ');
-  return { html };
+      const ctr = (status === 'running' || status === 'retrying') ? ctrFor(t.name, `holdout/${phase}`) : null;
+      const score = (typeof p?.score === 'number') ? p.score.toFixed(2) : null;
+      return popRow({ sym: STATUS_SYM[status] || '?', status, name: t.name, ctr, score, err: p?.last_error || '' });
+    }).join('') : '<div class="pop-empty">no tasks</div>';
+  }
+  return `<div class="pop-head">${head}</div>${rows}`;
 }
 
 // PHASE COMPARISON：folded by suite，每条 task 一行 baseline/evolved 横条 + Δ。
@@ -1084,8 +1177,8 @@ function renderCompare(repeats) {
         const evo = (t.phases || {}).evolved || {};
         bucket.rows.push({
           repeat: r.index, task: t.name,
-          base: { status: base.status, score: base.score, success: base.success, turns: base.turns },
-          evo: { status: evo.status, score: evo.score, success: evo.success, turns: evo.turns },
+          base: { status: base.status, score: base.score, success: base.success, turns: base.turns, tool_calls: base.tool_calls },
+          evo: { status: evo.status, score: evo.score, success: evo.success, turns: evo.turns, tool_calls: evo.tool_calls },
           baseDlg: (base.dialogue || []).length,
           evoDlg: (evo.dialogue || []).length,
         });
@@ -1118,7 +1211,8 @@ function renderCompare(repeats) {
   // 三维度对比行：每行 label | baseline → evolved | delta（score / turns / pass）
   const fmt2 = (v) => (typeof v === 'number') ? v.toFixed(2) : '—';
   const fmtT = (v) => (typeof v === 'number') ? v.toFixed(1) : '—';
-  const passSym = (v) => (v === true) ? '✓' : (v === false) ? '✗' : '—';
+  // pass 用文字而非 ✓/✗ 符号，避免歧义：yes / no / —（未知）
+  const passSym = (v) => (v === true) ? 'yes' : (v === false) ? 'no' : '—';
   const dimRow = (label, baseText, evoText, deltaText, cls) =>
     `<div class="cmp-dim">`
     + `<span class="cmp-dim-label">${label}</span>`
@@ -1139,12 +1233,20 @@ function renderCompare(repeats) {
     const txt = (d == null) ? '—' : (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(1);
     return dimRow('turns', fmtT(b), fmtT(e), txt, cls);
   };
+  const toolsDim = (b, e) => {  // 工具调用次数越少越好：负 delta = 进步
+    const haveBoth = typeof b === 'number' && b >= 0 && typeof e === 'number' && e >= 0;
+    const d = haveBoth ? e - b : null;
+    const cls = (d == null) ? 'flat' : (d < -0.001 ? 'up' : d > 0.001 ? 'down' : 'flat');
+    const fmtTl = (v) => (typeof v === 'number' && v >= 0) ? v.toString() : '—';
+    const txt = (d == null) ? '—' : (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(0);
+    return dimRow('tools', fmtTl(b), fmtTl(e), txt, cls);
+  };
   const passDim = (b, e) => {
     let txt = '—', cls = 'flat';
     if (typeof b === 'boolean' && typeof e === 'boolean') {
-      if (!b && e) { txt = '▲'; cls = 'up'; }        // fail → pass
-      else if (b && !e) { txt = '▼'; cls = 'down'; } // pass → fail
-      else { txt = '='; cls = 'flat'; }
+      if (!b && e) { txt = 'passed'; cls = 'up'; }        // no → yes
+      else if (b && !e) { txt = 'failed'; cls = 'down'; } // yes → no
+      else { txt = 'same'; cls = 'flat'; }                // 持平
     }
     return dimRow('pass', passSym(b), passSym(e), txt, cls);
   };
@@ -1165,7 +1267,7 @@ function renderCompare(repeats) {
     }
     if (!rows.length) return '';
     // suite-level meta：与 key indicators 一致，展示 success rate / turns / score 及各自 delta。
-    let baseS = [], evoS = [], baseSucc = [], evoSucc = [], baseTurns = [], evoTurns = [];
+    let baseS = [], evoS = [], baseSucc = [], evoSucc = [], baseTurns = [], evoTurns = [], baseTools = [], evoTools = [];
     for (const r of b.rows) {
       if (r.base.status === 'done' && typeof r.base.score === 'number') baseS.push(r.base.score);
       if (r.evo.status === 'done' && typeof r.evo.score === 'number') evoS.push(r.evo.score);
@@ -1173,17 +1275,21 @@ function renderCompare(repeats) {
       if (r.evo.status === 'done' && typeof r.evo.success === 'boolean') evoSucc.push(r.evo.success);
       if (r.base.status === 'done' && typeof r.base.turns === 'number' && r.base.turns > 0) baseTurns.push(r.base.turns);
       if (r.evo.status === 'done' && typeof r.evo.turns === 'number' && r.evo.turns > 0) evoTurns.push(r.evo.turns);
+      if (r.base.status === 'done' && typeof r.base.tool_calls === 'number' && r.base.tool_calls >= 0) baseTools.push(r.base.tool_calls);
+      if (r.evo.status === 'done' && typeof r.evo.tool_calls === 'number' && r.evo.tool_calls >= 0) evoTools.push(r.evo.tool_calls);
     }
     const mean = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
     const mb = mean(baseS), me = mean(evoS);
     const sb = baseSucc.length ? baseSucc.filter(Boolean).length / baseSucc.length : null;
     const se = evoSucc.length ? evoSucc.filter(Boolean).length / evoSucc.length : null;
     const tb = mean(baseTurns), te = mean(evoTurns);
+    const tlb = mean(baseTools), tle = mean(evoTools);
     const open = cmpOpen[idx] === true;  // 默认收起
     const rowsHtml = rows.map(r => {
       const taskLabel = (repeats.length > 1) ? `r${r.repeat}/${r.task}` : r.task;
       const dims = scoreDim(r.base.score, r.evo.score)
         + turnsDim(r.base.turns, r.evo.turns)
+        + toolsDim(r.base.tool_calls, r.evo.tool_calls)
         + passDim(r.base.success, r.evo.success);
       return `<div class="cmp-task">`
         + `<div class="cmp-task-head">`
@@ -1202,6 +1308,8 @@ function renderCompare(repeats) {
       +     `<span>&Delta;sr <b class="${deltaCls(sb, se)}">${deltaText(sb, se, d => `${(d * 100).toFixed(0)}%`)}</b></span>`
       +     `<span>avg turns <b>${fmtTurns(tb)}→${fmtTurns(te)}</b></span>`
       +     `<span>&Delta;turns <b class="${deltaCls(tb, te, true)}">${deltaText(tb, te, d => d.toFixed(1))}</b></span>`
+      +     `<span>avg tools <b>${fmtTurns(tlb)}→${fmtTurns(tle)}</b></span>`
+      +     `<span>&Delta;tools <b class="${deltaCls(tlb, tle, true)}">${deltaText(tlb, tle, d => d.toFixed(1))}</b></span>`
       +     `<span>mean score <b>${fmt(mb)}→${fmt(me)}</b></span>`
       +     `<span>&Delta;score <b class="${deltaCls(mb, me)}">${deltaText(mb, me, d => d.toFixed(2))}</b></span>`
       +   `</span>`
@@ -1318,9 +1426,11 @@ function renderKpiStrip(repeats) {
     taskTotal: 0, taskDone: 0, taskFailed: 0,
     baseScores: [], evoScores: [],
     baseTurns: [], evoTurns: [],
+    baseTools: [], evoTools: [],
     baseSuccess: { done: 0, ok: 0 }, evoSuccess: { done: 0, ok: 0 },
     dSuccess: { i: 0, w: 0, f: 0 },
     dTurns: { i: 0, w: 0, f: 0 },
+    dTools: { i: 0, w: 0, f: 0 },
     dScore: { i: 0, w: 0, f: 0 },
   };
   for (const r of repeats) {
@@ -1329,17 +1439,18 @@ function renderKpiStrip(repeats) {
         stats.taskTotal++;
         if (t.status === 'done') stats.taskDone++;
         if (t.status === 'failed') stats.taskFailed++;
-        const collect = (phase, scoreList, turnsList, sr) => {
+        const collect = (phase, scoreList, turnsList, toolsList, sr) => {
           const p = (t.phases || {})[phase];
           if (!p || p.status !== 'done') return;
           if (typeof p.score === 'number') scoreList.push(p.score);
           if (typeof p.turns === 'number' && p.turns > 0) turnsList.push(p.turns);
+          if (typeof p.tool_calls === 'number' && p.tool_calls >= 0) toolsList.push(p.tool_calls);
           if (typeof p.success === 'boolean') {
             sr.done++; if (p.success) sr.ok++;
           }
         };
-        collect('baseline', stats.baseScores, stats.baseTurns, stats.baseSuccess);
-        collect('evolved', stats.evoScores, stats.evoTurns, stats.evoSuccess);
+        collect('baseline', stats.baseScores, stats.baseTurns, stats.baseTools, stats.baseSuccess);
+        collect('evolved', stats.evoScores, stats.evoTurns, stats.evoTools, stats.evoSuccess);
         // per-task 三维度变化方向（success / turns / score），两边都 done 才计入
         const bPh = (t.phases || {}).baseline, ePh = (t.phases || {}).evolved;
         if (bPh && ePh && bPh.status === 'done' && ePh.status === 'done') {
@@ -1356,6 +1467,14 @@ function renderKpiStrip(repeats) {
             if (d < -0.001) stats.dTurns.i++;
             else if (d > 0.001) stats.dTurns.w++;
             else stats.dTurns.f++;
+          }
+          // tool calls：evolved 更少=进步（少调用工具更高效）
+          if (typeof bPh.tool_calls === 'number' && bPh.tool_calls >= 0
+              && typeof ePh.tool_calls === 'number' && ePh.tool_calls >= 0) {
+            const d = ePh.tool_calls - bPh.tool_calls;
+            if (d < -0.001) stats.dTools.i++;
+            else if (d > 0.001) stats.dTools.w++;
+            else stats.dTools.f++;
           }
           // score：evolved 更高=进步
           if (typeof bPh.score === 'number' && typeof ePh.score === 'number') {
@@ -1374,6 +1493,8 @@ function renderKpiStrip(repeats) {
   const evoAvg = mean(stats.evoScores);
   const baseTurnsAvg = mean(stats.baseTurns);
   const evoTurnsAvg = mean(stats.evoTurns);
+  const baseToolsAvg = mean(stats.baseTools);
+  const evoToolsAvg = mean(stats.evoTools);
   const baseSr = stats.baseSuccess.done
     ? stats.baseSuccess.ok / stats.baseSuccess.done : null;
   const evoSr = stats.evoSuccess.done
@@ -1424,11 +1545,16 @@ function renderKpiStrip(repeats) {
   };
   setDeltas('kpi-td-success', stats.dSuccess);
   setDeltas('kpi-td-turns', stats.dTurns);
+  setDeltas('kpi-td-tools', stats.dTools);
   setDeltas('kpi-td-score', stats.dScore);
   // 对话轮数：越少越好（agent 一次到位优于反复改进），所以 invert=true。
   document.getElementById('kpi-base-turns').textContent = fmt(baseTurnsAvg, 1);
   document.getElementById('kpi-evo-turns').textContent = fmt(evoTurnsAvg, 1);
   setDelta('kpi-delta-turns', baseTurnsAvg, evoTurnsAvg, (d) => d.toFixed(1), true);
+  // tool calls：越少越好（少调用工具更高效），invert=true。
+  document.getElementById('kpi-base-tools').textContent = fmt(baseToolsAvg, 1);
+  document.getElementById('kpi-evo-tools').textContent = fmt(evoToolsAvg, 1);
+  setDelta('kpi-delta-tools', baseToolsAvg, evoToolsAvg, (d) => d.toFixed(1), true);
   // KPI 数据源标记：postprocess 完成后由 final_summary 接管时显示 "final"
   document.getElementById('kpi-source').textContent =
     snapshot.final_summary ? 'final (post-processed)' : 'live';
@@ -1549,7 +1675,7 @@ function render() {
     if (filter && !sample.name.toLowerCase().includes(filter)) continue;
     const tr = document.createElement('tr');
     tr.innerHTML = `<td class="suite-name">${sample.name}</td>` + repeats.map(r => {
-      const c = suiteCellHtml(r.suites?.[i] || {}, snapshot.containers || [], r.index);
+      const c = suiteCellHtml(r.suites?.[i] || {}, r.index, i);
       return `<td class="cell">${c.html}</td>`;
     }).join('');
     tbody.appendChild(tr);
@@ -1582,12 +1708,11 @@ function render() {
     const up = c.started_at ? fmtDuration(Date.now() / 1000 - c.started_at) : '-';
     const tr = document.createElement('tr');
     const elide = (s) => (s && s.length > 36 ? '…' + s.slice(-35) : (s || '-'));
-    // hover 整行显示完整名 + docker kill 命令（方便复制救火）
-    const tip = `${c.container_name || ''}\n\ndocker kill ${c.container_name || ''}`;
-    tr.className = 'tip';
-    tr.setAttribute('data-tip', tip);
+    const name = c.container_name || '';
     const taskCell = c.task_name || liveWarmupTask(c) || '-';
-    tr.innerHTML = `<td>${elide(c.container_name)}</td>`
+    // 容器名超长只显示尾部（… 前缀），完整名走 title；kill 命令用独立 copy 按钮，
+    // 不再塞进 hover 文本（避免超框 + 整行误复制多条命令）。
+    tr.innerHTML = `<td><span class="ctr-name" title="${escapeAttr(name)}">${escapeAttr(elide(name))}</span>${name ? killBtn(name) : ''}</td>`
       + `<td>${c.repeat_index ?? '-'}</td>`
       + `<td>${c.stage || '-'}</td>`
       + `<td>${c.suite_name || '-'}</td>`
@@ -1619,6 +1744,11 @@ function render() {
     }
   } else {
     errsPanel.style.display = 'none';
+  }
+  // popover 打开时随 snapshot 刷新内容（容器名/状态会变），保持位置不动避免跳动
+  if (_popTarget && popEl().style.display === 'block') {
+    const html = buildPopover(_popTarget);
+    if (html) popEl().innerHTML = html; else hidePopoverNow();
   }
   // 已打开的对话 Modal：随 snapshot 刷新（实时追加新 turn，保留滚动位置）
   if (openDialogue) renderDialogue(openDialogue);
@@ -1777,30 +1907,103 @@ function showCopyToast(msg) {
   clearTimeout(el._t);
   el._t = setTimeout(() => el.classList.remove('show'), 1200);
 }
+function copyText(s) {
+  // 优先 navigator.clipboard，失败回退 textarea + execCommand（HTTP 场景兼容）
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(s);
+  }
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = s;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); resolve(); }
+    catch (e) { reject(e); }
+    finally { document.body.removeChild(ta); }
+  });
+}
+function truncateCmd(s) { return s.length > 40 ? s.slice(0, 37) + '…' : s; }
+// 点击任意 .tip 元素：把 data-tip 复制到剪贴板（仅用于单值的 .tip，如 artifact 路径）。
+// 矩阵色块 / 容器行的 kill 命令改走 .kill-btn，不再走整块 data-tip 复制。
 document.addEventListener('click', (ev) => {
   const el = ev.target.closest('.tip');
   if (!el) return;
   const text = el.getAttribute('data-tip') || '';
   if (!text) return;
-  // 优先 navigator.clipboard，失败回退 textarea + execCommand（HTTP 场景兼容）
-  const copy = (s) => {
-    if (navigator.clipboard && window.isSecureContext) {
-      return navigator.clipboard.writeText(s);
-    }
-    return new Promise((resolve, reject) => {
-      const ta = document.createElement('textarea');
-      ta.value = s;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); resolve(); }
-      catch (e) { reject(e); }
-      finally { document.body.removeChild(ta); }
-    });
-  };
-  copy(text).then(() => showCopyToast('copied')).catch(() => showCopyToast('copy failed'));
+  copyText(text).then(() => showCopyToast('copied')).catch(() => showCopyToast('copy failed'));
 });
+
+// ---- rich popover 交互：hover 弹出、移出隐藏；copy 按钮只复制单条 kill 命令 ----
+let _popTarget = null;
+let _popHide = null;
+const popEl = () => document.getElementById('popover');
+function readPopData(cell) {
+  return {
+    repeat: parseInt(cell.dataset.popRepeat, 10),
+    suiteIdx: parseInt(cell.dataset.popSuite, 10),
+    phase: cell.dataset.popPhase,
+  };
+}
+function positionPopover(anchor) {
+  const pop = popEl();
+  pop.style.display = 'block';
+  const r = anchor.getBoundingClientRect();
+  const pr = pop.getBoundingClientRect();
+  let top = r.bottom + 6;
+  let left = r.left;
+  if (left + pr.width > window.innerWidth - 8) left = window.innerWidth - pr.width - 8;
+  if (left < 8) left = 8;
+  if (top + pr.height > window.innerHeight - 8) top = Math.max(8, r.top - pr.height - 6);
+  pop.style.top = top + 'px';
+  pop.style.left = left + 'px';
+}
+function showPopover(cell) {
+  clearTimeout(_popHide);
+  _popTarget = readPopData(cell);
+  const html = buildPopover(_popTarget);
+  if (!html) { hidePopoverNow(); return; }
+  popEl().innerHTML = html;
+  positionPopover(cell);
+}
+function hidePopover() {
+  _popHide = setTimeout(() => { popEl().style.display = 'none'; _popTarget = null; }, 120);
+}
+function hidePopoverNow() {
+  clearTimeout(_popHide);
+  popEl().style.display = 'none';
+  _popTarget = null;
+}
+// 进入 popover 本体：取消隐藏；进入 pop 色块：刷新内容 + 定位
+document.addEventListener('mouseover', (ev) => {
+  if (ev.target.closest('#popover')) { clearTimeout(_popHide); return; }
+  const cell = ev.target.closest('[data-pop-phase]');
+  if (cell) showPopover(cell);
+});
+// 离开 pop 色块或 popover：若目的地不在二者内，延迟隐藏（120ms 容差衔接色块 ↔ popover）
+document.addEventListener('mouseout', (ev) => {
+  if (!ev.target.closest('[data-pop-phase]') && !ev.target.closest('#popover')) return;
+  const to = ev.relatedTarget;
+  if (to && (to.closest('[data-pop-phase]') || to.closest('#popover'))) return;
+  hidePopover();
+});
+// copy 按钮：只复制该条 docker kill 命令（不再整块复制 tooltip）
+document.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.kill-btn');
+  if (!btn) return;
+  const cmd = btn.dataset.kill || '';
+  if (!cmd) return;
+  copyText(cmd)
+    .then(() => showCopyToast('copied · ' + truncateCmd(cmd)))
+    .catch(() => showCopyToast('copy failed'));
+});
+// 点击 popover / 色块以外，或按 Esc：关闭 popover
+document.addEventListener('click', (ev) => {
+  if (ev.target.closest('#popover') || ev.target.closest('[data-pop-phase]')) return;
+  hidePopoverNow();
+});
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') hidePopoverNow(); });
 
 // 启动
 refreshSnapshot(true).then(connect);

@@ -57,10 +57,11 @@ fi
 
 TARGET="${OPENCLAW_STATE_DIR}/openclaw.json"
 
-# 5) Merge LIFT config fragments (plugins → gateway → agents → models)
+# 5) Merge LIFT config fragments (plugins → gateway → agents → skills → models)
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/plugins.fragment.json"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/gateway.fragment.json"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/agents.fragment.json"
+node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/skills.fragment.json"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${MODELS_RESOLVED}"
 
 # raw 镜像：plugins.fragment.json 把 self-evolving-plugin-pro 同时写进 entries 与 allow，
