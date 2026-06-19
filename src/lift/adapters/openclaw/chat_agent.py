@@ -18,6 +18,15 @@ from src.utils import short_id
 
 CONTAINER_WORKSPACE = "/workspace/task"
 
+# 单次 ``openclaw agent --message`` 在宿主机侧的 wall-clock 上限。
+# 正常一轮 work / judge chat 在 30-90 秒内返回，触达模型 maxTokens 会走另一条
+# truncation marker 通道；这里 600 秒纯粹用于兜底"既不出错也不返回"的情况——
+# 历史 run 里出现过 8 小时不退的死锁（容器内 openclaw-agent 被卡住），加这个
+# 上限后超时会被当作 provider error 走 5 次重试通道，最坏情况从永远 hang 收敛到
+# ~50 分钟内自愈。
+CHAT_EXEC_TIMEOUT_SECONDS = 600.0
+CHAT_EXEC_TIMEOUT_MARKER = "chat exec timeout"
+
 
 class OpenClawContainerAgent(ChatAgent):
     """容器内 OpenClaw chat：``docker exec openclaw agent --local``。"""
@@ -47,21 +56,40 @@ class OpenClawContainerAgent(ChatAgent):
         await self._register_agent_in_container()
 
     async def chat(self, message: str, *, session_id: str) -> str:
-        """``openclaw agent --json --local`` → 解析 payloads 文本。"""
-        stdout = await exec_openclaw_async(
-            self._container,
-            [
-                "agent",
-                "--agent",
-                self.agent_name,
-                "--message",
-                message,
-                "--session-id",
-                session_id,  # 与 emit_pre_chat_state / langfuse-tracer 的 sessionId 对齐
-                "--json",
-                "--local",
-            ],
-        )
+        """``openclaw agent --json --local`` → 解析 payloads 文本。
+
+        这一次 chat 在宿主侧带 ``CHAT_EXEC_TIMEOUT_SECONDS`` 上限：超时返回带
+        ``CHAT_EXEC_TIMEOUT_MARKER`` 前缀的字符串，让上层 ``_looks_like_provider_error``
+        把它当作 provider error 走重试通道，避免单次 chat 永久 hang 把整个 run 拖死。
+        """
+        try:
+            stdout = await exec_openclaw_async(
+                self._container,
+                [
+                    "agent",
+                    "--agent",
+                    self.agent_name,
+                    "--message",
+                    message,
+                    "--session-id",
+                    session_id,  # 与 emit_pre_chat_state / langfuse-tracer 的 sessionId 对齐
+                    "--json",
+                    "--local",
+                ],
+                timeout_seconds=CHAT_EXEC_TIMEOUT_SECONDS,
+            )
+        except RuntimeError as exc:
+            text = str(exc)
+            if "timed out after" in text:
+                LOGGER.warning(
+                    "[openclaw chat] exec timeout, container=%s agent=%s session=%s",
+                    self._container.container_name,
+                    self.agent_name,
+                    session_id,
+                )
+                # 首行包含 marker，``_looks_like_provider_error`` 取首行作为摘要
+                return f"{CHAT_EXEC_TIMEOUT_MARKER}: {text}"
+            raise
         return extract_agent_text(stdout)
 
     async def _register_agent_in_container(self, max_attempts: int = 5) -> None:

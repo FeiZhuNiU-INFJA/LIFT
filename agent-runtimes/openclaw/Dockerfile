@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libsqlite3-dev \
     python3 \
+    python3-pip \
     python3-venv \
     util-linux \
     && rm -rf /var/lib/apt/lists/*
@@ -64,7 +65,26 @@ ENV INSTALL_SELF_EVOLVING=${INSTALL_SELF_EVOLVING}
 ARG PIP_INDEX_URL=https://pypi.org/simple/
 ENV UV_INDEX_URL=${PIP_INDEX_URL} \
     UV_DEFAULT_INDEX=${PIP_INDEX_URL} \
-    PIP_INDEX_URL=${PIP_INDEX_URL}
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_BREAK_SYSTEM_PACKAGES=1
+
+# 预装评测任务常用的 Python 库，避免 Agent 在容器内现场安装（Bookworm 默认 PEP 668
+# 受限，且常因网络/源问题失败）。如需新增库，统一加在这里。
+RUN pip3 install --no-cache-dir \
+        pandas \
+        numpy \
+        openpyxl \
+        xlrd \
+        xlsxwriter \
+        python-pptx \
+        python-docx \
+        pypdf \
+        beautifulsoup4 \
+        lxml \
+        requests \
+        markdown \
+        tabulate \
+        Pillow
 
 RUN chmod +x /tmp/install-plugins-in-image.sh \
     && bash /tmp/install-plugins-in-image.sh

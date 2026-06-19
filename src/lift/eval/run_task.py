@@ -82,29 +82,24 @@ async def _agent_chat(
     message: str,
     *,
     session_id: str,
-    tags: CustomTags,
-    chat_role: str,
+    tags: CustomTags | None = None,
+    chat_role: str | None = None,
 ) -> str:
-    """时间戳 + pre-chat + transport chat。"""
-    _emit_pre_chat(agent, session_id=session_id, tags=tags, chat_role=chat_role)
+    """时间戳 + transport chat；可选地先 emit Langfuse pre-chat span。
+
+    - **首次发送**：传入 ``tags`` 与 ``chat_role``，先落一条 ``*_agent`` pre-chat
+      span，然后插件侧（agent_end hook）会紧随其后再写一条 plugin trace。
+    - **provider error 重试**：``tags`` / ``chat_role`` 留空（``None``），跳过
+      pre-chat span。这样 worker / judge 因 LLM 超时被原地重试 N 次时，所有
+      plugin trace 都挂在最初那条 ``*_agent`` span 之下；后处理
+      ``_pair_single_session`` 扩展贪心配对算法据此统计
+      ``provider_retry_count = 同 agent 下 plugin trace 数 - 1``，
+      跨 runtime 通用（不依赖 OpenClaw 特有的 ``plugin_metadata.success`` 字段）。
+    """
+    if tags is not None and chat_role is not None:
+        _emit_pre_chat(agent, session_id=session_id, tags=tags, chat_role=chat_role)
     return await agent.chat(
         format_outbound_message(message),  # GMT+8 时间戳前缀，OpenClaw 等 runtime 约定
-        session_id=session_id,
-    )
-
-
-async def _agent_chat_no_emit(agent, message: str, *, session_id: str) -> str:
-    """**不**发 pre-chat span 的 chat：用于 provider error 重试。
-
-    每次发 ``_agent_chat`` 都会在 langfuse 上落一条 ``*_agent`` pre-chat span，
-    然后插件侧（agent_end hook）紧随其后再写一条 plugin trace。如果 worker /
-    judge 因为 LLM 超时被原地重试 N 次，**第二次起跳过 pre-chat span**，让
-    多次 plugin trace 都"落在同一个 ``*_agent`` 之下"——后处理 ``_pair_single_session``
-    扩展贪心配对算法即可统计 ``provider_retry_count = 同 agent 下 plugin trace 数 - 1``，
-    跨 runtime 通用（不依赖 OpenClaw 特有的 ``plugin_metadata.success`` 字段）。
-    """
-    return await agent.chat(
-        format_outbound_message(message),
         session_id=session_id,
     )
 
@@ -128,6 +123,7 @@ _PROVIDER_ERROR_MARKERS: tuple[str, ...] = (
     "model idle timeout",
     "timeoutSeconds",
     "rate limit",
+    "chat exec timeout",  # 宿主机侧 docker exec wall-clock 超时（OpenClawContainerAgent.chat）
     MAX_TOKENS_TRUNCATION_MARKER,  # output_tokens 触达 maxTokens 视同 provider 错误
 )
 
@@ -203,7 +199,7 @@ async def _judge_with_retry(
             # 用原始 judge_prompt 重发；**不再 emit pre-chat span**，让多次
             # plugin trace 都挂在最初那条 ``judge_agent`` span 下，
             # 后处理 _pair_single_session 据此统计 provider_retry_count。
-            judge_result_text = await _agent_chat_no_emit(
+            judge_result_text = await _agent_chat(
                 pair.judge_agent,
                 judge_prompt,
                 session_id=pair.judge_session_id,
@@ -242,12 +238,12 @@ async def _work_chat_with_provider_retry(
 
     与 ``_judge_with_retry`` 的 provider 重试通道对称：
 
-    - 第一次正常发：``_agent_chat`` 落 ``work_agent`` pre-chat span +
-      transport.chat → plugin trace。
-    - 命中 ``LLM request timed out`` / ``rate limit`` 等 marker → 用
-      ``_agent_chat_no_emit`` 重发同 prompt（**不**再开新 pre-chat span），
-      让多次重试 plugin trace 全挂在最初那条 ``work_agent`` 之下，方便后处理
-      统计 ``provider_retry_count``。
+    - 第一次正常发：``_agent_chat`` 带 ``tags`` / ``chat_role`` 落
+      ``work_agent`` pre-chat span + transport.chat → plugin trace。
+    - 命中 ``LLM request timed out`` / ``rate limit`` / ``chat exec timeout`` 等
+      marker → 用 ``_agent_chat`` **不带** ``tags`` / ``chat_role`` 重发同 prompt
+      （不再开新 pre-chat span），让多次重试 plugin trace 全挂在最初那条
+      ``work_agent`` 之下，方便后处理统计 ``provider_retry_count``。
     - 超过 ``max_provider_retry_times`` 仍超时 → 抛
       ``RuntimeError("provider error: ...")`` 让外层题级重试机制接管。
     """
@@ -277,7 +273,7 @@ async def _work_chat_with_provider_retry(
             provider_retry_count, max_provider_retry_times,
             pair.work_session_id, provider_summary,
         )
-        agent_result = await _agent_chat_no_emit(
+        agent_result = await _agent_chat(
             pair.work_agent,
             current_prompt,
             session_id=pair.work_session_id,
