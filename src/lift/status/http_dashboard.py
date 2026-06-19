@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import re
 import threading
 from dataclasses import asdict, is_dataclass
 from http import HTTPStatus
@@ -82,7 +83,12 @@ def _event_payload(event: object) -> dict[str, Any]:
 # ---- 静态 HTML 快照导出 --------------------------------------------------
 
 
-_STATIC_BOOT_PLACEHOLDER = "// 启动\nrefreshSnapshot(true).then(connect);\n// 即使没有事件也每秒重绘一次（计算 elapsed/uptime）\nsetInterval(() => render(), 1000);"
+# dashboard.html 的启动块用固定哨兵 __LIFT_STATIC_BOOT_START/END__ 包裹；静态导出时把
+# 整块替换成"只读嵌入 snapshot"的启动分支。用哨兵而非整段字符串匹配，避免日后改启动
+# 注释 / 重构 tick() 又把匹配打穿（之前 _STATIC_BOOT_PLACEHOLDER 就因此静默失效过）。
+_STATIC_BOOT_RE = re.compile(
+    r"// __LIFT_STATIC_BOOT_START__.*?// __LIFT_STATIC_BOOT_END__", re.S
+)
 
 
 _STATIC_BOOT_REPLACEMENT = """// 静态快照启动：使用嵌入的 INITIAL_SNAPSHOT，不发起任何网络请求。
@@ -112,7 +118,15 @@ def build_static_dashboard_html(snapshot: RunSnapshot) -> str:
         f"<script>window.__INITIAL_SNAPSHOT__ = {payload_safe};</script>\n</head>"
     )
     html = _INDEX_HTML.replace("</head>", injected, 1)
-    html = html.replace(_STATIC_BOOT_PLACEHOLDER, _STATIC_BOOT_REPLACEMENT, 1)
+    html = _STATIC_BOOT_RE.sub(_STATIC_BOOT_REPLACEMENT, html)
+    if "refreshSnapshot(true).then(connect)" in html:
+        # 启动块没被换掉（哨兵被改坏 / 删除）→ 离线导出仍会走 live fetch + SSE，
+        # file:// 打不开。直接检查 live 启动调用是否还在，比查哨兵更可靠：哨兵本身
+        # 可能正是被改坏的那一端。
+        LOGGER.warning(
+            "static dashboard boot swap did not take effect (sentinel markers missing "
+            "in dashboard.html); offline export will fall back to live fetch and render blank."
+        )
     return html
 
 

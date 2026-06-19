@@ -213,7 +213,7 @@ async def _judge_with_retry(
     )
 
     max_judge_retry_times = 8  # JSON 解析重试上限（用 retry prompt）
-    max_provider_retry_times = 5  # provider 错误重试上限（用原始 prompt）
+    max_provider_retry_times = 3  # provider 错误重试上限（用原始 prompt）
     judge_retry_count = 0
     provider_retry_count = 0
     while True:
@@ -270,7 +270,7 @@ async def _work_chat_with_provider_retry(
     pair: WorkerJudgerPair,
     current_prompt: str,
     tags: CustomTags,
-    max_provider_retry_times: int = 5,
+    max_provider_retry_times: int = 3,
 ) -> str:
     """worker chat + provider error 自动重试。
 

@@ -691,7 +691,7 @@ class GroupMemoryAdapterMixin:
 
 #### 12.5.3 Provider 错误重试 × 扩展贪心配对（跨 runtime 通用）
 
-worker / judge 对 LLM provider 错误（超时 / 限流）原地用同一 prompt 重试 5 次（见 §4.7）。OpenClaw 的 `langfuse-tracer` 在 `agent_end` 必触发——成功/超时都会写 plugin trace，重试 N 次会产生 N 条同 `session_id`、时间戳依次递增的 plugin trace。若每次重试再 emit 一条新的 `*_agent` pre-chat span，配对算法会把重试当成新轮，吹大 `turn_index` 并重复累加 token / latency。
+worker / judge 对 LLM provider 错误（超时 / 限流）原地用同一 prompt 重试 3 次（见 §4.7）。OpenClaw 的 `langfuse-tracer` 在 `agent_end` 必触发——成功/超时都会写 plugin trace，重试 N 次会产生 N 条同 `session_id`、时间戳依次递增的 plugin trace。若每次重试再 emit 一条新的 `*_agent` pre-chat span，配对算法会把重试当成新轮，吹大 `turn_index` 并重复累加 token / latency。
 
 **eval 侧契约**：重试**不** emit pre-chat span——见 [`run_task.py`](../src/lift/eval/run_task.py) 的 `_agent_chat_no_emit` / `_work_chat_with_provider_retry` / `_judge_with_retry`。多次重试的 plugin trace 都挂在最初那条 `*_agent` 之后。
 
@@ -706,7 +706,7 @@ worker / judge 对 LLM provider 错误（超时 / 限流）原地用同一 promp
                           merged.provider_retry_count = len(plugins) - 1
 ```
 
-`provider_retry_count` 字段在 [`LangfuseTraceRef`](../src/models.py)：本 agent span 下挂的 plugin trace 数 - 1，0 即首发成功无重试。Hermes 模式不写 `metadata.success`，所以 `_choose_representative_plugin` 退化为"取最后一条"（通常就是最后一次重试，成功才会跳出循环）；5 次全超时由外层抛 `RuntimeError` 接管，桶内仍保留最后一条上下文便于定位。
+`provider_retry_count` 字段在 [`LangfuseTraceRef`](../src/models.py)：本 agent span 下挂的 plugin trace 数 - 1，0 即首发成功无重试。Hermes 模式不写 `metadata.success`，所以 `_choose_representative_plugin` 退化为"取最后一条"（通常就是最后一次重试，成功才会跳出循环）；3 次全超时由外层抛 `RuntimeError` 接管，桶内仍保留最后一条上下文便于定位。
 
 **新接入 runtime 必须满足**：
 

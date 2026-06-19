@@ -150,7 +150,12 @@
     color: var(--muted);
     letter-spacing: 0.04em;
   }
-  .panel-body { padding: 18px 0 0; }
+  .panel-body {
+    padding: 18px 0 0;
+    interpolate-size: allow-keywords;
+    overflow: hidden;
+    transition: height .26s cubic-bezier(0.4, 0, 0.2, 1), opacity .2s ease, padding .26s cubic-bezier(0.4, 0, 0.2, 1);
+  }
 
   /* ---- hero (primary telemetry) ---- */
   .hero {
@@ -253,7 +258,24 @@
   .repeat-ring-active { color: var(--yellow); }
 
   /* ---- params：紧凑内联（静态参考信息，高密度低存在感）---- */
-  .params { display: flex; flex-direction: column; }
+  /* 不加 border-top：那条线会比 panel 自身的底边更靠近 hero，展开时产生"线往上跳"的
+     错觉。靠 margin 留白 + param-group 自身结构分隔即可。 */
+  /* config 折叠条：height/opacity 平滑展开（.open），不用 display。 */
+  .params {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0;
+    interpolate-size: allow-keywords;
+    overflow: hidden;
+    height: 0;
+    opacity: 0;
+    transition: height .26s cubic-bezier(0.4, 0, 0.2, 1), opacity .2s ease, margin-top .26s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .params.open {
+    height: auto;
+    opacity: 1;
+    margin-top: 18px;
+  }
   .param-group {
     padding: 10px 0;
     border-bottom: 1px solid var(--line);
@@ -397,47 +419,63 @@
   .cmp-suite-meta .delta-up { color: var(--green); }
   .cmp-suite-meta .delta-down { color: var(--red); }
   .cmp-tasks {
-    display: none;
-    padding: 8px 0 14px;
     background: var(--bg);
+    overflow-x: auto;
+    overflow-y: hidden;  /* 显式裁掉纵向：否则 overflow-x:auto 会让 overflow-y 计算成 auto，展开动画过程中冒出一条竖向滚动条 */
+    interpolate-size: allow-keywords;
+    height: 0;
+    opacity: 0;
+    padding: 0;
+    transition: height .26s cubic-bezier(0.4, 0, 0.2, 1), opacity .2s ease, padding .26s cubic-bezier(0.4, 0, 0.2, 1);
   }
-  .cmp-suite[data-open="true"] .cmp-tasks { display: block; }
-  .cmp-task {
-    padding: 10px 0;
+  .cmp-suite[data-open="true"] .cmp-tasks {
+    height: auto;
+    opacity: 1;
+    padding: 8px 0 14px;
+  }
+  /* 展开后的 per-task 对比：一张表（task 名 + score/turns/tools/pass 四列 + log），
+     填满宽度；每个指标格 Δ 在上（染色信号）、base→evo 在下（细节）。取代旧的
+     「左侧 4 窄行 + 右上角孤立 log 按钮、中间大片留白」布局。 */
+  .cmp-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 1.4fr) repeat(4, minmax(84px, 1fr)) 50px;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 0;
     border-top: 1px dashed var(--line);
   }
-  .cmp-task:first-child { border-top: none; }
-  .cmp-task-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 6px;
+  .cmp-row.head {
+    border-top: none;
+    padding: 6px 0 8px;
   }
-  .cmp-task-name {
-    color: var(--cyan); font-weight: 600; font-size: 14px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .cmp-dims { display: flex; flex-direction: column; gap: 1px; }
-  .cmp-dim {
-    display: grid;
-    grid-template-columns: 56px 64px 14px 64px 56px;
-    gap: 12px;
-    align-items: baseline;
-    padding: 2px 0;
-    font: 400 13px/1.4 'JetBrains Mono';
-    color: var(--fg);
-  }
-  .cmp-dim-label {
-    font: 400 11px/1.4 'Barlow Condensed', sans-serif;
+  .cmp-row.head .cmp-col {
+    font: 600 11px/1 'Barlow Condensed', sans-serif;
     letter-spacing: 0.16em;
-    color: var(--muted);
     text-transform: uppercase;
+    color: var(--muted);
   }
-  .cmp-arrow { color: var(--muted); text-align: center; }
-  .cmp-delta { font-weight: 700; }
-  .cmp-delta.up { color: var(--green); }
-  .cmp-delta.down { color: var(--red); }
-  .cmp-delta.flat { color: var(--muted); }
+  .cmp-col-name {
+    color: var(--cyan);
+    font: 600 13px/1.3 'JetBrains Mono', monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cmp-metric { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .cmp-metric-delta {
+    font: 700 14px/1.2 'JetBrains Mono', monospace;
+  }
+  .cmp-metric-delta.up { color: var(--green); }
+  .cmp-metric-delta.down { color: var(--red); }
+  .cmp-metric-delta.flat { color: var(--muted); }
+  .cmp-metric-vals {
+    font: 400 11px/1.2 'JetBrains Mono', monospace;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cmp-col-log { display: flex; justify-content: flex-end; }
 
   /* ---- final summary (postprocess) ---- */
   .fs-table {
@@ -470,7 +508,9 @@
   .fs-meta { color: var(--muted); font-size: 12px; }
 
   /* collapsible panel: when collapsed body hidden */
-  .panel.collapsed .panel-body { display: none; }
+  /* 折叠：用 height:0 + opacity:0 平滑收起（依赖 interpolate-size 让 height:auto 可插值），
+     不再用 display:none（无法过渡）。overflow:hidden 由 .panel-body 兜底裁剪。 */
+  .panel.collapsed .panel-body { height: 0; opacity: 0; padding-top: 0; }
   .panel-toggle {
     background: transparent;
     border: 1px solid var(--line-strong);
@@ -766,6 +806,13 @@
     .mast { padding: 12px 16px; }
     .subtitle { display: none; }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    /* 关掉所有展开/收起过渡，回到瞬时切换 */
+    .panel-body, .cmp-tasks, .params { transition: none; }
+    .running, .retrying { animation: none; }
+    .conn-status.live .conn-dot { animation: none; }
+  }
 </style>
 </head>
 <body>
@@ -789,7 +836,10 @@
         <button class="panel-fold" aria-label="toggle panel">▾</button>
         <div class="panel-title">primary telemetry</div>
       </div>
-      <div class="panel-meta" id="overall-stats">awaiting first signal</div>
+      <div class="controls">
+        <span class="panel-meta" id="overall-stats">awaiting first signal</span>
+        <button type="button" id="config-toggle" class="ghost-btn" style="display:none">config ▾</button>
+      </div>
     </div>
     <div class="panel-body">
       <div class="hero">
@@ -813,6 +863,7 @@
           <div id="repeat-rings" class="repeat-rings"></div>
         </div>
       </div>
+      <div id="params" class="params"></div>
     </div>
   </section>
 
@@ -829,8 +880,8 @@
         <div class="kpi-group">
           <div class="kpi-group-label">overview</div>
           <div class="kpi-cells">
-            <div class="kpi"><div class="kpi-label">tasks done</div>
-              <div class="kpi-value"><b id="kpi-done">0</b><span class="kpi-suffix">/<i id="kpi-total">0</i></span></div></div>
+            <div class="kpi" title="holdout tasks finished / total holdout tasks this run (all repeats)"><div class="kpi-label">tasks done</div>
+              <div class="kpi-value"><b id="kpi-done">0</b><span class="kpi-suffix"> of <i id="kpi-total">0</i></span></div></div>
             <div class="kpi"><div class="kpi-label">failed</div>
               <div class="kpi-value" id="kpi-failed">0</div></div>
           </div>
@@ -931,18 +982,6 @@
       <div class="panel-body" id="dlg-body"></div>
     </div>
   </div>
-
-  <section class="panel" id="params-panel" style="display:none">
-    <div class="panel-head">
-      <div class="panel-title-group">
-        <button class="panel-fold" aria-label="toggle panel">▾</button>
-        <div class="panel-title">run configuration</div>
-      </div>
-    </div>
-    <div class="panel-body" style="padding:0">
-      <div id="params" class="params"></div>
-    </div>
-  </section>
 
   <section class="panel" id="matrix-panel">
     <div class="panel-head">
@@ -1160,6 +1199,7 @@ function buildPopover(d) {
 // PHASE COMPARISON：folded by suite，每条 task 一行 baseline/evolved 横条 + Δ。
 // 折叠状态保存在 cmpOpen[suite_key]，render 时复用；默认收起，用户点开后保持展开。
 const cmpOpen = {};
+let _cmpAnimUntil = 0;  // suite 展开/收起过渡截止时间戳(ms)；期间内跳过 renderCompare 重建，避免打断动画
 function renderCompare(repeats) {
   const panel = document.getElementById('compare-panel');
   const root = document.getElementById('compare');
@@ -1208,47 +1248,50 @@ function renderCompare(repeats) {
     const bad = invert ? (d > 0.001) : (d < -0.001);
     return good ? 'delta-up' : bad ? 'delta-down' : '';
   };
-  // 三维度对比行：每行 label | baseline → evolved | delta（score / turns / pass）
+  // per-task 指标单元：Δ 在上（染色信号，进步绿/退步红/持平灰），base → evo 在下（细节）。
   const fmt2 = (v) => (typeof v === 'number') ? v.toFixed(2) : '—';
   const fmtT = (v) => (typeof v === 'number') ? v.toFixed(1) : '—';
   // pass 用文字而非 ✓/✗ 符号，避免歧义：yes / no / —（未知）
   const passSym = (v) => (v === true) ? 'yes' : (v === false) ? 'no' : '—';
-  const dimRow = (label, baseText, evoText, deltaText, cls) =>
-    `<div class="cmp-dim">`
-    + `<span class="cmp-dim-label">${label}</span>`
-    + `<span class="cmp-dim-base">${baseText}</span>`
-    + `<span class="cmp-arrow">→</span>`
-    + `<span class="cmp-dim-evo">${evoText}</span>`
-    + `<span class="cmp-delta ${cls}">${deltaText}</span>`
+  const metricCell = (m) =>
+    `<div class="cmp-metric">`
+    + `<span class="cmp-metric-delta ${m.cls}">${m.delta}</span>`
+    + `<span class="cmp-metric-vals">${m.vals}</span>`
     + `</div>`;
-  const scoreDim = (b, e) => {
-    const d = (typeof b === 'number' && typeof e === 'number') ? e - b : null;
-    const cls = (d == null) ? 'flat' : (d > 0.001 ? 'up' : d < -0.001 ? 'down' : 'flat');
-    const txt = (d == null) ? '—' : (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(2);
-    return dimRow('score', fmt2(b), fmt2(e), txt, cls);
+  const scoreMetric = (b, e) => {
+    const vals = `${fmt2(b)} → ${fmt2(e)}`;
+    if (typeof b !== 'number' || typeof e !== 'number') return { vals, delta: '—', cls: 'flat' };
+    const d = e - b;
+    const cls = d > 0.001 ? 'up' : d < -0.001 ? 'down' : 'flat';
+    const delta = (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(2);
+    return { vals, delta, cls };
   };
-  const turnsDim = (b, e) => {  // 轮数越少越好：负 delta = 进步
-    const d = (typeof b === 'number' && typeof e === 'number' && b > 0 && e > 0) ? e - b : null;
-    const cls = (d == null) ? 'flat' : (d < -0.001 ? 'up' : d > 0.001 ? 'down' : 'flat');
-    const txt = (d == null) ? '—' : (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(1);
-    return dimRow('turns', fmtT(b), fmtT(e), txt, cls);
+  const turnsMetric = (b, e) => {  // 轮数越少越好：负 delta = 进步
+    const vals = `${fmtT(b)} → ${fmtT(e)}`;
+    if (typeof b !== 'number' || typeof e !== 'number' || b <= 0 || e <= 0) return { vals, delta: '—', cls: 'flat' };
+    const d = e - b;
+    const cls = d < -0.001 ? 'up' : d > 0.001 ? 'down' : 'flat';
+    const delta = (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(1);
+    return { vals, delta, cls };
   };
-  const toolsDim = (b, e) => {  // 工具调用次数越少越好：负 delta = 进步
-    const haveBoth = typeof b === 'number' && b >= 0 && typeof e === 'number' && e >= 0;
-    const d = haveBoth ? e - b : null;
-    const cls = (d == null) ? 'flat' : (d < -0.001 ? 'up' : d > 0.001 ? 'down' : 'flat');
+  const toolsMetric = (b, e) => {  // 工具调用越少越好：负 delta = 进步
     const fmtTl = (v) => (typeof v === 'number' && v >= 0) ? v.toString() : '—';
-    const txt = (d == null) ? '—' : (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(0);
-    return dimRow('tools', fmtTl(b), fmtTl(e), txt, cls);
+    const vals = `${fmtTl(b)} → ${fmtTl(e)}`;
+    if (typeof b !== 'number' || typeof e !== 'number' || b < 0 || e < 0) return { vals, delta: '—', cls: 'flat' };
+    const d = e - b;
+    const cls = d < -0.001 ? 'up' : d > 0.001 ? 'down' : 'flat';
+    const delta = (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(0);
+    return { vals, delta, cls };
   };
-  const passDim = (b, e) => {
-    let txt = '—', cls = 'flat';
+  const passMetric = (b, e) => {
+    const vals = `${passSym(b)} → ${passSym(e)}`;
+    let delta = '—', cls = 'flat';
     if (typeof b === 'boolean' && typeof e === 'boolean') {
-      if (!b && e) { txt = 'passed'; cls = 'up'; }        // no → yes
-      else if (b && !e) { txt = 'failed'; cls = 'down'; } // yes → no
-      else { txt = 'same'; cls = 'flat'; }                // 持平
+      if (!b && e) { delta = 'passed'; cls = 'up'; }        // no → yes
+      else if (b && !e) { delta = 'failed'; cls = 'down'; } // yes → no
+      else { delta = 'same'; cls = 'flat'; }                // 持平
     }
-    return dimRow('pass', passSym(b), passSym(e), txt, cls);
+    return { vals, delta, cls };
   };
   // 对话记录入口：位于 baseline ↔ evolved 中间列。仅在该 task 有 dialogue 时显示按钮，
   // 否则占位（保持每行 grid 列宽一致，baseline/evolved 宽度对齐）。
@@ -1285,18 +1328,23 @@ function renderCompare(repeats) {
     const tb = mean(baseTurns), te = mean(evoTurns);
     const tlb = mean(baseTools), tle = mean(evoTools);
     const open = cmpOpen[idx] === true;  // 默认收起
-    const rowsHtml = rows.map(r => {
+    const headHtml = `<div class="cmp-row head">`
+      + `<div class="cmp-col">task</div>`
+      + `<div class="cmp-col">score</div>`
+      + `<div class="cmp-col">turns</div>`
+      + `<div class="cmp-col">tools</div>`
+      + `<div class="cmp-col">pass</div>`
+      + `<div class="cmp-col-log"></div>`
+      + `</div>`;
+    const rowsHtml = headHtml + rows.map(r => {
       const taskLabel = (repeats.length > 1) ? `r${r.repeat}/${r.task}` : r.task;
-      const dims = scoreDim(r.base.score, r.evo.score)
-        + turnsDim(r.base.turns, r.evo.turns)
-        + toolsDim(r.base.tool_calls, r.evo.tool_calls)
-        + passDim(r.base.success, r.evo.success);
-      return `<div class="cmp-task">`
-        + `<div class="cmp-task-head">`
-        + `<span class="cmp-task-name" title="${escapeAttr(taskLabel)}">${taskLabel}</span>`
-        + dialogueBtnHtml(r.repeat, idx, r.task, r.baseDlg, r.evoDlg)
-        + `</div>`
-        + `<div class="cmp-dims">${dims}</div>`
+      return `<div class="cmp-row">`
+        + `<div class="cmp-col-name" title="${escapeAttr(taskLabel)}">${taskLabel}</div>`
+        + metricCell(scoreMetric(r.base.score, r.evo.score))
+        + metricCell(turnsMetric(r.base.turns, r.evo.turns))
+        + metricCell(toolsMetric(r.base.tool_calls, r.evo.tool_calls))
+        + metricCell(passMetric(r.base.success, r.evo.success))
+        + `<div class="cmp-col-log">${dialogueBtnHtml(r.repeat, idx, r.task, r.baseDlg, r.evoDlg)}</div>`
         + `</div>`;
     }).join('');
     return `<div class="cmp-suite" data-suite-idx="${idx}" data-open="${open}">`
@@ -1327,10 +1375,9 @@ const FS_METRICS = [
   'tool_use_num', 'total_latency_seconds',
   'total_tokens', 'cached_token', 'cached_token_ratio',
 ];
-const FS_PANEL_COLLAPSED = { v: false };
-const PARAMS_COLLAPSED = { v: true };  // run configuration 默认折叠（静态参考信息）
-// 各 panel 折叠状态（by id）；默认展开，仅 run configuration 默认折叠
-const PANEL_COLLAPSED = { 'params-panel': true };
+// 各 panel 折叠状态（by id）；默认展开
+const PANEL_COLLAPSED = {};
+let CONFIG_OPEN = false;  // run configuration 折叠条（嵌在 primary telemetry 里）
 function applyFold(panel) {
   const collapsed = PANEL_COLLAPSED[panel.id] === true;
   panel.classList.toggle('collapsed', collapsed);
@@ -1487,6 +1534,20 @@ function renderKpiStrip(repeats) {
       }
     }
   }
+  // 分母用「这次 run 要跑的全部 holdout 题」= 配置的 repeat 数 × Σ(每个唯一 suite 的
+  // holdout 题数)。不能直接拿"已启动 suite 里的题数"当分母——它随 suite 陆续启动而增长，
+  // 会被误读成"已运行数"。同一 suite 跨 repeat 题数相同，任一 repeat 里 plan 过即知其数。
+  const _params = Object.fromEntries(snapshot?.params || []);
+  const _cfgRepeat = parseInt(_params['repeat'], 10);
+  const numRepeats = (Number.isFinite(_cfgRepeat) && _cfgRepeat > 0) ? _cfgRepeat : (repeats.length || 1);
+  const perSuiteHoldout = {};
+  for (const r of repeats) {
+    for (const [idx, s] of Object.entries(r.suites || {})) {
+      const n = Object.keys(s.holdout_tasks || {}).length;
+      if (n) perSuiteHoldout[idx] = Math.max(perSuiteHoldout[idx] || 0, n);
+    }
+  }
+  const grandTotal = numRepeats * Object.values(perSuiteHoldout).reduce((a, b) => a + b, 0);
   const mean = (xs) =>
     xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
   const baseAvg = mean(stats.baseScores);
@@ -1523,7 +1584,7 @@ function renderKpiStrip(repeats) {
   }
   panel.style.display = '';
   document.getElementById('kpi-done').textContent = stats.taskDone;
-  document.getElementById('kpi-total').textContent = stats.taskTotal;
+  document.getElementById('kpi-total').textContent = grandTotal || stats.taskTotal;
   document.getElementById('kpi-failed').textContent = stats.taskFailed;
   document.getElementById('kpi-base-sr').textContent = fmtPct(baseSr);
   document.getElementById('kpi-evo-sr').textContent = fmtPct(evoSr);
@@ -1570,16 +1631,18 @@ function render() {
   // KPI strip（A 路径：基于 phase.score / phase.success 实时聚合）
   renderKpiStrip(repeats);
   // PHASE COMPARISON（A 路径：per-task baseline/evolved 横条对比）
-  renderCompare(repeats);
+  // 若刚刚有 suite 在展开/收起过渡中，跳过这次重建——#compare 整块 innerHTML 重建会
+  // 销毁正在过渡的 cmp-tasks、打断动画。300ms 窗口后再下一次 render 自然补上数据。
+  if (Date.now() >= _cmpAnimUntil) renderCompare(repeats);
   // FINAL SUMMARY（B 路径：postprocess 完成后由 final_summary 注入）
   renderFinalSummary(snapshot.final_summary);
 
-  // run params 面板：按语义分组（run / concurrency / containers，其余落 misc）
+  // run configuration：不再独占一个 section，收进 primary telemetry 的 config 折叠条。
+  // 有 params 时显示 config 按钮，点击按 CONFIG_OPEN 展开/收起 #params。
   const params = snapshot.params || [];
-  const paramsPanel = document.getElementById('params-panel');
   const paramsDiv = document.getElementById('params');
+  const configToggle = document.getElementById('config-toggle');
   if (params.length) {
-    paramsPanel.style.display = '';
     const byKey = Object.fromEntries(params);
     const used = new Set();
     const PARAM_GROUPS = [
@@ -1600,8 +1663,15 @@ function render() {
     const miscKeys = params.map(([k]) => k).filter(k => !used.has(k));  // 未分组 → misc
     html += renderGroup('misc', miscKeys);
     paramsDiv.innerHTML = html;
+    if (configToggle) {
+      configToggle.style.display = '';
+      configToggle.textContent = CONFIG_OPEN ? 'config ▴' : 'config ▾';
+    }
+    paramsDiv.classList.toggle('open', CONFIG_OPEN);
   } else {
-    paramsPanel.style.display = 'none';
+    paramsDiv.innerHTML = '';
+    paramsDiv.classList.remove('open');
+    if (configToggle) configToggle.style.display = 'none';
   }
 
   // overall 进度（每个 repeat × suite 计 1 个单元）
@@ -1823,7 +1893,14 @@ document.addEventListener('click', (ev) => {
   if (Number.isNaN(idx)) return;
   // 默认收起（cmpOpen[idx] === undefined 视为 false），点击后展开；再次点击收起。
   cmpOpen[idx] = !(cmpOpen[idx] === true);
-  render();
+  // 原地切换 data-open + 箭头，**不调 render()**：#compare 整块 innerHTML 重建会打断
+  // cmp-tasks 的过渡、并在点击瞬间造成卡顿。rows 内容在上次 render 已就绪（只是 height:0
+  // 藏着），CSS 过渡接管动画；_cmpAnimUntil 让这段时间内的 snapshot 刷新跳过 compare 重建。
+  const open = cmpOpen[idx] === true;
+  suite.dataset.open = open;
+  const arrow = suite.querySelector('.arrow');
+  if (arrow) arrow.textContent = open ? '▾' : '▸';
+  _cmpAnimUntil = Date.now() + 300;
 });
 
 // 任意 panel 标题左的折叠箭头：切换该 panel（事件委托）
@@ -1835,6 +1912,16 @@ document.addEventListener('click', (ev) => {
   PANEL_COLLAPSED[panel.id] = !(PANEL_COLLAPSED[panel.id] === true);
   applyFold(panel);
   ev.stopPropagation();
+});
+
+// primary telemetry 里的 run configuration 折叠条：点 config 按钮 展开/收起 #params
+document.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('#config-toggle');
+  if (!btn) return;
+  CONFIG_OPEN = !CONFIG_OPEN;
+  const paramsDiv = document.getElementById('params');
+  if (paramsDiv) paramsDiv.classList.toggle('open', CONFIG_OPEN);
+  btn.textContent = CONFIG_OPEN ? 'config ▴' : 'config ▾';
 });
 
 // ---- holdout 对话记录 Modal（运行期 A 路径逐轮 / 后处理 B 路径文本覆盖）----
@@ -2005,6 +2092,7 @@ document.addEventListener('click', (ev) => {
 });
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') hidePopoverNow(); });
 
+// __LIFT_STATIC_BOOT_START__
 // 启动
 refreshSnapshot(true).then(connect);
 // 每秒只刷新时间相关读数（elapsed / eta / container uptime），不调全量 render
@@ -2025,6 +2113,7 @@ function tick() {
   });
 }
 setInterval(tick, 1000);
+// __LIFT_STATIC_BOOT_END__
 </script>
 </body>
 </html>

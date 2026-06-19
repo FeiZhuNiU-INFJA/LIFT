@@ -322,6 +322,10 @@ class RunStateTracker:
 
             if e.kind == "suite" and suite is not None:
                 suite.status = e.status
+                if e.status in (RUNNING, DONE):
+                    suite.last_error = None
+                if e.status == DONE:
+                    self._clear_errors(e)
                 if e.status == FAILED:
                     suite.last_error = e.detail
                     self._record_error(e)
@@ -329,6 +333,8 @@ class RunStateTracker:
                 suite.warmup_status = e.status
                 if e.status in (RUNNING, DONE):
                     suite.last_error = None
+                if e.status == DONE:
+                    self._clear_errors(e)
                 elif e.status == RETRYING:
                     suite.last_error = e.detail
                 if e.status == FAILED:
@@ -340,6 +346,10 @@ class RunStateTracker:
                     node = TaskNode(name=e.task_name)
                     suite.holdout_tasks[e.task_name] = node
                 node.status = e.status
+                if e.status in (RUNNING, DONE):
+                    node.last_error = None
+                if e.status == DONE:
+                    self._clear_errors(e)
                 if e.status == FAILED:
                     node.last_error = e.detail
                     # hold-out task fail 一定来自其下 phase fail（phase 那层已 record_error），
@@ -353,6 +363,8 @@ class RunStateTracker:
                 wnode.status = e.status
                 if e.status in (RUNNING, DONE):
                     wnode.last_error = None
+                if e.status == DONE:
+                    self._clear_errors(e)
                 elif e.status == RETRYING:
                     wnode.last_error = e.detail
                     if suite.warmup_status != FAILED:
@@ -393,8 +405,10 @@ class RunStateTracker:
                 elif e.status == DONE:
                     # judge fail 时 detail 形如 "judge fail (score=0.42)"，落到节点
                     # 供 dashboard 展示；非 judge fail 的 done 通常 detail=None。
-                    if e.detail:
-                        pnode.last_error = e.detail
+                    pnode.last_error = e.detail or None
+                    self._clear_errors(e)
+                elif e.status == RUNNING:
+                    pnode.last_error = None
 
     def _record_error(self, e: ev.StageEvent) -> None:
         """把一条失败事件写入环形缓冲（调用方须持锁）。``detail`` 缺省时回退为 ``"failed"``。"""
@@ -410,6 +424,20 @@ class RunStateTracker:
         self._recent_errors.insert(0, record)
         if len(self._recent_errors) > self._recent_errors_max:
             del self._recent_errors[self._recent_errors_max :]
+
+    def _clear_errors(self, e: ev.StageEvent) -> None:
+        """最终成功后清理同坐标历史异常，避免 dashboard 展示已恢复的中间失败。"""
+        self._recent_errors = [
+            r
+            for r in self._recent_errors
+            if not (
+                r.kind == e.kind
+                and r.repeat_index == e.repeat_index
+                and r.suite_name == e.suite_name
+                and r.task_name == e.task_name
+                and r.phase == e.phase
+            )
+        ]
 
     # ---- 容器 ------------------------------------------------------------
 
