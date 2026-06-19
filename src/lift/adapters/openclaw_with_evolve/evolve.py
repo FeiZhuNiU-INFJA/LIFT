@@ -6,83 +6,11 @@ import json
 import shlex
 
 from src.config import LOGGER
-from src.lift.adapters.container.exec import (
-    capture_container_logs,
-    docker_exec_shell_async,
-)
+from src.lift.adapters.container.exec import docker_exec_shell_async
 from src.lift.adapters.openclaw.container_exec import (
     OpenClawContainerContext,
     exec_openclaw_async,
 )
-
-
-_SELF_EVOLVING_HEALTHCHECK = r"""
-echo "===== plugin entries (jq .plugins) ====="
-jq '.plugins' /root/.openclaw/openclaw.json 2>/dev/null || cat /root/.openclaw/openclaw.json 2>/dev/null || true
-
-echo "===== openclaw plugins list ====="
-openclaw plugins list 2>&1 || true
-
-echo "===== port 18090 listeners ====="
-ss -lntp 2>/dev/null | grep 18090 || echo "(no listener on 18090)"
-
-echo "===== runtime-ready.json ====="
-cat /root/.openclaw/evolution-runtime/runtime-ready.json 2>/dev/null || echo "(missing)"
-
-echo "===== runtime-state.json ====="
-cat /root/.openclaw/evolution-runtime/runtime-state.json 2>/dev/null || echo "(missing)"
-
-echo "===== curl /ready ====="
-curl -sS -o /tmp/_evo_ready.txt -w "http_code=%{http_code}\n" \
-  http://127.0.0.1:18090/ready 2>&1 || true
-cat /tmp/_evo_ready.txt 2>/dev/null || true
-echo
-
-echo "===== curl /signals (limit=1) ====="
-read -r INSTANCE_ID INSTANCE_TOKEN < <(python3 - <<'PY'
-import json
-try:
-    s = json.load(open("/root/.openclaw/evolution-runtime/runtime-state.json"))
-    print((s.get("instanceId") or "").strip(), (s.get("instanceToken") or "").strip())
-except Exception:
-    print("", "")
-PY
-)
-if [[ -n "${INSTANCE_ID}" && -n "${INSTANCE_TOKEN}" ]]; then
-  curl -sS -o /tmp/_evo_signals.txt -w "http_code=%{http_code}\n" \
-    -H "x-openclaw-instance-id: ${INSTANCE_ID}" \
-    -H "x-openclaw-instance-token: ${INSTANCE_TOKEN}" \
-    "http://127.0.0.1:18090/signals?instance_id=${INSTANCE_ID}&limit=1" 2>&1 || true
-  cat /tmp/_evo_signals.txt 2>/dev/null || true
-  echo
-else
-  echo "(skipped: no instance id/token in runtime-state.json)"
-fi
-
-echo "===== backend.stderr.log (tail 200) ====="
-tail -n 200 /root/.openclaw/evolution-runtime/backend.stderr.log 2>/dev/null \
-  || echo "(missing)"
-
-echo "===== backend.stdout.log (tail 100) ====="
-tail -n 100 /root/.openclaw/evolution-runtime/backend.stdout.log 2>/dev/null \
-  || echo "(missing)"
-
-echo "===== plugin DB row counts ====="
-EVO_DB="/root/.openclaw/evolution-runtime/evolution-pro.db"
-if [[ -f "${EVO_DB}" ]] && command -v sqlite3 >/dev/null 2>&1; then
-  for tbl in instancerecord sessionrecord signalrecord expressionrecord workspacechangerecord; do
-    cnt=$(sqlite3 "${EVO_DB}" "select count(*) from ${tbl};" 2>/dev/null \
-          || echo "<missing-table>")
-    echo "${tbl}=${cnt}"
-  done
-  echo "----- instancerecord rows -----"
-  sqlite3 -header "${EVO_DB}" \
-    "select id, onboarding_status, workspace_root from instancerecord;" \
-    2>/dev/null || true
-else
-  echo "(db not found at ${EVO_DB} or sqlite3 unavailable)"
-fi
-""".strip()
 
 
 # 容器内 self-evolving-plugin-pro 写状态的位置（与 src/runtimeManager.js 对齐）
@@ -270,37 +198,11 @@ fi
 """.strip(),
     )
 
-    # self-check：把 self-evolving-plugin-pro 的加载/onboard/backend 状态完整 dump
-    # 到 LIFT 日志，方便排查「查看对话=0」类问题。失败不打断主流程。
-    try:
-        healthcheck_out = await docker_exec_shell_async(
-            container.container_name, _SELF_EVOLVING_HEALTHCHECK
-        )
-    except Exception as exc:  # noqa: BLE001 — 诊断不能拖垮 evolve
-        LOGGER.warning(
-            "self-evolving plugin self-check failed (%s): %s",
-            container.container_name, exc,
-        )
-    else:
-        if healthcheck_out.strip():
-            LOGGER.info(
-                "self-evolving plugin self-check (%s):\n%s",
-                container.container_name,
-                healthcheck_out.strip(),
-            )
-
     review_stdout = await exec_openclaw_async(container, ["learn", "review"])
     if review_stdout.strip():
         LOGGER.info(
             "openclaw learn review stdout (%s):\n%s",
             container.container_name,
             review_stdout.strip(),
-        )
-    container_log = await capture_container_logs(container.container_name, tail=500)
-    if container_log:
-        LOGGER.info(
-            "openclaw learn review container logs (%s, last 500 lines):\n%s",
-            container.container_name,
-            container_log,
         )
 
