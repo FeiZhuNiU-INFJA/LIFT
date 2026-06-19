@@ -138,7 +138,7 @@ async def execute_tasks(
     - ``retry_each``: 单题异常时**原地重试一次**（仅对抛异常的 PhaseRun 路径生效；
       judge ``success=False`` 不算失败、不会触发重试）。第二次仍异常才向上抛。
     - ``tasks_isolated``: 题间隔离——并发模式下让 ``bounded_gather`` 用
-      ``return_exceptions=True``，单题最终失败不会取消其它兄弟题；返回列表中失败位
+      ``return_exceptions=True``，单题最终失败不取消其它兄弟题；返回列表中失败位
       的元素是异常对象，调用方需要自行过滤。串行模式下表现为：失败题不中止后续题，
       仅 LOGGER 记录后跳过。
     """

@@ -117,7 +117,7 @@ class AgentRuntimeAdapter(ABC):
                 parallel=self._options.warmup_container_policy.tasks_parallel,  # 由 warmup_container_policy 决定
                 max_concurrent=self._options.max_concurrent_tasks,
                 max_conversation_turns=self._options.max_conversation_turns,
-                on_task_done=lambda task, _result: self.evolve_after_task(env, task, ctx),  # 每题完成钩子；默认 no-op
+                on_task_done=lambda task, result: self.evolve_after_task(env, task, result, ctx),  # 每题完成钩子；默认 no-op
                 on_task_status=_emit_warmup_task,  # 题级状态 → dashboard tooltip
                 retry_each=True,  # 单题异常原地重试一次（judge fail 不算失败）
                 tasks_isolated=True,  # warmup 题间隔离：单题最终失败不取消兄弟题
@@ -293,16 +293,19 @@ class AgentRuntimeAdapter(ABC):
         self,
         env: ExecutionEnvironment,
         task: SuiteTask,
+        result: PhaseRun,
         ctx: SuiteRunContext,
     ) -> None:
         """每道 warmup 题完成后立刻调用的 evolve 钩子；默认 no-op。
 
-        典型用法：在群体记忆 / 多容器场景下，每题独立容器跑完即写一次外部记忆 flush。
+        典型用法：在群体记忆 / 多容器场景下，每题独立容器跑完即写一次外部记忆 flush；
+        OpenClaw + 进化插件子类则在此把本题 ``PhaseRun`` 摘要 ``POST /signals``，让
+        ``learn review`` 阶段能根据 SignalRecord 反查到本题 session。
         在共享容器（``SERIAL_SINGLE`` / ``PARALLEL_SINGLE``）模式下也可被覆写为
         增量 evolve，但要注意 ``PARALLEL_SINGLE`` 下多次并发调用同一容器的
         evolve 操作可能产生竞态——具体由子类自行评估。
         """
-        _ = (env, task, ctx)
+        _ = (env, task, result, ctx)
         return None
 
     @abstractmethod
