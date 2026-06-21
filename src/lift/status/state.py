@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from threading import Lock
 
 from src.lift.status import events as ev
@@ -26,12 +26,45 @@ FAILED = "failed"
 
 
 @dataclass
+class DialogueTurn:
+    """单轮 work↔judge 对话快照（已脱离锁，纯展示用）。
+
+    A 路径（运行期）由 ``DialogueTurnEvent`` 折叠而来，``latency_seconds`` 为 None；
+    B 路径（后处理）从 Langfuse ``trace_chain`` 注入，``latency_seconds`` 有值、
+    ``judge_*`` 留空（trace_chain 仅 work 侧）。
+    """
+
+    turn_index: int  # 1-based 轮序
+    work_prompt: str
+    work_result: str
+    judge_success: bool
+    judge_score: float
+    judge_reason: str
+    timestamp: float = 0.0
+    latency_seconds: float | None = None
+
+
+@dataclass
 class PhaseNode:
     """holdout 单题下的一个 phase（baseline / evolved）。"""
 
     name: str  # baseline / evolved
     status: str = PENDING
     last_error: str | None = None  # status=failed 时的异常摘要 / judge 拒因
+    # phase 完成时由 emit_stage(score=, success=) 写入，供 dashboard 展示分数 & KPI
+    score: float | None = None
+    success: bool | None = None
+    # phase 完成时 emit_stage(turns=) 写入，供 dashboard "avg turns" KPI 聚合
+    turns: int | None = None
+    # phase 完成时 emit_stage(tool_calls=) 写入；adapter 自报 work agent tool 调用次数
+    # （OpenClaw 走 trajectory.jsonl 计 toolCall block；其他 runtime 拿不到时为 None）
+    tool_calls: int | None = None
+    # 后处理回填（FinalSummary 注入）：完整轨迹 / token / latency 指标
+    trajectory_score: float | None = None
+    # work↔judge 完整对话记录（A 路径逐轮追加；B 路径后处理整体覆盖）
+    dialogue: list[DialogueTurn] = field(default_factory=list)
+    # 对话来源标记："runtime"（A 路径）/ "postprocess"（B 路径）/ None
+    dialogue_source: str | None = None
 
 
 @dataclass
@@ -105,6 +138,32 @@ class ContainerInfo:
 
 
 @dataclass
+class FinalSummaryRow:
+    """后处理 summary CSV 单行（per-suite / per-category / global）。"""
+
+    scope: str  # suite | category | global
+    label: str  # suite_path / category 名 / "global"
+    task_count: int = 0
+    task_count_aggregated: int = 0
+    task_count_excluded: int = 0
+    baseline_success_rate: float | None = None
+    evolved_success_rate: float | None = None
+    # mean_impr_* / mean_diff_* 动态列；key 为列名（如 mean_impr_content_score），
+    # value 为 float 或 None（缺失值）。前端按需渲染。
+    metrics: dict[str, float | None] = field(default_factory=dict)
+
+
+@dataclass
+class FinalSummary:
+    """后处理跑完后的最终汇总，写入 RunSnapshot.final_summary 供前端展示。"""
+
+    rows: list[FinalSummaryRow] = field(default_factory=list)
+    # 后处理已写出的产物绝对路径，前端可生成下载链接
+    artifact_paths: dict[str, str] = field(default_factory=dict)
+    completed_at: float = 0.0
+
+
+@dataclass
 class RunSnapshot:
     """供 TUI 渲染的只读快照（已脱离锁）。"""
 
@@ -117,6 +176,12 @@ class RunSnapshot:
     params: list[tuple[str, str]] = field(default_factory=list)
     # 最近的失败事件（最新在前），便于 dashboard / TUI 一眼看到失败原因
     recent_errors: list[ErrorRecord] = field(default_factory=list)
+    # 后处理完成后的汇总数据（B 路径），未完成时为 None
+    final_summary: FinalSummary | None = None
+
+
+DialogueBundle = dict[tuple[int, int, str, str], list[DialogueTurn]]
+"""按 (repeat_index, suite_index, task_name, phase) 索引的对话集合（B 路径注入用）。"""
 
 
 class RunStateTracker:
@@ -134,6 +199,39 @@ class RunStateTracker:
         # 最近 N 条失败事件（环形）；首条最新
         self._recent_errors: list[ErrorRecord] = []
         self._recent_errors_max: int = 50
+        # 后处理结果（B 路径），由 ``set_final_summary`` 写入
+        self._final_summary: FinalSummary | None = None
+
+    # ---- 后处理钩子 ------------------------------------------------------
+
+    def set_final_summary(self, summary: FinalSummary) -> None:
+        """后处理 pipeline 完成后写入最终汇总，供 dashboard 展示。"""
+        with self._lock:
+            self._final_summary = summary
+
+    def set_dialogue(self, bundle: DialogueBundle) -> None:
+        """后处理完成后注入含完整对话的 dialogue，覆盖运行期文本版本（B 路径）。
+
+        ``bundle`` 按 ``(repeat_index, suite_index, task_name, phase)`` 索引；定位失败的
+        坐标静默跳过。注入后置 ``dialogue_source="postprocess"``，后续运行期
+        ``DialogueTurnEvent`` 不再追加（见 ``_handle_dialogue_turn``）。
+        """
+        with self._lock:
+            for (repeat_index, suite_index, task_name, phase), turns in bundle.items():
+                repeat = self._repeats.get(repeat_index)
+                if repeat is None:
+                    continue
+                suite = repeat.suites.get(suite_index)
+                if suite is None:
+                    continue
+                tnode = suite.holdout_tasks.get(task_name)
+                if tnode is None:
+                    continue
+                pnode = tnode.phases.get(phase)
+                if pnode is None:
+                    continue
+                pnode.dialogue = [DialogueTurn(**asdict(t)) for t in turns]
+                pnode.dialogue_source = "postprocess"
 
     # ---- 订阅生命周期 ----------------------------------------------------
 
@@ -156,6 +254,8 @@ class RunStateTracker:
             self._handle_stage(event)
         elif isinstance(event, ev.ContainerEvent):
             self._handle_container(event)
+        elif isinstance(event, ev.DialogueTurnEvent):
+            self._handle_dialogue_turn(event)
 
     # ---- 计划（预建骨架） ------------------------------------------------
 
@@ -222,11 +322,21 @@ class RunStateTracker:
 
             if e.kind == "suite" and suite is not None:
                 suite.status = e.status
+                if e.status in (RUNNING, DONE):
+                    suite.last_error = None
+                if e.status == DONE:
+                    self._clear_errors(e)
                 if e.status == FAILED:
                     suite.last_error = e.detail
                     self._record_error(e)
             elif e.kind == "warmup" and suite is not None:
                 suite.warmup_status = e.status
+                if e.status in (RUNNING, DONE):
+                    suite.last_error = None
+                if e.status == DONE:
+                    self._clear_errors(e)
+                elif e.status == RETRYING:
+                    suite.last_error = e.detail
                 if e.status == FAILED:
                     suite.last_error = e.detail
                     self._record_error(e)
@@ -236,17 +346,34 @@ class RunStateTracker:
                     node = TaskNode(name=e.task_name)
                     suite.holdout_tasks[e.task_name] = node
                 node.status = e.status
+                if e.status in (RUNNING, DONE):
+                    node.last_error = None
+                if e.status == DONE:
+                    self._clear_errors(e)
                 if e.status == FAILED:
                     node.last_error = e.detail
-                    self._record_error(e)
+                    # hold-out task fail 一定来自其下 phase fail（phase 那层已 record_error），
+                    # 这里只更新 TaskNode.status/last_error，不再写入 recent_errors，避免
+                    # dashboard / TUI 同一次失败重复显示 task + phase 两条。
             elif e.kind == "warmup_task" and suite is not None and e.task_name:
                 wnode = suite.warmup_tasks.get(e.task_name)
                 if wnode is None:
                     wnode = WarmupTaskNode(name=e.task_name)
                     suite.warmup_tasks[e.task_name] = wnode
                 wnode.status = e.status
+                if e.status in (RUNNING, DONE):
+                    wnode.last_error = None
+                if e.status == DONE:
+                    self._clear_errors(e)
+                elif e.status == RETRYING:
+                    wnode.last_error = e.detail
+                    if suite.warmup_status != FAILED:
+                        suite.warmup_status = RETRYING
+                        suite.last_error = e.detail
                 if e.status == FAILED:
                     wnode.last_error = e.detail
+                    suite.warmup_status = FAILED
+                    suite.last_error = e.detail
                     self._record_error(e)
             elif (
                 e.kind == "phase"
@@ -259,6 +386,16 @@ class RunStateTracker:
                 )
                 pnode = tnode.phases.setdefault(e.phase, PhaseNode(e.phase))
                 pnode.status = e.status
+                # phase done 时把 judge 给出的分数 / 是否通过落到 PhaseNode，
+                # 供 dashboard grid 色块叠分数 & KPI strip 聚合（A 路径）。
+                if e.score is not None:
+                    pnode.score = e.score
+                if e.success is not None:
+                    pnode.success = e.success
+                if e.turns is not None:
+                    pnode.turns = e.turns
+                if e.tool_calls is not None:
+                    pnode.tool_calls = e.tool_calls
                 if e.status == RETRYING:
                     # 中间态：把首次错误摘要落到节点供 hover；不计入 recent_errors
                     pnode.last_error = e.detail
@@ -268,8 +405,10 @@ class RunStateTracker:
                 elif e.status == DONE:
                     # judge fail 时 detail 形如 "judge fail (score=0.42)"，落到节点
                     # 供 dashboard 展示；非 judge fail 的 done 通常 detail=None。
-                    if e.detail:
-                        pnode.last_error = e.detail
+                    pnode.last_error = e.detail or None
+                    self._clear_errors(e)
+                elif e.status == RUNNING:
+                    pnode.last_error = None
 
     def _record_error(self, e: ev.StageEvent) -> None:
         """把一条失败事件写入环形缓冲（调用方须持锁）。``detail`` 缺省时回退为 ``"failed"``。"""
@@ -285,6 +424,20 @@ class RunStateTracker:
         self._recent_errors.insert(0, record)
         if len(self._recent_errors) > self._recent_errors_max:
             del self._recent_errors[self._recent_errors_max :]
+
+    def _clear_errors(self, e: ev.StageEvent) -> None:
+        """最终成功后清理同坐标历史异常，避免 dashboard 展示已恢复的中间失败。"""
+        self._recent_errors = [
+            r
+            for r in self._recent_errors
+            if not (
+                r.kind == e.kind
+                and r.repeat_index == e.repeat_index
+                and r.suite_name == e.suite_name
+                and r.task_name == e.task_name
+                and r.phase == e.phase
+            )
+        ]
 
     # ---- 容器 ------------------------------------------------------------
 
@@ -302,6 +455,32 @@ class RunStateTracker:
                 )
             elif e.status == "stopped":
                 self._containers.pop(e.container_name, None)
+
+    def _handle_dialogue_turn(self, e: ev.DialogueTurnEvent) -> None:
+        """把一轮对话追加到对应 PhaseNode（A 路径运行期）。
+
+        后处理已覆盖（``dialogue_source == "postprocess"``）则丢弃迟到的运行期事件；
+        按 ``turn_index`` 单调追加，防同轮重试重复。
+        """
+        with self._lock:
+            suite = self._ensure_suite(e.repeat_index, e.suite_index, e.suite_name)
+            tnode = suite.holdout_tasks.setdefault(e.task_name, TaskNode(name=e.task_name))
+            pnode = tnode.phases.setdefault(e.phase, PhaseNode(e.phase))
+            if pnode.dialogue_source == "postprocess":
+                return
+            turn = DialogueTurn(
+                turn_index=e.turn_index,
+                work_prompt=e.work_prompt,
+                work_result=e.work_result,
+                judge_success=e.judge_success,
+                judge_score=e.judge_score,
+                judge_reason=e.judge_reason,
+                timestamp=e.timestamp,
+            )
+            if not pnode.dialogue or pnode.dialogue[-1].turn_index < e.turn_index:
+                pnode.dialogue.append(turn)
+            if not pnode.dialogue_source:
+                pnode.dialogue_source = "runtime"
 
     # ---- 工具 ------------------------------------------------------------
 
@@ -348,6 +527,13 @@ class RunStateTracker:
                                             name=p.name,
                                             status=p.status,
                                             last_error=p.last_error,
+                                            score=p.score,
+                                            success=p.success,
+                                            turns=p.turns,
+                                            tool_calls=p.tool_calls,
+                                            trajectory_score=p.trajectory_score,
+                                            dialogue=[DialogueTurn(**asdict(d)) for d in p.dialogue],
+                                            dialogue_source=p.dialogue_source,
                                         )
                                         for pk, p in t.phases.items()
                                     },
@@ -365,6 +551,7 @@ class RunStateTracker:
             ]
             containers = list(self._containers.values())
             recent_errors = list(self._recent_errors)
+            final_summary = self._final_summary
         return RunSnapshot(
             run_id=self._run_id,
             repeats=repeats,
@@ -373,4 +560,5 @@ class RunStateTracker:
             snapshot_at=time.time(),
             params=list(self._params),
             recent_errors=recent_errors,
+            final_summary=final_summary,
         )

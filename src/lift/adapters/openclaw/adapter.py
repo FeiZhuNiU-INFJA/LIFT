@@ -23,9 +23,10 @@ from src.lift.adapters.container.session import ContainerSession
 from src.lift.adapters.environment import ExecutionEnvironment
 from src.lift.adapters.openclaw.chat_agent import OpenClawWorkerJudgerPairFactory
 from src.lift.adapters.openclaw.session import openclaw_context, start_openclaw_container
+from src.lift.adapters.openclaw.trajectory import count_session_tool_calls
 from src.lift.eval.stage import HoldoutLoadState, SuiteRunPhase
 from src.lift.eval.worker_judger import WorkerJudgerPairFactory
-from src.models import SuiteTask
+from src.models import PhaseRun, SuiteTask
 from src.paths import OPENCLAW_BASE_DOCKER_IMAGE
 
 
@@ -95,3 +96,26 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
         """
         _ = (env, ctx)
         return None
+
+    @override
+    async def count_tool_calls(
+        self,
+        env: ExecutionEnvironment,
+        task: SuiteTask,
+        result: PhaseRun,
+        ctx: SuiteRunContext,
+    ) -> int | None:
+        """读容器内 trajectory.jsonl 数 work session 的 toolCall block 总数。
+
+        OpenClaw 把每条 chat 的轨迹写到
+        ``~/.openclaw/agents/<agent>/sessions/<work_session_id>.trajectory.jsonl``，
+        最后一条 ``model.completed.messagesSnapshot`` 即整段 session 终态，其
+        ``toolCall`` block 数即为 work agent 的 tool 调用总次数（已与 plugin
+        metadata / Langfuse trace 对账）。
+        """
+        _ = (task, ctx)
+        session: ContainerSession = env.handle
+        container = openclaw_context(session)
+        return await count_session_tool_calls(
+            container.container_name, result.work_session_id
+        )

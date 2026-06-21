@@ -121,9 +121,14 @@ def _default_log_file() -> Path:
 
 
 def setup_logging() -> None:
-    """配置根 logger：INFO 级别、彩色 stdout、plain 文件 handler（幂等追加）。"""
+    """配置根 logger：默认 INFO，可由 ``EVAL_LOG_LEVEL`` 覆盖（DEBUG/WARNING/ERROR 等）；
+    彩色 stdout、plain 文件 handler（幂等追加）。"""
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    level_name = os.getenv("EVAL_LOG_LEVEL", "INFO").upper()
+    level = logging.getLevelName(level_name)
+    if not isinstance(level, int):
+        level = logging.INFO
+    root_logger.setLevel(level)
 
     log_path = Path(CONFIG.log_file).expanduser()
     if not log_path.is_absolute():

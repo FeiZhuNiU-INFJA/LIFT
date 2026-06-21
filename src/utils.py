@@ -22,12 +22,12 @@ def long_id() -> str:
 def make_run_id(run_id_suffix: str | None = None) -> str:
     """Build the canonical run id used in reports and ``results/{run_id}/``.
 
-    With ``run_id_suffix`` (from ``--run_id``), returns ``evobench-runid-{suffix}``.
-    Otherwise generates ``evobench-runid-{YYYYMMDD}-{short_id}``.
+    With ``run_id_suffix`` (from ``--run_id``), returns ``lift-runid-{suffix}``.
+    Otherwise generates ``lift-runid-{YYYYMMDD}-{short_id}``.
     """
     if run_id_suffix:
-        return f"evobench-runid-{run_id_suffix}"
-    return f"evobench-runid-{datetime.now().strftime('%Y%m%d')}-{short_id()}"
+        return f"lift-runid-{run_id_suffix}"
+    return f"lift-runid-{datetime.now().strftime('%Y%m%d')}-{short_id()}"
 
 
 def outcome_workspace(

@@ -10,7 +10,7 @@ from typing import TypeVar
 from src.config import LOGGER
 from src.lift.eval.stage import SuiteRunPhase
 from src.lift.eval.worker_judger import WorkerJudgerPairFactory
-from src.lift.eval.run_task import run_task
+from src.lift.eval.run_task import OnTurnCallback, run_task
 from src.models import PhaseRun, SuiteTask
 
 _T = TypeVar("_T")
@@ -78,9 +78,10 @@ async def execute_task(
     factory: WorkerJudgerPairFactory,
     run_phase: SuiteRunPhase,
     max_conversation_turns: int = 5,
+    on_turn: OnTurnCallback | None = None,
 ) -> PhaseRun:
     """Run a single task via ``factory`` → ``run_task`` → ``PhaseRun``."""
-    pair = factory(task)  # 每题新建 work/judge agent + 独立 Langfuse session id
+    pair = await factory(task)  # 每题新建 work/judge agent + 独立 Langfuse session id
     LOGGER.info(
         "Running %s %s: %s run_id=%s workspace=%s",
         run_phase.stage.value,
@@ -89,19 +90,21 @@ async def execute_task(
         run_id,
         workspace_dir,
     )
-    success, work_sid, judge_sid, content_score = await run_task(
+    success, work_sid, judge_sid, content_score, turns = await run_task(
         task,
         run_id,
         pair,
         max_conversation_turns=max_conversation_turns,
         is_evolve_turn=run_phase.is_evolve_turn,
         is_final_task=run_phase.is_final_task,
+        on_turn=on_turn,
     )
     return PhaseRun(
         work_session_id=work_sid,
         judge_session_id=judge_sid,
         success=success,
         content_score=content_score,
+        turns=turns,
         workspace_dir=str(workspace_dir.resolve()),
     )
 
@@ -135,7 +138,7 @@ async def execute_tasks(
     - ``retry_each``: 单题异常时**原地重试一次**（仅对抛异常的 PhaseRun 路径生效；
       judge ``success=False`` 不算失败、不会触发重试）。第二次仍异常才向上抛。
     - ``tasks_isolated``: 题间隔离——并发模式下让 ``bounded_gather`` 用
-      ``return_exceptions=True``，单题最终失败不会取消其它兄弟题；返回列表中失败位
+      ``return_exceptions=True``，单题最终失败不取消其它兄弟题；返回列表中失败位
       的元素是异常对象，调用方需要自行过滤。串行模式下表现为：失败题不中止后续题，
       仅 LOGGER 记录后跳过。
     """
@@ -151,9 +154,14 @@ async def execute_tasks(
             LOGGER.warning("on_task_status callback failed: %r", exc)
 
     async def run_one(task: SuiteTask) -> PhaseRun:
-        """单题包装：execute_task → 可选 on_task_done；可选异常重试一次。"""
+        """单题包装：execute_task 可选异常重试；成功后再调用 on_task_done。
+
+        ``on_task_done`` 通常承载 evolve 钩子，它有自己的重试语义。这里不要把
+        hook 失败算进 ``execute_task`` 的 retry，否则会把已经完成的 warmup 题整题重跑。
+        """
         attempts = 2 if retry_each else 1
         last_exc: BaseException | None = None
+        result: PhaseRun | None = None
         for attempt in range(attempts):
             _emit(task, "running")
             try:
@@ -165,17 +173,7 @@ async def execute_tasks(
                     run_phase=run_phase,
                     max_conversation_turns=max_conversation_turns,
                 )
-                if on_task_done is not None:
-                    await on_task_done(task, result)
-                # judge fail 不当作失败：仍发 done，把 score 放到 detail 里给 hover 看
-                if result.success:
-                    _emit(task, "done")
-                else:
-                    _emit(
-                        task, "done",
-                        f"judge fail (score={result.content_score:.2f})",
-                    )
-                return result
+                break
             except BaseException as exc:  # noqa: BLE001
                 last_exc = exc
                 if attempt + 1 < attempts:
@@ -190,8 +188,25 @@ async def execute_tasks(
                     continue
                 _emit(task, "failed", exc_summary(exc))
                 raise
-        # 不可达：循环不是 break 就是 return / raise
-        raise last_exc  # type: ignore[misc]
+        if result is None:
+            raise last_exc  # type: ignore[misc]
+
+        try:
+            if on_task_done is not None:
+                await on_task_done(task, result)
+        except BaseException as exc:  # noqa: BLE001
+            _emit(task, "failed", exc_summary(exc))
+            raise
+
+        # judge fail 不当作失败：仍发 done，把 score 放到 detail 里给 hover 看
+        if result.success:
+            _emit(task, "done")
+        else:
+            _emit(
+                task, "done",
+                f"judge fail (score={result.content_score:.2f})",
+            )
+        return result
 
     if parallel:
         # 共享同一 factory/env/workspace：仅当 runtime 支持 warmup 多题并发时使用

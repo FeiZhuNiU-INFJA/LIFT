@@ -29,6 +29,7 @@ async def exec_openclaw_async(
     args: list[str],
     *,
     extra_env: dict[str, str] | None = None,
+    timeout_seconds: float | None = None,
 ) -> str:
     """异步 ``docker exec openclaw ...``，失败抛 ``RuntimeError``。
 
@@ -36,12 +37,14 @@ async def exec_openclaw_async(
     等环境变量在 ``docker run`` 阶段已经写入 ``Config.Env``，``docker exec`` 默认
     继承——因此这里不再传 ``-e``，避免 secret 在命令行/日志中重复出现。
     ``extra_env`` 仅用于偶发的运行时附加变量。
+    ``timeout_seconds`` 透传给底层 ``docker_exec_async``，仅 chat 类长调用使用。
     """
     return await docker_exec_async(
         ctx.container_name,
         ["openclaw", *args],
         env=extra_env,
         label=f"openclaw {' '.join(args)}",
+        timeout_seconds=timeout_seconds,
     )
 
 

@@ -12,7 +12,7 @@ evolve_eval 用于评测 **self-evolving agent**：在 hold-out final task 上�
 
 一次命令行 invocation 对应一次 **eval run**：
 
-- 一个 `run_id`（形如 `evobench-runid-{后缀}` 或自定义后缀）
+- 一个 `run_id`（形如 `lift-runid-{后缀}` 或自定义后缀）
 - 一份 **report JSON**（`results/{run_id}/report.json`）：执行期写入评测结果；`PhaseRun.langfuse` 通常在后处理 **trace_backfill** 时再填
 - 可选一套 **后处理产物**（trace_backfill 后的 JSON、对比 CSV、汇总 CSV、HTML 报告；`*_backfilled.json`）
 
@@ -52,6 +52,7 @@ EvalReport（一次 eval run，一份 report JSON）
 
 - `query`：交给 work agent 的任务描述
 - `requirements`：技能目录、材料目录等
+  - `extra_skills_dir`：任务级自定义技能目录；由 runtime adapter 挂载/加载到对应 agent 的 skills 搜索路径
 - `expected_result.content_reqs`：内容质量判定依据（judge 使用）
 - `expected_result.trajectory_reqs`：轨迹质量判定依据（后处理 trajectory judge 使用）
 
@@ -676,7 +677,7 @@ class GroupMemoryAdapterMixin:
 3. **trace name 须符合约定**：pre-chat 以 `_agent` 结尾（[`is_agent_trace`](../src/report/langfuse_trace_parse.py)）；plugin 为 `openclaw-plugin` / `Hermes turn`（`LANGFUSE_PLUGIN_TRACE_NAMES`）。
 4. **`agent_end` 必须成功触发**：OpenClaw 须在 `openclaw.json` 为 `langfuse-tracer` 配置 `hooks.allowConversationAccess: true`，否则 plugin trace 缺失、pre-chat 变孤儿。
 
-**backfill 检索路径**（OpenClaw 模式）：`tags=run_id`（pre-chat span） + `session_id=work/judge_session_id`（双侧 trace） + `tags=session_id`（兜底）。OpenClaw 容器启动时注入 `EVOBENCH_EVAL_RUN_TAG=run_id` 写入 plugin tags 便于按 run 过滤；插件**不强制**带 run tag，主要靠 `session_id`。
+**backfill 检索路径**（OpenClaw 模式）：`tags=run_id`（pre-chat span） + `session_id=work/judge_session_id`（双侧 trace） + `tags=session_id`（兜底）。OpenClaw 容器启动时注入 `LIFT_EVAL_RUN_TAG=run_id` 写入 plugin tags 便于按 run 过滤；插件**不强制**带 run tag，主要靠 `session_id`。
 
 #### 12.5.2 配对契约
 
@@ -690,7 +691,7 @@ class GroupMemoryAdapterMixin:
 
 #### 12.5.3 Provider 错误重试 × 扩展贪心配对（跨 runtime 通用）
 
-worker / judge 对 LLM provider 错误（超时 / 限流）原地用同一 prompt 重试 5 次（见 §4.7）。OpenClaw 的 `langfuse-tracer` 在 `agent_end` 必触发——成功/超时都会写 plugin trace，重试 N 次会产生 N 条同 `session_id`、时间戳依次递增的 plugin trace。若每次重试再 emit 一条新的 `*_agent` pre-chat span，配对算法会把重试当成新轮，吹大 `turn_index` 并重复累加 token / latency。
+worker / judge 对 LLM provider 错误（超时 / 限流）原地用同一 prompt 重试 3 次（见 §4.7）。OpenClaw 的 `langfuse-tracer` 在 `agent_end` 必触发——成功/超时都会写 plugin trace，重试 N 次会产生 N 条同 `session_id`、时间戳依次递增的 plugin trace。若每次重试再 emit 一条新的 `*_agent` pre-chat span，配对算法会把重试当成新轮，吹大 `turn_index` 并重复累加 token / latency。
 
 **eval 侧契约**：重试**不** emit pre-chat span——见 [`run_task.py`](../src/lift/eval/run_task.py) 的 `_agent_chat_no_emit` / `_work_chat_with_provider_retry` / `_judge_with_retry`。多次重试的 plugin trace 都挂在最初那条 `*_agent` 之后。
 
@@ -705,7 +706,7 @@ worker / judge 对 LLM provider 错误（超时 / 限流）原地用同一 promp
                           merged.provider_retry_count = len(plugins) - 1
 ```
 
-`provider_retry_count` 字段在 [`LangfuseTraceRef`](../src/models.py)：本 agent span 下挂的 plugin trace 数 - 1，0 即首发成功无重试。Hermes 模式不写 `metadata.success`，所以 `_choose_representative_plugin` 退化为"取最后一条"（通常就是最后一次重试，成功才会跳出循环）；5 次全超时由外层抛 `RuntimeError` 接管，桶内仍保留最后一条上下文便于定位。
+`provider_retry_count` 字段在 [`LangfuseTraceRef`](../src/models.py)：本 agent span 下挂的 plugin trace 数 - 1，0 即首发成功无重试。Hermes 模式不写 `metadata.success`，所以 `_choose_representative_plugin` 退化为"取最后一条"（通常就是最后一次重试，成功才会跳出循环）；3 次全超时由外层抛 `RuntimeError` 接管，桶内仍保留最后一条上下文便于定位。
 
 **新接入 runtime 必须满足**：
 

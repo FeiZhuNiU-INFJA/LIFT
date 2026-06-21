@@ -142,3 +142,4 @@ evobench-reports/
 .trae/
 *.tar.gz
 temp/
+nohup.out

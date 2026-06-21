@@ -1,34 +1,118 @@
-"""OpenClaw gateway 容器启动：端口分配、volume、readiness 与 workspace seed。"""
+"""OpenClaw gateway 容器启动：端口分配、volume、readiness、workspace seed 与运行时 env。"""
 
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
+import shutil
 from pathlib import Path
 
 from src.config import LOGGER
 from src.lift.adapters.base import SuiteRunContext
+from src.lift.adapters.container.exec import docker_exec_shell_async
 from src.lift.adapters.container.session import ContainerSession
 from src.lift.adapters.container.volumes import (
     default_volume_binds,
     task_volume_binds,
 )
-from src.lift.adapters.openclaw.container_env import (
-    container_reclaim_ownership_script,
-    container_runtime_env,
-    host_user_ids,
-)
-from src.lift.adapters.container.exec import docker_exec_shell_async
 from src.lift.adapters.openclaw.container_exec import OpenClawContainerContext
-from src.lift.adapters.openclaw.workspace_seed import (
-    container_workspace_seed_shell,
-    seed_eval_workspace,
-)
 from src.models import SuiteTask
+from src.paths import OPENCLAW_WORKSPACE_SEED_DIR
 
 _GATEWAY_CONTAINER_PORT = 18789  # 容器内 gateway 端口（agent --local 连此）
 _FASTAPI_CONTAINER_PORT = 18090  # 容器内 self-evolving plugin HTTP 端口
 _CONTAINER_PREFIX = "evolve-openclaw"  # docker 容器名前缀
+
+CONTAINER_LANGFUSE_BASE_URL = "http://host.docker.internal:3000"  # 容器内访问宿主机 Langfuse
+CONTAINER_WORKSPACE_SEED_DIR = "/opt/evolve-eval/workspace_seed"  # 镜像内 seed 路径
+CONTAINER_EXTRA_SKILLS_DIR = "/workspace/task/skills"  # task.requirements.extra_skills_dir 挂载点
+WORKSPACE_READY_MARKER = ".lift-workspace-ready"  # seed 完成标记文件
+
+
+def _normalize_langfuse_base_url(raw: str | None) -> str:
+    """将 localhost Langfuse URL 映射为 ``host.docker.internal``。"""
+    if not raw or not raw.strip():
+        return CONTAINER_LANGFUSE_BASE_URL
+    lowered = raw.strip().lower()
+    if "127.0.0.1" in lowered or "localhost" in lowered:
+        return CONTAINER_LANGFUSE_BASE_URL
+    return raw.strip()
+
+
+def _container_runtime_env() -> dict[str, str]:
+    """``docker run`` 时需要相对宿主机 ``.env`` **改写**的环境变量。
+
+    其它 secret（``ARK_API_KEY`` / ``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY`` /
+    ``FIRECRAWL_API_KEY`` 等）一律走 ``--env-file``，不在这里返回——避免 secret 重复
+    出现在 ``docker run -e ...`` 命令行与日志里；这些值已经写入容器 ``Config.Env``，
+    后续 ``docker exec`` 会自动继承，无需再次注入。
+    """
+    return {
+        # 容器内 host.docker.internal 访问宿主机 Langfuse；宿主机 .env 通常配 localhost
+        "LANGFUSE_BASE_URL": _normalize_langfuse_base_url(
+            os.environ.get("LANGFUSE_BASE_URL")
+        ),
+    }
+
+
+def _container_reclaim_ownership_script(uid: int, gid: int) -> str:
+    """在容器内以 root 执行，将 volume 目录 chown 回宿主机用户。"""
+    return f"""
+for d in /workspace/task /workspace/outcome; do
+  if [[ -d "$d" ]]; then
+    chown -R {uid}:{gid} "$d" 2>/dev/null || true
+  fi
+done
+""".strip()
+
+
+def seed_eval_workspace(workspace_dir: Path, *, seed_dir: Path | None = None) -> None:
+    """Copy eval workspace seed into a host workspace before Docker volume mount."""
+    source = seed_dir or OPENCLAW_WORKSPACE_SEED_DIR
+    if not source.is_dir():
+        raise FileNotFoundError(f"OpenClaw workspace seed not found: {source}")
+
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    for entry in sorted(source.iterdir()):
+        dest = workspace_dir / entry.name
+        if entry.is_dir():
+            shutil.copytree(entry, dest, dirs_exist_ok=True)
+        else:
+            shutil.copy2(entry, dest)
+
+    (workspace_dir / "BOOTSTRAP.md").unlink(missing_ok=True)
+    (workspace_dir / WORKSPACE_READY_MARKER).touch()
+    LOGGER.info("Seeded eval workspace: %s <- %s", workspace_dir, source)
+
+
+def _container_workspace_seed_shell() -> str:
+    """Run inside container after mount: sync image seed and drop BOOTSTRAP."""
+    return f"""
+if [[ -d "{CONTAINER_WORKSPACE_SEED_DIR}" ]]; then
+  cp -a "{CONTAINER_WORKSPACE_SEED_DIR}/." /workspace/task/ 2>/dev/null || true
+fi
+rm -f /workspace/task/BOOTSTRAP.md 2>/dev/null || true
+touch /workspace/task/{WORKSPACE_READY_MARKER} 2>/dev/null || true
+""".strip()
+
+
+def _container_extra_skills_shell() -> str:
+    """Install task-provided skills into OpenClaw's state dir.
+
+    ``/workspace/task/skills`` is a bind mount and will not be captured by
+    ``docker commit``. Copying it into ``$OPENCLAW_STATE_DIR/skills`` makes the
+    skills visible from OpenClaw's own state tree and preserves them in evolved
+    delta images.
+    """
+    return f"""
+if [[ -d "{CONTAINER_EXTRA_SKILLS_DIR}" ]]; then
+  state_dir="${{OPENCLAW_STATE_DIR:-/root/.openclaw}}"
+  mkdir -p "${{state_dir}}/skills"
+  find "{CONTAINER_EXTRA_SKILLS_DIR}" -mindepth 1 -maxdepth 1 -exec cp -a {{}} "${{state_dir}}/skills/" \\;
+  chmod -R u+rwX,go+rX "${{state_dir}}/skills" 2>/dev/null || true
+fi
+""".strip()
 
 
 async def _wait_gateway(session: ContainerSession, tries: int = 90) -> None:
@@ -54,11 +138,11 @@ async def _wait_gateway(session: ContainerSession, tries: int = 90) -> None:
 async def _reclaim_volume_ownership(session: ContainerSession) -> None:
     """容器销毁前将 bind mount 目录 chown 回宿主机用户。"""
     await asyncio.sleep(2)  # 等容器内进程释放 volume 文件句柄
-    uid, gid = host_user_ids()
+    uid, gid = os.getuid(), os.getgid()
     try:
         await docker_exec_shell_async(
             session.container_name,
-            container_reclaim_ownership_script(uid, gid),
+            _container_reclaim_ownership_script(uid, gid),
         )
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning(
@@ -81,11 +165,26 @@ async def _ensure_workspace_seed(session: ContainerSession) -> None:
     try:
         await docker_exec_shell_async(
             session.container_name,
-            container_workspace_seed_shell(),
+            _container_workspace_seed_shell(),
         )
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning(
             "Failed to apply workspace seed in %s: %s",
+            session.container_name,
+            exc,
+        )
+
+
+async def _install_extra_skills(session: ContainerSession) -> None:
+    """把 task 级 extra skills 从 bind mount 安装进 OpenClaw state dir。"""
+    try:
+        await docker_exec_shell_async(
+            session.container_name,
+            _container_extra_skills_shell(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning(
+            "Failed to install extra skills in %s: %s",
             session.container_name,
             exc,
         )
@@ -148,8 +247,8 @@ async def start_openclaw_container(
 
     env_vars = {
         "OPENCLAW_GATEWAY_TOKEN": token,
-        "EVOBENCH_EVAL_RUN_TAG": ctx.run_id,  # langfuse-tracer 写入 trace tags，对齐 pre-chat run
-        **container_runtime_env(),
+        "LIFT_EVAL_RUN_TAG": ctx.run_id,  # langfuse-tracer 写入 trace tags，对齐 pre-chat run
+        **_container_runtime_env(),
     }
 
     # 单容器资源上限：防止单容器吃光 VM 内存触发整机卡死
@@ -164,6 +263,8 @@ async def start_openclaw_container(
         post_start_hooks.append(_reset_workspace_attestations)  # 清跨题 attestations 状态
         if seed_workspace:
             post_start_hooks.append(_ensure_workspace_seed)  # 容器内删 BOOTSTRAP、同步 seed
+    if task is not None:
+        post_start_hooks.append(_install_extra_skills)  # 注册 workspace skills 到 OpenClaw state
 
     return await ContainerSession.start(
         instance_id=instance_id,

@@ -11,7 +11,7 @@
             "id": "doubao-seed-2-0-pro-260215",
             "name": "doubao-seed-2-0-pro-260215 (Custom Provider)",
             "contextWindow": 200000,
-            "maxTokens": 8192,
+            "maxTokens": 50000,
             "input": ["text"],
             "cost": {
               "input": 0,

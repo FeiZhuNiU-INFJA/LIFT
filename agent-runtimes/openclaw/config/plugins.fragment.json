@@ -26,7 +26,8 @@
     "allow": [
       "memory-core",
       "self-evolving-plugin-pro",
-      "langfuse-tracer"
+      "langfuse-tracer",
+      "firecrawl"
     ]
   }
 }

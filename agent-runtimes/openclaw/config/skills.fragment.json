@@ -1,0 +1,7 @@
+{
+  "skills": {
+    "load": {
+      "extraDirs": ["/workspace/task/skills"]
+    }
+  }
+}

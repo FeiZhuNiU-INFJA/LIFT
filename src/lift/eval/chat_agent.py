@@ -22,14 +22,21 @@ def format_outbound_message(message: str) -> str:
 class ChatAgent(ABC):
     """单轮 message 往返：框架负责 tags / Langfuse，子类只负责 transport。
 
-    子类**必须**实现 ``agent_name`` 与 ``chat``；``activate_session`` / ``augment_*``
-  有默认实现（OpenClaw 等无状态 runtime 可直接继承不重写）。
+    子类**必须**实现 ``agent_name`` 与 ``chat``；``initialize`` / ``activate_session`` /
+    ``augment_*`` 有默认实现（OpenClaw 等无状态 runtime 可直接继承不重写）。
     """
 
     @property
     @abstractmethod
     def agent_name(self) -> str:
         """runtime 内注册的 agent 名（写入 Langfuse tags）。"""
+
+    async def initialize(self) -> None:
+        """单题构建时的一次性 setup（如容器内注册 agent）；默认 no-op。
+
+        声明为 async 是为了让 transport 内的同步阻塞 IO（``docker exec`` 等）能用
+        ``asyncio`` 原生路径，不会卡住事件循环导致并发协程被串行化。
+        """
 
     async def activate_session(self, session_id: str) -> None:
         """chat 前切换 session；有状态 runtime（如 Hermes）覆写，无状态路径默认 no-op。"""

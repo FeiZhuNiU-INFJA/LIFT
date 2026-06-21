@@ -57,16 +57,17 @@ fi
 
 TARGET="${OPENCLAW_STATE_DIR}/openclaw.json"
 
-# 5) Merge LIFT config fragments (plugins → gateway → agents → models)
-node /tmp/merge-openclaw-config.mjs "${TARGET}" /tmp/openclaw.json.template
+# 5) Merge LIFT config fragments (plugins → gateway → agents → skills → models)
+node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/plugins.fragment.json"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/gateway.fragment.json"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/agents.fragment.json"
+node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/skills.fragment.json"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${MODELS_RESOLVED}"
 
-# raw 镜像：openclaw.json.template 仍会 merge 进 self-evolving-plugin-pro entry，
-# 这里把它从最终配置中删掉，避免 gateway 启动时加载缺失的扩展。
+# raw 镜像：plugins.fragment.json 把 self-evolving-plugin-pro 同时写进 entries 与 allow，
+# 这里同时从两处剥掉，避免 gateway 启动时加载缺失扩展或在 allowlist 中保留无效 id。
 if [[ "${INSTALL_SELF_EVOLVING}" != "true" ]]; then
-  node -e "const fs=require('fs');const p='${TARGET}';const j=JSON.parse(fs.readFileSync(p,'utf8'));if(j.plugins&&j.plugins.entries){delete j.plugins.entries['self-evolving-plugin-pro'];}fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
+  node -e "const fs=require('fs');const p='${TARGET}';const j=JSON.parse(fs.readFileSync(p,'utf8'));if(j.plugins){if(j.plugins.entries){delete j.plugins.entries['self-evolving-plugin-pro'];}if(Array.isArray(j.plugins.allow)){j.plugins.allow=j.plugins.allow.filter(x=>x!=='self-evolving-plugin-pro');}}fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
 fi
 
 echo "Plugins installed under ${OPENCLAW_STATE_DIR}/extensions:"

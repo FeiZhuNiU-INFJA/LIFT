@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
 from json_repair import repair_json
 from pydantic import BaseModel, Field
 
 from src.config import LOGGER
+from src.lift.adapters.openclaw.json_output import MAX_TOKENS_TRUNCATION_MARKER
 from src.lift.eval.chat_agent import format_outbound_message
 from src.lift.eval.worker_judger import WorkerJudgerPair
 from src.models import CustomTags, SuiteTask
@@ -20,6 +22,13 @@ class EvalJudgeResult(BaseModel):
     success: bool = Field(description="是否成功")
     reason: str = Field(description="失败原因")
     score: float = Field(description="任务完成率，0-1的分数，成功的时候应该是1")
+
+
+OnTurnCallback = Callable[[int, str, str, EvalJudgeResult], None]
+"""``run_task`` 每轮 work↔judge 完成后的回调：(turn_index, work_prompt, work_result, judge_result)。
+
+供 adapter 基类 ``_run_holdout`` 注入，把对话坐标 + 内容 emit 到 status 事件总线，
+驱动 dashboard 的"完整对话记录"视图。回调异常被 ``run_task`` 吞掉，绝不拖垮评测。"""
 
 
 def _extract_judge_result(raw_text: str) -> EvalJudgeResult:
@@ -41,18 +50,56 @@ def _extract_judge_result(raw_text: str) -> EvalJudgeResult:
 def _build_judge_prompt(user_prompt: str, agent_result: str, content_reqs: str) -> str:
     """构造 judge 首轮 prompt（含用户题面、期望结果与 agent 输出）。"""
     return (
-        "你是严格评测器。请根据【用户提示词】和【任务期望结果】判定当前任务是否已经完成。\n"
+        "你是用户本人，不是评测器。你心里对这次任务有一套【任务期望结果】里写的"
+        "具体要求，但 agent 一开始**只看到了【用户提示词】**，并不知道你脑子里"
+        "的这些要求；你需要看 agent 这把交付的东西，对照心里的要求，挑当前最该"
+        "改的一点，像真人那样把它说出来。\n"
         "你必须只输出一个 JSON 对象，不要输出任何其他文字、解释或 markdown。\n"
-        '输出格式固定为：{"success": true/false, "reason": "失败原因，需要详细给出不满足的问题点以及应该怎么做，成功时可为空字符串", "score": 0.0}\n'
-        "其中 score 范围是 0 到 1。表示任务的完成率，也就是满足的要求数除以总要求数。success为true时，score为1\n"
-        "注意：在填写reason字段时需要内容详细，不能只说没满足，要说清楚第一个没有被满足的要求具体是什么、当前哪里没做到、应该怎么改。不要一次性罗列所有未满足要求，只反馈前两个未满足的要求即可，如果只剩一个要求没满足就只需要反馈哪一个就行了。\n"
-        "同时，reason不能只写负面的没满足要求，已经满足的要求也得给出正面的反馈，告诉他做得对，而且这些已满足项可以正常说明。\n"
-        "此外，reason的填写得保证Agent能够根据这个反馈进行改进来做到满足更多的要求，Agent本身不知道这些任务期望和要求，所以你得在reason中写清楚。\n"
-        "最后，reason的语言风格需要自然，符合日常对话习惯。\n"
-        "注意，如果存在输出内容到文件的情况，必须读取文件检查成果是否达标，不允许仅根据Agent的回答进行判断。\n"
+        '输出格式固定为：{"success": true/false, "reason": "你想跟 agent 说的话，成功时可为空字符串", "score": 0.0}\n'
+        "score 范围 0~1，表示满足的要求数 / 总要求数；success 为 true 时 score 为 1。\n"
+        "\n"
+        "【关键认知 — 一定要先认清这一条】\n"
+        "- 【任务期望结果】里那些要求是**只有你脑子里有**的——agent 没读过这份文档，"
+        "也没人在 prompt 里告诉过它。所以你不能只说「没满足要求」「结构不对」「格式不对」"
+        "「按要求重新调整」这种空话，必须把那条要求**用人话讲出来**，agent 才有办法改。\n"
+        "- 你的角色是「用户突然想起还要这样这样」——把缺的那条要求自然地补出来，"
+        "就像你刚收到 agent 的产物、随口提一句「哦对了，我还想要 X」。\n"
+        "\n"
+        "【reason 字段的语气和写法】\n"
+        "- 用第二人称口语：「你这次……」「你看这个……」，不要用「当前未执行」「未产出」这类汇报体；\n"
+        "- 一两句话足够，不要分点、不要「首先 / 其次 / 再者 / 此外」这类结构词；\n"
+        "- 只挑当下最该改的一个点说，不要一次罗列两条以上未满足项；\n"
+        "- **但被挑出的那一点必须把内容讲清楚**——比如要求是"
+        "「报告里要有‘业绩异常’、‘原因拆解’、‘后续动作’三个二级标题」，"
+        "你得把这三个标题名字念出来，不能只说「二级标题不对」；\n"
+        "- 已经做对的不用刻意夸，除非 agent 明显走偏需要肯定他这一步是对的；\n"
+        "- 用平实的话告诉他「这次哪里不对」「下次试试加上 X / 改成 Y」就行，"
+        "像同事顺口提醒，不像审计员复盘。\n"
+        "\n"
+        "【该说 vs 不该说】\n"
+        "- **该说**（agent 看不到，必须由你说出来）：你脑子里那些具体的内容/格式/口径要求，"
+        "比如「要分‘异常情况’和‘原因拆解’两个二级标题」「金额保留 2 位小数」"
+        "「开头要先写日期」「指标 X 用 Y 口径算」。\n"
+        "- **不该说**（agent 自己看得到，搬出来像 checklist）：材料目录里有哪些文件名、"
+        "完整工作区路径、metric_definitions.txt 等支撑材料的文件名——这些 agent 在"
+        "【用户提示词】里就能拿到。\n"
+        "\n"
+        "其它硬约束：\n"
+        "- 反馈必须让 agent 看完就知道下一步具体怎么改；只说「不满足要求」而不告诉它"
+        "要求是什么的反馈是无效的；\n"
+        "- 如果任务涉及输出到文件，必须打开文件看产物再判，不要只凭 agent 的回答下结论。\n"
+        "\n"
+        "示例对照（只示意语气，**不要照搬内容**）：\n"
+        '- 机器味（错误示范）："当前未读取 q3_materials/sales_by_dept.xlsx 进行数据处理，'
+        '也未在 result/result_q3 路径下生成结果文件，完全未产出任何符合要求的分析内容。'
+        '你需要先读取……再按照……生成……保存到……"\n'
+        '- 空话（错误示范，agent 无法改进）："你这次结构不对，几个二级标题都没做，按要求重新调整。"\n'
+        '- 拟人 + 具体（正确示范）："你这把简报结构不太对啊，我想要的是‘业绩概览 / 异常拆解 / 后续动作’'
+        '这三块二级标题，开头先把汇报日期写一下，你按这个调一下再给我看看。"\n'
+        "\n"
         f"【用户提示词】\n{user_prompt}\n\n"
-        f"【任务期望结果，重点关注输出以及产物内容质量是否达标】\n{content_reqs}\n\n"
-        f"【上一轮Agent结果】\n{agent_result}\n"
+        f"【任务期望结果，这些是你脑子里的要求，agent 看不到，必须由你在 reason 里说出来】\n{content_reqs}\n\n"
+        f"【上一轮 Agent 结果】\n{agent_result}\n"
     )
 
 
@@ -73,29 +120,24 @@ async def _agent_chat(
     message: str,
     *,
     session_id: str,
-    tags: CustomTags,
-    chat_role: str,
+    tags: CustomTags | None = None,
+    chat_role: str | None = None,
 ) -> str:
-    """时间戳 + pre-chat + transport chat。"""
-    _emit_pre_chat(agent, session_id=session_id, tags=tags, chat_role=chat_role)
+    """时间戳 + transport chat；可选地先 emit Langfuse pre-chat span。
+
+    - **首次发送**：传入 ``tags`` 与 ``chat_role``，先落一条 ``*_agent`` pre-chat
+      span，然后插件侧（agent_end hook）会紧随其后再写一条 plugin trace。
+    - **provider error 重试**：``tags`` / ``chat_role`` 留空（``None``），跳过
+      pre-chat span。这样 worker / judge 因 LLM 超时被原地重试 N 次时，所有
+      plugin trace 都挂在最初那条 ``*_agent`` span 之下；后处理
+      ``_pair_single_session`` 扩展贪心配对算法据此统计
+      ``provider_retry_count = 同 agent 下 plugin trace 数 - 1``，
+      跨 runtime 通用（不依赖 OpenClaw 特有的 ``plugin_metadata.success`` 字段）。
+    """
+    if tags is not None and chat_role is not None:
+        _emit_pre_chat(agent, session_id=session_id, tags=tags, chat_role=chat_role)
     return await agent.chat(
         format_outbound_message(message),  # GMT+8 时间戳前缀，OpenClaw 等 runtime 约定
-        session_id=session_id,
-    )
-
-
-async def _agent_chat_no_emit(agent, message: str, *, session_id: str) -> str:
-    """**不**发 pre-chat span 的 chat：用于 provider error 重试。
-
-    每次发 ``_agent_chat`` 都会在 langfuse 上落一条 ``*_agent`` pre-chat span，
-    然后插件侧（agent_end hook）紧随其后再写一条 plugin trace。如果 worker /
-    judge 因为 LLM 超时被原地重试 N 次，**第二次起跳过 pre-chat span**，让
-    多次 plugin trace 都"落在同一个 ``*_agent`` 之下"——后处理 ``_pair_single_session``
-    扩展贪心配对算法即可统计 ``provider_retry_count = 同 agent 下 plugin trace 数 - 1``，
-    跨 runtime 通用（不依赖 OpenClaw 特有的 ``plugin_metadata.success`` 字段）。
-    """
-    return await agent.chat(
-        format_outbound_message(message),
         session_id=session_id,
     )
 
@@ -119,6 +161,8 @@ _PROVIDER_ERROR_MARKERS: tuple[str, ...] = (
     "model idle timeout",
     "timeoutSeconds",
     "rate limit",
+    "chat exec timeout",  # 宿主机侧 docker exec wall-clock 超时（OpenClawContainerAgent.chat）
+    MAX_TOKENS_TRUNCATION_MARKER,  # output_tokens 触达 maxTokens 视同 provider 错误
 )
 
 
@@ -169,7 +213,7 @@ async def _judge_with_retry(
     )
 
     max_judge_retry_times = 8  # JSON 解析重试上限（用 retry prompt）
-    max_provider_retry_times = 5  # provider 错误重试上限（用原始 prompt）
+    max_provider_retry_times = 3  # provider 错误重试上限（用原始 prompt）
     judge_retry_count = 0
     provider_retry_count = 0
     while True:
@@ -193,7 +237,7 @@ async def _judge_with_retry(
             # 用原始 judge_prompt 重发；**不再 emit pre-chat span**，让多次
             # plugin trace 都挂在最初那条 ``judge_agent`` span 下，
             # 后处理 _pair_single_session 据此统计 provider_retry_count。
-            judge_result_text = await _agent_chat_no_emit(
+            judge_result_text = await _agent_chat(
                 pair.judge_agent,
                 judge_prompt,
                 session_id=pair.judge_session_id,
@@ -226,18 +270,18 @@ async def _work_chat_with_provider_retry(
     pair: WorkerJudgerPair,
     current_prompt: str,
     tags: CustomTags,
-    max_provider_retry_times: int = 5,
+    max_provider_retry_times: int = 3,
 ) -> str:
     """worker chat + provider error 自动重试。
 
     与 ``_judge_with_retry`` 的 provider 重试通道对称：
 
-    - 第一次正常发：``_agent_chat`` 落 ``work_agent`` pre-chat span +
-      transport.chat → plugin trace。
-    - 命中 ``LLM request timed out`` / ``rate limit`` 等 marker → 用
-      ``_agent_chat_no_emit`` 重发同 prompt（**不**再开新 pre-chat span），
-      让多次重试 plugin trace 全挂在最初那条 ``work_agent`` 之下，方便后处理
-      统计 ``provider_retry_count``。
+    - 第一次正常发：``_agent_chat`` 带 ``tags`` / ``chat_role`` 落
+      ``work_agent`` pre-chat span + transport.chat → plugin trace。
+    - 命中 ``LLM request timed out`` / ``rate limit`` / ``chat exec timeout`` 等
+      marker → 用 ``_agent_chat`` **不带** ``tags`` / ``chat_role`` 重发同 prompt
+      （不再开新 pre-chat span），让多次重试 plugin trace 全挂在最初那条
+      ``work_agent`` 之下，方便后处理统计 ``provider_retry_count``。
     - 超过 ``max_provider_retry_times`` 仍超时 → 抛
       ``RuntimeError("provider error: ...")`` 让外层题级重试机制接管。
     """
@@ -267,7 +311,7 @@ async def _work_chat_with_provider_retry(
             provider_retry_count, max_provider_retry_times,
             pair.work_session_id, provider_summary,
         )
-        agent_result = await _agent_chat_no_emit(
+        agent_result = await _agent_chat(
             pair.work_agent,
             current_prompt,
             session_id=pair.work_session_id,
@@ -282,10 +326,13 @@ async def run_task(
     max_conversation_turns: int = 5,
     is_evolve_turn: bool = False,
     is_final_task: bool = False,
-) -> tuple[bool, str, str, float]:
+    on_turn: OnTurnCallback | None = None,
+) -> tuple[bool, str, str, float, int]:
     """Run one task: work chat + judge loop until success or ``max_conversation_turns``.
 
-    Returns ``(success, work_session_id, judge_session_id, content_score)``.
+    Returns ``(success, work_session_id, judge_session_id, content_score, turns)``。
+    ``turns`` 是实际进行的 work↔judge 对话轮数（成功时为达成成功的那轮序号 +1，
+    超出最大轮数时等于 ``max_conversation_turns``）。
     Does not schedule multiple tasks; use ``execute_tasks`` for that.
     """
     tags = CustomTags.init_tags(task, run_id)
@@ -293,8 +340,10 @@ async def run_task(
     tags.is_evolve_turn = is_evolve_turn  # after-load → 标记加载了 warmup delta
     current_prompt = pair.work_agent.augment_work_prompt(task, task.query)
     last_content_score: float = 0.0
+    turns_executed: int = 0
 
-    for _ in range(max_conversation_turns):
+    for turn_idx in range(max_conversation_turns):
+        turns_executed = turn_idx + 1
         LOGGER.info(
             "[%s] [%s] User Prompt: %s",
             run_id,
@@ -321,6 +370,12 @@ async def run_task(
             agent_result=agent_result,
         )
 
+        if on_turn is not None:
+            try:
+                on_turn(turns_executed, current_prompt, agent_result, judge_result)
+            except Exception:  # noqa: BLE001 — 回调绝不能拖垮评测
+                LOGGER.warning("on_turn callback failed", exc_info=True)
+
         tags.content_score = judge_result.score  # 下一轮 pre-chat 会带上最新 score
         last_content_score = float(judge_result.score)
         if judge_result.success:
@@ -329,6 +384,7 @@ async def run_task(
                 pair.work_session_id,
                 pair.judge_session_id,
                 last_content_score,
+                turns_executed,
             )
 
         # judge reason 作为下一轮 work 的用户消息（多轮改进循环）
@@ -339,4 +395,5 @@ async def run_task(
         pair.work_session_id,
         pair.judge_session_id,
         last_content_score,
+        turns_executed,
     )

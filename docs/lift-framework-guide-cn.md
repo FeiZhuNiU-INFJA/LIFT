@@ -106,7 +106,7 @@ sequenceDiagram
 |------|--------------|
 | `openclaw/session.py` | Gateway 端口、卷挂载、容器 entrypoint |
 | `openclaw/chat_agent.py` | `docker exec openclaw agent --local --json` |
-| `openclaw/evolve.py` | warmup 后的 `learn review` |
+| `openclaw_with_evolve/evolve.py` | warmup 后的 `learn review` |
 | `openclaw/workspace_seed.py` | Hold-out 跳过 OpenClaw 首次上线问名字/emoji（warmup 不 seed，避免干扰 onboard） |
 | `openclaw/json_output.py` | 解析 `--json`  stdout |
 | `agent-runtimes/openclaw/` | 镜像：self-evolving 插件、langfuse-tracer、gateway 配置 |

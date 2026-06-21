@@ -1,4 +1,4 @@
-"""Evobench / LIFT 评测的数据模型：suite 定义、phase 执行结果、Langfuse trace 结构与报告 JSON。"""
+"""LIFT 评测的数据模型：suite 定义、phase 执行结果、Langfuse trace 结构与报告 JSON。"""
 
 from __future__ import annotations
 
@@ -407,6 +407,14 @@ class PhaseRun(BaseModel):
         default=0.0,
         description="judge 给出的最近一次 content_score（0-1）；任务超出最大尝试次数时为最后一轮的分数",
     )
+    turns: int = Field(
+        default=0,
+        description="该 phase 实际进行的 work↔judge 对话轮数（成功时为达成成功的那轮序号；失败/超限时等于 max_conversation_turns）",
+    )
+    tool_calls: int | None = Field(
+        default=None,
+        description="该 phase work agent 调用 tool 的总次数；adapter 自报（OpenClaw 读 trajectory.jsonl），其他 runtime 默认 None",
+    )
     workspace_dir: str | None = Field(default=None, description="该 phase 使用的 agent workspace 目录")
     langfuse: PhaseLangfuseBundle | None = Field(
         default=None,
@@ -456,7 +464,7 @@ class EvalRepeat(BaseModel):
 
 
 class EvalReport(BaseModel):
-    """一次 evobench 评测 run 的汇总（``run_id`` 对应一份 report JSON）。"""
+    """一次 LIFT 评测 run 的汇总（``run_id`` 对应一份 report JSON）。"""
 
     run_id: str = Field(description="评测批次 ID")
     categories: list[str] = Field(

@@ -72,8 +72,15 @@ async def docker_exec_async(
     *,
     env: dict[str, str] | None = None,
     label: str | None = None,
+    timeout_seconds: float | None = None,
 ) -> str:
-    """异步 ``docker exec``，非零退出码抛 ``RuntimeError``，返回 stdout 文本。"""
+    """异步 ``docker exec``，非零退出码抛 ``RuntimeError``，返回 stdout 文本。
+
+    ``timeout_seconds`` 是宿主机侧 wall-clock 上限：超时会 ``kill`` 掉
+    docker exec 客户端进程并抛 ``RuntimeError`` 让上层走重试通道。容器内被卡住的
+    openclaw-agent 子进程不会被 docker 端联动 kill（docker 行为如此），但下一次
+    chat 走的是新 ``docker exec``，并不会被旧的 hang 阻塞。
+    """
     cmd = build_docker_exec_argv(container_name, command, env=env)
     LOGGER.info("Container exec: %s", redact_docker_argv(cmd))
     proc = await asyncio.create_subprocess_exec(
@@ -81,7 +88,28 @@ async def docker_exec_async(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        if timeout_seconds is None:
+            stdout, stderr = await proc.communicate()
+        else:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout_seconds
+            )
+    except asyncio.TimeoutError as exc:
+        # 超时：kill 客户端进程，让端口/句柄释放；容器内子进程靠下一次 chat 自然替换
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await proc.wait()
+        except Exception:  # noqa: BLE001 — 诊断态，wait 失败也不能拖垮主流程
+            pass
+        hint = label or " ".join(command)
+        raise RuntimeError(
+            f"docker exec timed out after {timeout_seconds:.0f}s for "
+            f"{container_name} ({hint})"
+        ) from exc
     stdout_text = stdout.decode("utf-8", errors="replace")
     stderr_text = stderr.decode("utf-8", errors="replace")
     if proc.returncode != 0:
@@ -90,7 +118,7 @@ async def docker_exec_async(
         # 失败时抓容器最后 200 行 docker logs：plugin / gateway 自身的报错
         # （如 self-evolving plugin 18090 FastAPI 返回 400 的 body）通常被
         # ``curl -fsS`` 吞掉，但 plugin 进程的 stderr 都落在 docker logs 里。
-        container_log = await _capture_container_logs(container_name, tail=200)
+        container_log = await capture_container_logs(container_name, tail=200)
         if container_log:
             LOGGER.error(
                 "docker exec failed (%s); last container logs:\n%s",
@@ -102,8 +130,8 @@ async def docker_exec_async(
     return stdout_text
 
 
-async def _capture_container_logs(container_name: str, *, tail: int = 200) -> str:
-    """抓容器最后 ``tail`` 行 ``docker logs`` 用于失败诊断（best-effort）。"""
+async def capture_container_logs(container_name: str, *, tail: int = 200) -> str:
+    """抓容器最后 ``tail`` 行 ``docker logs``（best-effort，失败返回空串）。"""
     try:
         proc = await asyncio.create_subprocess_exec(
             "docker", "logs", "--tail", str(tail), container_name,

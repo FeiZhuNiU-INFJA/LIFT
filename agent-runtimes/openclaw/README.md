@@ -26,13 +26,13 @@ From the **repository root**:
 bash agent-runtimes/openclaw/build-image.sh
 ```
 
-Produces `evolve-eval-openclaw-with-evolve:latest` by default (includes `workspace_seed` at `/opt/evolve-eval/workspace_seed`).
+默认产出 `evolve-eval-openclaw-base:latest`（不带 self-evolving-plugin-pro 进化插件，对应 LIFT `-r openclaw`，包含 `workspace_seed` 于 `/opt/evolve-eval/workspace_seed`）。
 
-变体（不带 self-evolving-plugin-pro 进化插件，对应 LIFT `-r openclaw`）：
+变体（带 self-evolving-plugin-pro 进化插件）：
 
 ```bash
-INSTALL_SELF_EVOLVING=false bash agent-runtimes/openclaw/build-image.sh
-# 产出 evolve-eval-openclaw-base:latest
+bash agent-runtimes/openclaw/build-image.sh --with-evolve
+# 产出 evolve-eval-openclaw-with-evolve:latest
 ```
 
 LIFT copies this seed into each task workspace before mount so agents skip first-run onboarding.
@@ -66,14 +66,14 @@ bash agent-runtimes/openclaw/verify-image.sh evolve-eval-openclaw-with-evolve:la
 
 Copy [`.env.docker.example`](.env.docker.example) into the repo root `.env`:
 
-本镜像构建时 merge `config/models.fragment.json` 与 `config/agents.fragment.json` 进容器内 `openclaw.json`，并遵守仓库公共契约：[Agent 模型配置契约](../../docs/eval-flow.md#126-agent-模型配置契约lift--容器运行时)（能力在 fragment / 选用在 `.env` `MODEL_NAME`）。
+本镜像构建时 merge `config/plugins.fragment.json`、`config/gateway.fragment.json`、`config/agents.fragment.json`、`config/skills.fragment.json` 与 `config/models.fragment.json` 进容器内 `openclaw.json`，并遵守仓库公共契约：[Agent 模型配置契约](../../docs/eval-flow.md#126-agent-模型配置契约lift--容器运行时)（能力在 fragment / 选用在 `.env` `MODEL_NAME`）。
 
 - `ARK_API_KEY` — **required for image build**; injected into `config/models.fragment.json`
 - `MODEL_NAME` — runtime model id for LIFT `agents add --model`（须为 fragment 中已登记的 `provider/model_id`）
 - `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` — runtime
 - `LANGFUSE_BASE_URL` — use `http://host.docker.internal:3000` inside containers
 - LIFT `ContainerSession` adds `--add-host=host.docker.internal:host-gateway` (required on Linux for langfuse-tracer ingestion)
-- `EVOBENCH_EVAL_RUN_TAG` — set by LIFT to `run_id`; plugin adds it to trace tags (pairs with framework pre-chat `tags.run`)
+- `LIFT_EVAL_RUN_TAG` — set by LIFT to `run_id`; plugin adds it to trace tags (pairs with framework pre-chat `tags.run`)
 
 ### Langfuse correlation with LIFT pre-chat
 
@@ -82,6 +82,12 @@ Each chat turn produces two Langfuse traces: framework **`emit_pre_chat_state`**
 Plugin requirements: same Langfuse project keys, trace name `openclaw-plugin`, `hooks.allowConversationAccess: true` in `openclaw.json`, and `sessionId` on the trace must match LIFT’s `--session-id`.
 
 Full write / fetch / pairing contract: [docs/eval-flow.md §12.5](../../docs/eval-flow.md#125-trace_backfill观测).
+
+### Task extra skills
+
+Benchmark tasks may set `requirements.extra_skills_dir`. For OpenClaw containers, LIFT mounts that directory at `/workspace/task/skills`, matching the configured agent workspace `/workspace/task` and OpenClaw's `<workspace>/skills` loading convention.
+
+The image config also sets `skills.load.extraDirs` to `/workspace/task/skills` as an explicit fallback. At container startup LIFT copies the mounted skills into `${OPENCLAW_STATE_DIR:-/root/.openclaw}/skills` so warmup `docker commit` captures task skills in evolved delta images; the bind-mounted `/workspace/task/skills` content itself is not captured by Docker commit.
 
 ## LIFT integration (`src`)
 
