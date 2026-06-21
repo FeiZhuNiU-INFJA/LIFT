@@ -23,7 +23,7 @@ from src.postprocess.extract import build_extracted_dataframe, load_json
 from src.postprocess.trace_backfill import backfill_report, get_langfuse_client
 from src.postprocess.judge import attach_trajectory_scores
 from src.postprocess.metrics import build_comparison_dataframe, build_summary_dataframe, print_summary_to_console, validate_pairs
-from src.postprocess.report_html import render_report_html
+from src.postprocess.report_html import build_trajectory_map, render_report_html
 from src.config import LOGGER
 from src.models import EvalReport
 from src.paths import results_run_dir
@@ -118,6 +118,7 @@ def process_report_to_outputs(
     validate_pairs(scored_df)
     comparison_df = build_comparison_dataframe(scored_df)
     summary_df = build_summary_dataframe(comparison_df, scored_df)
+    trajectory_map = build_trajectory_map(scored_df)
 
     if backfilled_json is not None:
         backfilled_json.parent.mkdir(parents=True, exist_ok=True)
@@ -134,6 +135,7 @@ def process_report_to_outputs(
         summary_df=summary_df,
         title=f"{title_stem} Metrics Report",
         agent_source=agent_source,
+        trajectory_map=trajectory_map,
     )
     report_html.write_text(html_text, encoding="utf-8")
     print_summary_to_console(summary_df)

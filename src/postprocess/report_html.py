@@ -1,13 +1,15 @@
 """Render post-process comparison metrics as an HTML report.
 
-duiyuBuilds summary tables, success-rate badges, and per-task metric tables from
+Builds summary tables, success-rate badges, and per-task metric tables from
 comparison and summary DataFrames produced by ``metrics.py``. Output is a
 self-contained HTML document with collapsible run blocks, top-level legend,
-and direction-aware coloring (green = better, red = worse).
+direction-aware coloring (green = better, red = worse), and per-task
+trajectory maps (snake-layout SVG with click-to-inspect nodes).
 """
 
+import json
 from html import escape
-from typing import Callable, Literal
+from typing import Any, Callable, Literal
 
 import pandas as pd
 
@@ -153,6 +155,472 @@ def summary_table_html(summary_row: pd.Series, agent_source: AgentSource) -> str
     return "\n".join(lines)
 
 
+def _good_bad_counts(scope_df: pd.DataFrame, metric: str) -> tuple[int, int, int]:
+    """Count tasks per outcome for *metric* within *scope_df*: (good, tie, bad).
+
+    Classification reuses ``_value_color_class`` on the per-task ``diff_{metric}``:
+    ``val-good`` → better, ``val-bad`` → worse, ``val-zero`` → tie (no change).
+    ``val-nan`` (undefined / missing baseline) is counted as neither.
+    """
+    good = 0
+    tie = 0
+    bad = 0
+    diff_col = f"diff_{metric}"
+    if diff_col not in scope_df.columns:
+        return good, tie, bad
+    for value in scope_df[diff_col]:
+        css = _value_color_class(metric, value)
+        if css == "val-good":
+            good += 1
+        elif css == "val-bad":
+            bad += 1
+        elif css == "val-zero":
+            tie += 1
+    return good, tie, bad
+
+
+def good_bad_chart_html(scope_df: pd.DataFrame, agent_source: AgentSource) -> str:
+    """Render a horizontal good/tie/bad stacked-bar SVG (one bar per metric).
+
+    Each bar shares the same total length; segments are green (better, left),
+    gray (tie / no change, middle) and red (worse, right), sized proportionally
+    to their task counts. Each segment's count is labeled below the bar, centered
+    on that segment, in black text (so even very short segments stay readable).
+    """
+    metrics = _html_summary_metrics(agent_source)
+    rows = [(metric, *_good_bad_counts(scope_df, metric)) for metric in metrics]
+
+    label_w = 180
+    bar_x = 190
+    bar_w = 540
+    total_w = 760
+    row_h = 28
+    count_h = 16  # vertical space below each bar for the count labels
+    row_gap = 18
+    top_pad = 18
+    bottom_pad = 14
+    n = len(rows)
+    block_h = row_h + count_h + row_gap
+    height = top_pad + n * block_h + bottom_pad
+
+    svg: list[str] = [
+        f"<svg class='gb-chart' viewBox='0 0 {total_w} {height}' "
+        f"role='img' aria-label='Better / tie / worse task counts per metric' "
+        "preserveAspectRatio='xMinYMin meet'>",
+    ]
+
+    for i, (metric, good, tie, bad) in enumerate(rows):
+        y_top = top_pad + i * block_h
+        y_center = y_top + row_h / 2
+        count_y = y_top + row_h + count_h - 4  # baseline for count labels below bar
+        label = escape(_metric_label(metric))
+        svg.append(
+            f"<text x='{label_w - 10}' y='{y_center:.1f}' class='gb-label' "
+            f"text-anchor='end' dominant-baseline='middle'>{label}</text>"
+        )
+        total = good + tie + bad
+        if total == 0:
+            svg.append(
+                f"<rect x='{bar_x}' y='{y_top}' width='{bar_w}' height='{row_h}' "
+                "rx='4' class='gb-empty'/>"
+            )
+            svg.append(
+                f"<text x='{bar_x + bar_w / 2:.1f}' y='{y_center:.1f}' class='gb-empty-text' "
+                "text-anchor='middle' dominant-baseline='middle'>no comparable data</text>"
+            )
+        else:
+            good_w = bar_w * (good / total)
+            tie_w = bar_w * (tie / total)
+            bad_w = bar_w - good_w - tie_w
+            segments = [
+                ("gb-good", good, bar_x, good_w),
+                ("gb-tie", tie, bar_x + good_w, tie_w),
+                ("gb-bad", bad, bar_x + good_w + tie_w, bad_w),
+            ]
+            for css, count, seg_x, seg_w in segments:
+                if seg_w <= 0:
+                    continue
+                svg.append(
+                    f"<rect x='{seg_x:.2f}' y='{y_top}' width='{seg_w:.2f}' height='{row_h}' "
+                    f"class='{css}'/>"
+                )
+                if count > 0:
+                    svg.append(
+                        f"<text x='{seg_x + seg_w / 2:.2f}' y='{count_y:.1f}' class='gb-count' "
+                        f"text-anchor='middle'>{count}</text>"
+                    )
+
+    svg.append("</svg>")
+
+    return (
+        "<div class='gb-wrap'>"
+        "<div class='gb-legend'>"
+        "<span><span class='swatch gb-sw-good'>&nbsp;</span> Better (green)</span>"
+        "<span><span class='swatch gb-sw-tie'>&nbsp;</span> Tie / no change (gray)</span>"
+        "<span><span class='swatch gb-sw-bad'>&nbsp;</span> Worse (red)</span>"
+        "</div>"
+        + "\n".join(svg)
+        + "</div>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Trajectory visualization
+# ---------------------------------------------------------------------------
+
+# Per-node-kind palette (draw.io-like). Keyed by node ``kind``.
+_TRAJ_NODE_STYLE: dict[str, tuple[str, str]] = {
+    # kind: (fill, stroke)
+    "user": ("#eef3ff", "#2546b8"),
+    "assistant": ("#ecfdf5", "#047857"),
+    "tool": ("#fff7ed", "#b45309"),
+}
+
+
+def _parse_messages(raw: Any) -> list[dict[str, Any]]:
+    """Parse ``all_messages`` (JSON string or list) into a list of message dicts."""
+    if isinstance(raw, list):
+        return [m for m in raw if isinstance(m, dict)]
+    if not isinstance(raw, str) or not raw.strip():
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return [m for m in parsed if isinstance(m, dict)] if isinstance(parsed, list) else []
+
+
+def _block_text(content: Any) -> tuple[str, str, list[dict[str, Any]]]:
+    """Split message ``content`` into (text, reasoning, tool_call_blocks).
+
+    Supports OpenClaw block-style content (list of ``text`` / ``thinking`` /
+    ``toolCall`` dicts) as well as plain string content.
+    """
+    if isinstance(content, str):
+        return content, "", []
+    if not isinstance(content, list):
+        if content is None:
+            return "", "", []
+        return json.dumps(content, ensure_ascii=False), "", []
+
+    texts: list[str] = []
+    reasonings: list[str] = []
+    tool_blocks: list[dict[str, Any]] = []
+    for block in content:
+        if not isinstance(block, dict):
+            texts.append(str(block))
+            continue
+        btype = block.get("type")
+        if btype == "text":
+            texts.append(block.get("text", ""))
+        elif btype == "thinking":
+            reasonings.append(block.get("thinking", ""))
+        elif btype == "toolCall":
+            tool_blocks.append(
+                {
+                    "name": block.get("name", "tool"),
+                    "arguments": block.get("arguments"),
+                    "reasoning": "",
+                }
+            )
+        else:
+            texts.append(json.dumps(block, ensure_ascii=False))
+    return "\n".join(t for t in texts if t), "\n".join(r for r in reasonings if r), tool_blocks
+
+
+def _stringify(value: Any) -> str:
+    """Render an arbitrary value as a readable string (JSON for dict/list)."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def build_trajectory_nodes(raw_messages: Any) -> list[dict[str, Any]]:
+    """Normalize ``all_messages`` into trajectory nodes for visualization.
+
+    Rules:
+    - Keep ``user`` / ``assistant`` nodes, showing reasoning + content.
+    - An ``assistant`` with embedded ``tool_calls`` (OpenAI-style) or ``toolCall``
+      blocks (OpenClaw-style) emits one ``tool`` node per call (name, reasoning,
+      arguments), after the assistant's text node when it also has visible text.
+    - Drop tool *result* messages (``role == 'tool'`` carrying ``tool_call_id``).
+      Each surviving tool node is therefore a distinct tool *call*; consecutive
+      calls are all kept (no adjacency collapse).
+    - Each ``user`` node carries an incrementing ``turn`` counter starting at 1.
+    """
+    messages = _parse_messages(raw_messages)
+    nodes: list[dict[str, Any]] = []
+    turn = 0
+
+    for message in messages:
+        role = message.get("role")
+        # Tool *result* messages: role == 'tool' with a tool_call_id / output -> drop.
+        if role == "tool" or message.get("tool_call_id") is not None:
+            continue
+
+        text, reasoning, content_tool_blocks = _block_text(message.get("content"))
+        if not reasoning:
+            reasoning = message.get("reasoning") or ""
+
+        if role == "user":
+            turn += 1
+            nodes.append(
+                {
+                    "kind": "user",
+                    "label": "user",
+                    "turn": turn,
+                    "reasoning": reasoning,
+                    "content": text,
+                }
+            )
+            continue
+
+        if role == "assistant":
+            # Emit the assistant text/reasoning node when there is something to show.
+            if text or reasoning:
+                nodes.append(
+                    {
+                        "kind": "assistant",
+                        "label": "assistant",
+                        "reasoning": reasoning,
+                        "content": text,
+                    }
+                )
+            # OpenAI-style tool_calls.
+            tool_calls = message.get("tool_calls") or []
+            for call in tool_calls:
+                if not isinstance(call, dict):
+                    continue
+                fn = call.get("function") or {}
+                name = fn.get("name") or call.get("name") or "tool"
+                arguments = fn.get("arguments", call.get("arguments"))
+                nodes.append(
+                    {
+                        "kind": "tool",
+                        "label": f"tool: {name}",
+                        "tool_name": name,
+                        "reasoning": reasoning,
+                        "arguments": arguments,
+                    }
+                )
+            # OpenClaw block-style tool calls.
+            for block in content_tool_blocks:
+                nodes.append(
+                    {
+                        "kind": "tool",
+                        "label": f"tool: {block['name']}",
+                        "tool_name": block["name"],
+                        "reasoning": reasoning,
+                        "arguments": block.get("arguments"),
+                    }
+                )
+            continue
+
+        # Any other role: keep as a generic node so nothing silently disappears.
+        if text or reasoning:
+            nodes.append(
+                {
+                    "kind": "assistant",
+                    "label": str(role or "node"),
+                    "reasoning": reasoning,
+                    "content": text,
+                }
+            )
+
+    # Tool *result* messages were already dropped above by role (role == 'tool' /
+    # tool_call_id), so each surviving tool node is a distinct tool *call*. We do NOT
+    # collapse adjacent tool nodes here: in OpenAI/hermes format an assistant message
+    # often carries empty content + one tool_call, so consecutive calls produce
+    # neighboring tool nodes that are legitimately different and must all be kept.
+    return nodes
+
+
+def _render_trajectory_svg(nodes: list[dict[str, Any]], traj_id: str) -> str:
+    """Render the snake-layout ``<svg>`` for *nodes* (clickable, keyed by *traj_id*)."""
+    # Layout constants.
+    cols = 4
+    node_w = 150
+    node_h = 56
+    gap_x = 46
+    gap_y = 52
+    pad = 20
+    sub_h = 16  # space under user nodes for the turn counter
+    total_w = pad * 2 + cols * node_w + (cols - 1) * gap_x
+    n_rows = (len(nodes) + cols - 1) // cols
+    total_h = pad * 2 + n_rows * node_h + (n_rows - 1) * gap_y + sub_h
+
+    def cell_xy(index: int) -> tuple[float, float]:
+        """Return top-left (x, y) for the *index*-th node in snake order."""
+        r = index // cols
+        c = index % cols
+        if r % 2 == 1:  # right-to-left on odd rows
+            c = cols - 1 - c
+        x = pad + c * (node_w + gap_x)
+        y = pad + r * (node_h + gap_y)
+        return x, y
+
+    svg: list[str] = [
+        f"<svg class='traj-svg' viewBox='0 0 {total_w} {total_h}' "
+        "role='img' aria-label='Agent execution trajectory' "
+        "preserveAspectRatio='xMinYMin meet'>",
+        "<defs>"
+        f"<marker id='traj-arrow-{escape(traj_id)}' viewBox='0 0 10 10' refX='9' refY='5' "
+        "markerWidth='7' markerHeight='7' orient='auto-start-reverse'>"
+        "<path d='M0,0 L10,5 L0,10 z' fill='#94a3b8'/></marker>"
+        "</defs>",
+    ]
+    arrow = f"url(#traj-arrow-{escape(traj_id)})"
+
+    centers: list[tuple[float, float]] = []
+    for i in range(len(nodes)):
+        x, y = cell_xy(i)
+        centers.append((x + node_w / 2, y + node_h / 2))
+
+    # Connectors (draw first so nodes sit on top).
+    for i in range(len(nodes) - 1):
+        x1, y1 = centers[i]
+        x2, y2 = centers[i + 1]
+        same_row = (i // cols) == ((i + 1) // cols)
+        if same_row:
+            if x2 >= x1:
+                sx, ex = x1 + node_w / 2, x2 - node_w / 2
+            else:
+                sx, ex = x1 - node_w / 2, x2 + node_w / 2
+            svg.append(
+                f"<line x1='{sx:.1f}' y1='{y1:.1f}' x2='{ex:.1f}' y2='{y2:.1f}' "
+                f"class='traj-edge' marker-end='{arrow}'/>"
+            )
+        else:
+            svg.append(
+                f"<line x1='{x1:.1f}' y1='{y1 + node_h / 2:.1f}' x2='{x2:.1f}' y2='{y2 - node_h / 2:.1f}' "
+                f"class='traj-edge' marker-end='{arrow}'/>"
+            )
+
+    # Nodes.
+    for i, node in enumerate(nodes):
+        x, y = cell_xy(i)
+        fill, stroke = _TRAJ_NODE_STYLE.get(node["kind"], ("#f3f4f6", "#6b7280"))
+        label = escape(node["label"])
+        svg.append(
+            f"<g class='traj-node' data-traj='{escape(traj_id)}' data-idx='{i}' "
+            f"tabindex='0' role='button'>"
+            f"<rect x='{x:.1f}' y='{y:.1f}' width='{node_w}' height='{node_h}' rx='8' "
+            f"fill='{fill}' stroke='{stroke}' stroke-width='1.5'/>"
+            f"<text x='{x + node_w / 2:.1f}' y='{y + node_h / 2:.1f}' class='traj-node-label' "
+            f"text-anchor='middle' dominant-baseline='middle'>{label}</text>"
+            "</g>"
+        )
+        if node["kind"] == "user":
+            svg.append(
+                f"<text x='{x + node_w / 2:.1f}' y='{y + node_h + 12:.1f}' class='traj-turn' "
+                f"text-anchor='middle'>turn {node['turn']}</text>"
+            )
+
+    svg.append("</svg>")
+    return "\n".join(svg)
+
+
+def trajectory_column_html(raw_messages: Any, traj_id: str, title: str) -> str:
+    """Render one trajectory column: title, SVG flowchart, and a detail panel below it.
+
+    Clicking a node reveals its reasoning / content / tool arguments in the detail
+    panel directly beneath the flowchart. The normalized trajectory is also embedded
+    as AI-readable JSON.
+    """
+    nodes = build_trajectory_nodes(raw_messages)
+    if not nodes:
+        return (
+            f"<div class='traj-col-title'>{escape(title)}</div>"
+            "<div class='traj-empty muted'>No trajectory messages captured.</div>"
+        )
+
+    svg = _render_trajectory_svg(nodes, traj_id)
+
+    # AI-native: embed the normalized trajectory as machine-readable JSON.
+    # NOTE: script data blocks are raw text — only neutralize ``<`` so a literal
+    # ``</script>`` cannot break out; do NOT HTML-escape (JSON.parse needs raw quotes).
+    ai_payload = json.dumps(
+        {"trajectory_id": traj_id, "variant": title, "node_count": len(nodes), "nodes": nodes},
+        ensure_ascii=False,
+    ).replace("<", "\\u003c")
+
+    return (
+        f"<div class='traj-col-title'>{escape(title)} "
+        f"<span class='muted'>({len(nodes)} nodes)</span></div>"
+        "<div class='traj-canvas'>" + svg + "</div>"
+        f"<div class='traj-detail' id='detail-{escape(traj_id)}'>"
+        "<div class='traj-detail-empty muted'>Click a node to view its reasoning, content, or tool arguments.</div>"
+        "</div>"
+        f"<script type='application/json' class='traj-data' data-traj='{escape(traj_id)}'>{ai_payload}</script>"
+    )
+
+
+def trajectory_compare_html(
+    evolved_messages: Any,
+    baseline_messages: Any,
+    base_id: str,
+) -> str:
+    """Render side-by-side evolved/baseline trajectory columns with toggle buttons.
+
+    Two buttons independently toggle each variant; both can be shown at once so the
+    flowcharts sit side by side for comparison, each with its detail panel below.
+    """
+    return (
+        "<div class='traj-compare-wrap'>"
+        "<div class='traj-legend'>"
+        "<span><span class='swatch traj-sw-user'>&nbsp;</span> user</span>"
+        "<span><span class='swatch traj-sw-assistant'>&nbsp;</span> assistant</span>"
+        "<span><span class='swatch traj-sw-tool'>&nbsp;</span> tool</span>"
+        "<span class='muted'>· click a node to inspect</span>"
+        "</div>"
+        "<div class='traj-toolbar'>"
+        "<button type='button' class='traj-toggle-btn' onclick=\"toggleTraj(this,'evolved')\">"
+        "Show evolved trajectory</button>"
+        "<button type='button' class='traj-toggle-btn' onclick=\"toggleTraj(this,'baseline')\">"
+        "Show baseline trajectory</button>"
+        "</div>"
+        "<div class='traj-compare'>"
+        "<div class='traj-col' data-variant='evolved' hidden>"
+        + trajectory_column_html(evolved_messages, f"{base_id}-evolved", "Evolved")
+        + "</div>"
+        "<div class='traj-col' data-variant='baseline' hidden>"
+        + trajectory_column_html(baseline_messages, f"{base_id}-baseline", "Baseline")
+        + "</div>"
+        "</div>"
+        "</div>"
+    )
+
+
+def build_trajectory_map(scored_df: pd.DataFrame) -> dict[tuple, dict[str, Any]]:
+    """Map ``(run, suite_path, task_name, category)`` to both variants' ``all_messages``.
+
+    Returns ``{key: {"evolved": <all_messages>, "baseline": <all_messages>}}`` built
+    from the extracted/scored DataFrame (one row per variant), so the HTML can show
+    evolved and baseline trajectories side by side.
+    """
+    traj_map: dict[tuple, dict[str, Any]] = {}
+    if "all_messages" not in scored_df.columns:
+        return traj_map
+    for variant in ("evolved", "baseline"):
+        if variant not in scored_df.columns:
+            continue
+        subset = scored_df[scored_df.get(variant) == True]
+        for _, row in subset.iterrows():
+            key = (
+                row.get("run"),
+                row.get("suite_path"),
+                row.get("task_name"),
+                row.get("category"),
+            )
+            traj_map.setdefault(key, {})[variant] = row.get("all_messages")
+    return traj_map
+
+
 def success_badges_html(summary_row: pd.Series) -> str:
     """Render success-rate and task-count chips; include outlier exclusion when present."""
     chips = [
@@ -182,8 +650,16 @@ def success_badges_html(summary_row: pd.Series) -> str:
     return "<div class='success-row'>" + "".join(chips) + "</div>"
 
 
-def task_table_html(category_df: pd.DataFrame, agent_source: AgentSource) -> str:
-    """Render per-task evolved vs baseline metrics and improvement columns as an HTML table."""
+def task_table_html(
+    category_df: pd.DataFrame,
+    agent_source: AgentSource,
+    trajectory_map: dict[tuple, Any] | None = None,
+) -> str:
+    """Render per-task evolved vs baseline metrics and improvement columns as an HTML table.
+
+    When *trajectory_map* is provided, each task row is followed by a collapsible
+    "Show trajectory" row rendering the evolved run's execution map.
+    """
     hidden = _hidden_metrics(agent_source)
     metric_columns: list[str] = [
         "trials",
@@ -210,7 +686,8 @@ def task_table_html(category_df: pd.DataFrame, agent_source: AgentSource) -> str
         "<tbody>",
     ]
 
-    for _, row in category_df.iterrows():
+    total_cols = 3 + len(metric_columns) * 2
+    for seq, (_, row) in enumerate(category_df.iterrows()):
         cells = [
             f"<td class='cell-run'>{format_number(row['run'])}</td>",
             f"<td class='cell-benchmark'>{escape(str(row.get('suite_name', '')))}</td>",
@@ -228,6 +705,29 @@ def task_table_html(category_df: pd.DataFrame, agent_source: AgentSource) -> str
             cells.append(_colored_td(diff_val, metric, format_number, inner=paired))
             cells.append(_colored_td(impr_val, metric, format_percent))
         lines.append("<tr>" + "".join(cells) + "</tr>")
+
+        # Optional trajectory comparison row (evolved vs baseline) for this task.
+        if trajectory_map is not None:
+            key = (
+                row.get("run"),
+                row.get("suite_path"),
+                row.get("task_name"),
+                row.get("category"),
+            )
+            variants = trajectory_map.get(key)
+            if variants:
+                base_id = f"traj-{escape(str(row.get('category')))}-{format_number(row['run'])}-{seq}"
+                base_id = base_id.replace(" ", "_")
+                compare = trajectory_compare_html(
+                    variants.get("evolved"),
+                    variants.get("baseline"),
+                    base_id,
+                )
+                lines.append(
+                    f"<tr class='traj-row'><td colspan='{total_cols}'>"
+                    f"{compare}"
+                    "</td></tr>"
+                )
 
     lines.append("</tbody></table>")
     lines.append("</div>")
@@ -270,8 +770,9 @@ _LEGEND_HTML = """
       <ul>
         <li>$\\displaystyle \\mathrm{impr}_{\\text{metric}} = \\frac{\\mathrm{evolved} - \\mathrm{baseline}}{\\mathrm{baseline}}$</li>
         <li>$\\displaystyle \\mathrm{diff}_{\\text{metric}} = \\mathrm{evolved} - \\mathrm{baseline}$</li>
-        <li>$\\displaystyle \\overline{\\mathrm{impr}}_{\\text{metric}} = \\frac{1}{|S|}\\sum_{i \\in S} \\mathrm{impr}_{\\text{metric}}^{(i)},\\quad
-            \\overline{\\mathrm{diff}}_{\\text{metric}} = \\frac{1}{|S|}\\sum_{i \\in S} \\mathrm{diff}_{\\text{metric}}^{(i)}$,
+        <li>$\\displaystyle \\overline{\\mathrm{impr}}_{\\text{metric}} = \\frac{\\sum_{i \\in S} \\mathrm{evolved}^{(i)} - \\sum_{i \\in S} \\mathrm{baseline}^{(i)}}{\\sum_{i \\in S} \\mathrm{baseline}^{(i)}}$
+            (aggregate ratio: sum evolved / baseline first, then take the relative change &mdash; <em>not</em> a mean of per-sample impr).</li>
+        <li>$\\displaystyle \\overline{\\mathrm{diff}}_{\\text{metric}} = \\frac{1}{|S|}\\sum_{i \\in S} \\mathrm{diff}_{\\text{metric}}^{(i)}$,
             where $S$ is the set of non-outlier samples in a category / global scope (see Outlier Rule).</li>
         <li>$\\displaystyle \\mathrm{success\\_rate} = \\frac{1}{N}\\sum_{i=1}^{N} \\mathbb{1}[\\mathrm{success}^{(i)}]$, computed separately on baseline and evolved runs.</li>
       </ul>
@@ -313,6 +814,75 @@ function toggleAllRuns(btn, openState) {
   var blocks = section.querySelectorAll('details.run-block');
   blocks.forEach(function (d) { d.open = openState; });
 }
+
+(function () {
+  var cache = {};
+  function trajData(id) {
+    if (cache[id]) return cache[id];
+    var el = document.querySelector("script.traj-data[data-traj='" + (window.CSS && CSS.escape ? CSS.escape(id) : id) + "']");
+    if (!el) return null;
+    try { cache[id] = JSON.parse(el.textContent); } catch (e) { cache[id] = null; }
+    return cache[id];
+  }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function block(title, value) {
+    if (value == null || value === '') return '';
+    var text = (typeof value === 'string') ? value : JSON.stringify(value, null, 2);
+    return "<div class='traj-block'><div class='traj-block-title'>" + esc(title) +
+      "</div><pre class='traj-block-body'>" + esc(text) + "</pre></div>";
+  }
+  function showDetail(id, idx) {
+    var data = trajData(id);
+    var panel = document.getElementById('detail-' + id);
+    if (!data || !panel || !data.nodes[idx]) return;
+    var node = data.nodes[idx];
+    var html = "<div class='traj-detail-head traj-kind-" + esc(node.kind) + "'>" +
+      esc(node.label) + (node.turn ? " · turn " + node.turn : "") + "</div>";
+    html += block('reasoning', node.reasoning);
+    html += block('content', node.content);
+    if (node.kind === 'tool') {
+      html += block('tool', node.tool_name);
+      html += block('arguments', node.arguments);
+    }
+    if (html.indexOf('traj-block') === -1) {
+      html += "<div class='traj-detail-empty muted'>(node has no extra detail)</div>";
+    }
+    panel.innerHTML = html;
+    var nodes = document.querySelectorAll("g.traj-node[data-traj='" + id + "']");
+    nodes.forEach(function (g) { g.classList.toggle('selected', g.getAttribute('data-idx') === String(idx)); });
+  }
+  function handler(ev) {
+    var g = ev.target.closest('g.traj-node');
+    if (!g) return;
+    showDetail(g.getAttribute('data-traj'), parseInt(g.getAttribute('data-idx'), 10));
+  }
+  document.addEventListener('click', handler);
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    var g = ev.target.closest && ev.target.closest('g.traj-node');
+    if (!g) return;
+    ev.preventDefault();
+    showDetail(g.getAttribute('data-traj'), parseInt(g.getAttribute('data-idx'), 10));
+  });
+  window.toggleTraj = function (btn, variant) {
+    var wrap = btn.closest('.traj-compare-wrap');
+    if (!wrap) return;
+    var col = wrap.querySelector(".traj-col[data-variant='" + variant + "']");
+    if (!col) return;
+    var nowHidden = !col.hasAttribute('hidden');
+    if (nowHidden) {
+      col.setAttribute('hidden', '');
+    } else {
+      col.removeAttribute('hidden');
+    }
+    btn.classList.toggle('active', !nowHidden);
+    var label = variant.charAt(0).toUpperCase() + variant.slice(1);
+    btn.textContent = (nowHidden ? 'Show ' : 'Hide ') + variant + ' trajectory';
+  };
+})();
 </script>
 """
 
@@ -479,6 +1049,87 @@ details.run-block .task-table th { background: #eef1f7; }
   transition: background 0.15s ease;
 }
 .run-toolbar button:hover { background: #dde6ff; }
+
+.gb-wrap { margin: 8px 0 4px; }
+.gb-legend { display: flex; gap: 18px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.gb-legend .swatch { width: 12px; height: 12px; }
+.gb-sw-good { background: var(--good); }
+.gb-sw-tie { background: var(--nan); }
+.gb-sw-bad { background: var(--bad); }
+.gb-chart { width: 100%; height: auto; max-width: 880px; display: block; }
+.gb-chart .gb-label { font-size: 13px; fill: #1f2937; font-weight: 600; }
+.gb-chart .gb-good { fill: var(--good); }
+.gb-chart .gb-tie { fill: var(--nan); }
+.gb-chart .gb-bad { fill: var(--bad); }
+.gb-chart .gb-empty { fill: #eef0f4; stroke: var(--border); }
+.gb-chart .gb-empty-text { font-size: 12px; fill: var(--nan); }
+.gb-chart .gb-count { font-size: 13px; fill: #111827; font-weight: 700; }
+
+.traj-row > td { background: #fbfcff; padding: 0 12px 14px; }
+.traj-compare-wrap { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: #fff; margin-top: 8px; }
+.traj-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--muted); margin-bottom: 10px; align-items: center; }
+.traj-legend .swatch { width: 12px; height: 12px; }
+.traj-sw-user { background: #2546b8; }
+.traj-sw-assistant { background: #047857; }
+.traj-sw-tool { background: #b45309; }
+.traj-toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
+.traj-toggle-btn {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid #d6e0ff;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.traj-toggle-btn:hover { background: #dde6ff; }
+.traj-toggle-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.traj-compare { display: flex; gap: 16px; align-items: flex-start; }
+.traj-compare > .traj-col { flex: 1 1 0; min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: #fcfdff; }
+.traj-compare > .traj-col[hidden] { display: none; }
+.traj-col-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: #1f2937; }
+.traj-canvas { overflow-x: auto; }
+.traj-svg { width: 100%; height: auto; min-width: 560px; }
+.traj-edge { stroke: #94a3b8; stroke-width: 1.5; fill: none; }
+.traj-node { cursor: pointer; }
+.traj-node rect { transition: filter 0.12s ease; }
+.traj-node:hover rect { filter: brightness(0.97); }
+.traj-node.selected rect { stroke-width: 3; }
+.traj-node-label { font-size: 12px; font-weight: 600; fill: #1f2937; }
+.traj-turn { font-size: 11px; fill: var(--muted); font-weight: 600; }
+.traj-detail {
+  margin-top: 10px;
+  max-height: 360px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.traj-detail-head { font-weight: 700; font-size: 14px; margin-bottom: 8px; padding: 4px 8px; border-radius: 6px; display: inline-block; }
+.traj-kind-user { background: #eef3ff; color: #2546b8; }
+.traj-kind-assistant { background: #ecfdf5; color: #047857; }
+.traj-kind-tool { background: #fff7ed; color: #b45309; }
+.traj-block { margin-bottom: 10px; }
+.traj-block-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 3px; font-weight: 700; }
+.traj-block-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f6f8fc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #1f2937;
+}
+.traj-detail-empty { font-size: 13px; padding: 6px 0; }
+.traj-empty { padding: 10px 0; }
+@media (max-width: 1000px) {
+  .traj-compare { flex-direction: column; }
+  .traj-compare > .traj-col { width: 100%; }
+}
 """
 
 
@@ -487,8 +1138,14 @@ def render_report_html(
     summary_df: pd.DataFrame,
     title: str,
     agent_source: AgentSource = "openclaw",
+    trajectory_map: dict[tuple, Any] | None = None,
 ) -> str:
-    """Assemble a full HTML metrics report with global and per-category sections."""
+    """Assemble a full HTML metrics report with global and per-category sections.
+
+    *trajectory_map* maps ``(run, suite_path, task_name, category)`` to
+    ``{"evolved": <all_messages>, "baseline": <all_messages>}``; when provided, each
+    task row gains a side-by-side evolved/baseline trajectory comparison.
+    """
     global_row = summary_df[summary_df["scope"] == "global"].iloc[0]
     category_rows = summary_df[summary_df["scope"] == "category"]
 
@@ -513,6 +1170,8 @@ def render_report_html(
         "<h2>Global Summary</h2>",
         success_badges_html(global_row),
         summary_table_html(global_row, agent_source),
+        "<h3>Better / Worse Task Counts</h3>",
+        good_bad_chart_html(comparison_df, agent_source),
         "</section>",
     ]
 
@@ -528,7 +1187,7 @@ def render_report_html(
                 "<details class='run-block'>"
                 f"<summary>Run {escape(str(run_index))} "
                 f"<span class='muted'>({task_count} tasks)</span></summary>"
-                f"{task_table_html(run_df, agent_source)}"
+                f"{task_table_html(run_df, agent_source, trajectory_map)}"
                 "</details>"
             )
 
@@ -538,6 +1197,8 @@ def render_report_html(
                 f"<h2>Category: {escape(str(category))}</h2>",
                 success_badges_html(summary_row),
                 summary_table_html(summary_row, agent_source),
+                "<h3>Better / Worse Task Counts</h3>",
+                good_bad_chart_html(category_df, agent_source),
                 "<h3>Run Blocks</h3>",
                 "<div class='run-toolbar'>"
                 "<button type='button' onclick='toggleAllRuns(this, true)'>Expand All</button>"

@@ -134,7 +134,11 @@ def build_summary_row(
     comparison_df: pd.DataFrame,
     original_df: pd.DataFrame,
 ) -> dict[str, Any]:
-    """Build one summary dict for a category or global scope, excluding outlier tasks."""
+    """Build one summary dict for a category or global scope, excluding outlier tasks.
+
+    ``mean_impr_{metric}`` 采用聚合口径 ``(Σevolved - Σbaseline) / Σbaseline``（先对原值求和
+    再算相对改进），而非逐样本 impr 取平均。``mean_diff_{metric}`` 仍为逐样本绝对差的算术平均。
+    """
     # Summary 聚合：剔除 impr_trials / impr_tool_use_num >= 阈值的离群样本。
     outlier_mask = _outlier_mask(comparison_df)
     aggregate_df = comparison_df.loc[~outlier_mask] if not comparison_df.empty else comparison_df
@@ -160,11 +164,23 @@ def build_summary_row(
     row["evolved_success_rate"] = float(evolved_success_rate) if pd.notna(evolved_success_rate) else float("nan")
 
     for metric in METRIC_COLUMNS:
-        impr_series = pd.to_numeric(aggregate_df.get(f"impr_{metric}"), errors="coerce")
+        # mean_impr 采用聚合口径：先对 evolved / baseline 原值各自求和，再算相对改进
+        # (Σevolved - Σbaseline) / Σbaseline，而非"逐样本 impr 取平均"。
+        # 列顺序保持 mean_impr 在 mean_diff 之前（与历史 summary CSV 一致）。
+        evolved_series = pd.to_numeric(aggregate_df.get(metric), errors="coerce")
+        baseline_series = pd.to_numeric(aggregate_df.get(f"baseline_{metric}"), errors="coerce")
+        paired = pd.concat([evolved_series, baseline_series], axis=1).dropna()
+        if paired.empty:
+            row[f"mean_impr_{metric}"] = float("nan")
+        else:
+            evolved_sum = float(paired.iloc[:, 0].sum())
+            baseline_sum = float(paired.iloc[:, 1].sum())
+            row[f"mean_impr_{metric}"] = (
+                (evolved_sum - baseline_sum) / baseline_sum if baseline_sum != 0 else float("nan")
+            )
+
+        # mean_diff 仍为各样本绝对差值的算术平均。
         diff_series = pd.to_numeric(aggregate_df.get(f"diff_{metric}"), errors="coerce")
-        row[f"mean_impr_{metric}"] = (
-            float(impr_series.mean()) if impr_series is not None and pd.notna(impr_series.mean()) else float("nan")
-        )
         row[f"mean_diff_{metric}"] = (
             float(diff_series.mean()) if diff_series is not None and pd.notna(diff_series.mean()) else float("nan")
         )
