@@ -1,0 +1,28 @@
+# GenericAgent 配置（LIFT 评测镜像构建期渲染；占位符由 install-in-image.sh 注入）。
+#
+# 上游约定：变量名包含 'oai' / 'claude' / 'mixin' / 'native' 决定使用哪种 Session
+# 类。这里使用 OpenAI 兼容协议（火山方舟 Ark）作为 doubao 后端。
+#
+# 不要在本文件里硬编码 secret —— 模板由 docker build 期 sed 渲染，运行期 mykey.py
+# 是产物固件。需要按 run 切 Key 时，使用 LIFT adapter 临时 bind-mount 替换。
+
+native_oai_config = {
+    "name": "doubao",
+    "apikey": "__ARK_API_KEY__",
+    "apibase": "__ARK_BASE_URL__",
+    "model": "__MODEL_NAME__",
+    "api_mode": "openai-completions",
+}
+
+langfuse_config = {
+    "public_key": "__LANGFUSE_PUBLIC_KEY__",
+    "secret_key": "__LANGFUSE_SECRET_KEY__",
+    "host": "__LANGFUSE_HOST__",
+}
+
+# Firecrawl Cloud API 配置（LIFT 评测容器无浏览器，用 Firecrawl 做联网搜索 / 抓取）。
+# apikey 为空时 firecrawl_plugin 直接返回错误，不抛异常，避免污染 LLM tool dispatch。
+firecrawl_config = {
+    "apikey": "__FIRECRAWL_API_KEY__",
+    "apibase": "https://api.firecrawl.dev/v1",
+}

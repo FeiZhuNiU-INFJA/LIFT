@@ -90,10 +90,15 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# 业务侧 turn trace 的 name 集合：openclaw 走 "openclaw-plugin"，hermes 走 "Hermes turn"。
-# 两者 trace.metadata 都需写成 OpenClaw schema（messages / toolCallBlocks）。
-LANGFUSE_PLUGIN_TRACE_NAMES: tuple[str, ...] = ("openclaw-plugin", "Hermes turn")
-"""Langfuse 上插件侧 trace 的 name 集合（OpenClaw / Hermes）。"""
+# 业务侧 turn trace 的 name 集合：openclaw 走 "openclaw-plugin"，hermes 走 "Hermes turn"，
+# GenericAgent 走 "genericagent-plugin"。三者 trace.metadata 都需写成 OpenClaw schema
+# （messages / toolCallBlocks）。
+LANGFUSE_PLUGIN_TRACE_NAMES: tuple[str, ...] = (
+    "openclaw-plugin",
+    "Hermes turn",
+    "genericagent-plugin",
+)
+"""Langfuse 上插件侧 trace 的 name 集合（OpenClaw / Hermes / GenericAgent）。"""
 
 # 兼容旧引用：默认/占位 trace 名仍取首项。
 LANGFUSE_PLUGIN_TRACE_NAME = LANGFUSE_PLUGIN_TRACE_NAMES[0]

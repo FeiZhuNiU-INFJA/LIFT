@@ -16,7 +16,7 @@ import pandas as pd
 from src.postprocess.metrics import METRIC_COLUMNS
 
 # Agent backend that produced the traces; controls which metrics appear in HTML.
-AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes"]
+AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent", "genericagent_active_evolve"]
 
 # Metrics hidden from HTML for all agent sources.
 _HTML_HIDDEN_METRICS_BASE = {"cached_token"}

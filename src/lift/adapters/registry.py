@@ -9,7 +9,13 @@ from src.lift.pipeline.run_options import RunOptions
 if TYPE_CHECKING:
     from src.lift.adapters.base import AgentRuntimeAdapter
 
-SUPPORTED_RUNTIMES = ("openclaw", "openclaw_with_evolve", "multi_user_openclaw")  # CLI 可选的运行时标识
+SUPPORTED_RUNTIMES = (
+    "openclaw",
+    "openclaw_with_evolve",
+    "multi_user_openclaw",
+    "genericagent",
+    "genericagent_active_evolve",
+)  # CLI 可选的运行时标识
 
 
 def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
@@ -30,5 +36,17 @@ def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
         from src.lift.adapters.openclaw_multi_user.adapter import MultiUserOpenClawAdapter
 
         return MultiUserOpenClawAdapter(options)
+    if normalized == "genericagent":
+        # GenericAgent baseline：agentmain.py --task 文件 I/O，无显式 evolve hook
+        from src.lift.adapters.genericagent.adapter import GenericAgentAdapter
+
+        return GenericAgentAdapter(options)
+    if normalized == "genericagent_active_evolve":
+        # GenericAgent + 主动复盘：per-task + suite 收尾各发一次 reflection chat
+        from src.lift.adapters.genericagent_active_evolve.adapter import (
+            GenericAgentActiveEvolveAdapter,
+        )
+
+        return GenericAgentActiveEvolveAdapter(options)
     supported = ", ".join(SUPPORTED_RUNTIMES)
     raise ValueError(f"Unknown runtime {runtime!r}; supported: {supported}")

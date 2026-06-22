@@ -21,7 +21,7 @@ from src.models import LangfuseTraceRef, PhaseLangfuseBundle
 
 
 # Agent backend whose trace pairing rules are applied during stitching.
-AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes"]
+AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent"]
 
 
 def _list_traces_all_pages(client: Any, *, page_limit: int = 100, **kwargs: Any) -> list[Any]:
@@ -219,7 +219,7 @@ def stitch_phase_langfuse_traces(
             judge_session_id=judge_session_id,
             page_limit=page_limit,
         )
-    if agent_source in ("openclaw", "openclaw_with_evolve"):
+    if agent_source in ("openclaw", "openclaw_with_evolve", "genericagent", "genericagent_active_evolve"):
         return _stitch_openclaw(
             client,
             eval_run_tag=eval_run_tag,

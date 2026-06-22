@@ -1,0 +1,34 @@
+{
+  "name": "TestSearch",
+  "category": "Hello",
+  "warmup_tasks": [
+    {
+      "name": "W1",
+      "query": "帮我查一下 2026 年北京当前正在举办的科技或文化展会，挑 1 个最具代表性的，告诉我展会名称、举办地点、起止日期。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": ""
+      },
+      "expected_result": {
+        "content_reqs": "1. 输出包含「展会名称」「举办地点」「起止日期」3 项信息\n2. 信息需基于实际查到的内容，不得仅凭模型已有知识杜撰；若无法联网获取必须显式说明",
+        "trajectory_reqs": "1. agent 实际尝试联网获取信息（任意联网工具/方式皆可），而不是仅凭已有知识直接作答"
+      }
+    }
+  ],
+  "holdout_tasks": [
+    {
+      "name": "H1",
+      "query": "帮我查一下当前最新版本 Node.js LTS 的版本号和发布日期。",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": ""
+      },
+      "expected_result": {
+        "content_reqs": "1. 输出包含「版本号」与「发布日期」2 项信息\n2. 信息需基于实际查到的内容，不得仅凭模型已有知识杜撰；若无法联网获取必须显式说明",
+        "trajectory_reqs": "1. agent 实际尝试联网获取信息（任意联网工具/方式皆可），而不是仅凭已有知识直接作答"
+      }
+    }
+  ]
+}

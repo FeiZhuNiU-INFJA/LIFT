@@ -21,6 +21,16 @@ OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE = "evolve-eval-openclaw-with-evolve:latest"
 OPENCLAW_WORKSPACE_SEED_DIR = OPENCLAW_AGENT_DIR / "workspace_seed"
 """宿主机 OpenClaw eval workspace seed 源目录。"""
 
+GENERICAGENT_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "genericagent"
+"""GenericAgent 镜像与容器配置目录（``agent-runtimes/genericagent/``）。"""
+
+GENERICAGENT_DOCKER_IMAGE = "evolve-eval-genericagent:latest"
+"""GenericAgent baseline 镜像（``GenericAgentAdapter`` 使用；
+``agent-runtimes/genericagent/build-image.sh`` 构建）。"""
+
+GENERICAGENT_WORKSPACE_SEED_DIR = GENERICAGENT_AGENT_DIR / "workspace_seed"
+"""宿主机 GenericAgent eval workspace seed 源目录。"""
+
 RESULTS_DIR = "results"
 """单次 eval run 产物根目录名（相对 cwd）：report、outcome、后处理指标。"""
 

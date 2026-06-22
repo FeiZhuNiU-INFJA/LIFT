@@ -15,7 +15,7 @@ from src.report.langfuse_trace_stitch import stitch_phase_langfuse_traces
 
 
 # Agent backend whose traces are stitched during backfill.
-AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes"]
+AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent", "genericagent_active_evolve"]
 
 
 def get_langfuse_client():
