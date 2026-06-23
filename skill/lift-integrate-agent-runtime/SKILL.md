@@ -306,11 +306,14 @@ nohup python -m src.cli.lift_main \
   --benchmark_dir assets/benchmarks_demo \
   --suite hello.json \
   --run_id <run_id> \
-  --status-http 0.0.0.0:<port> &
+  --status-http 0.0.0.0:<port> \
+  > logs/<run_id>.log 2>&1 &
 
-tail -f nohup.out                       # 主进度看这里
+tail -f logs/<run_id>.log               # 主进度看这里
 # 浏览器开 http://<host>:<port>         # 看 run / repeat / suite / task / phase 结构化状态
 ```
+
+> **不要用默认 `nohup.out`**：默认行为会把所有 run 的日志拼在同一个 `nohup.out` 里（`>>` append），多 run 并行 / 反复跑会互相覆盖、相互污染，事后排查时分不清谁是谁。统一显式写到 `logs/<run_id>.log`（先 `mkdir -p logs`），一个 run 一份日志，文件名直接对应 `results/lift-runid-<run_id>/`。
 
 > `assets/benchmarks_demo/` 里两个常用 sanity suite：
 > - **`hello.json`** — 1 W + 1 H 寒暄（Q1 "回复你好" / Q2 "自我介绍"），测的是基本 chat / warmup-commit-holdout 流水线连通性。
@@ -336,14 +339,15 @@ docker images | grep evolve-eval-<runtime>
 ```bash
 nohup python -m src.cli.lift_main \
   -r <runtime> --benchmark_dir assets/benchmarks_demo \
-  --suite hello.json --run_id <run_id> --status-http 0.0.0.0:<port> &
-tail -f nohup.out
+  --suite hello.json --run_id <run_id> --status-http 0.0.0.0:<port> \
+  > logs/<run_id>.log 2>&1 &
+tail -f logs/<run_id>.log
 ```
 
-验证点：
+验证点:
 - 容器拉起、warmup 单题跑完、`docker commit` 成功、hold-out 跑完
 - `results/lift-runid-<run_id>/report.json` 存在且 task `outcome.success: true`
-- nohup.out 没有 `wait output timeout` / `Cannot connect to Docker daemon` / `Judge response is not valid JSON` 高频重试
+- `logs/<run_id>.log` 没有 `wait output timeout` / `Cannot connect to Docker daemon` / `Judge response is not valid JSON` 高频重试
 
 ### 6.3 Trace stitching 对齐
 
@@ -362,8 +366,9 @@ python -m src.cli.lift_main -r <runtime> --evaluate-only --run_id <run_id>
 ```bash
 nohup python -m src.cli.lift_main \
   -r <runtime> --benchmark_dir assets/benchmarks_demo \
-  --suite test_search.json --run_id <run_id> --status-http 0.0.0.0:<port> &
-tail -f nohup.out | grep -E 'firecrawl|search|scrape|Action'
+  --suite test_search.json --run_id <run_id> --status-http 0.0.0.0:<port> \
+  > logs/<run_id>.log 2>&1 &
+tail -f logs/<run_id>.log | grep -E 'firecrawl|search|scrape|Action'
 ```
 
 如果 runtime 配了联网工具（如 firecrawl），应当看到 W1 / H1 调用搜索工具拿到当日数据；没接联网工具的 runtime 这步可以跳过。
@@ -393,7 +398,7 @@ tail -f nohup.out | grep -E 'firecrawl|search|scrape|Action'
 | 容器内 Langfuse 连不上宿主 | `LANGFUSE_HOST` 写了 `localhost` / `127.0.0.1` | 镜像里固定写 `http://host.docker.internal:3000`（`Dockerfile` ARG default 已这样）；Linux 下 docker run 加 `--add-host host.docker.internal:host-gateway`（LIFT `start_*_container` 已处理） |
 | Type checker 报 `AgentSource` 不一致 | 5 处 Literal 漏改 | `grep -rn "AgentSource\s*=\s*Literal" src/` 五处都要 |
 | `Judge response is not valid JSON` 重试日志 | 这是 prompt sanity 设计行为，不是 bug | 偶发可忽略；高频出现说明 judge prompt 没渲染干净 |
-| nohup.out 看到 `wait output timeout` | GA 主循环 600s 内没产出 / 死循环 / LLM 卡 | `docker exec <c> tail -50 /opt/GenericAgent/temp/<iodir>/ga.stderr.log` 看 GA 自己日志 |
+| `logs/<run_id>.log` 看到 `wait output timeout` | GA 主循环 600s 内没产出 / 死循环 / LLM 卡 | `docker exec <c> tail -50 /opt/GenericAgent/temp/<iodir>/ga.stderr.log` 看 GA 自己日志 |
 | Langfuse trace 上 `Session` / `Tags` 列空 | overlay 还在用 v3 的 `obs.update_trace(...)` / `client.update_current_trace(...)`，4.x SDK 已删除 | overlay 改成 `propagate_attributes(session_id=, tags=)` 上下文管理器 + `start_as_current_observation`（见 §1.3） |
 | 静态 dashboard tools 列空，但 `*_backfilled.json` 里 `tool_calls` 已有数 | B 路径 langfuse 兜底拿到了值但没回写 tracker，`tracker.snapshot()` 仍是 None → 嵌入 HTML 后显示 "—" | 确认 `run_post_process_pipeline` 调了 `tracker.set_phase_tool_calls(...)`（见 §5.3.1）；运行期实时 dashboard 看不到 B 路径 tools 是设计行为 |
 

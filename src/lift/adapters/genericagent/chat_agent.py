@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import re
 from pathlib import Path
 
 from src.config import LOGGER
@@ -30,6 +31,29 @@ from src.utils import short_id
 # 的字符串走 ``_looks_like_provider_error`` 重试通道。
 CHAT_EXEC_TIMEOUT_SECONDS = 600.0
 CHAT_EXEC_TIMEOUT_MARKER = "chat exec timeout"
+
+# GA 上游 ``agentmain.py`` 把整段 transcript（Turn 1..N，每轮 ``<summary>``
+# + ``🛠️ tool(...)`` 伪代码 + 间或 narrative）一并写到 ``output<N>.txt``。
+# 直接把这段 raw 文本回给 LIFT 会污染 judge 的输入（judge 只关心 final answer
+# 而不是过程日志），所以 ``_extract_final_turn`` 切到最后一个 Turn 块、再剥掉
+# ``<summary>`` 与 ``🛠️`` 行只留 narrative。
+_TURN_HEADER_RE = re.compile(r'^Turn \d+ \.\.\.\s*$', re.MULTILINE)
+_SUMMARY_RE = re.compile(r'<summary>.*?</summary>\s*', re.DOTALL)
+_TOOL_LINE_RE = re.compile(r'^\s*🛠️.*$', re.MULTILINE)
+
+
+def _extract_final_turn(text: str) -> str:
+    """把 GA 多轮 transcript 切到最后一个 ``Turn N ...`` 块并剥掉 summary / tool 伪代码行。
+
+    GA output 没有 ``Turn 0 ...`` 头时（极少见，单轮直接 done），整段都视为 final。
+    """
+    if not text:
+        return text
+    parts = _TURN_HEADER_RE.split(text)
+    final = parts[-1] if len(parts) > 1 else text
+    final = _SUMMARY_RE.sub('', final)
+    final = _TOOL_LINE_RE.sub('', final)
+    return final.strip() + '\n'
 
 _GA_TEMP_ROOT = "/opt/GenericAgent/temp"
 _ROUND_END_MARKER = "[ROUND END]"
@@ -185,7 +209,8 @@ class GenericAgentContainerAgent(ChatAgent):
                 last_text = text
             if _ROUND_END_MARKER in text:
                 # GA 末尾形如 "...content...\n\n[ROUND END]\n"，去掉哨兵保留对话文本
-                return text.replace(_ROUND_END_MARKER, "").rstrip("\n").rstrip() + "\n"
+                cleaned = text.replace(_ROUND_END_MARKER, "").rstrip("\n").rstrip() + "\n"
+                return _extract_final_turn(cleaned)
             await asyncio.sleep(_POLL_INTERVAL_SECONDS)
 
 
