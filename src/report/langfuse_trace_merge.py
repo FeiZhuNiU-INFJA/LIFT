@@ -44,6 +44,7 @@ def merge_plugin_into_agent(agent: LangfuseTraceRef, plugin: LangfuseTraceRef) -
             "plugin_response": plugin.plugin_response,
             "plugin_metadata": plugin.plugin_metadata,
             "tokens": plugin.tokens,
+            "tool_observation_count": plugin.tool_observation_count,
             "latency_seconds": plugin.latency_seconds,
         }
     )
@@ -157,6 +158,7 @@ def _orphan_plugin_ref(ref: LangfuseTraceRef) -> LangfuseTraceRef:
         plugin_response=ref.plugin_response,
         plugin_metadata=ref.plugin_metadata,
         tokens=ref.tokens,
+        tool_observation_count=ref.tool_observation_count,
         latency_seconds=ref.latency_seconds,
     )
 

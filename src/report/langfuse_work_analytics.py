@@ -23,6 +23,7 @@ def _stats_from_turn_ref(ref: LangfuseTraceRef) -> LangfuseTokenToolStats:
             total_tokens=ref.tokens.total_tokens,
             tool_roundtrips=meta.tool_roundtrips if meta else 0,
             tool_call_blocks=meta.tool_call_blocks if meta else 0,
+            tool_observation_count=ref.tool_observation_count,
         )
     return LangfuseTokenToolStats()
 

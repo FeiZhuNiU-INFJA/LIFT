@@ -17,11 +17,12 @@ import threading
 try:
     from llmcore import _load_mykeys
     _cfg = _load_mykeys().get('langfuse_config') or {}
-    from langfuse import Langfuse
+    from langfuse import Langfuse, propagate_attributes
     # 上游 cfg key 名兼容 langfuse SDK：public_key / secret_key / host
     _lf = Langfuse(**{k: v for k, v in _cfg.items() if k in ('public_key', 'secret_key', 'host')}) if _cfg else None
 except Exception:
     _lf = None
+    propagate_attributes = None  # type: ignore[assignment]
 
 _LIFT_TRACE_NAME = "genericagent-plugin"
 
@@ -49,36 +50,58 @@ if _lf:
     # ── Agent root trace ─────────────────────────────────────────
     @hooks.register('agent_before')
     def _on_agent_before(ctx):
+        """开启 propagate_attributes（写 session_id/tags 到 trace 根）+ root agent span。
+
+        Langfuse Python SDK 4.x 起，``user_id`` / ``session_id`` / ``tags`` 通过
+        ``propagate_attributes`` 上下文管理器传播到当前 OTel context 下所有 span，
+        而不是 v3 的 ``observation.update_trace(session_id=...)`` —— 后者在 4.x
+        ``LangfuseAgent`` 上根本不存在，会 silently 什么也不做。
+
+        我们手动 ``__enter__`` / ``__exit__``：因为 GA 的 hook 机制是分散在
+        agent_before / agent_after / tool_before / tool_after 多个回调里的，
+        没有 ``with`` 包住整段 chat 的位置。``start_as_current_observation``
+        同理 enter/exit。
+        """
         try:
-            obs = _lf.start_observation(
+            sid = _lift_session_id()
+            tags = _lift_tags()
+            attr_kwargs = {}
+            if sid:
+                attr_kwargs['session_id'] = sid
+            if tags:
+                attr_kwargs['tags'] = tags
+            attr_cm = propagate_attributes(**attr_kwargs) if attr_kwargs else None
+            if attr_cm is not None:
+                attr_cm.__enter__()
+            obs_cm = _lf.start_as_current_observation(
                 name=_LIFT_TRACE_NAME, as_type='agent',
                 input={'user_input': ctx.get('user_input', '')},
             )
-            # 上游 SDK 暴露 update_trace 接口：把 sessionId / tags 写到 trace 根
-            try:
-                sid = _lift_session_id()
-                tags = _lift_tags()
-                update_kwargs = {}
-                if sid:
-                    update_kwargs['session_id'] = sid
-                if tags:
-                    update_kwargs['tags'] = tags
-                if update_kwargs and hasattr(obs, 'update_trace'):
-                    obs.update_trace(**update_kwargs)
-            except Exception:
-                pass
+            obs = obs_cm.__enter__()
+            _tls.attr_cm = attr_cm
+            _tls.obs_cm = obs_cm
             _tls.trace_obs = obs
         except Exception:
+            _tls.attr_cm = None
+            _tls.obs_cm = None
             _tls.trace_obs = None
 
     @hooks.register('agent_after')
     def _on_agent_after(ctx):
+        """反序退出 obs_cm → attr_cm，确保 OTel current span 栈正确归零。"""
         try:
             obs = getattr(_tls, 'trace_obs', None)
             if obs:
                 obs.update(output=ctx.get('exit_reason'))
-                obs.end()
-                _tls.trace_obs = None
+            obs_cm = getattr(_tls, 'obs_cm', None)
+            if obs_cm is not None:
+                obs_cm.__exit__(None, None, None)
+            attr_cm = getattr(_tls, 'attr_cm', None)
+            if attr_cm is not None:
+                attr_cm.__exit__(None, None, None)
+            _tls.trace_obs = None
+            _tls.obs_cm = None
+            _tls.attr_cm = None
             _lf.flush()
         except Exception:
             pass

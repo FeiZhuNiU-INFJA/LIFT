@@ -46,7 +46,17 @@ def backfill_phase(
         judge_session_id=phase.judge_session_id,
         agent_source=agent_source,
     )
-    return phase.model_copy(update={"langfuse": bundle})
+    update: dict[str, Any] = {"langfuse": bundle}
+    # tool_calls 兜底：runtime 主链路没填 PhaseRun.tool_calls 时（如 GA 没有
+    # trajectory.jsonl），用 langfuse work_analytics 的 tool_observation_count 代替——
+    # 它就是 ``type=TOOL`` observation 的总数，runtime overlay 给每次工具调用挂
+    # ``as_type='tool'`` span 即可。OpenClaw 主链路读 trajectory.jsonl 拿到精确值
+    # 后已经写入了 PhaseRun.tool_calls，这里跳过避免覆盖。
+    if phase.tool_calls is None and bundle.work_analytics is not None:
+        observation_count = bundle.work_analytics.global_stats.tool_observation_count
+        if observation_count > 0:
+            update["tool_calls"] = observation_count
+    return phase.model_copy(update=update)
 
 
 def backfill_report(

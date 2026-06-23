@@ -226,6 +226,15 @@ class LangfuseTraceRef(BaseModel):
         default=None,
         description="当轮 token，来自 plugin trace 的 GENERATION observations",
     )
+    tool_observation_count: int = Field(
+        default=0,
+        description=(
+            "Plugin trace 下挂的 ``type=TOOL`` observation 数量（runtime-agnostic 兜底）。"
+            "只要 runtime 的 langfuse overlay 给每次 tool 调用挂 ``as_type='tool'`` span，"
+            "本字段就有值；用于无 metadata.toolRoundtrips 的 runtime（如 GA）做 dashboard "
+            "tool_calls 兜底。"
+        ),
+    )
     latency_seconds: float | None = Field(
         default=None,
         description="当轮耗时（秒），合并后取配对 openclaw-plugin trace 的 latency",

@@ -233,6 +233,32 @@ class RunStateTracker:
                 pnode.dialogue = [DialogueTurn(**asdict(t)) for t in turns]
                 pnode.dialogue_source = "postprocess"
 
+    def set_phase_tool_calls(
+        self, bundle: dict[tuple[int, int, str, str], int]
+    ) -> None:
+        """后处理 backfill 完成后回写 ``phase.tool_calls``，供静态 dashboard 渲染。
+
+        运行期 adapter 没 override ``count_tool_calls`` 时（GA / Hermes），
+        ``phase.tool_calls`` 一直是 None；后处理通过 langfuse ``tool_observation_count``
+        兜底拿到精确值，但只写进了 backfilled JSON。这里把同一份值推回 tracker，
+        让 ``build_static_dashboard_html`` 导出的 dashboard tools 列填上数。
+        """
+        with self._lock:
+            for (repeat_index, suite_index, task_name, phase), value in bundle.items():
+                repeat = self._repeats.get(repeat_index)
+                if repeat is None:
+                    continue
+                suite = repeat.suites.get(suite_index)
+                if suite is None:
+                    continue
+                tnode = suite.holdout_tasks.get(task_name)
+                if tnode is None:
+                    continue
+                pnode = tnode.phases.get(phase)
+                if pnode is None:
+                    continue
+                pnode.tool_calls = value
+
     # ---- 订阅生命周期 ----------------------------------------------------
 
     def attach(self) -> None:

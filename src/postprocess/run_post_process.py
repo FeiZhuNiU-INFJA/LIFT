@@ -256,6 +256,31 @@ def build_dialogue_bundle_from_report(data: dict):
     return bundle
 
 
+def build_phase_tool_calls_from_report(
+    data: dict,
+) -> dict[tuple[int, int, str, str], int]:
+    """从 backfilled report dict 抽取 per-phase ``tool_calls``（B 路径）。
+
+    适配器 baseline 没 override ``count_tool_calls`` 时（GA / Hermes），运行期
+    ``phase.tool_calls`` 是 None；trace_backfill 通过 langfuse 兜底已经把数填回
+    ``runs[r].suites[s].tasks[t].{baseline|evolved}.tool_calls``。这里把这份
+    后处理结果再推回 tracker，让静态 dashboard 渲染时能用上。
+    """
+    bundle: dict[tuple[int, int, str, str], int] = {}
+    for r_idx, run in enumerate(data.get("runs", [])):
+        for s_idx, suite in enumerate(run.get("suites", [])):
+            for task in suite.get("tasks", []):
+                task_name = task.get("task_name")
+                if not task_name:
+                    continue
+                for phase in ("baseline", "evolved"):
+                    pr = task.get(phase) or {}
+                    tc = pr.get("tool_calls")
+                    if isinstance(tc, int) and tc >= 0:
+                        bundle[(r_idx, s_idx, task_name, phase)] = tc
+    return bundle
+
+
 def run_post_process_pipeline(
     run_id: str,
     report_path: Path,
@@ -301,16 +326,23 @@ def run_post_process_pipeline(
                 tracker.set_final_summary(summary)
             except Exception:
                 LOGGER.exception("Failed to forward final summary to tracker.")
-            # B 路径：把后处理拉取的 work 对话注入 snapshot，供 dashboard 对话视图
-            # 覆盖运行期文本版本（含 latency，更完整）。从已写盘的 backfilled JSON
-            # 读取（含完整 work_analytics.trace_chain）。
+            # B 路径：把后处理拉取的 work 对话 + per-phase tool_calls 注入 snapshot，
+            # 供 dashboard 对话视图覆盖运行期文本版本（含 latency，更完整），并填上
+            # tools 列。从已写盘的 backfilled JSON 读取（含完整 work_analytics.trace_chain
+            # 与 trace_backfill 兜底后的 tool_calls）。
             try:
                 if backfilled_json is not None and backfilled_json.exists():
-                    bundle = build_dialogue_bundle_from_report(
-                        json.loads(backfilled_json.read_text(encoding="utf-8"))
+                    backfilled_data = json.loads(
+                        backfilled_json.read_text(encoding="utf-8")
                     )
+                    bundle = build_dialogue_bundle_from_report(backfilled_data)
                     if bundle:
                         tracker.set_dialogue(bundle)
+                    tool_calls_bundle = build_phase_tool_calls_from_report(
+                        backfilled_data
+                    )
+                    if tool_calls_bundle:
+                        tracker.set_phase_tool_calls(tool_calls_bundle)
             except Exception:
                 LOGGER.exception("Failed to forward dialogue to tracker.")
     except Exception:

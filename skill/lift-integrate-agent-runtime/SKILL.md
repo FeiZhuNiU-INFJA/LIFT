@@ -72,6 +72,12 @@ langfuse_config = {"public_key": "__LANGFUSE_PUBLIC_KEY__", "secret_key": "__LAN
 - `session_id = $LIFT_GA_SESSION_ID`（或 runtime 等价 env，每轮 chat 由 `docker exec -e` 注入）。
 - `tags ⊇ {LIFT_EVAL_RUN_TAG, LIFT_<RUNTIME>_SESSION_ID}` — `langfuse_trace_merge` 既靠 tag 也靠 sid 做 work / judge 拼接，少一个就丢 trace。
 
+> **Langfuse Python SDK v3 → v4 breaking change**：v3 时代常见的 `observation.update_trace(session_id=, tags=)` / `client.update_current_trace(...)` 在 SDK 4.x 上已经**全部移除**（`LangfuseAgent` / `Langfuse` 都没有这些方法），`hasattr` 检查会静默 False，导致 session_id / tags **永远写不到 trace 根** —— overlay 看上去工作正常，但 `langfuse_trace_stitch` 按 sid 找不到 plugin trace，dashboard tools 列空。
+>
+> 4.x 必须用上下文管理器：`from langfuse import propagate_attributes` + `_lf.start_as_current_observation(name=..., as_type='agent', ...)`。GA hook 是分散回调（`agent_before` / `agent_after` 不是 with 块），需要手动 `__enter__` / `__exit__` 配对，反序退出（先退 obs_cm 再退 attr_cm），用 thread-local 跨 hook 传递。参考 [`agent-runtimes/genericagent/langfuse_tracing_overlay.py`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/langfuse_tracing_overlay.py)。
+>
+> 验证：容器内 `python -c "from langfuse import Langfuse; print(dir(Langfuse(...).start_as_current_observation(name='x')))"` 看不到 `update_trace` 即说明在 v4。再去 langfuse UI 看一条 trace 的 `Session` / `Tags` 列是否非空，是 → overlay 正确；空 → 还在用 v3 API。
+
 ### 1.4 patch 上游硬编码（如有）
 
 GA 上游把 `Handler.cwd` 与 system prompt cwd 都硬编码成 `os.path.join(script_dir, 'temp')`，LIFT 把 task materials bind 到 `/workspace/task`，必须在 build 期 patch 上游源码（见 [`install-in-image.sh:51-85`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/install-in-image.sh#L51-L85) 的 python in-place 替换）。换 runtime 时先 grep `script_dir` / `os.getcwd()` / `os.path.dirname(__file__)` 找类似硬编码。
@@ -235,6 +241,55 @@ LANGFUSE_PLUGIN_TRACE_NAMES: tuple[str, ...] = (
 
 > **判断标准**：你的 `langfuse_tracing_overlay.py` 是否能在 root span 上设 `session_id`。能 → OpenClaw 路线（推荐，简单）；不能 → Hermes 路线。
 
+### 5.3 dashboard tools 列：tool_calls 通用兜底机制
+
+dashboard 的 **tools 列**读 [`PhaseRun.tool_calls`](file:///root/workspace/agent_evolve_evaluation/src/models.py)（int / None）。这个字段有两条数据源，按下列优先级填：
+
+| 优先级 | 数据源 | 触发位置 | 适用 runtime |
+|---|---|---|---|
+| 1（精确） | adapter override `count_tool_calls(env, task, result, ctx)` | hold-out 题末 [`base.py:317`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/base.py#L317) | OpenClaw（容器内 docker exec 读 `trajectory.jsonl`） |
+| 2（兜底） | Langfuse `type=TOOL` observation 数 | 后处理 [`trace_backfill.py:55-58`](file:///root/workspace/agent_evolve_evaluation/src/postprocess/trace_backfill.py#L55-L58) | 任何 runtime（只要 overlay 给每次工具调用挂 `as_type='tool'` span） |
+
+**兜底链路**（runtime-agnostic）：
+
+```
+runtime overlay 每次 tool 调用 → langfuse `as_type='tool'` span (type=TOOL)
+  → langfuse_trace_fetch.count_tool_observations(detail)         # 数 type=TOOL
+  → LangfuseTraceRef.tool_observation_count                      # 写入 plugin trace ref
+  → langfuse_trace_merge 把字段从 plugin ref 搬运到 agent ref     # _orphan_plugin_ref + merge_plugin_into_agent
+  → LangfuseTokenToolStats.tool_observation_count (work-analytics 全局聚合)
+  → trace_backfill.backfill_phase: phase.tool_calls=None 时填上   # 不覆盖 OpenClaw 已有的精确值
+  → run_post_process.build_phase_tool_calls_from_report          # 从 backfilled JSON 抽 (r,s,task,phase)→tool_calls
+  → tracker.set_phase_tool_calls(bundle)                         # 回写到 RunStateTracker，供静态 dashboard 渲染
+  → dashboard tools 列显示
+```
+
+**接入新 runtime 时不需要做任何额外工作** —— 只要 `langfuse_tracing_overlay.py` 在每次工具调用 / 每个 plugin 子操作上挂了 `as_type='tool'` 的 span，dashboard 就自动有数。如果你的 runtime 能像 OpenClaw 那样从容器内拿到精确轮次（`trajectory.jsonl` 之类），可以 override `count_tool_calls` 拿到比 observation count 更稳的值；不 override 也不会显示空 — 兜底链路接住。
+
+> **GA 注意**：GA 的 plugin 函数都是 generator（`def do_xxx(self, args, response): yield ...; return StepOutcome(...)`），如果你给 plugin 包了 langfuse decorator 但忘了 `as_type='tool'`，observation 会落到 `type=DEFAULT`，count 仍是 0。验证手段：langfuse UI 上挑一条 `genericagent-plugin` trace，展开 observation 列表，看每次 tool 调用是不是 `tool` 类型。
+
+#### 5.3.1 dashboard 实时 vs 静态导出 —— 为什么要回写 tracker
+
+dashboard 实际有**两种形态**，两个都吃同一棵 `RunStateTracker.snapshot()` 状态树：
+
+| 形态 | URL / 文件 | 数据来源 | 何时生效 |
+|---|---|---|---|
+| 运行期实时 | `http://<host>:<port>` | tracker `/snapshot` + SSE，跟着事件总线刷新 | run 进行中；run 结束 HTTP server 关停 |
+| 静态导出 | `results/<run_id>/dashboard.html` | `build_static_dashboard_html(tracker.snapshot())` 把当前 snapshot 序列化嵌入 HTML | run 结束 + 后处理跑完，[`lift_main.py:347`](file:///root/workspace/agent_evolve_evaluation/src/cli/lift_main.py#L347) 自动导出 |
+
+**关键事实**：A 路径（adapter `count_tool_calls`）是**运行期 phase 结束时**通过 `StageEvent(tool_calls=N)` 实时落 tracker；B 路径（langfuse 兜底）是**后处理阶段**才能拿到值，必须显式回写 tracker，否则：
+
+- backfilled JSON 里有 `tool_calls=N` ✅
+- 但 tracker.snapshot() 里 phase node 仍是 `tool_calls: None`
+- 静态 dashboard 嵌入的 snapshot tools 列 → 显示 "—"
+
+**回写位点**：[`run_post_process.py`](file:///root/workspace/agent_evolve_evaluation/src/postprocess/run_post_process.py) 在写完 backfilled JSON 后调 `build_phase_tool_calls_from_report` 抽出 `(repeat, suite, task, phase) → tool_calls` bundle，再调 `tracker.set_phase_tool_calls(bundle)`。这套机制是 runtime-agnostic 的：
+
+- OpenClaw（A 路径）：运行期 tracker 已有精确值，回写值通常等于运行期值（noop 但无害）
+- GA / Hermes / 任何走兜底的 runtime：回写让静态 dashboard 第一次看到数
+
+> **对运行期实时 dashboard 的影响**：B 路径 runtime 的 tools 列在 run 进行中**注定显示空**——langfuse 是 async upload，trace 还没完整 flush，count 不出来；要看 tools 必须等后处理跑完打开静态 dashboard。如果新 runtime 想要实时 tools，得自己 override `count_tool_calls`（容器内累加 counter / 读日志文件）。
+
 ---
 
 ## 6. 验收 Checklist
@@ -339,6 +394,8 @@ tail -f nohup.out | grep -E 'firecrawl|search|scrape|Action'
 | Type checker 报 `AgentSource` 不一致 | 5 处 Literal 漏改 | `grep -rn "AgentSource\s*=\s*Literal" src/` 五处都要 |
 | `Judge response is not valid JSON` 重试日志 | 这是 prompt sanity 设计行为，不是 bug | 偶发可忽略；高频出现说明 judge prompt 没渲染干净 |
 | nohup.out 看到 `wait output timeout` | GA 主循环 600s 内没产出 / 死循环 / LLM 卡 | `docker exec <c> tail -50 /opt/GenericAgent/temp/<iodir>/ga.stderr.log` 看 GA 自己日志 |
+| Langfuse trace 上 `Session` / `Tags` 列空 | overlay 还在用 v3 的 `obs.update_trace(...)` / `client.update_current_trace(...)`，4.x SDK 已删除 | overlay 改成 `propagate_attributes(session_id=, tags=)` 上下文管理器 + `start_as_current_observation`（见 §1.3） |
+| 静态 dashboard tools 列空，但 `*_backfilled.json` 里 `tool_calls` 已有数 | B 路径 langfuse 兜底拿到了值但没回写 tracker，`tracker.snapshot()` 仍是 None → 嵌入 HTML 后显示 "—" | 确认 `run_post_process_pipeline` 调了 `tracker.set_phase_tool_calls(...)`（见 §5.3.1）；运行期实时 dashboard 看不到 B 路径 tools 是设计行为 |
 
 ---
 

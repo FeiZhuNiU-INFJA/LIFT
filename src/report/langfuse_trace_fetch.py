@@ -178,6 +178,17 @@ def tokens_from_detail(detail: LangfuseTraceDetailRecord) -> LangfuseTraceTokens
     )
 
 
+def count_tool_observations(detail: LangfuseTraceDetailRecord) -> int:
+    """Count ``type=TOOL`` observations in a trace detail record.
+
+    Runtime-agnostic 工具调用兜底数：只要 runtime 的 langfuse overlay 给每次工具调用挂
+    了 ``as_type='tool'`` observation（GA / OpenClaw / 任何走 LIFT trace 拼装的 plugin
+    trace 都满足），本函数就能给出正确计数；OpenClaw 仍以 ``plugin_metadata.toolRoundtrips``
+    为权威值，本字段作为缺失 metadata 时的兜底（dashboard 显示）。
+    """
+    return sum(1 for ob in detail.observations if ob.type == "TOOL")
+
+
 def fetch_trace_details(
     client: Any,
     trace_ids: list[str],
@@ -200,8 +211,10 @@ def trace_ref_from_detail(
 ) -> LangfuseTraceRef:
     """Build a lightweight ``LangfuseTraceRef`` from a fetched trace detail."""
     tokens: LangfuseTraceTokens | None = None
+    tool_count = 0
     if include_plugin_tokens and is_plugin_trace(detail.name):
         tokens = tokens_from_detail(detail)
+        tool_count = count_tool_observations(detail)
     return LangfuseTraceRef(
         id=detail.id,
         name=detail.name,
@@ -214,5 +227,6 @@ def trace_ref_from_detail(
         plugin_response=detail.plugin_response,
         plugin_metadata=detail.plugin_metadata,
         tokens=tokens,
+        tool_observation_count=tool_count,
         latency_seconds=detail.latency_seconds,
     )
