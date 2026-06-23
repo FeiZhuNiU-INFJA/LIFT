@@ -10,16 +10,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import logging
-from contextlib import contextmanager
-from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
-
-if TYPE_CHECKING:
-    from src.lift.status.state import RunStateTracker
 
 load_dotenv()
 
@@ -35,6 +28,9 @@ from src.lift.policies.container import (
     HoldoutPhasePolicy,
     WarmupContainerPolicy,
 )
+from src.lift.status.http_dashboard import export_dashboard_snapshot
+from src.lift.status.panels import optional_status_panels, status_dashboard
+from src.lift.status.replay import replay_report_into_bus
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -216,219 +212,16 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
     tracker = RunStateTracker()
     tracker.attach()
     try:
-        _replay_report_to_tracker(run_id, report_path)
-        with _optional_status_panels(
+        replay_report_into_bus(run_id, report_path)
+        with optional_status_panels(
             tracker, viz_enabled=args.status_viz, http_endpoint=args.status_http
         ):
             run_post_process_pipeline(
                 run_id, report_path, agent_source=args.agent_runtime, tracker=tracker
             )
-            _export_dashboard_snapshot(run_id, tracker)
+            export_dashboard_snapshot(run_id, tracker)
     finally:
         tracker.detach()
-
-
-def _replay_report_to_tracker(run_id: str, report_path: Path) -> None:
-    """把 ``report.json`` 反向 replay 成事件总线广播，重建 tracker 骨架与状态。
-
-    用既有 ``emit_run_plan`` / ``emit_suite_plan`` / ``emit_stage`` 三个 emitter，
-    监听器（``RunStateTracker``）会同步建好 repeat × suite × holdout_task × phase
-    节点并填上 score / success / turns / tool_calls / status。warmup 题在 report
-    里没存，留空（dashboard 只显示 holdout 也能用）。
-    """
-    from src.lift.status import events as ev
-    from src.models import EvalReport
-
-    report = EvalReport.from_json_file(report_path)
-    suite_names: list[str] = []
-    for repeat in report.runs:
-        for suite in repeat.suites:
-            name = suite.suite_name or (
-                Path(suite.suite_path).stem if suite.suite_path else "?"
-            )
-            if name not in suite_names:
-                suite_names.append(name)
-
-    ev.emit_run_plan(
-        run_id=run_id,
-        repeats=len(report.runs),
-        suite_names=tuple(suite_names),
-        params=(("source", "evaluate-only replay"),),
-    )
-
-    for repeat_idx, repeat in enumerate(report.runs):
-        ev.emit_stage(
-            kind="repeat", status="done", run_id=run_id, repeat_index=repeat_idx
-        )
-        for suite in repeat.suites:
-            suite_name = suite.suite_name or (
-                Path(suite.suite_path).stem if suite.suite_path else "?"
-            )
-            try:
-                suite_idx = suite_names.index(suite_name)
-            except ValueError:
-                continue
-            holdout_names = tuple(t.task_name for t in suite.tasks)
-            ev.emit_suite_plan(
-                run_id=run_id,
-                repeat_index=repeat_idx,
-                suite_index=suite_idx,
-                suite_name=suite_name,
-                warmup_task_names=(),
-                holdout_task_names=holdout_names,
-            )
-            ev.emit_stage(
-                kind="suite",
-                status="done",
-                run_id=run_id,
-                repeat_index=repeat_idx,
-                suite_index=suite_idx,
-                suite_name=suite_name,
-            )
-            # warmup 在 report.json 里没存，但既然 holdout 跑完了 warmup 必然
-            # 成功；不补这条 dashboard.suiteOverall 会因 warmup_status='pending'
-            # 把整 suite 判成 pending，导致总进度恒 0%。
-            ev.emit_stage(
-                kind="warmup",
-                status="done",
-                run_id=run_id,
-                repeat_index=repeat_idx,
-                suite_index=suite_idx,
-                suite_name=suite_name,
-            )
-            for task in suite.tasks:
-                ev.emit_stage(
-                    kind="task",
-                    status="done",
-                    run_id=run_id,
-                    repeat_index=repeat_idx,
-                    suite_index=suite_idx,
-                    suite_name=suite_name,
-                    task_name=task.task_name,
-                )
-                for phase_name, phase in (
-                    ("baseline", task.baseline),
-                    ("evolved", task.evolved),
-                ):
-                    if phase is None:
-                        continue
-                    ev.emit_stage(
-                        kind="phase",
-                        status="done",
-                        run_id=run_id,
-                        repeat_index=repeat_idx,
-                        suite_index=suite_idx,
-                        suite_name=suite_name,
-                        task_name=task.task_name,
-                        phase=phase_name,
-                        score=phase.content_score,
-                        success=phase.success,
-                        turns=phase.turns or None,
-                        tool_calls=phase.tool_calls,
-                    )
-
-
-@contextmanager
-def _status_dashboard(
-    *, viz_enabled: bool, http_endpoint: str | None
-) -> Iterator["RunStateTracker | None"]:
-    """启用状态面板：终端 TUI（``--status-viz``）与 / 或 HTTP 仪表盘（``--status-http``）。
-
-    两者共享一份 ``RunStateTracker``：tracker 仅在至少一种面板被启用时注册到事件
-    总线，否则保持完全 no-op。``--status-viz`` 期间会暂时摘掉 console 日志
-    handler（保留 FileHandler），避免日志冲掉 ``rich.Live`` 渲染区；HTTP
-    dashboard 不动 console 日志。
-
-    yield 出 tracker（未启用时为 ``None``），调用方可以在 pipeline 之后把后处理
-    结果通过 ``tracker.set_final_summary(...)`` 注入快照供 dashboard 展示。
-    """
-    if not viz_enabled and not http_endpoint:
-        yield None
-        return
-
-    from src.lift.status.state import RunStateTracker
-
-    tracker = RunStateTracker()
-    tracker.attach()
-    try:
-        with _optional_status_panels(
-            tracker, viz_enabled=viz_enabled, http_endpoint=http_endpoint
-        ):
-            yield tracker
-    finally:
-        tracker.detach()
-
-
-@contextmanager
-def _optional_status_panels(
-    tracker: "RunStateTracker",
-    *,
-    viz_enabled: bool,
-    http_endpoint: str | None,
-) -> Iterator[None]:
-    """在已有 ``tracker`` 之上启用 TUI / HTTP 面板（按需）。
-
-    与 ``_status_dashboard`` 的区别：tracker 由调用方传入并管理 attach/detach
-    生命周期。``--evaluate-only`` 路径下 tracker 必须先于 panels 启动以便
-    replay 阶段事件能被订阅，因此走此函数。
-    """
-    # --status-viz: 摘 console 日志 + rich.Live 看板
-    stream_handlers: list[logging.Handler] = []
-    dashboard = None
-    if viz_enabled:
-        from src.lift.status.tui import StatusDashboard
-
-        root_logger = logging.getLogger()
-        stream_handlers = [
-            h
-            for h in root_logger.handlers
-            if isinstance(h, logging.StreamHandler)
-            and not isinstance(h, logging.FileHandler)
-        ]
-        for h in stream_handlers:
-            root_logger.removeHandler(h)
-        dashboard = StatusDashboard(tracker)
-        dashboard.start()
-
-    # --status-http: 后台线程 HTTP 服务器
-    http_dashboard = None
-    if http_endpoint:
-        from src.lift.status.http_dashboard import HttpDashboard
-
-        host, port = _parse_http_endpoint(http_endpoint)
-        http_dashboard = HttpDashboard(tracker, host=host, port=port)
-        http_dashboard.start()
-
-    try:
-        yield
-    finally:
-        if http_dashboard is not None:
-            http_dashboard.stop()
-        if dashboard is not None:
-            dashboard.stop()
-        for h in stream_handlers:
-            logging.getLogger().addHandler(h)
-
-
-def _parse_http_endpoint(endpoint: str) -> tuple[str, int]:
-    """解析 ``--status-http`` 参数为 ``(host, port)``。
-
-    - 纯数字：默认绑定 ``127.0.0.1``（仅本机访问）。
-    - ``HOST:PORT``：按 host:port 解析，host 可以是 ``0.0.0.0`` / 域名 / IP。
-    """
-    if ":" in endpoint:
-        host, _, port_str = endpoint.rpartition(":")
-        host = host.strip() or "127.0.0.1"
-    else:
-        host = "127.0.0.1"
-        port_str = endpoint
-    try:
-        port = int(port_str)
-    except ValueError as exc:
-        raise ValueError(
-            f"Invalid --status-http endpoint {endpoint!r}; expected PORT or HOST:PORT"
-        ) from exc
-    return host, port
 
 
 async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
@@ -458,7 +251,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         len(suite_paths),
         json.dumps(vars(args), default=str, ensure_ascii=False, sort_keys=True, indent=2),
     )
-    with _status_dashboard(
+    with status_dashboard(
         viz_enabled=args.status_viz, http_endpoint=args.status_http
     ) as tracker:
         await pipeline.run(
@@ -490,23 +283,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
 
             # dashboard 关停前导出一份静态 HTML 快照，便于会后回看。
             if tracker is not None and args.status_http:
-                _export_dashboard_snapshot(run_id, tracker)
-
-
-def _export_dashboard_snapshot(run_id: str, tracker) -> None:
-    """把当前 tracker 快照渲染为静态 HTML 写到 ``results/<run_id>/dashboard.html``。"""
-    from src.paths import results_run_dir
-    from src.lift.status.http_dashboard import build_static_dashboard_html
-
-    out = results_run_dir(run_id) / "dashboard.html"
-    try:
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(
-            build_static_dashboard_html(tracker.snapshot()), encoding="utf-8"
-        )
-        LOGGER.info("Dashboard static snapshot: %s", out)
-    except Exception:
-        LOGGER.exception("Failed to export dashboard snapshot to %s", out)
+                export_dashboard_snapshot(run_id, tracker)
 
 
 def main(argv: list[str] | None = None) -> None:

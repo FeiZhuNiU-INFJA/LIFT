@@ -771,7 +771,7 @@ python -m src.cli.lift_main ... --status-viz --status-http 8765
 
 **看板布局**（TUI / HTTP 一致）：Header（总进度 + ETA）/ Repeats（按 repeat 一行进度条）/ Suites × Repeats 栅格（每格 `w b e` 三状态符号 `· ◔ ● ✗`，done suite 自动折叠）/ Containers（按启动时长降序）。HTTP Dashboard 额外提供 suite 名 filter、hide done 折叠、连接状态徽标；通过 `GET /snapshot`（断线重连）+ `GET /events`（SSE 长连接）推送事件。
 
-**代码 navigation**：[events.py](../src/lift/status/events.py) / [state.py](../src/lift/status/state.py) / [tui.py](../src/lift/status/tui.py) / [http_dashboard.py](../src/lift/status/http_dashboard.py) / [lift_main.py](../src/cli/lift_main.py)（`_status_dashboard` context manager）。
+**代码 navigation**：[events.py](../src/lift/status/events.py) / [state.py](../src/lift/status/state.py) / [tui.py](../src/lift/status/tui.py) / [http_dashboard.py](../src/lift/status/http_dashboard.py) / [panels.py](../src/lift/status/panels.py)（`status_dashboard` context manager） / [replay.py](../src/lift/status/replay.py)（`--evaluate-only` replay）。
 
 ---
 

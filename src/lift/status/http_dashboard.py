@@ -130,6 +130,19 @@ def build_static_dashboard_html(snapshot: RunSnapshot) -> str:
     return html
 
 
+def export_dashboard_snapshot(run_id: str, tracker: RunStateTracker) -> None:
+    """把当前 tracker 快照渲染为静态 HTML 写到 ``results/<run_id>/dashboard.html``。"""
+    from src.paths import results_run_dir
+
+    out = results_run_dir(run_id) / "dashboard.html"
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(build_static_dashboard_html(tracker.snapshot()), encoding="utf-8")
+        LOGGER.info("Dashboard static snapshot: %s", out)
+    except Exception:
+        LOGGER.exception("Failed to export dashboard snapshot to %s", out)
+
+
 # ---- SSE 客户端注册表 ----------------------------------------------------
 
 
