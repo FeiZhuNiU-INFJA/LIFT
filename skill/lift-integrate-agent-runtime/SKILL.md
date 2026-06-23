@@ -360,6 +360,12 @@ python -m src.cli.lift_main -r <runtime> --evaluate-only --run_id <run_id>
 验证点：
 - `results/lift-runid-<run_id>/*_backfilled.json` 中每题都拼到 `work_agent_traces` / `judge_agent_traces`（数量与 `report.json` 的 turn 数对齐）
 - 没有 "trace not found" 告警
+- `results/lift-runid-<run_id>/dashboard.html` 同步刷新（mtime 更新；`tool_calls` 列填上 langfuse 兜底统计的非 null 值；含 final_summary 表格）
+
+> `--evaluate-only` 始终把 `report.json` 反向 replay 成事件总线广播（`emit_run_plan` /
+> `emit_suite_plan` / `emit_stage`）重建 tracker 骨架（repeat × suite × task ×
+> phase + score / success / turns / tool_calls / status），后处理跑完后用同一个
+> tracker 重导静态 dashboard，所以不依赖 `--status-http`。
 
 ### 6.4 test_search.json 联网能力 sanity（可选）
 

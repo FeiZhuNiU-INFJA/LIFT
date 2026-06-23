@@ -6,6 +6,8 @@ writes ``PhaseRun.langfuse``.
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Literal
 
 from langfuse import Langfuse, get_client
@@ -24,6 +26,12 @@ AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagen
 # pipeline 整段炸掉。后处理对延迟容忍度高（一次性 + 可重跑），把 timeout 拉到
 # 60s 是安全选择。
 _BACKFILL_HTTP_TIMEOUT_SECONDS = 60
+
+# phase 之间互相独立（各自 work/judge session id），用线程池并发拉 langfuse；
+# 同步 SDK 底层是 httpx.Client，连接池天然共享，适合直接喂 ThreadPoolExecutor。
+# 默认 8，可通过 ``EVAL_BACKFILL_WORKERS`` 调整。
+_BACKFILL_WORKERS_ENV = "EVAL_BACKFILL_WORKERS"
+_BACKFILL_WORKERS_DEFAULT = 8
 
 
 def get_langfuse_client():
@@ -89,28 +97,86 @@ def backfill_phase(
     return phase.model_copy(update=update)
 
 
+def _resolve_backfill_workers() -> int:
+    """读 ``EVAL_BACKFILL_WORKERS`` 环境变量；缺省或非法值回退默认值。"""
+    raw = os.environ.get(_BACKFILL_WORKERS_ENV)
+    if raw is None:
+        return _BACKFILL_WORKERS_DEFAULT
+    try:
+        value = int(raw)
+    except ValueError:
+        LOGGER.warning(
+            "Invalid %s=%r, falling back to default %d",
+            _BACKFILL_WORKERS_ENV, raw, _BACKFILL_WORKERS_DEFAULT,
+        )
+        return _BACKFILL_WORKERS_DEFAULT
+    return max(1, value)
+
+
 def backfill_report(
     report: EvalReport,
     client: Any,
     agent_source: AgentSource = "openclaw",
 ) -> EvalReport:
-    """Backfill Langfuse data for every baseline/evolved phase in *report*."""
+    """Backfill Langfuse data for every baseline/evolved phase in *report*.
+
+    phase 之间完全独立，用 ``ThreadPoolExecutor`` 并发拉 langfuse；单 phase 内
+    仍保持顺序（``stitch_phase_langfuse_traces`` 不是线程安全的入口契约，且
+    保留单 phase 内顺序便于排查）。``backfill_phase`` 自身已 try/except 兜底，
+    这里不再额外吞异常。
+    """
     run_tag = report.run_id
-    new_runs = []
+    # 收集所有 (phase, setter) 任务；setter 把 backfill 结果写回对应 task_run。
+    jobs: list[tuple[PhaseRun, Any]] = []  # (phase, callback(new_phase))
+
+    new_runs: list[Any] = []
     for repeat in report.runs:
-        new_suites = []
+        new_suites: list[Any] = []
         for suite in repeat.suites:
-            new_tasks = []
+            new_tasks: list[Any] = []
             for task_run in suite.tasks:
-                baseline = backfill_phase(client, run_tag, task_run.baseline, agent_source)
-                evolved = (
-                    backfill_phase(client, run_tag, task_run.evolved, agent_source)
-                    if task_run.evolved
-                    else None
+                slot: dict[str, PhaseRun | None] = {
+                    "baseline": task_run.baseline,
+                    "evolved": task_run.evolved,
+                }
+
+                def _make_setter(local_slot: dict[str, PhaseRun | None], key: str):
+                    def _setter(new_phase: PhaseRun | None) -> None:
+                        local_slot[key] = new_phase
+                    return _setter
+
+                if task_run.baseline is not None:
+                    jobs.append((task_run.baseline, _make_setter(slot, "baseline")))
+                if task_run.evolved is not None:
+                    jobs.append((task_run.evolved, _make_setter(slot, "evolved")))
+                new_tasks.append((task_run, slot))
+            new_suites.append((suite, new_tasks))
+        new_runs.append((repeat, new_suites))
+
+    workers = _resolve_backfill_workers()
+    if jobs:
+        LOGGER.info(
+            "Backfilling %d phase(s) with %d worker thread(s).", len(jobs), workers,
+        )
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                (pool.submit(backfill_phase, client, run_tag, phase, agent_source), setter)
+                for phase, setter in jobs
+            ]
+            for future, setter in futures:
+                setter(future.result())
+
+    # 按原结构重新组装 EvalReport，保留 task / suite / repeat 顺序。
+    rebuilt_runs = []
+    for repeat, suites in new_runs:
+        rebuilt_suites = []
+        for suite, tasks in suites:
+            rebuilt_tasks = [
+                task_run.model_copy(
+                    update={"baseline": slot["baseline"], "evolved": slot["evolved"]}
                 )
-                new_tasks.append(
-                    task_run.model_copy(update={"baseline": baseline, "evolved": evolved})
-                )
-            new_suites.append(suite.model_copy(update={"tasks": new_tasks}))
-        new_runs.append(repeat.model_copy(update={"suites": new_suites}))
-    return report.model_copy(update={"runs": new_runs})
+                for task_run, slot in tasks
+            ]
+            rebuilt_suites.append(suite.model_copy(update={"tasks": rebuilt_tasks}))
+        rebuilt_runs.append(repeat.model_copy(update={"suites": rebuilt_suites}))
+    return report.model_copy(update={"runs": rebuilt_runs})
