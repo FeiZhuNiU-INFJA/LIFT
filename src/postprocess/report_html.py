@@ -13,6 +13,7 @@ from typing import Any, Callable, Literal
 
 import pandas as pd
 
+from src.postprocess.extract import _should_ignore_tool_call_block
 from src.postprocess.metrics import METRIC_COLUMNS
 
 # Agent backend that produced the traces; controls which metrics appear in HTML.
@@ -316,6 +317,11 @@ def _block_text(content: Any) -> tuple[str, str, list[dict[str, Any]]]:
         elif btype == "thinking":
             reasonings.append(block.get("thinking", ""))
         elif btype == "toolCall":
+            # Skip OpenClaw self-evolution signal calls (exec to the local signal
+            # port) so trajectory tool nodes match the ``tool_use_num`` metric,
+            # which excludes them via the same predicate.
+            if _should_ignore_tool_call_block(block):
+                continue
             tool_blocks.append(
                 {
                     "name": block.get("name", "tool"),
@@ -552,6 +558,14 @@ def trajectory_column_html(raw_messages: Any, traj_id: str, title: str) -> str:
     return (
         f"<div class='traj-col-title'>{escape(title)} "
         f"<span class='muted'>({len(nodes)} nodes)</span></div>"
+        "<div class='traj-col-toolbar'>"
+        f"<button type='button' class='traj-dl-btn' data-svgname='{escape(traj_id)}' "
+        "onclick='downloadTrajPng(this)' title='Download this flowchart as a PNG image (for Feishu/Lark docs)'>"
+        "&#x1F5BC; Download PNG</button>"
+        f"<button type='button' class='traj-dl-btn' data-svgname='{escape(traj_id)}' "
+        "onclick='downloadTrajSvg(this)' title='Download this flowchart as an SVG file'>"
+        "&#x2B07; Download SVG</button>"
+        "</div>"
         "<div class='traj-canvas'>" + svg + "</div>"
         f"<div class='traj-detail' id='detail-{escape(traj_id)}'>"
         "<div class='traj-detail-empty muted'>Click a node to view its reasoning, content, or tool arguments.</div>"
@@ -736,12 +750,12 @@ def task_table_html(
 
 _LEGEND_HTML = """
 <section class='section legend'>
-  <h2>Legend &amp; Formulas</h2>
+  <h2>Legend</h2>
   <div class='legend-grid'>
     <div class='legend-card'>
       <h3>Task Icons</h3>
       <ul>
-        <li><span class='legend-icon'>🎓</span> Test-set task (final task in suite)</li>
+        <li><span class='legend-icon'>🎓</span> Test-set task</li>
         <li><span class='legend-icon'>✅</span> All task requirements satisfied</li>
         <li><span class='legend-icon'>❌</span> Some task requirements not satisfied</li>
       </ul>
@@ -759,36 +773,13 @@ _LEGEND_HTML = """
       <em>higher is better</em>.</p>
     </div>
     <div class='legend-card'>
-      <h3>Header Notation</h3>
+      <h3>Notation &amp; Outlier Rule</h3>
       <ul>
-        <li><code>metric [evolved (baseline)]</code>: cell shows the evolved value with the baseline value in parentheses.</li>
         <li><code>Impr metric</code>: relative improvement of evolved over baseline.</li>
       </ul>
-    </div>
-    <div class='legend-card formulas'>
-      <h3>Formulas</h3>
-      <ul>
-        <li>$\\displaystyle \\mathrm{impr}_{\\text{metric}} = \\frac{\\mathrm{evolved} - \\mathrm{baseline}}{\\mathrm{baseline}}$</li>
-        <li>$\\displaystyle \\mathrm{diff}_{\\text{metric}} = \\mathrm{evolved} - \\mathrm{baseline}$</li>
-        <li>$\\displaystyle \\overline{\\mathrm{impr}}_{\\text{metric}} = \\frac{\\sum_{i \\in S} \\mathrm{evolved}^{(i)} - \\sum_{i \\in S} \\mathrm{baseline}^{(i)}}{\\sum_{i \\in S} \\mathrm{baseline}^{(i)}}$
-            (aggregate ratio: sum evolved / baseline first, then take the relative change &mdash; <em>not</em> a mean of per-sample impr).</li>
-        <li>$\\displaystyle \\overline{\\mathrm{diff}}_{\\text{metric}} = \\frac{1}{|S|}\\sum_{i \\in S} \\mathrm{diff}_{\\text{metric}}^{(i)}$,
-            where $S$ is the set of non-outlier samples in a category / global scope (see Outlier Rule).</li>
-        <li>$\\displaystyle \\mathrm{success\\_rate} = \\frac{1}{N}\\sum_{i=1}^{N} \\mathbb{1}[\\mathrm{success}^{(i)}]$, computed separately on baseline and evolved runs.</li>
-      </ul>
-    </div>
-    <div class='legend-card formulas'>
-      <h3>Outlier Rule</h3>
-      <p class='muted' style='margin:6px 0 0;'>When aggregating $\\overline{\\mathrm{impr}}$ /
-      $\\overline{\\mathrm{diff}}$, sample $i$ is dropped iff
-      $\\mathrm{impr}_{\\text{trials}}^{(i)} \\ge 2.0$ or
-      $\\mathrm{impr}_{\\text{tool\\_use\\_num}}^{(i)} \\ge 2.0$
-      (i.e. the evolved run consumed at least 3&times; the baseline trials or tool calls,
-      treated as a degenerate regression). Excluded counts are surfaced via the
-      <span class='chip chip-warn' style='padding:2px 8px;font-size:12px;'>Aggregated / Excluded outliers</span>
-      chip on each section.<br>
-      Outlier samples are still shown in the per-task Run Blocks below; only the
-      summary aggregation drops them.</p>
+      <p class='muted' style='margin:6px 0 0;'>Outlier Rule: if a task's evolved vs. baseline differs too much on
+      trials or tool use num, that task is excluded from the summary aggregation (it still appears in the
+      per-task Run Blocks below).</p>
     </div>
   </div>
 </section>
@@ -882,6 +873,106 @@ function toggleAllRuns(btn, openState) {
     var label = variant.charAt(0).toUpperCase() + variant.slice(1);
     btn.textContent = (nowHidden ? 'Show ' : 'Hide ') + variant + ' trajectory';
   };
+
+  // Inlined style so a downloaded standalone SVG looks identical to the on-page one.
+  var SVG_STYLE = [
+    '.traj-edge{stroke:#94a3b8;stroke-width:1.5;fill:none;}',
+    '.traj-node-label{font-size:12px;font-weight:600;fill:#1f2937;'
+      + "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;}",
+    '.traj-turn{font-size:11px;fill:#6b7280;font-weight:600;'
+      + "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;}"
+  ].join('');
+
+  // Build a standalone, self-styled SVG string from an on-page trajectory SVG.
+  // Returns { xml, width, height } or null.
+  function buildStandaloneSvg(btn) {
+    var col = btn.closest('.traj-col') || (btn.parentNode && btn.parentNode.parentNode);
+    var svg = col ? col.querySelector('svg.traj-svg') : null;
+    if (!svg) return null;
+    var clone = svg.cloneNode(true);
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    var vb = (svg.getAttribute('viewBox') || '').split(/\\s+/);
+    var w = vb.length === 4 ? parseFloat(vb[2]) : (svg.clientWidth || 800);
+    var h = vb.length === 4 ? parseFloat(vb[3]) : (svg.clientHeight || 600);
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+    // Embed CSS + white background rect (class styles aren't carried out of the page).
+    var style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    style.textContent = SVG_STYLE;
+    clone.insertBefore(style, clone.firstChild);
+    var bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('x', vb.length === 4 ? vb[0] : '0');
+    bg.setAttribute('y', vb.length === 4 ? vb[1] : '0');
+    bg.setAttribute('width', '100%');
+    bg.setAttribute('height', '100%');
+    bg.setAttribute('fill', '#ffffff');
+    clone.insertBefore(bg, style.nextSibling);
+    var xml = new XMLSerializer().serializeToString(clone);
+    if (xml.indexOf('<?xml') !== 0) {
+      xml = '<?xml version="1.0" encoding="UTF-8"?>\\n' + xml;
+    }
+    return { xml: xml, width: w, height: h };
+  }
+
+  function triggerDownload(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+  }
+
+  window.downloadTrajSvg = function (btn) {
+    var built = buildStandaloneSvg(btn);
+    if (!built) return;
+    var blob = new Blob([built.xml], { type: 'image/svg+xml;charset=utf-8' });
+    triggerDownload(blob, (btn.getAttribute('data-svgname') || 'trajectory') + '.svg');
+  };
+
+  // Rasterize the standalone SVG to a PNG (default 2x scale) for tools that don't
+  // accept SVG (e.g. Feishu / Lark docs).
+  window.downloadTrajPng = function (btn, scale) {
+    var built = buildStandaloneSvg(btn);
+    if (!built) return;
+    scale = scale || 2;
+    var name = (btn.getAttribute('data-svgname') || 'trajectory') + '.png';
+    // Encode as a data URL (UTF-8 safe) so the image loads without CORS taint.
+    var svg64 = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(built.xml);
+    var img = new Image();
+    img.onload = function () {
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(built.width * scale));
+      canvas.height = Math.max(1, Math.round(built.height * scale));
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      if (canvas.toBlob) {
+        canvas.toBlob(function (blob) {
+          if (blob) triggerDownload(blob, name);
+        }, 'image/png');
+      } else {
+        var durl = canvas.toDataURL('image/png');
+        triggerDownload(dataUrlToBlob(durl), name);
+      }
+    };
+    img.onerror = function () {
+      alert('PNG export failed for this trajectory. You can still download the SVG.');
+    };
+    img.src = svg64;
+  };
+
+  function dataUrlToBlob(durl) {
+    var parts = durl.split(',');
+    var bin = atob(parts[1]);
+    var arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: 'image/png' });
+  }
 })();
 </script>
 """
@@ -1051,12 +1142,12 @@ details.run-block .task-table th { background: #eef1f7; }
 .run-toolbar button:hover { background: #dde6ff; }
 
 .gb-wrap { margin: 8px 0 4px; }
-.gb-legend { display: flex; gap: 18px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.gb-legend { display: flex; justify-content: center; gap: 18px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
 .gb-legend .swatch { width: 12px; height: 12px; }
 .gb-sw-good { background: var(--good); }
 .gb-sw-tie { background: var(--nan); }
 .gb-sw-bad { background: var(--bad); }
-.gb-chart { width: 100%; height: auto; max-width: 880px; display: block; }
+.gb-chart { width: 100%; height: auto; max-width: 880px; display: block; margin: 0 auto; }
 .gb-chart .gb-label { font-size: 13px; fill: #1f2937; font-weight: 600; }
 .gb-chart .gb-good { fill: var(--good); }
 .gb-chart .gb-tie { fill: var(--nan); }
@@ -1090,6 +1181,19 @@ details.run-block .task-table th { background: #eef1f7; }
 .traj-compare > .traj-col { flex: 1 1 0; min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: #fcfdff; }
 .traj-compare > .traj-col[hidden] { display: none; }
 .traj-col-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: #1f2937; }
+.traj-col-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 6px; }
+.traj-dl-btn {
+  background: #fff;
+  color: var(--accent);
+  border: 1px solid #d6e0ff;
+  padding: 4px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.traj-dl-btn:hover { background: var(--accent-soft); }
 .traj-canvas { overflow-x: auto; }
 .traj-svg { width: 100%; height: auto; min-width: 560px; }
 .traj-edge { stroke: #94a3b8; stroke-width: 1.5; fill: none; }

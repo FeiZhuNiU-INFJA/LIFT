@@ -114,7 +114,6 @@ def build_judge_messages(row: pd.Series) -> list[dict[str, str]]:
     """Build OpenAI chat messages (system + user) for trajectory judging from a DataFrame row."""
     requirements = row.get("trajectory_reqs")
     target_task = row.get("task_query", "")
-    print(f"target_task: \n{target_task}")
     if pd.isna(requirements):
         requirements = ""
 
