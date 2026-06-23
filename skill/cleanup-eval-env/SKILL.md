@@ -3,10 +3,16 @@
 清理 LIFT / agent_evolve_evaluation 评测环境产生的残留物——孤儿容器、delta
 镜像、dangling 镜像，以及（可选的）旧 results / logs。
 
+**runtime-agnostic**：脚本按 `evolve-*` 容器前缀 + `evolve-eval-*` 镜像前缀
+匹配，覆盖现在所有 runtime（OpenClaw / GenericAgent / 其衍生）和未来按
+[lift-integrate-agent-runtime](file:///root/workspace/agent_evolve_evaluation/skill/lift-integrate-agent-runtime/SKILL.md) §2.2
+新接的 runtime（约定 `_CONTAINER_PREFIX = "evolve-<runtime>"`）。新加 runtime
+**不需要修改 cleanup 脚本**。
+
 ## 何时使用
 
 - 评测主进程被异常杀掉（trae sandbox `--die-with-parent`、OOM、Ctrl-C 等）后
-  留下了 `evolve-openclaw-*` 容器、`evolve-eval-delta:*` 镜像
+  留下了 `evolve-*` 容器、`evolve-eval-delta:*` 镜像
 - docker 磁盘吃紧、`docker images` 里堆了一串 `<none>` dangling 镜像
 - 准备下一轮评测前需要一个干净环境
 
@@ -15,12 +21,12 @@
 | 资源 | 默认行为 | 备注 |
 |---|---|---|
 | 正在跑的 `python -m src.cli.lift_main` 进程 | **SIGTERM → 5s → SIGKILL 兜底** | 必须先杀主进程，否则 dashboard 还活着但底层资源被删，会刷一屏 ✗ |
-| `evolve-openclaw-*` 容器（exited / running） | **删除** | running 容器先尝试 stop 再 rm -f |
+| `evolve-*` 评测容器（exited / running，覆盖所有 runtime） | **删除** | running 容器先尝试 stop 再 rm -f |
 | `evolve-eval-delta:*` 镜像（warmup commit 产物） | **删除** | 评测期间会重新 commit，不必保留 |
 | dangling `<none>` 镜像 | **删除** | 旧构建的中间层 |
 | 根目录 `evolve_eval.log` | **删除** | 每次运行前都清，避免新旧日志混淆 |
-| `evolve-eval-openclaw-base/with-evolve:latest` | 保留 | 当前 base 镜像，下次评测要用 |
-| `ghcr.io/openclaw/openclaw:*` 等上游镜像 | 保留 | docker pull 慢，不删 |
+| `evolve-eval-openclaw-*:latest` / `evolve-eval-genericagent:latest` 等 base 镜像 | 保留 | 当前 base 镜像，下次评测要用 |
+| `ghcr.io/openclaw/openclaw:*` / GA 上游等 | 保留 | docker pull 慢，不删 |
 | `results/` 子目录 | **保留** | 默认不清；带 `--results` 才清 |
 | `logs/` 子目录 | **保留** | 默认不清；带 `--logs` 才清 |
 
@@ -47,8 +53,7 @@ bash <项目根>/skill/cleanup-eval-env/cleanup.sh --all
 
 ## 安全提示
 
-- 脚本只匹配特定名字模式（`evolve-openclaw-*` / `evolve-eval-delta:*`），
-  不会误删其它 docker 资源。
+- 脚本只匹配特定名字模式（`evolve-*` 容器 / `^evolve-eval-*` 镜像 / `evolve-eval-delta:*` 镜像），不会误删其它 docker 资源。如果你宿主机上其它项目也用 `evolve-` 起头的容器名，先用 `--dry-run` 看清单。
 - `--results` / `--logs` 是不可逆操作，启用前先确认报告/日志已经备份。
 - 如果同时有别的同事在用同一台机器跑评测，先用 `--dry-run` 看清单再执行。
 

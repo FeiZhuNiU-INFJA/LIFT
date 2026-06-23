@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from langfuse import get_client
+from langfuse import Langfuse, get_client
 
+from src.config import LOGGER
 from src.models import EvalReport, PhaseRun
 from src.report.langfuse_trace_stitch import stitch_phase_langfuse_traces
 
@@ -18,8 +19,26 @@ from src.report.langfuse_trace_stitch import stitch_phase_langfuse_traces
 AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent", "genericagent_active_evolve"]
 
 
+# Langfuse SDK 4.x 默认 5s 超时（langfuse/_client/client.py:279 读 LANGFUSE_TIMEOUT
+# fallback 5），跑大规模 run 时 trace.list 翻页会偶发 ReadTimeout 把 backfill
+# pipeline 整段炸掉。后处理对延迟容忍度高（一次性 + 可重跑），把 timeout 拉到
+# 60s 是安全选择。
+_BACKFILL_HTTP_TIMEOUT_SECONDS = 60
+
+
 def get_langfuse_client():
-    """Return a configured Langfuse client with API access, or raise ``RuntimeError``."""
+    """Return a configured Langfuse client with API access, or raise ``RuntimeError``.
+
+    优先用显式 ``Langfuse(timeout=60)`` 构造，避开 SDK 默认 5s 超时。如果环境
+    没配 LANGFUSE_PUBLIC_KEY 等凭据，构造会失败 / ``api`` 不可用，此时回退到
+    ``get_client()``（保持原行为，让校验分支统一抛 RuntimeError）。
+    """
+    try:
+        client = Langfuse(timeout=_BACKFILL_HTTP_TIMEOUT_SECONDS)
+        if hasattr(client, "api"):
+            return client
+    except Exception:
+        LOGGER.exception("Failed to construct Langfuse client with explicit timeout, falling back.")
     client = get_client()
     if not hasattr(client, "api"):
         raise RuntimeError(
@@ -35,17 +54,28 @@ def backfill_phase(
     phase: PhaseRun | None,
     agent_source: AgentSource = "openclaw",
 ):
-    """Attach stitched Langfuse traces to a single ``PhaseRun``, or return None if *phase* is None."""
+    """Attach stitched Langfuse traces to a single ``PhaseRun``, or return None if *phase* is None.
+
+    单题 backfill 失败（langfuse 网络抖 / 数据格式异常）时返回原 ``phase``，
+    避免一题崩掉整个 pipeline 让 dashboard 拿不到 ``tool_calls``。
+    """
     if phase is None:
         return None
-    # 按 PhaseRun 存的 session id 拉 Langfuse，合并 *_agent + openclaw-plugin
-    bundle = stitch_phase_langfuse_traces(
-        client,
-        eval_run_tag=run_tag,
-        work_session_id=phase.work_session_id,
-        judge_session_id=phase.judge_session_id,
-        agent_source=agent_source,
-    )
+    try:
+        # 按 PhaseRun 存的 session id 拉 Langfuse，合并 *_agent + openclaw-plugin
+        bundle = stitch_phase_langfuse_traces(
+            client,
+            eval_run_tag=run_tag,
+            work_session_id=phase.work_session_id,
+            judge_session_id=phase.judge_session_id,
+            agent_source=agent_source,
+        )
+    except Exception:
+        LOGGER.exception(
+            "Langfuse backfill failed for phase work_sid=%s judge_sid=%s — keeping phase unchanged.",
+            phase.work_session_id, phase.judge_session_id,
+        )
+        return phase
     update: dict[str, Any] = {"langfuse": bundle}
     # tool_calls 兜底：runtime 主链路没填 PhaseRun.tool_calls 时（如 GA 没有
     # trajectory.jsonl），用 langfuse work_analytics 的 tool_observation_count 代替——

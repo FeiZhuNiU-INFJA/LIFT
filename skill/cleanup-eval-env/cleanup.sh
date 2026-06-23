@@ -83,9 +83,12 @@ else
     fi
 fi
 
-# 1. 评测容器（前缀 evolve-openclaw-）
-section "1. 清理 evolve-openclaw-* 容器"
-mapfile -t containers < <(docker ps -a --filter "name=evolve-openclaw" --format "{{.Names}}" || true)
+# 1. 评测容器（按 SKILL "lift-integrate-agent-runtime" §2.2 约定，
+# 所有 runtime 的 _CONTAINER_PREFIX 都形如 "evolve-<runtime>"，
+# 例如 evolve-openclaw / evolve-genericagent。统一用 "evolve-" 前缀过滤，
+# 未来新加 runtime 不必再改 cleanup 脚本。）
+section "1. 清理 evolve-* 评测容器"
+mapfile -t containers < <(docker ps -a --filter "name=evolve-" --format "{{.Names}}" || true)
 if [[ ${#containers[@]} -eq 0 ]]; then
     echo "(无残留容器)"
 else
@@ -160,9 +163,9 @@ else
 fi
 
 section "完成"
-echo "当前 evolve-openclaw-* 容器:"
-docker ps -a --filter "name=evolve-openclaw" --format "  {{.Names}}\t{{.Status}}" || true
+echo "当前 evolve-* 评测容器:"
+docker ps -a --filter "name=evolve-" --format "  {{.Names}}\t{{.Status}}" || true
 echo
 echo "当前镜像:"
 docker images --format "  {{.Repository}}:{{.Tag}}\t{{.Size}}" \
-    | grep -E "evolve-eval|openclaw" || echo "  (无相关镜像)"
+    | grep -E "^evolve-eval" || echo "  (无相关镜像)"
