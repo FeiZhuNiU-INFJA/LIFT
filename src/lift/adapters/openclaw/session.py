@@ -257,6 +257,10 @@ async def start_openclaw_container(
         extra_docker_args.extend(["--memory", container_memory])
     if container_cpus:
         extra_docker_args.extend(["--cpus", container_cpus])
+    # 镜像里 baked 的 healthcheck 是 ``openclaw plugins list``，每 30s 在每个容器
+    # 内冷启一次 node 进程；我们 readiness 由 ``_wait_gateway`` 自己 curl，
+    # docker 端的 health 状态既不被消费、又持续吃 CPU——禁掉。
+    extra_docker_args.append("--no-healthcheck")
 
     post_start_hooks: list = []
     if workspace_dir is not None:

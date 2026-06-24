@@ -93,6 +93,14 @@ class OpenClawContainerAgent(ChatAgent):
         return extract_agent_text(stdout)
 
     async def _register_agent_in_container(self, max_attempts: int = 5) -> None:
+        """注册 agent；优化路径：直接 ``add``，失败再 ``list`` 兜底确认。
+
+        历史实现是 ``list → add → list`` 三次 docker exec，每次都在容器里冷启一次
+        node CLI（OpenClaw CLI 是 Node.js）。成功路径上的两次 ``list`` 是浪费——
+        新建容器每次都是新 short_id 名字，前置 ``list`` 永远是 false；后置 ``list``
+        只是在确认 ``add`` 自己刚说过的事。改成"先 ``add``，仅在异常分支才 ``list``
+        兜底"后，成功路径从 3 次 node 冷启降到 1 次。
+        """
         async def exists() -> bool:
             try:
                 stdout = await exec_openclaw_async(
@@ -103,9 +111,6 @@ class OpenClawContainerAgent(ChatAgent):
             return self._agent_name in (stdout or "")
 
         for attempt in range(max_attempts):
-            if await exists():
-                LOGGER.info("Container agent %s already exists", self._agent_name)
-                return
             try:
                 await exec_openclaw_async(
                     self._container,
@@ -119,9 +124,16 @@ class OpenClawContainerAgent(ChatAgent):
                         CONTAINER_WORKSPACE,
                     ],
                 )
+                return  # ``add`` 退 0 即视作成功；不再做后置 list 双确认
             except RuntimeError:
-                pass  # 名字冲突等错误下面靠 exists() 二次确认 / 改名重试
+                # 异常分支：可能是 (a) 名字冲突，(b) docker exec 抖动但实际已 add 成功，
+                # (c) CLI 真的失败。用一次 ``list`` 兜底区分 (a)/(b) vs (c)。
+                pass
             if await exists():
+                LOGGER.info(
+                    "Container agent %s present after add error; treating as success",
+                    self._agent_name,
+                )
                 return
             LOGGER.warning(
                 "Retry container agent create %s (%d/%d)",

@@ -72,8 +72,8 @@ docker compose up
 ## 3. 安装依赖与镜像
 
 ```bash
-conda create -n evolve_eval python=3.12
-conda activate evolve_eval
+conda create -n lift python=3.12
+conda activate lift
 pip install -r requirements.txt
 ```
 
