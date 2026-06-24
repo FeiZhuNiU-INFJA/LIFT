@@ -37,19 +37,39 @@ bash agent-runtimes/openclaw/build-image.sh --with-evolve
 
 LIFT copies this seed into each task workspace before mount so agents skip first-run onboarding.
 
-### 内网/外网构建（APT 与 PyPI 镜像源）
+### 内网/外网构建（base image / APT / PyPI 镜像源）
 
-构建脚本默认走公网官方源（`deb.debian.org` + `https://pypi.org/simple/`）；公网拉取不
-稳定时（如字节内部环境），通过两个环境变量切换镜像源即可，**Dockerfile 与脚本本身无需
-改动**。
+构建脚本默认走公网官方源（`ghcr.io/openclaw/openclaw:latest` + `deb.debian.org` +
+`https://pypi.org/simple/`）；公网拉取不稳定时（如字节内部环境），通过三个环境变量
+切换镜像源即可，**Dockerfile 与脚本本身无需改动**。
 
 | 环境 | 命令 |
 |------|------|
 | 公网（默认） | `bash agent-runtimes/openclaw/build-image.sh` |
-| 字节内网 | `APT_MIRROR=http://mirrors.byted.org \`<br>`PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \`<br>`  bash agent-runtimes/openclaw/build-image.sh` |
-| 其它内网/自建源 | 把 `APT_MIRROR` 指向布局与官方一致的 Debian 镜像（`<APT_MIRROR>/debian` + `<APT_MIRROR>/debian-security`）；`PIP_INDEX_URL` 指向 PEP 503 兼容的 simple 索引 |
+| 字节内网 | `OPENCLAW_BASE_IMAGE=ghcr.milu.moe/openclaw/openclaw:latest \`<br>`APT_MIRROR=http://mirrors.byted.org \`<br>`PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \`<br>`  bash agent-runtimes/openclaw/build-image.sh` |
+| 其它内网/自建源 | 把 `OPENCLAW_BASE_IMAGE` 指向已镜像同步过 `ghcr.io/openclaw/openclaw` 的内网 registry；`APT_MIRROR` 指向布局与官方一致的 Debian 镜像（`<APT_MIRROR>/debian` + `<APT_MIRROR>/debian-security`）；`PIP_INDEX_URL` 指向 PEP 503 兼容的 simple 索引 |
+
+构建两个变体（base 和 with-evolve）的完整命令：
+
+```bash
+# 字节内网
+OPENCLAW_BASE_IMAGE=ghcr.milu.moe/openclaw/openclaw:latest \
+APT_MIRROR=http://mirrors.byted.org \
+PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \
+  bash agent-runtimes/openclaw/build-image.sh                # → evolve-eval-openclaw-base:latest
+
+OPENCLAW_BASE_IMAGE=ghcr.milu.moe/openclaw/openclaw:latest \
+APT_MIRROR=http://mirrors.byted.org \
+PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \
+  bash agent-runtimes/openclaw/build-image.sh --with-evolve  # → evolve-eval-openclaw-with-evolve:latest
+```
 
 注意：
+- `OPENCLAW_BASE_IMAGE` 决定 `FROM` 这一步去哪里拉基础镜像。**Docker daemon 的
+  `registry-mirrors` 只代理 `docker.io`，不代理 `ghcr.io`**，所以仅在 daemon.json
+  里加加速器对 base image pull 无效，必须在这里显式切源。首次拉完之后本地有缓存，
+  后续 build 即便 `docker pull` 失败也会自动 fallback 到本地镜像（脚本里 `|| echo
+  WARN` 兜底）。
 - `APT_MIRROR` 仅在构建期生效（用于 `apt-get install` 系统包）。
 - `PIP_INDEX_URL` 既影响构建期（uv / pip 装 self-evolving plugin 等），也写入运行
   期 ENV——容器内 plugin 装包时也走这里。

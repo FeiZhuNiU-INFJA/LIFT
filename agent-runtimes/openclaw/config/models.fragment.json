@@ -8,7 +8,7 @@
         "apiKey": "__ARK_API_KEY__",
         "models": [
           {
-            "id": "doubao-seed-2-0-pro-260215",
+            "id": "ep-20260529115331-9zxpm",
             "name": "doubao-seed-2-0-pro-260215 (Custom Provider)",
             "contextWindow": 200000,
             "maxTokens": 50000,

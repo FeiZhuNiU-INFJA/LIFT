@@ -428,7 +428,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .cmp-metric { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .cmp-metric { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 4px 6px; border-radius: 3px; }
+  /* 异常值高亮：例如 turns 触顶到 max_conversation_turns，
+     说明对话被截断、未必是真实结论，给一层琥珀底色提醒查看 dialogue。
+     边框/底色只染该指标格本身，不动 Δ 文字色（仍按进步/退步着色）。 */
+  .cmp-metric.warn {
+    background: rgba(255, 181, 71, 0.10);
+    box-shadow: inset 0 0 0 1px rgba(255, 181, 71, 0.35);
+  }
   .cmp-metric-delta {
     font: 700 14px/1.2 'JetBrains Mono', monospace;
   }
@@ -1240,7 +1247,7 @@ function renderCompare(repeats) {
   // pass 用文字而非 ✓/✗ 符号，避免歧义：yes / no / —（未知）
   const passSym = (v) => (v === true) ? 'yes' : (v === false) ? 'no' : '—';
   const metricCell = (m) =>
-    `<div class="cmp-metric">`
+    `<div class="cmp-metric${m.warn ? ' warn' : ''}"${m.warnTitle ? ` title="${escapeAttr(m.warnTitle)}"` : ''}>`
     + `<span class="cmp-metric-delta ${m.cls}">${m.delta}</span>`
     + `<span class="cmp-metric-vals">${m.vals}</span>`
     + `</div>`;
@@ -1252,13 +1259,29 @@ function renderCompare(repeats) {
     const delta = (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(2);
     return { vals, delta, cls };
   };
+  // turns 触顶判定：等于 max_conversation_turns 视为对话被截断（潜在异常值）。
+  // 取自 emit_run_plan 里的 params；缺失/非法则不做触顶高亮。
+  const _cmpParams = Object.fromEntries(snapshot?.params || []);
+  const _maxTurns = parseInt(_cmpParams['max_conversation_turns'], 10);
+  const turnsCap = Number.isFinite(_maxTurns) && _maxTurns > 0 ? _maxTurns : null;
   const turnsMetric = (b, e) => {  // 轮数越少越好：负 delta = 进步
     const vals = `${fmtT(b)} → ${fmtT(e)}`;
-    if (typeof b !== 'number' || typeof e !== 'number' || b <= 0 || e <= 0) return { vals, delta: '—', cls: 'flat' };
+    // 任一侧打到 turnsCap 都算触顶（对话被截断），用底色提示
+    const hitB = turnsCap != null && typeof b === 'number' && b >= turnsCap;
+    const hitE = turnsCap != null && typeof e === 'number' && e >= turnsCap;
+    const warn = hitB || hitE;
+    const warnTitle = warn
+      ? `turns hit max_conversation_turns=${turnsCap}`
+        + ` (${hitB && hitE ? 'baseline & evolved' : hitB ? 'baseline' : 'evolved'})`
+        + ` — dialogue likely truncated, value is a lower bound`
+      : '';
+    if (typeof b !== 'number' || typeof e !== 'number' || b <= 0 || e <= 0) {
+      return { vals, delta: '—', cls: 'flat', warn, warnTitle };
+    }
     const d = e - b;
     const cls = d < -0.001 ? 'up' : d > 0.001 ? 'down' : 'flat';
     const delta = (d > 0 ? '+' : (d < 0 ? '' : '±')) + d.toFixed(1);
-    return { vals, delta, cls };
+    return { vals, delta, cls, warn, warnTitle };
   };
   const toolsMetric = (b, e) => {  // 工具调用越少越好：负 delta = 进步
     const fmtTl = (v) => (typeof v === 'number' && v >= 0) ? v.toString() : '—';
