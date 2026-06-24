@@ -57,19 +57,13 @@ class RunOptions(BaseModel):
         default="commit_image",
         description="delta 物化方式（当前仅 docker commit）",
     )
-    max_parallel_repeats: int | None = Field(
-        default=None,
-        description=(
-            "repeat 并行度上限（也是串/并行开关）。``None`` 表示无上限（所有 repeat "
-            "并行）；``1`` 表示串行；``N>1`` 表示最多 N 个 repeat 同时跑。"
-        ),
-    )
     max_parallel_suites: int | None = Field(
         default=3,
         description=(
-            "单 repeat 内 suite 并行度上限。默认 ``3``（最多 3 个 suite 同时跑 "
-            "warmup+hold-out）；``1`` 串行；``None`` 或 <=0 表示无上限。每个 suite "
-            "各自带题级并发，并发 suite 数 × 题级并发会放大总容器数，需结合资源量设置。"
+            "suites × repeats 矩阵中 cell 级并发上限（一个 cell = 一个 (repeat, "
+            "suite) 对，对应一次 warmup+hold-out）。默认 ``3``；``1`` 串行；"
+            "``None`` 或 <=0 表示无上限。每个 cell 还自带题级并发，"
+            "总容器数 = 并发 cell 数 × 题级并发，需结合资源量设置。"
         ),
     )
     max_concurrent_tasks: int | None = Field(
@@ -107,7 +101,7 @@ class RunOptions(BaseModel):
 
     @model_validator(mode="after")
     def _normalize_options(self) -> RunOptions:
-        """校验 repeat 下限。``max_parallel_repeats`` / ``max_concurrent_tasks``
+        """校验 repeat 下限。``max_parallel_suites`` / ``max_concurrent_tasks``
         保持 ``None`` 语义（无上限），由下游 ``bounded_gather`` 解释。"""
         if self.repeat < 1:
             raise ValueError("--repeat must be at least 1")

@@ -223,39 +223,6 @@
     font-weight: 500;
     margin: 0 5px;
   }
-  .repeat-rings {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    align-items: center;
-    padding-top: 2px;
-  }
-  .repeat-ring {
-    display: inline-grid;
-    grid-template-columns: 38px auto;
-    align-items: center;
-    gap: 9px;
-    min-width: 112px;
-    color: var(--muted);
-    font: 400 12px/1.2 'JetBrains Mono', monospace;
-  }
-  .repeat-ring-gauge {
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    background:
-      radial-gradient(circle at center, var(--bg-elev) 0 55%, transparent 56%),
-      conic-gradient(var(--ring-color) var(--ring-pct), var(--line) 0);
-    border: 1px solid var(--line-strong);
-  }
-  .repeat-ring-label {
-    font: 600 13px/1 'Barlow Condensed', sans-serif;
-    letter-spacing: 0.14em;
-    color: var(--fg);
-    text-transform: uppercase;
-  }
-  .repeat-ring-meta { margin-top: 3px; white-space: nowrap; }
-  .repeat-ring-active { color: var(--yellow); }
 
   /* ---- params：紧凑内联（静态参考信息，高密度低存在感）---- */
   /* 不加 border-top：那条线会比 panel 自身的底边更靠近 hero，展开时产生"线往上跳"的
@@ -615,6 +582,24 @@
     margin-bottom: 3px;
   }
 
+  /* matrix 横向滚动：repeat 多时表格自然超过 panel 宽度，panel-body 因为折叠动画
+     需要 overflow:hidden，所以套一层独立 scroller。suite 名列粘在左侧，滚动时仍可见。 */
+  .matrix-scroll { overflow-x: auto; }
+  #grid { width: max-content; min-width: 100%; }
+  #grid thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    background: var(--bg-elev);
+  }
+  #grid td.suite-name {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--bg);
+  }
+  #grid tbody tr:hover td.suite-name { background: #14181f; }
+
   /* status colors — amber 只点活信号（running / failed），完成态不发光 */
   .pending { color: var(--grey); }
   .running { color: var(--amber); text-shadow: 0 0 6px currentColor; animation: blink 1.6s ease-in-out infinite; }
@@ -860,7 +845,6 @@
           <div class="progress-track">
             <div id="overall-bar" class="progress-fill" style="width:0"></div>
           </div>
-          <div id="repeat-rings" class="repeat-rings"></div>
         </div>
       </div>
       <div id="params" class="params"></div>
@@ -878,9 +862,9 @@
     <div class="panel-body">
       <div class="kpi-strip">
         <div class="kpi-group">
-          <div class="kpi-group-label">overview</div>
+          <div class="kpi-group-label">holdout task overview</div>
           <div class="kpi-cells">
-            <div class="kpi" title="holdout tasks finished / total holdout tasks this run (all repeats)"><div class="kpi-label">tasks done</div>
+            <div class="kpi" title="holdout tasks finished / total holdout tasks this run (all repeats × all suites)"><div class="kpi-label">tasks done</div>
               <div class="kpi-value"><b id="kpi-done">0</b><span class="kpi-suffix"> of <i id="kpi-total">0</i></span></div></div>
             <div class="kpi"><div class="kpi-label">failed</div>
               <div class="kpi-value" id="kpi-failed">0</div></div>
@@ -1010,7 +994,9 @@
         <span class="sep">·</span>
         <span style="color:var(--muted)">hover a cell for per-task detail · <b style="color:var(--amber)">copy</b> button copies the kill command</span>
       </div>
-      <table id="grid"><thead></thead><tbody></tbody></table>
+      <div class="matrix-scroll">
+        <table id="grid"><thead></thead><tbody></tbody></table>
+      </div>
     </div>
   </section>
 
@@ -1534,20 +1520,24 @@ function renderKpiStrip(repeats) {
       }
     }
   }
-  // 分母用「这次 run 要跑的全部 holdout 题」= 配置的 repeat 数 × Σ(每个唯一 suite 的
-  // holdout 题数)。不能直接拿"已启动 suite 里的题数"当分母——它随 suite 陆续启动而增长，
-  // 会被误读成"已运行数"。同一 suite 跨 repeat 题数相同，任一 repeat 里 plan 过即知其数。
+  // 分母优先取 emit_run_plan 在 run 启动时预扫描算出的静态总数 ``holdout_total``
+  // = repeat 数 × Σ(每个 suite 的 holdout 题数)。这样从首帧起分母就稳定，
+  // 不会随 suite 陆续 plan 出来而递增（避免被误读成"已运行数"）。
+  // 退路：evaluate-only replay 等没传 holdout_total 时，按已 plan 的 suite 现算。
   const _params = Object.fromEntries(snapshot?.params || []);
-  const _cfgRepeat = parseInt(_params['repeat'], 10);
-  const numRepeats = (Number.isFinite(_cfgRepeat) && _cfgRepeat > 0) ? _cfgRepeat : (repeats.length || 1);
-  const perSuiteHoldout = {};
-  for (const r of repeats) {
-    for (const [idx, s] of Object.entries(r.suites || {})) {
-      const n = Object.keys(s.holdout_tasks || {}).length;
-      if (n) perSuiteHoldout[idx] = Math.max(perSuiteHoldout[idx] || 0, n);
+  let grandTotal = parseInt(_params['holdout_total'], 10);
+  if (!Number.isFinite(grandTotal) || grandTotal <= 0) {
+    const _cfgRepeat = parseInt(_params['repeat'], 10);
+    const numRepeats = (Number.isFinite(_cfgRepeat) && _cfgRepeat > 0) ? _cfgRepeat : (repeats.length || 1);
+    const perSuiteHoldout = {};
+    for (const r of repeats) {
+      for (const [idx, s] of Object.entries(r.suites || {})) {
+        const n = Object.keys(s.holdout_tasks || {}).length;
+        if (n) perSuiteHoldout[idx] = Math.max(perSuiteHoldout[idx] || 0, n);
+      }
     }
+    grandTotal = numRepeats * Object.values(perSuiteHoldout).reduce((a, b) => a + b, 0);
   }
-  const grandTotal = numRepeats * Object.values(perSuiteHoldout).reduce((a, b) => a + b, 0);
   const mean = (xs) =>
     xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
   const baseAvg = mean(stats.baseScores);
@@ -1646,8 +1636,8 @@ function render() {
     const byKey = Object.fromEntries(params);
     const used = new Set();
     const PARAM_GROUPS = [
-      { label: 'run', keys: ['suites', 'repeat', 'warmup_only', 'evaluate', 'max_conversation_turns'] },
-      { label: 'concurrency', keys: ['max_parallel_repeats', 'max_parallel_suites', 'max_concurrent_tasks'] },
+      { label: 'run', keys: ['suites', 'repeat', 'holdout_total', 'warmup_only', 'evaluate', 'max_conversation_turns'] },
+      { label: 'concurrency', keys: ['max_parallel_suites', 'max_concurrent_tasks'] },
       { label: 'containers', keys: ['warmup_container_policy', 'holdout_container_policy', 'holdout_phase_policy', 'container_memory', 'container_cpus'] },
     ];
     const renderGroup = (label, keys) => {
@@ -1699,28 +1689,6 @@ function render() {
   document.getElementById('stat-running').textContent = running;
   document.getElementById('stat-elapsed').textContent = elapsed ? fmtDuration(elapsed) : '—';
   document.getElementById('stat-eta').textContent = eta != null ? fmtDuration(eta) : '—';
-
-  // repeats 进度圆环：嵌在 primary telemetry 里，避免独立 panel 占用纵向空间。
-  const rDiv = document.getElementById('repeat-rings');
-  rDiv.innerHTML = '';
-  for (const r of repeats) {
-    const suites = Object.values(r.suites || {});
-    const total_r = suites.length;
-    const done_r = suites.filter(s => suiteOverall(s) === 'done').length;
-    const run_r = suites.filter(s => suiteOverall(s) === 'running').length;
-    const pct_r = total_r ? Math.round(done_r * 100 / total_r) : 0;
-    const color = total_r && done_r === total_r ? 'var(--green)'
-      : run_r ? 'var(--amber)' : 'var(--muted)';
-    const row = document.createElement('div');
-    row.className = 'repeat-ring';
-    row.title = `repeat ${r.index}: ${done_r}/${total_r} suites done, ${run_r} active`;
-    row.innerHTML = `<div class="repeat-ring-gauge" style="--ring-pct:${pct_r}%;--ring-color:${color}"></div>`
-      + `<div><div class="repeat-ring-label">r${r.index} · ${pct_r}%</div>`
-      + `<div class="repeat-ring-meta">${done_r}/${total_r} done`
-      + (run_r ? ` · <span class="repeat-ring-active">${run_r} active</span>` : '')
-      + `</div></div>`;
-    rDiv.appendChild(row);
-  }
 
   // suites × repeats 栅格
   const hideDone = document.getElementById('hide-done').checked;

@@ -44,7 +44,6 @@ def _build_run_params(
             ("repeat", str(options.repeat)),
             ("warmup_only", str(options.warmup_only)),
             ("evaluate", str(options.evaluate)),
-            ("max_parallel_repeats", _fmt_optional_int(options.max_parallel_repeats)),
             ("max_parallel_suites", _fmt_optional_int(options.max_parallel_suites)),
             ("max_concurrent_tasks", _fmt_optional_int(options.max_concurrent_tasks)),
             ("max_conversation_turns", str(options.max_conversation_turns)),
@@ -82,6 +81,20 @@ class LIFTPipeline:
         report_path = report_json_path(run_id)
         results_run_dir(run_id).mkdir(parents=True, exist_ok=True)
         eval_report.runs = [EvalRepeat() for _ in range(options.repeat)]
+        # 占位：cell 并发回填时按 (repeat, suite) 索引写入，避免 append 顺序乱
+        for repeat_run in eval_report.runs:
+            repeat_run.suites = [None] * len(suite_paths)  # type: ignore[list-item]
+
+        # 预加载所有 suite 算 holdout 静态总数；放进 params 供 dashboard 渲染
+        # "X of Y"，避免分母随 suite 陆续 plan 而动态增长。
+        holdout_total = 0
+        for p in suite_paths:
+            try:
+                _, holdouts = split_suite_tasks(load_lift_suite(p))
+                holdout_total += len(holdouts)
+            except Exception:  # noqa: BLE001 — 预扫描失败不阻塞 run
+                LOGGER.warning("preload holdout count failed: %s", p, exc_info=True)
+        holdout_total *= options.repeat
 
         # 广播整体执行计划：repeat 数 + suite 列表（题级骨架在 suite 加载后补全）
         status_events.emit_run_plan(
@@ -91,138 +104,97 @@ class LIFTPipeline:
             params=_build_run_params(
                 options=options,
                 suite_count=len(suite_paths),
-                extra=extra_params,
+                extra=(*extra_params, ("holdout_total", str(holdout_total))),
             ),
         )
 
-        # 多 repeat 默认并行；max_parallel_repeats=1 时串行；否则受其值上限约束
-        if options.repeat > 1 and options.max_parallel_repeats != 1:
-            await bounded_gather(
-                (
-                    self._run_suites(
-                        repeat_index=i,
-                        run_id=run_id,
-                        suite_paths=suite_paths,
-                        adapter=adapter,
-                        options=options,
-                        eval_report=eval_report,
-                        report_path=report_path,
-                    )
-                    for i in range(options.repeat)
-                ),
-                limit=options.max_parallel_repeats,
+        # 单层 cell 级并发：repeat × suite 笛卡尔积铺平后用同一个 limit 限流。
+        # 失败 cell 全局收集，最后用同 limit 统一重跑一次。
+        cells: list[tuple[int, int, Path]] = [
+            (r, s, suite_paths[s])
+            for r in range(options.repeat)
+            for s in range(len(suite_paths))
+        ]
+        failed = await self._run_cells(
+            cells=cells,
+            run_id=run_id,
+            adapter=adapter,
+            options=options,
+            eval_report=eval_report,
+            report_path=report_path,
+        )
+        if failed:
+            LOGGER.info(
+                "LIFT retrying %d failed cell(s) run_id=%s: %s",
+                len(failed),
+                run_id,
+                ", ".join(f"r{r}/{p.name}" for r, _, p in failed),
             )
-        else:
-            for repeat_index in range(options.repeat):
-                await self._run_suites(
-                    repeat_index=repeat_index,
-                    run_id=run_id,
-                    suite_paths=suite_paths,
-                    adapter=adapter,
-                    options=options,
-                    eval_report=eval_report,
-                    report_path=report_path,
+            still_failed = await self._run_cells(
+                cells=failed,
+                run_id=run_id,
+                adapter=adapter,
+                options=options,
+                eval_report=eval_report,
+                report_path=report_path,
+            )
+            for r, _, p in still_failed:
+                LOGGER.error(
+                    "LIFT cell failed after retry run_id=%s repeat=%d suite=%s",
+                    run_id, r, p.name,
                 )
 
-        eval_report.completed_at = datetime.now(timezone.utc).isoformat()
+        completed_at = datetime.now(timezone.utc).isoformat()
+        for repeat_run in eval_report.runs:
+            repeat_run.completed_at = completed_at
+        eval_report.completed_at = completed_at
         async with self._report_lock:
             eval_report.write_json(report_path)
         LOGGER.info("LIFT report written: %s", report_path)
         return eval_report
 
-    async def _run_suites(
+    async def _run_cells(
         self,
         *,
-        repeat_index: int,
+        cells: list[tuple[int, int, Path]],
         run_id: str,
-        suite_paths: list[Path],
         adapter: AgentRuntimeAdapter,
         options: RunOptions,
         eval_report: EvalReport,
         report_path: Path,
-    ) -> None:
-        """单轮 repeat 内跑所有 suite（warmup → hold-out）。
+    ) -> list[tuple[int, int, Path]]:
+        """跑一批 cell（``(repeat_index, suite_index, suite_path)``），返回失败列表。
 
-        suite 间默认并发（``max_parallel_suites`` 控制上限）；每个 suite 拥有独立的
-        ``SuiteRunResources``（容器、delta 镜像），互不干扰。``repeat_run.suites``
-        先按输入顺序占位，再由各 suite 协程按索引回填，保证报告顺序稳定。
-
-        失败隔离：并发 gather 用 ``return_exceptions=True``，单个 suite 抛异常不会
-        取消其余 suite。首轮失败的 suite 会被收集起来放到队列最后**重跑一次**；
-        重跑仍失败则记录错误并保留占位（该 suite 在报告中缺最终结果）。
+        cell 间隔离：``return_exceptions=True`` 让单个 cell 抛异常不会取消其余。
         """
-        LOGGER.info(
-            "LIFT repeat %d/%d run_id=%s",
-            repeat_index + 1,
-            options.repeat,
-            run_id,
-        )
-        status_events.emit_stage(
-            kind="repeat", status="running", run_id=run_id, repeat_index=repeat_index
-        )
-        repeat_run = eval_report.runs[repeat_index]
-        # 先占位：并发回填时按索引写入，避免 append 顺序随完成时间错乱
-        repeat_run.suites = [None] * len(suite_paths)  # type: ignore[list-item]
-
-        async def _attempt(indexed: list[tuple[int, Path]]) -> list[int]:
-            """跑一批 suite，返回抛异常的 suite 索引列表（失败隔离）。"""
-            results = await bounded_gather(
-                (
-                    self._run_one_suite(
-                        suite_index=idx,
-                        suite_path=suite_path,
-                        repeat_index=repeat_index,
-                        repeat_run=repeat_run,
-                        run_id=run_id,
-                        adapter=adapter,
-                        options=options,
-                        eval_report=eval_report,
-                        report_path=report_path,
-                    )
-                    for idx, suite_path in indexed
-                ),
-                limit=options.max_parallel_suites,
-                return_exceptions=True,
-            )
-            failed: list[int] = []
-            for (idx, suite_path), result in zip(indexed, results):
-                if isinstance(result, BaseException):
-                    failed.append(idx)
-                    LOGGER.error(
-                        "LIFT suite failed run_id=%s repeat=%d suite=%s: %r",
-                        run_id,
-                        repeat_index,
-                        suite_path.name,
-                        result,
-                    )
-            return failed
-
-        indexed_suites = list(enumerate(suite_paths))
-        failed_indices = await _attempt(indexed_suites)
-
-        # 失败的 suite 放队列最后重跑一次
-        if failed_indices:
-            retry_indexed = [(idx, suite_paths[idx]) for idx in failed_indices]
-            LOGGER.info(
-                "LIFT retrying %d failed suite(s) run_id=%s repeat=%d: %s",
-                len(retry_indexed),
-                run_id,
-                repeat_index,
-                ", ".join(p.name for _, p in retry_indexed),
-            )
-            still_failed = await _attempt(retry_indexed)
-            for idx in still_failed:
-                LOGGER.error(
-                    "LIFT suite failed after retry run_id=%s repeat=%d suite=%s",
-                    run_id,
-                    repeat_index,
-                    suite_paths[idx].name,
+        results = await bounded_gather(
+            (
+                self._run_one_suite(
+                    suite_index=suite_index,
+                    suite_path=suite_path,
+                    repeat_index=repeat_index,
+                    repeat_run=eval_report.runs[repeat_index],
+                    run_id=run_id,
+                    adapter=adapter,
+                    options=options,
+                    eval_report=eval_report,
+                    report_path=report_path,
                 )
-
-        repeat_run.completed_at = datetime.now(timezone.utc).isoformat()
-        status_events.emit_stage(
-            kind="repeat", status="done", run_id=run_id, repeat_index=repeat_index
+                for repeat_index, suite_index, suite_path in cells
+            ),
+            limit=options.max_parallel_suites,
+            return_exceptions=True,
         )
+        failed: list[tuple[int, int, Path]] = []
+        for cell, result in zip(cells, results):
+            if isinstance(result, BaseException):
+                repeat_index, _, suite_path = cell
+                failed.append(cell)
+                LOGGER.error(
+                    "LIFT cell failed run_id=%s repeat=%d suite=%s: %r",
+                    run_id, repeat_index, suite_path.name, result,
+                )
+        return failed
 
     async def _run_one_suite(
         self,

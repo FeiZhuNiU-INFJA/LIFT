@@ -241,8 +241,7 @@ sequenceDiagram
 
 | 层级 | 参数 | 默认 |
 |---|---|---|
-| Repeat 间 | `--max-parallel-repeats` | 不限 |
-| Suite 间（同一 repeat 内） | `--max-parallel-suites` | 3 |
+| 矩阵 cell 间（repeat × suite 笛卡尔积） | `--max-parallel-suites` | 3 |
 | Task 间（同一 phase 内） | `--max-concurrent-tasks` | 不限 |
 | Phase 间（同一 task 内） | `--holdout-phase-policy` | parallel |
 | Warmup 容器策略 | `--warmup-container-policy` | parallel_single |

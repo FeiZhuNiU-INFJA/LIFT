@@ -178,8 +178,7 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 
 | 维度 | 默认 | 控制方式 | 备注 |
 |------|------|----------|------|
-| repeat 之间 | 并行 | `--max-parallel-repeats=1` 串行；`>1` 限并发上限 | repeat 之间不共享 delta 镜像，互不阻塞 |
-| 同 repeat 内多个 suite | **并行（默认上限 3）** | `--max-parallel-suites`（默认 `3`；`1` 串行；`<=0` 无上限） | 每个 suite 独立 `SuiteRunResources`（容器 + delta 镜像），互不干扰；失败隔离见下文 |
+| suites × repeats 矩阵 cell | **并行（默认上限 3）** | `--max-parallel-suites`（默认 `3`；`1` 串行；`<=0` 无上限） | 一个 cell = 一个 `(repeat_index, suite_index)` 对，对应一次 warmup+hold-out；repeat × suite 笛卡尔积铺平后用单一 limit 限流。每个 cell 独立 `SuiteRunResources`（容器 + delta 镜像），互不干扰；失败隔离见下文 |
 | warmup 题 | 并行（同容器） | `--warmup-container-policy`（见 §4.3）；`--max-concurrent-tasks` | 容器形态由 policy 决定 |
 | hold-out 多题之间 | 并行（多容器） | `--holdout-container-policy serial_multi` 串行（见 §4.4）；`--max-concurrent-tasks` | 每题独立容器强制 |
 | 单 hold-out task 内 baseline ↔ evolved | **并行（默认）** | `--holdout-phase-policy serial` 退回串行 | 两 phase 镜像/workspace 子目录互不依赖；并行后单 task 内同时存活 2 容器 |
@@ -190,20 +189,20 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 - 限制的是**单个 phase 内并发执行的 task 数**（asyncio Semaphore），由 [`bounded_gather`](../src/lift/eval/task_exec.py) 实现。
 - warmup 阶段与 hold-out 阶段**各自持有一个独立的 Semaphore**，不是跨阶段全局上限。
 - **不限制单个 task 内部启动的容器数**——例如 `parallel_multi` 下每个 warmup task 起 1 个容器、`max_concurrent_tasks=4` 时同时存活上限是 4 个 warmup 容器。
-- **不跨 repeat / suite 共享**——多个 repeat 并发执行时，每个 repeat 各自的 phase 独立计数。
+- **不跨 cell 共享**——多个 cell 并发执行时，每个 cell 各自的 phase 独立计数。
 
 **已知限制**（如需突破再做扩展）：
 
 1. **`--max-concurrent-tasks` 仅在 phase 级生效**：默认 `--holdout-phase-policy parallel` 下，单 task 内会同时启 baseline + evolved 两容器，但 Semaphore 只在 task 维度计数；`max_concurrent_tasks=4` 时 hold-out 容器数最高可达 8，需要硬上限请配合 `--holdout-phase-policy serial` 或下调 `--max-concurrent-tasks`。
 2. **warmup → hold-out 之间被 `evolve_after_warmup` 阻塞**：hold-out 必须等 evolve 完成才能起容器，期间宿主机资源闲置。
-3. **跨 repeat / suite 没有容器级全局上限**：`--max-parallel-repeats` / `--max-parallel-suites` 限的是协程数，不是容器数；总峰值容器数 ≈ `并发 repeat 数 × 并发 suite 数 × max_concurrent_tasks × (phase 并行?2:1)`。例如 `repeat=4 × suites=3 × max_concurrent_tasks=4 × holdout-phase-policy=parallel` 同时跑，宿主机可见容器数会非常大，需结合 §4.6 资源约束与并发上限一起设。
+3. **跨 cell 没有容器级全局上限**：`--max-parallel-suites` 限的是 cell 协程数，不是容器数；总峰值容器数 ≈ `并发 cell 数 × max_concurrent_tasks × (phase 并行?2:1)`。例如 `repeat=4 × suites=3` 共 12 个 cell，`--max-parallel-suites=12 × max_concurrent_tasks=4 × holdout-phase-policy=parallel` 同时跑，宿主机可见容器数会非常大，需结合 §4.6 资源约束与并发上限一起设。
 4. **OpenClaw 容器宿主机端口**：现已改为 `docker run -p <container_port>` 由 docker 在临时端口段自动分配，启动后通过 `docker inspect` 把真实端口回填到 `ContainerSession.published_ports`；旧的 instance_id hash slot 方案已废弃，避免并行容器端口碰撞。
 
-**suite 级失败隔离与重跑**（[`_run_suites`](../src/lift/pipeline/lift_pipeline.py)）：
+**cell 级失败隔离与重跑**（[`_run_cells`](../src/lift/pipeline/lift_pipeline.py)）：
 
-- 同 repeat 内的并发 suite 用 `bounded_gather(..., return_exceptions=True)`，**单个 suite 抛异常不会取消其余 suite**（避免 fail-fast 拖垮整个 run，丢失其它 suite 已完成的工作）。
-- 首轮失败的 suite 会被收集起来**放到队列最后重跑一次**；重跑仍失败则记录 `suite failed after retry` 并在报告里保留 `None` 占位（该 suite 缺最终结果，其余 suite 正常落盘）。
-- 报告顺序稳定：`repeat_run.suites` 先按输入顺序占位，再由各 suite 协程按索引回填，不随完成时间错乱。
+- 整个 `repeat × suite` 矩阵被铺平成 cell 列表，并发 cell 用 `bounded_gather(..., return_exceptions=True)`，**单个 cell 抛异常不会取消其余 cell**（避免 fail-fast 拖垮整个 run，丢失其它 cell 已完成的工作）。
+- 首轮失败的 cell 会被全局收集起来**统一重跑一次**（仍受 `--max-parallel-suites` 限流）；重跑仍失败则记录 `cell failed after retry` 并在报告里保留 `None` 占位（该 cell 缺最终结果，其余 cell 正常落盘）。
+- 报告顺序稳定：每个 `repeat_run.suites` 先按输入顺序占位，再由各 cell 协程按 `(repeat_index, suite_index)` 回填，不随完成时间错乱。
 
 ### 4.6 容器资源约束与运维（Colima / Docker VM）
 
@@ -483,8 +482,7 @@ flowchart LR
 | `--warmup-container-policy` | warmup 容器编排策略（`serial_single` / `parallel_single` / `parallel_multi`，默认 `parallel_single`），见 [§4.3](#43-warmup-容器策略warmupcontainerpolicy) |
 | `--holdout-container-policy` | hold-out 容器编排策略（`serial_multi` / `parallel_multi`，默认 `parallel_multi`），见 [§4.4](#44-hold-out-容器策略holdoutcontainerpolicy) |
 | `--holdout-phase-policy` | 单 task 内 baseline / evolved 顺序（`parallel` / `serial`，默认 `parallel`），见 [§4.5](#45-并发模型与限制) |
-| `--max-parallel-repeats` | repeat 并发上限（默认无上限；`1` 串行），见 [§4.5](#45-并发模型与限制) |
-| `--max-parallel-suites` | 同 repeat 内 suite 并发上限（默认 `3`；`1` 串行；`<=0` 无上限），见 [§4.5](#45-并发模型与限制) |
+| `--max-parallel-suites` | suites × repeats 矩阵 cell 级并发上限（默认 `3`；`1` 串行；`<=0` 无上限），见 [§4.5](#45-并发模型与限制) |
 | `--max-concurrent-tasks` | 单 phase 内题级并发容器数上限（默认无上限），见 [§4.5](#45-并发模型与限制) |
 | `--max-conversation-turns` | 单 task 内 work→judge 最大对话轮数（默认 `5`，替代旧的 `EVAL_MAX_TURNS` 环境变量） |
 | `--container-memory` | 单容器内存上限，透传 `docker run --memory`（**默认不限制**；设过小会触发 `CONSTRAINT_MEMCG` OOM），见 [§4.6](#46-容器资源约束与运维colima--docker-vm) |

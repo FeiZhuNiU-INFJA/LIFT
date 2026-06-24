@@ -47,7 +47,7 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 | `--warmup-only` | off | Warmup + evolve + delta only; skip hold-out contrast |
 | `--warmup-container-policy` | `parallel_single` | Warmup container orchestration: `serial_single` / `parallel_single` / `parallel_multi` |
 | `--holdout-container-policy` | `parallel_multi` | Hold-out container orchestration: `serial_multi` / `parallel_multi` |
-| `--max-parallel-repeats` | unlimited | Cap parallel repeat workers (set to `1` for serial repeats) |
+| `--max-parallel-suites` | `3` | Cap parallel cells in the suites x repeats matrix (one cell = one (repeat, suite) pair); `1` for serial, `<=0` for no cap |
 | `--max-concurrent-tasks` | unlimited | Cap concurrent task containers within a suite |
 
 ## Post-process outputs (`-e` / `--evaluate-only`)

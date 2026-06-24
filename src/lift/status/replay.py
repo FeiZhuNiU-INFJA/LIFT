@@ -28,11 +28,18 @@ def replay_report_into_bus(run_id: str, report_path: Path) -> None:
             if name not in suite_names:
                 suite_names.append(name)
 
+    holdout_total = sum(
+        len(suite.tasks) for repeat in report.runs for suite in repeat.suites
+    )
+
     ev.emit_run_plan(
         run_id=run_id,
         repeats=len(report.runs),
         suite_names=tuple(suite_names),
-        params=(("source", "evaluate-only replay"),),
+        params=(
+            ("source", "evaluate-only replay"),
+            ("holdout_total", str(holdout_total)),
+        ),
     )
 
     for repeat_idx, repeat in enumerate(report.runs):

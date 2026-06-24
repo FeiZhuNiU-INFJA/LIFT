@@ -108,23 +108,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--max-parallel-repeats",
-        type=int,
-        default=None,
-        help=(
-            "Cap parallel repeat workers. Default: no cap (all repeats run in parallel). "
-            "Set to 1 to run repeats serially."
-        ),
-    )
-    parser.add_argument(
         "--max-parallel-suites",
         type=int,
         default=3,
         help=(
-            "Cap parallel suites within a repeat. Default: 3 (up to 3 suites run "
-            "warmup+hold-out concurrently). Set to 1 for serial; <=0 for no cap. "
-            "Note: concurrent suites multiply total containers with per-suite task "
-            "parallelism."
+            "Cap parallel cells in the suites x repeats matrix (one cell = one "
+            "(repeat, suite) pair = one warmup+hold-out run). Default: 3. "
+            "Set to 1 for serial; <=0 for no cap. Note: each cell carries its own "
+            "task-level concurrency, so total containers = parallel cells x task parallelism."
         ),
     )
     parser.add_argument(
@@ -235,7 +226,6 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         warmup_container_policy=WarmupContainerPolicy(args.warmup_container_policy),
         holdout_container_policy=HoldoutContainerPolicy(args.holdout_container_policy),
         holdout_phase_policy=HoldoutPhasePolicy(args.holdout_phase_policy),
-        max_parallel_repeats=args.max_parallel_repeats,
         max_parallel_suites=args.max_parallel_suites,
         max_concurrent_tasks=args.max_concurrent_tasks,
         max_conversation_turns=args.max_conversation_turns,

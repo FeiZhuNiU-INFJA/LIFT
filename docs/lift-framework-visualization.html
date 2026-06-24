@@ -610,8 +610,7 @@ sequenceDiagram
               <tr><td><code>--warmup-container-policy</code></td><td>parallel_single</td><td>warmup 容器编排：serial_single / parallel_single / parallel_multi</td></tr>
               <tr><td><code>--holdout-container-policy</code></td><td>parallel_multi</td><td>hold-out 多题间并发：serial_multi / parallel_multi</td></tr>
               <tr><td><code>--holdout-phase-policy</code></td><td>parallel</td><td>单 task 内 baseline / evolved 并行或串行</td></tr>
-              <tr><td><code>--max-parallel-repeats</code></td><td>unlimited</td><td>repeat 并行度上限；1 串行</td></tr>
-              <tr><td><code>--max-parallel-suites</code></td><td>3</td><td>单 repeat 内 suite 并行度上限；&lt;=0 无上限</td></tr>
+              <tr><td><code>--max-parallel-suites</code></td><td>3</td><td>suites × repeats 矩阵 cell 级并行度上限；&lt;=0 无上限</td></tr>
               <tr><td><code>--max-concurrent-tasks</code></td><td>unlimited</td><td>单 phase 内 task 并发上限</td></tr>
               <tr><td><code>--max-conversation-turns</code></td><td>5</td><td>单 task 内 work→judge 最大轮数</td></tr>
               <tr><td><code>--container-memory</code></td><td>不限</td><td>透传给 <code>docker run --memory</code>（如 <code>6g</code>）</td></tr>
@@ -634,8 +633,7 @@ sequenceDiagram
           <table>
             <thead><tr><th>层级</th><th>默认</th><th>CLI</th></tr></thead>
             <tbody>
-              <tr><td>repeat 之间</td><td>并行</td><td><code>--max-parallel-repeats=1</code> 改串行；&gt;1 限并发上限</td></tr>
-              <tr><td>同 repeat 内多个 suite</td><td>并行（默认上限 3）</td><td><code>--max-parallel-suites</code>（默认 <code>3</code>；<code>1</code> 串行；<code>&lt;=0</code> 无上限）</td></tr>
+              <tr><td>suites × repeats 矩阵 cell</td><td>并行（默认上限 3）</td><td><code>--max-parallel-suites</code>（默认 <code>3</code>；<code>1</code> 串行；<code>&lt;=0</code> 无上限）</td></tr>
               <tr><td>warmup 题</td><td>并行（同容器，<code>parallel_single</code>）</td><td><code>--warmup-container-policy</code> 切换形态；<code>--max-concurrent-tasks</code> 限并发</td></tr>
               <tr><td>hold-out 多题之间</td><td>并行（多容器，<code>parallel_multi</code>）</td><td><code>--holdout-container-policy=serial_multi</code> 改串行；<code>--max-concurrent-tasks</code> 限并发</td></tr>
               <tr><td>baseline / evolved（同 task 内）</td><td>并行（<code>parallel</code>）</td><td><code>--holdout-phase-policy=serial</code> 改串行</td></tr>

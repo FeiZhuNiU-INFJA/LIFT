@@ -182,8 +182,7 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 | `--warmup-container-policy` | `parallel_single` | warmup 容器编排：`serial_single` / `parallel_single` / `parallel_multi`（替代旧的 `-p/--parallel`） |
 | `--holdout-container-policy` | `parallel_multi` | hold-out 多题间是否并发（`serial_multi` / `parallel_multi`） |
 | `--holdout-phase-policy` | `parallel` | 单 task 内 baseline / evolved 并行或串行 |
-| `--max-parallel-repeats` | unlimited | repeat 并行度上限；`1` 串行 |
-| `--max-parallel-suites` | `3` | 单 repeat 内 suite 并行度上限；`<=0` 无上限 |
+| `--max-parallel-suites` | `3` | suites × repeats 矩阵 cell 级并行度上限；`<=0` 无上限 |
 | `--max-concurrent-tasks` | unlimited | 单 phase 内 task 并发上限 |
 | `--max-conversation-turns` | `5` | 单 task 内 work→judge 最大轮数 |
 | `--status-viz` | off | 终端 TUI 实时状态面板 |

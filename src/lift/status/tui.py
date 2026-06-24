@@ -4,8 +4,8 @@
 
 - **顶部 Header**：展示 run_id、总进度条（按 (repeat × suite) 单元统计）、已用时间与
   粗略 ETA。
-- **Repeat 进度条**：每个 repeat 一行进度条，反映 ``--max-parallel-repeats`` 并发
-  下不同轮次的实际推进。
+- **Repeat 进度条**：每个 repeat 一行进度条，反映各轮 cell 实际推进（cell 级
+  并发由 ``--max-parallel-suites`` 限流）。
 - **Suite × Repeat 栅格**：每个 suite 一行，按 repeat 横向展开 ``w b e`` 三列
   （warmup / baseline / evolved）状态符号；done 的 suite 自动折叠成 ``[+N done]``
   以保持单屏可读。
