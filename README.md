@@ -165,18 +165,22 @@ python -m src.cli.lift_main \
 ## 仓库布局
 
 ```
-agent_evolve_evaluation/
-├── src/                    # LIFT 框架、CLI、后处理
-│   └── lift/               # pipeline、adapters、eval 内核
+.
+├── src/
+│   ├── lift/               # LIFT 内核：pipeline / adapters / eval / status
+│   ├── cli/                # CLI 入口（lift_main、preprocess）
+│   ├── preprocess/         # 任务源 → suite JSON 的预处理
+│   └── postprocess/        # 跑完后的指标计算与 trace 回填
 ├── agent-runtimes/         # 各 runtime 的 Docker 镜像与插件
-│   └── openclaw/
+│   ├── openclaw/
+│   └── genericagent/
 ├── assets/
 │   ├── benchmark_mds/      # 人类可读任务源（preprocess 从 TOS / HF 下载，gitignore）
 │   ├── benchmarks_demo/    # 冒烟 demo suite（hello.json，随仓库提供）
 │   └── benchmarks/         # 完整 suite JSON（preprocess 生成，gitignore）
 ├── docs/                   # 流程与架构文档
 ├── skill/                  # 引导用 SKILL（搭环境、清理、接 runtime）
-├── scripts/                # 一次性维护脚本
+├── scripts/                # 运维 / 分析小工具
 └── results/                # 每次 run 产物（gitignore）
 ```
 
