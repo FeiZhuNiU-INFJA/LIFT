@@ -378,7 +378,7 @@ class RunStateTracker:
                     self._clear_errors(e)
                 if e.status == FAILED:
                     node.last_error = e.detail
-                    # hold-out task fail 一定来自其下 phase fail（phase 那层已 record_error），
+                    # holdout task fail 一定来自其下 phase fail（phase 那层已 record_error），
                     # 这里只更新 TaskNode.status/last_error，不再写入 recent_errors，避免
                     # dashboard / TUI 同一次失败重复显示 task + phase 两条。
             elif e.kind == "warmup_task" and suite is not None and e.task_name:

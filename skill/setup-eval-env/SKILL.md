@@ -174,7 +174,7 @@ python -m src.cli.lift_main \
   --status-http 8080
 ```
 
-- **TUI**：终端实时刷新 warmup / hold-out / phase 状态面板（依赖 `rich`）。
+- **TUI**：终端实时刷新 warmup / holdout / phase 状态面板（依赖 `rich`）。
 - **Dashboard**：浏览器打开 `http://localhost:8080`（`--status-http` 也可写 `HOST:PORT`）。
 - 运行结束后默认自动后处理，产物在 `results/lift-runid-hello-smoke/`：
   `report.json`、`outcome/`、`*_backfilled.json`（Langfuse trace 回填）、对比 CSV / HTML。

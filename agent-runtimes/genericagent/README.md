@@ -14,7 +14,7 @@ agent-runtimes/genericagent/
 ├── install-in-image.sh             # build 期渲染 mykey.py + overlay langfuse_tracing.py
 ├── mykey.py.template               # GA 配置模板（占位符由 install-in-image.sh sed 渲染）
 ├── langfuse_tracing_overlay.py     # 替换 GA 自带 plugins/langfuse_tracing.py，强制 LIFT trace 名/session/tag
-├── workspace_seed/                 # （占位）hold-out 容器启动前 copy 进 /workspace/task
+├── workspace_seed/                 # （占位）holdout 容器启动前 copy 进 /workspace/task
 └── README.md
 ```
 

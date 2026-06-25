@@ -14,7 +14,7 @@ work agent 的 tool 调用总次数（已与 plugin metadata / Langfuse trace �
   的 toolCall 数。多个匹配（理论上不会，session_id 是 short_id 唯一）取最后修改
   的那个。
 - 失败仅返回 None：trajectory 是 OpenClaw 内部产物，找不到 / 解析失败时不影响
-  hold-out 主链路；上层 ``count_tool_calls`` 也只在异常时 warning。
+  holdout 主链路；上层 ``count_tool_calls`` 也只在异常时 warning。
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ async def count_session_tool_calls(
     )
     try:
         out = await docker_exec_shell_async(container_name, script)
-    except Exception as exc:  # noqa: BLE001 — adapter 自报通道，不能拖垮 hold-out
+    except Exception as exc:  # noqa: BLE001 — adapter 自报通道，不能拖垮 holdout
         LOGGER.warning(
             "count_session_tool_calls: docker exec failed (%s, sid=%s): %r",
             container_name, work_session_id, exc,

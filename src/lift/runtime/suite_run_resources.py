@@ -46,5 +46,5 @@ class SuiteRunResources(BaseModel):
         for disposable in reversed(self.disposables):
             await disposable.cleanup()  # 后登记的容器先删（LIFO）
         if self.delta is not None:
-            await self.delta.cleanup()  # docker rmi delta 镜像；hold-out 已跑完才执行
+            await self.delta.cleanup()  # docker rmi delta 镜像；holdout 已跑完才执行
         self._cleaned = True

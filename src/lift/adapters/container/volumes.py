@@ -55,7 +55,7 @@ def task_volume_binds(task: SuiteTask) -> list[tuple[str, str, str]]:
 
 
 def material_digest_for_task(material_dir: str | None) -> str:
-    """hold-out before/after 公平性用的 material 稳定标识（当前为路径字符串）。"""
+    """holdout before/after 公平性用的 material 稳定标识（当前为路径字符串）。"""
     resolved = resolve_host_path(material_dir)
     if resolved is None:
         return ""

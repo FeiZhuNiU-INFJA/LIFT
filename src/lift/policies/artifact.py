@@ -11,7 +11,7 @@ from src.models import SuiteTask
 
 
 class ArtifactPolicy(ABC):
-    """hold-out 评测前如何产生产物（UpdateArtifact）的策略。
+    """holdout 评测前如何产生产物（UpdateArtifact）的策略。
 
     将「进化状态如何产生」与「终测题上如何对照加载」解耦。
     默认 LIFT 路径为 warmup 题 + 运行时更新钩子；也可扩展为外部注入、跳过 warmup 等。

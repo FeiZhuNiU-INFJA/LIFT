@@ -8,7 +8,7 @@ Loaded Impact on Final Task — container-per-task implementation.
 
 Three adapter layers:
 
-1. **`SuiteRunContext`** + **`AgentRuntimeAdapter`** (`adapters/base.py`) — per `(repeat, suite)` coordinates; template `produce_delta` / hold-out; calls `lift/eval`
+1. **`SuiteRunContext`** + **`AgentRuntimeAdapter`** (`adapters/base.py`) — per `(repeat, suite)` coordinates; template `produce_delta` / holdout; calls `lift/eval`
 2. **`ContainerAgentRuntimeAdapter`** (`adapters/container/`) — Docker lifecycle; default delta via `docker commit`
 3. **`OpenClawAdapter`** (`adapters/openclaw/`) — base image + `start_container` + chat factory; **不带**进化插件，`evolve_after_warmup` 为 no-op；带进化插件的变体为 `OpenClawWithEvolveAdapter`（`adapters/openclaw_with_evolve/`，warmup 后 `openclaw learn review`）
 
@@ -44,9 +44,9 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `-r / --agent-runtime` | *(required)* | Agent adapter; also selects base Docker image via registry |
-| `--warmup-only` | off | Warmup + evolve + delta only; skip hold-out contrast |
+| `--warmup-only` | off | Warmup + evolve + delta only; skip holdout contrast |
 | `--warmup-container-policy` | `parallel_single` | Warmup container orchestration: `serial_single` / `parallel_single` / `parallel_multi` |
-| `--holdout-container-policy` | `parallel_multi` | Hold-out container orchestration: `serial_multi` / `parallel_multi` |
+| `--holdout-container-policy` | `parallel_multi` | Holdout container orchestration: `serial_multi` / `parallel_multi` |
 | `--max-parallel-suites` | `3` | Cap parallel cells in the suites x repeats matrix (one cell = one (repeat, suite) pair); `1` for serial, `<=0` for no cap |
 | `--max-concurrent-tasks` | unlimited | Cap concurrent task containers within a suite |
 

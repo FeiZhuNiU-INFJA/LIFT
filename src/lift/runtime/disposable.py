@@ -21,6 +21,6 @@ class Disposable(ABC):
         典型操作：停止/删除容器、``docker rmi`` delta 镜像、
         将 bind mount 目录 chown 回宿主机用户。
 
-        在 suite 内所有 hold-out 题完成后由 ``SuiteRunResources.cleanup()`` 调用，
+        在 suite 内所有 holdout 题完成后由 ``SuiteRunResources.cleanup()`` 调用，
         也可在 adapter 的 per-session ``finally`` 中调用。
         """

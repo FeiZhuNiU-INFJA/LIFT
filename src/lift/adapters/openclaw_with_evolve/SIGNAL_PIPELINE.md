@@ -9,7 +9,7 @@
 LIFT 通过 `OpenClawWithEvolveAdapter` 跑带进化插件的 OpenClaw 容器：
 
 - warmup 阶段：跑题 → 写信号 → `learn review` → `docker commit` 出 delta 镜像
-- hold-out 阶段：在 baseline / evolved（delta）两个镜像上各跑同一题，对比得分
+- holdout 阶段：在 baseline / evolved（delta）两个镜像上各跑同一题，对比得分
 
 进化插件 `self-evolving-plugin-pro` 的工作前提是 **SignalRecord 表非空**。
 信号在常规使用场景下由 work agent 自己用 exec 工具调

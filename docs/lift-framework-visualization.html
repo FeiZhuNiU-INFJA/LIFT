@@ -221,7 +221,7 @@
       Agent 做完「练习题」并进化之后，<strong>期末考</strong>能不能考得更好？
     </p>
     <p>
-      同一道 hold-out 题跑两遍——没加载进化产物（baseline）和加载了（evolved）——看分数差。
+      同一道 holdout 题跑两遍——没加载进化产物（baseline）和加载了（evolved）——看分数差。
       文字讲稿见 <a href="lift-framework-guide-cn.md">lift-framework-guide-cn.md</a>。
     </p>
   </header>
@@ -238,7 +238,7 @@
     <!-- Part 1: Framework -->
     <section id="framework">
       <h2>框架长什么样</h2>
-      <p class="section-lead">用考试来理解：warmup 是练习题，hold-out 是期末考，delta 是进化后的记忆快照。</p>
+      <p class="section-lead">用考试来理解：warmup 是练习题，holdout 是期末考，delta 是进化后的记忆快照。</p>
 
       <div class="three-cols">
         <div class="mini-card">
@@ -252,14 +252,14 @@
           <p>触发进化，产物写入 delta 镜像</p>
         </div>
         <div class="mini-card">
-          <div class="label">Hold-out</div>
+          <div class="label">Holdout</div>
           <div class="title">期末考</div>
           <p>baseline vs evolved 严格对照</p>
         </div>
       </div>
 
       <div class="pill-row">
-        <span class="pill">默认 <strong>最后一题</strong> 是 hold-out</span>
+        <span class="pill">默认 <strong>最后一题</strong> 是 holdout</span>
         <span class="pill"><code>holdout_count</code> 默认 1</span>
         <span class="pill">成绩单 → <code>report.json</code></span>
       </div>
@@ -291,7 +291,7 @@ sequenceDiagram
     participant P as Pipeline
     participant A as Adapter
     participant W as Warmup 容器
-    participant H as Hold-out 容器
+    participant H as Holdout 容器
 
     P->>A: warmup 题（如 Q1）
     A->>W: 起一个容器，连续做题
@@ -299,7 +299,7 @@ sequenceDiagram
     W->>W: docker commit → delta 镜像
     A->>W: 删掉 warmup 容器
 
-    loop 每道 hold-out 题（如 Q2）
+    loop 每道 holdout 题（如 Q2）
         P->>A: baseline
         A->>H: 从 base 镜像起新容器
         P->>A: evolved
@@ -316,11 +316,11 @@ sequenceDiagram
           <p>状态要连续，进化才有意义</p>
         </div>
         <div class="mini-card">
-          <div class="title" style="color: var(--green);">Hold-out 每轮新容器</div>
+          <div class="title" style="color: var(--green);">Holdout 每轮新容器</div>
           <p>baseline 必须是干净环境，题间 workspace 隔离</p>
         </div>
         <div class="mini-card">
-          <div class="title" style="color: var(--purple);">多道 hold-out 共用 delta</div>
+          <div class="title" style="color: var(--purple);">多道 holdout 共用 delta</div>
           <p>只换 workspace，不重复进化</p>
         </div>
       </div>
@@ -396,7 +396,7 @@ flowchart LR
           </thead>
           <tbody>
             <tr><td><code>json_output.py</code></td><td>解析 <code>openclaw --json</code> 输出</td></tr>
-            <tr><td><code>workspace_seed.py</code></td><td>hold-out 跳过首次 onboarding（warmup 不 seed）</td></tr>
+            <tr><td><code>workspace_seed.py</code></td><td>holdout 跳过首次 onboarding（warmup 不 seed）</td></tr>
             <tr><td><code>container_exec.py</code></td><td>容器内异步执行 openclaw CLI</td></tr>
             <tr><td><code>agent-runtimes/openclaw/</code></td><td>镜像：插件、langfuse-tracer、gateway 配置</td></tr>
           </tbody>
@@ -429,14 +429,14 @@ flowchart LR
           <p>练习题 → evolve → commit</p>
         </div>
         <div class="mini-card">
-          <div class="label">Q2 · Hold-out</div>
+          <div class="label">Q2 · Holdout</div>
           <div class="title">「自我介绍一下你自己」</div>
           <p>baseline（base 镜像）vs evolved（delta 镜像）</p>
         </div>
         <div class="mini-card">
           <div class="label">默认切分</div>
           <div class="title">holdout_count = 1</div>
-          <p>最后一题是 hold-out，前面都是 warmup</p>
+          <p>最后一题是 holdout，前面都是 warmup</p>
         </div>
       </div>
 
@@ -455,7 +455,7 @@ python -m src.cli.lift_main -r openclaw --suite hello.json --run_id hello-full</
       <h3>执行顺序</h3>
       <div class="card">
         <ol class="steps">
-          <li><strong>读卷</strong> — Q1 → warmup，Q2 → hold-out</li>
+          <li><strong>读卷</strong> — Q1 → warmup，Q2 → holdout</li>
           <li><strong>Warmup</strong> — 一个容器跑 Q1，work + judge 多轮</li>
           <li><strong>Evolve</strong> — <code>openclaw learn review</code></li>
           <li><strong>Commit</strong> — <code>docker commit</code> 得 delta，删 warmup 容器</li>
@@ -483,7 +483,7 @@ flowchart TB
         <p class="tree">EvalReport
   └── runs[0]
         └── suites[0]     ← hello.json
-              └── tasks[0]  ← Q2（hold-out）
+              └── tasks[0]  ← Q2（holdout）
                     ├── baseline: PhaseRun
                     └── evolved:  PhaseRun</p>
         <p style="margin: .75rem 0 0; font-size: .85rem; color: var(--muted);">
@@ -496,7 +496,7 @@ flowchart TB
     <section id="summary">
       <h2>收尾</h2>
       <div class="summary-box">
-<strong>LIFT</strong> = warmup 进化 → 同一道 hold-out 题考两遍 → 看有没有 LIFT
+<strong>LIFT</strong> = warmup 进化 → 同一道 holdout 题考两遍 → 看有没有 LIFT
 
 <strong>框架</strong> = Pipeline 编排 + eval 阅卷 + adapter 接 runtime
 
@@ -582,7 +582,7 @@ sequenceDiagram
     end
     AD->>AD: learn review
     AD->>DK: docker commit → delta
-    loop hold-out 题
+    loop holdout 题
         LP->>AD: run_before_load
         AD->>DK: docker run base
         AD->>RT: baseline
@@ -604,11 +604,11 @@ sequenceDiagram
             <thead><tr><th>参数</th><th>默认</th><th>含义</th></tr></thead>
             <tbody>
               <tr><td><code>-r openclaw</code></td><td>—</td><td>选择 agent runtime 适配器（必填）</td></tr>
-              <tr><td><code>--warmup-only</code></td><td>off</td><td>只跑 warmup + evolve，跳过 hold-out</td></tr>
+              <tr><td><code>--warmup-only</code></td><td>off</td><td>只跑 warmup + evolve，跳过 holdout</td></tr>
               <tr><td><code>--run_id</code></td><td>自动</td><td>自定义 run 后缀</td></tr>
               <tr><td><code>--repeat</code></td><td>1</td><td>重复完整 LIFT 流程 N 次</td></tr>
               <tr><td><code>--warmup-container-policy</code></td><td>parallel_single</td><td>warmup 容器编排：serial_single / parallel_single / parallel_multi</td></tr>
-              <tr><td><code>--holdout-container-policy</code></td><td>parallel_multi</td><td>hold-out 多题间并发：serial_multi / parallel_multi</td></tr>
+              <tr><td><code>--holdout-container-policy</code></td><td>parallel_multi</td><td>holdout 多题间并发：serial_multi / parallel_multi</td></tr>
               <tr><td><code>--holdout-phase-policy</code></td><td>parallel</td><td>单 task 内 baseline / evolved 并行或串行</td></tr>
               <tr><td><code>--max-parallel-suites</code></td><td>3</td><td>suites × repeats 矩阵 cell 级并行度上限；&lt;=0 无上限</td></tr>
               <tr><td><code>--max-concurrent-tasks</code></td><td>unlimited</td><td>单 phase 内 task 并发上限</td></tr>
@@ -635,7 +635,7 @@ sequenceDiagram
             <tbody>
               <tr><td>suites × repeats 矩阵 cell</td><td>并行（默认上限 3）</td><td><code>--max-parallel-suites</code>（默认 <code>3</code>；<code>1</code> 串行；<code>&lt;=0</code> 无上限）</td></tr>
               <tr><td>warmup 题</td><td>并行（同容器，<code>parallel_single</code>）</td><td><code>--warmup-container-policy</code> 切换形态；<code>--max-concurrent-tasks</code> 限并发</td></tr>
-              <tr><td>hold-out 多题之间</td><td>并行（多容器，<code>parallel_multi</code>）</td><td><code>--holdout-container-policy=serial_multi</code> 改串行；<code>--max-concurrent-tasks</code> 限并发</td></tr>
+              <tr><td>holdout 多题之间</td><td>并行（多容器，<code>parallel_multi</code>）</td><td><code>--holdout-container-policy=serial_multi</code> 改串行；<code>--max-concurrent-tasks</code> 限并发</td></tr>
               <tr><td>baseline / evolved（同 task 内）</td><td>并行（<code>parallel</code>）</td><td><code>--holdout-phase-policy=serial</code> 改串行</td></tr>
             </tbody>
           </table>

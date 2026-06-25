@@ -1,4 +1,4 @@
-"""LIFT 主流程编排：repeat × suite → warmup/delta → hold-out 对照。"""
+"""LIFT 主流程编排：repeat × suite → warmup/delta → holdout 对照。"""
 
 from __future__ import annotations
 
@@ -209,7 +209,7 @@ class LIFTPipeline:
         eval_report: EvalReport,
         report_path: Path,
     ) -> None:
-        """跑单个 suite：warmup → produce_delta → hold-out 对照，结束清理资源。"""
+        """跑单个 suite：warmup → produce_delta → holdout 对照，结束清理资源。"""
         suite = load_lift_suite(suite_path)
         warmup_tasks, holdout_tasks = split_suite_tasks(suite)
         category_name = suite.category
@@ -258,11 +258,11 @@ class LIFTPipeline:
             if not warmup_tasks:
                 raise ValueError(
                     f"No warmup tasks in {suite_path}; "
-                    "produce_delta requires at least one non-hold-out task"
+                    "produce_delta requires at least one non-holdout task"
                 )
 
             policy = WarmupThenUpdatePolicy(warmup_tasks=warmup_tasks)
-            # warmup 容器在 produce_delta 内部已 cleanup；delta 镜像留给 hold-out
+            # warmup 容器在 produce_delta 内部已 cleanup；delta 镜像留给 holdout
             status_events.emit_stage(
                 kind="warmup",
                 status="running",
@@ -339,7 +339,7 @@ class LIFTPipeline:
         category_name: str,
         options: RunOptions,
     ) -> list[TaskRun]:
-        """按 ``holdout_container_policy`` 串行 / 并行执行 hold-out 多题。
+        """按 ``holdout_container_policy`` 串行 / 并行执行 holdout 多题。
 
         ``holdout_phase_policy`` 控制单 task 内 baseline / evolved 是否并行
         （二者镜像与 workspace 子目录互不依赖，并行后单题最多有 2 个容器存活）。
@@ -484,7 +484,7 @@ class LIFTPipeline:
                 )
                 raise
             LOGGER.info(
-                "LIFT hold-out %s: baseline_success=%s evolved_success=%s",
+                "LIFT holdout %s: baseline_success=%s evolved_success=%s",
                 task.name,
                 baseline.success,
                 evolved.success,
@@ -520,7 +520,7 @@ class LIFTPipeline:
                 out.append(await _one_task(t))
             except BaseException as exc:  # noqa: BLE001
                 LOGGER.error(
-                    "LIFT hold-out task failed (serial isolated) suite=%s task=%s: %r",
+                    "LIFT holdout task failed (serial isolated) suite=%s task=%s: %r",
                     ctx.suite_name, t.name, exc,
                 )
         return out

@@ -13,7 +13,7 @@ description: "把一个新的 agent runtime（如 OpenClaw / GenericAgent）接�
 
 ## 0. 必备前置认知
 
-- LIFT 走 **warmup → docker commit → hold-out** 流水线：每个 runtime 都要能从 baseline 镜像 commit 出"演化过的"镜像（不演化也得 commit，让流水线统一）。
+- LIFT 走 **warmup → docker commit → holdout** 流水线：每个 runtime 都要能从 baseline 镜像 commit 出"演化过的"镜像（不演化也得 commit，让流水线统一）。
 - LIFT 通过 **`AgentRuntimeAdapter` ABC + `ContainerAgentRuntimeAdapter` 模板方法** 接入容器化 agent；非容器型 runtime（如 Hermes 直连 OpenAI）走 `AgentRuntimeAdapter` 直接 override。
 - Chat 协议是 `WorkerJudgerPair`（一次 task 一对独立 ChatAgent；work / judge 互不干扰），由 `worker_judger_factory` 在每题创建。
 - Langfuse trace 拼装要求 plugin 侧 trace 的 **`name` 在 `LANGFUSE_PLUGIN_TRACE_NAMES` 白名单里**，且 trace 的 **`session_id` 与 LIFT 侧 `work-/judge-` session 对齐**。
@@ -247,7 +247,7 @@ dashboard 的 **tools 列**读 [`PhaseRun.tool_calls`](file:///root/workspace/ag
 
 | 优先级 | 数据源 | 触发位置 | 适用 runtime |
 |---|---|---|---|
-| 1（精确） | adapter override `count_tool_calls(env, task, result, ctx)` | hold-out 题末 [`base.py:317`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/base.py#L317) | OpenClaw（容器内 docker exec 读 `trajectory.jsonl`） |
+| 1（精确） | adapter override `count_tool_calls(env, task, result, ctx)` | holdout 题末 [`base.py:317`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/base.py#L317) | OpenClaw（容器内 docker exec 读 `trajectory.jsonl`） |
 | 2（兜底） | Langfuse `type=TOOL` observation 数 | 后处理 [`trace_backfill.py:55-58`](file:///root/workspace/agent_evolve_evaluation/src/postprocess/trace_backfill.py#L55-L58) | 任何 runtime（只要 overlay 给每次工具调用挂 `as_type='tool'` span） |
 
 **兜底链路**（runtime-agnostic）：
@@ -345,7 +345,7 @@ tail -f logs/<run_id>.log
 ```
 
 验证点:
-- 容器拉起、warmup 单题跑完、`docker commit` 成功、hold-out 跑完
+- 容器拉起、warmup 单题跑完、`docker commit` 成功、holdout 跑完
 - `results/lift-runid-<run_id>/report.json` 存在且 task `outcome.success: true`
 - `logs/<run_id>.log` 没有 `wait output timeout` / `Cannot connect to Docker daemon` / `Judge response is not valid JSON` 高频重试
 

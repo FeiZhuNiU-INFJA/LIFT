@@ -17,7 +17,7 @@ class RunOptions(BaseModel):
     repeat: int = Field(default=1, description="完整 LIFT 流程重复次数（同一 run_id 内多轮）")
     warmup_only: bool = Field(
         default=False,
-        description="仅 warmup + evolve + delta，跳过 hold-out 对照",
+        description="仅 warmup + evolve + delta，跳过 holdout 对照",
     )
     evaluate: bool = Field(
         default=True,
@@ -41,14 +41,14 @@ class RunOptions(BaseModel):
     holdout_container_policy: HoldoutContainerPolicy = Field(
         default=HoldoutContainerPolicy.PARALLEL_MULTI,
         description=(
-            "hold-out 阶段容器编排策略：每题独立容器（强制），仅决定多题是否并发。"
+            "holdout 阶段容器编排策略：每题独立容器（强制），仅决定多题是否并发。"
             "默认 ``parallel_multi`` 提速；问题间需要严格隔离时改为 ``serial_multi``。"
         ),
     )
     holdout_phase_policy: HoldoutPhasePolicy = Field(
         default=HoldoutPhasePolicy.PARALLEL,
         description=(
-            "单 hold-out task 内 baseline / evolved 两个 phase 的执行顺序。"
+            "单 holdout task 内 baseline / evolved 两个 phase 的执行顺序。"
             "默认 ``parallel`` 同时启两个容器（baseline 与 evolved 镜像/workspace "
             "子目录互不依赖）；``serial`` 兼容旧行为先 baseline 后 evolved。"
         ),
@@ -61,7 +61,7 @@ class RunOptions(BaseModel):
         default=3,
         description=(
             "suites × repeats 矩阵中 cell 级并发上限（一个 cell = 一个 (repeat, "
-            "suite) 对，对应一次 warmup+hold-out）。默认 ``3``；``1`` 串行；"
+            "suite) 对，对应一次 warmup+holdout）。默认 ``3``；``1`` 串行；"
             "``None`` 或 <=0 表示无上限。每个 cell 还自带题级并发，"
             "总容器数 = 并发 cell 数 × 题级并发，需结合资源量设置。"
         ),
@@ -69,7 +69,7 @@ class RunOptions(BaseModel):
     max_concurrent_tasks: int | None = Field(
         default=None,
         description=(
-            "题级并发容器数上限（warmup parallel_single/parallel_multi 与 hold-out "
+            "题级并发容器数上限（warmup parallel_single/parallel_multi 与 holdout "
             "parallel_multi 共用此上限）。None 或 <=0 表示无上限。"
             "在大 suite + 资源紧张时设为较小整数避免 docker 资源耗尽。"
         ),

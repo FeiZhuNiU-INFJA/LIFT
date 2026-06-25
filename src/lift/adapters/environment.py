@@ -1,4 +1,4 @@
-"""单次 warmup 或 hold-out 执行环境的句柄（容器 + workspace + runtime handle）。"""
+"""单次 warmup 或 holdout 执行环境的句柄（容器 + workspace + runtime handle）。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from src.lift.runtime.disposable import Disposable
 
 @dataclass(frozen=True)
 class ExecutionEnvironment:
-    """单次 warmup 或 hold-out 执行环境的不可变句柄。
+    """单次 warmup 或 holdout 执行环境的不可变句柄。
 
     Attributes:
         disposable: 容器会话等需在阶段结束时释放的资源。

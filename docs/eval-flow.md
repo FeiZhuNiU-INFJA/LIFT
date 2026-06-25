@@ -8,7 +8,7 @@
 
 ## 1. 概述
 
-evolve_eval 用于评测 **self-evolving agent**：在 hold-out final task 上对比 **产物未加载 / 已加载**（LIFT），由 judge 模拟用户反馈驱动多轮执行；report 中 `baseline` / `evolved` 表示加载状态对照，而非某种固定进化实现名称。
+evolve_eval 用于评测 **self-evolving agent**：在 holdout final task 上对比 **产物未加载 / 已加载**（LIFT），由 judge 模拟用户反馈驱动多轮执行；report 中 `baseline` / `evolved` 表示加载状态对照，而非某种固定进化实现名称。
 
 一次命令行 invocation 对应一次 **eval run**：
 
@@ -35,7 +35,7 @@ evolve_eval 用于评测 **self-evolving agent**：在 hold-out final task 上�
 EvalReport（一次 eval run，一份 report JSON）
   └── runs[]（EvalRepeat，--repeat 的一轮）
         └── suites[]（SuiteRun，一个 suite 的结果）
-              └── tasks[]（TaskRun，hold-out 题）
+              └── tasks[]（TaskRun，holdout 题）
                     ├── baseline（PhaseRun）
                     └── evolved（PhaseRun，未跑时为 null）
 ```
@@ -70,7 +70,7 @@ flowchart LR
 | 阶段 | 做什么 | 入口 |
 |------|--------|------|
 | **数据准备** | 从 TOS 下载 `benchmark_mds.zip` 并转为 suite JSON | `python -m src.cli.preprocess` → `src/preprocess/benchmark_mds_fetch.py` + `convert_suite_mds_to_json.py` |
-| **评测执行** | LIFT 编排：warmup 产 Δ → hold-out 对照 → 写 report | `python -m src.cli.lift_main -r openclaw` |
+| **评测执行** | LIFT 编排：warmup 产 Δ → holdout 对照 → 写 report | `python -m src.cli.lift_main -r openclaw` |
 | **Report 落盘** | 执行期 JSON（先填 success/score/session 等；trace 后填） | `EvalReport.write_json` → `results/{run_id}/report.json` |
 | **后处理** | trace_backfill、抽指标、trajectory 打分、出报告 | `src/postprocess/run_post_process.py`（默认随 `-e` 触发） |
 
@@ -80,7 +80,7 @@ flowchart LR
 
 ## 4. 主流程：LIFT（Loaded Impact on Final Task）
 
-框架的**目标评测协议**是 LIFT：在 hold-out final task 上，比较 **产物未加载** 与 **产物已加载** 两种状态下 agent 的表现。
+框架的**目标评测协议**是 LIFT：在 holdout final task 上，比较 **产物未加载** 与 **产物已加载** 两种状态下 agent 的表现。
 
 ```text
 ArtifactPolicy（默认：跑 Q1..Q_{n-1} 产生产物）→ UpdateArtifact（Δ 镜像）
@@ -89,17 +89,17 @@ final @ before-load（control）  → PhaseRun  → report.baseline
 final @ after-load（treatment） → PhaseRun  → report.evolved
 ```
 
-- **写入 report**：每个 **holdout_tasks** 题各一条 `TaskRun`（`baseline` + `evolved` 两个 `PhaseRun`）。warmup / hold-out 在 suite JSON 中由 `warmup_tasks` / `holdout_tasks` 显式给出（对应 benchmark ``train/`` / ``test/``）。
+- **写入 report**：每个 **holdout_tasks** 题各一条 `TaskRun`（`baseline` + `evolved` 两个 `PhaseRun`）。warmup / holdout 在 suite JSON 中由 `warmup_tasks` / `holdout_tasks` 显式给出（对应 benchmark ``train/`` / ``test/``）。
 - **warmup 结果**：`Q1..Q_{n-1}` 用于产生产物，一般**不进 report**（仅日志）；产物固化进 **delta 镜像**（`docker commit`）。
 - **final 的 before-load**：干净 base 镜像起**新容器**（无 Δ）。
-- **final 的 after-load**：从 warmup 后 commit 的 **Δ 镜像**起**新容器**；多道 hold-out **共用 Δ、workspace 按题隔离**。
+- **final 的 after-load**：从 warmup 后 commit 的 **Δ 镜像**起**新容器**；多道 holdout **共用 Δ、workspace 按题隔离**。
 - **清理**：每个 suite 评测结束 `SuiteRunResources.cleanup()` 删除容器与 Δ 镜像。
 
 ### 4.1 环境模型（`src/lift/`）
 
 ```text
 warmup（默认 parallel_single：同容器并发；可切 serial_single / parallel_multi）→ evolve → docker commit → DeltaRef (Δ 镜像)
-对每个 hold-out 题 Q_h：
+对每个 holdout 题 Q_h：
   before-load: docker run base_image + workspace_h → PhaseRun → destroy
   after-load:  docker run Δ_image + workspace_h   → PhaseRun → destroy
 repeat 之间默认并行；每 suite 独立 Δ 与 `SuiteRunResources` 登记簿。
@@ -121,9 +121,9 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 
 | | **LIFT（`src`，目标）** | **replay（`legacy`，遗留）** |
 |---|------------------------|------------------------------|
-| 评测焦点 | 仅 hold-out **final** 的加载对照 | **全部** task 进化前后各跑一遍 |
+| 评测焦点 | 仅 holdout **final** 的加载对照 | **全部** task 进化前后各跑一遍 |
 | 产物阶段 | warmup 产 Δ 镜像 | 全 suite baseline 后一次 evolve |
-| report | 通常每 suite 若干 hold-out `TaskRun` | 每题一条 `TaskRun` |
+| report | 通常每 suite 若干 holdout `TaskRun` | 每题一条 `TaskRun` |
 | 科学问题 | 产物对 final 是否有效 | 每题进化幅度（诊断用） |
 
 ### 4.3 Warmup 容器策略（`WarmupContainerPolicy`）
@@ -141,12 +141,12 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 ```text
 ContainerAgentRuntimeAdapter（serial_single / parallel_single）：
   warmup（共享容器，多题串行或并发）→ evolve_after_warmup（容器内）→ docker commit → DeltaRef(owned=True)
-  hold-out evolved：docker run delta_image
+  holdout evolved：docker run delta_image
 
 GroupMemoryAdapterMixin（必须 parallel_multi）：
   warmup（多容器并行，每题一个，模拟多用户）→ evolve_after_task per-container（默认 no-op）
                                               → DeltaRef(image_tag=base_image, owned=False)
-  hold-out evolved：docker run base_image，runtime 在 load_state=EVOLVED 时注入群体记忆配置
+  holdout evolved：docker run base_image，runtime 在 load_state=EVOLVED 时注入群体记忆配置
 ```
 
 **何时选哪种：**
@@ -155,19 +155,19 @@ GroupMemoryAdapterMixin（必须 parallel_multi）：
 - runtime 的 evolve 产物**在容器外**（如群体记忆服务、远端向量库）→ 选用 `GroupMemoryAdapterMixin` 系列 adapter（如 `multi_user_openclaw`），并使用 `parallel_multi`（adapter 默认会自动覆盖到此值）
 - 需要"模拟多用户"语义 → `parallel_multi` + 群体记忆 adapter（`serial_single` 多题共享 agent 状态，会污染"独立用户"假设）
 
-### 4.4 Hold-out 容器策略（`HoldoutContainerPolicy`）
+### 4.4 Holdout 容器策略（`HoldoutContainerPolicy`）
 
-hold-out 与 warmup 的容器维度不同：每道 hold-out 题必须用独立容器（baseline 与 evolved 镜像分裂、避免状态污染），所以本枚举不提供"单容器"形态，只决定**多题之间是否并发**。
+holdout 与 warmup 的容器维度不同：每道 holdout 题必须用独立容器（baseline 与 evolved 镜像分裂、避免状态污染），所以本枚举不提供"单容器"形态，只决定**多题之间是否并发**。
 
 | 枚举值 | 容器数 | 题级并发 | 适用场景 |
 |--------|--------|----------|----------|
 | `serial_multi` | N（每题独立） | 否（顺序） | 调试单题、严格按题顺序产出 trace |
-| `parallel_multi`（默认） | N（每题独立） | 是（`asyncio.gather`） | 加速大量 hold-out 题；docker / runtime 资源足够时建议默认 |
+| `parallel_multi`（默认） | N（每题独立） | 是（`asyncio.gather`） | 加速大量 holdout 题；docker / runtime 资源足够时建议默认 |
 
 **与 warmup 的差别**：
 
 - warmup 关心"产物如何累积"，所以容器维度有 single / multi 之分；
-- hold-out 只做对照评估，每题镜像分裂强制多容器，没有共享意义；
+- holdout 只做对照评估，每题镜像分裂强制多容器，没有共享意义；
 - 同题内 baseline / evolved 默认 **并行** 执行（两者镜像/workspace 子目录互不依赖），可用 `--holdout-phase-policy serial` 退回串行；本枚举只控制**多题之间**。
 
 **实现位置**：[`LIFTPipeline._run_holdout_tasks`](../src/lift/pipeline/lift_pipeline.py)。
@@ -178,23 +178,23 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 
 | 维度 | 默认 | 控制方式 | 备注 |
 |------|------|----------|------|
-| suites × repeats 矩阵 cell | **并行（默认上限 3）** | `--max-parallel-suites`（默认 `3`；`1` 串行；`<=0` 无上限） | 一个 cell = 一个 `(repeat_index, suite_index)` 对，对应一次 warmup+hold-out；repeat × suite 笛卡尔积铺平后用单一 limit 限流。每个 cell 独立 `SuiteRunResources`（容器 + delta 镜像），互不干扰；失败隔离见下文 |
+| suites × repeats 矩阵 cell | **并行（默认上限 3）** | `--max-parallel-suites`（默认 `3`；`1` 串行；`<=0` 无上限） | 一个 cell = 一个 `(repeat_index, suite_index)` 对，对应一次 warmup+holdout；repeat × suite 笛卡尔积铺平后用单一 limit 限流。每个 cell 独立 `SuiteRunResources`（容器 + delta 镜像），互不干扰；失败隔离见下文 |
 | warmup 题 | 并行（同容器） | `--warmup-container-policy`（见 §4.3）；`--max-concurrent-tasks` | 容器形态由 policy 决定 |
-| hold-out 多题之间 | 并行（多容器） | `--holdout-container-policy serial_multi` 串行（见 §4.4）；`--max-concurrent-tasks` | 每题独立容器强制 |
-| 单 hold-out task 内 baseline ↔ evolved | **并行（默认）** | `--holdout-phase-policy serial` 退回串行 | 两 phase 镜像/workspace 子目录互不依赖；并行后单 task 内同时存活 2 容器 |
+| holdout 多题之间 | 并行（多容器） | `--holdout-container-policy serial_multi` 串行（见 §4.4）；`--max-concurrent-tasks` | 每题独立容器强制 |
+| 单 holdout task 内 baseline ↔ evolved | **并行（默认）** | `--holdout-phase-policy serial` 退回串行 | 两 phase 镜像/workspace 子目录互不依赖；并行后单 task 内同时存活 2 容器 |
 | 同 task 内 work agent ↔ judge agent | 看 runtime | — | 由 `worker_judger_factory` 实现细节决定 |
 
 **`--max-concurrent-tasks` 作用域**：
 
 - 限制的是**单个 phase 内并发执行的 task 数**（asyncio Semaphore），由 [`bounded_gather`](../src/lift/eval/task_exec.py) 实现。
-- warmup 阶段与 hold-out 阶段**各自持有一个独立的 Semaphore**，不是跨阶段全局上限。
+- warmup 阶段与 holdout 阶段**各自持有一个独立的 Semaphore**，不是跨阶段全局上限。
 - **不限制单个 task 内部启动的容器数**——例如 `parallel_multi` 下每个 warmup task 起 1 个容器、`max_concurrent_tasks=4` 时同时存活上限是 4 个 warmup 容器。
 - **不跨 cell 共享**——多个 cell 并发执行时，每个 cell 各自的 phase 独立计数。
 
 **已知限制**（如需突破再做扩展）：
 
-1. **`--max-concurrent-tasks` 仅在 phase 级生效**：默认 `--holdout-phase-policy parallel` 下，单 task 内会同时启 baseline + evolved 两容器，但 Semaphore 只在 task 维度计数；`max_concurrent_tasks=4` 时 hold-out 容器数最高可达 8，需要硬上限请配合 `--holdout-phase-policy serial` 或下调 `--max-concurrent-tasks`。
-2. **warmup → hold-out 之间被 `evolve_after_warmup` 阻塞**：hold-out 必须等 evolve 完成才能起容器，期间宿主机资源闲置。
+1. **`--max-concurrent-tasks` 仅在 phase 级生效**：默认 `--holdout-phase-policy parallel` 下，单 task 内会同时启 baseline + evolved 两容器，但 Semaphore 只在 task 维度计数；`max_concurrent_tasks=4` 时 holdout 容器数最高可达 8，需要硬上限请配合 `--holdout-phase-policy serial` 或下调 `--max-concurrent-tasks`。
+2. **warmup → holdout 之间被 `evolve_after_warmup` 阻塞**：holdout 必须等 evolve 完成才能起容器，期间宿主机资源闲置。
 3. **跨 cell 没有容器级全局上限**：`--max-parallel-suites` 限的是 cell 协程数，不是容器数；总峰值容器数 ≈ `并发 cell 数 × max_concurrent_tasks × (phase 并行?2:1)`。例如 `repeat=4 × suites=3` 共 12 个 cell，`--max-parallel-suites=12 × max_concurrent_tasks=4 × holdout-phase-policy=parallel` 同时跑，宿主机可见容器数会非常大，需结合 §4.6 资源约束与并发上限一起设。
 4. **OpenClaw 容器宿主机端口**：现已改为 `docker run -p <container_port>` 由 docker 在临时端口段自动分配，启动后通过 `docker inspect` 把真实端口回填到 `ContainerSession.published_ports`；旧的 instance_id hash slot 方案已废弃，避免并行容器端口碰撞。
 
@@ -206,7 +206,7 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 
 ### 4.6 容器资源约束与运维（Colima / Docker VM）
 
-并发会按上一节公式放大**同时存活的容器数**。在资源受限的本地 Docker VM（macOS 上的 Colima / Docker Desktop）上，峰值容器一旦超过 VM 内存会触发 **OOM kill 或整机卡死**，典型症状：hold-out 报 `container ... is not running` / `Failed to list agents in container`、`docker ps -a` 显示 `Exited (137)`。`colima ssh -- sudo dmesg | grep -i oom` 区分 `global_oom`（VM 总内存耗尽）/ `Memory cgroup out of memory`（撞 `--memory` 上限）。
+并发会按上一节公式放大**同时存活的容器数**。在资源受限的本地 Docker VM（macOS 上的 Colima / Docker Desktop）上，峰值容器一旦超过 VM 内存会触发 **OOM kill 或整机卡死**，典型症状：holdout 报 `container ... is not running` / `Failed to list agents in container`、`docker ps -a` 显示 `Exited (137)`。`colima ssh -- sudo dmesg | grep -i oom` 区分 `global_oom`（VM 总内存耗尽）/ `Memory cgroup out of memory`（撞 `--memory` 上限）。
 
 > **实测教训**：单个 OpenClaw 容器是 node/V8 多进程，常驻峰值可能超过 3g。`--container-memory 3g` 反而会让正常推理被 cgroup OOM-kill（`constraint=CONSTRAINT_MEMCG`）。**默认不设单容器上限**，把内存交给 VM 内核统一调度（溢出落 swap）。
 
@@ -229,11 +229,11 @@ LIFT 框架在不同层级对异常采取**就地重试一次 + 同级隔离**�
 | **chat** | judge 返回非 JSON / 解析失败 | **8 次**用 retry prompt 重发；判 provider 错误优先（避免误判） | — | 抛 `ValueError("Judge response is not valid JSON")` | `_judge_with_retry`（[run_task.py](../src/lift/eval/run_task.py)） |
 | **turn** | `judge.success=False` | run_task 内 work↔judge 多轮（`--max-conversation-turns`，默认 5）；judge fail **不抛异常** | — | 跑满后 `success=False` + 最后一轮 score 正常返回，**不视为失败** | `run_task`（[run_task.py L297-L343](../src/lift/eval/run_task.py#L297-L343)） |
 | **task（单题）** | `execute_task` 抛异常（如容器崩、agent runtime 异常） | **原地重试 1 次**（重新拿 factory、重新 run_task） | 由调用方决定 | 二次仍失败抛出，进入上层 phase / warmup 路径 | `execute_tasks` 的 `retry_each=True`（[task_exec.py L153-L194](../src/lift/eval/task_exec.py#L153-L194)） |
-| **phase（baseline / evolved）** | hold-out 单 phase 抛异常（`run_before_load` / `run_after_load`） | **原地重试 1 次**（重新起 hold-out 容器） | `parallel` 时 `asyncio.gather(return_exceptions=True)` ⇒ baseline ↔ evolved 互不连坐 | 二次仍失败 → task 标 failed | `_run_phase` / `_one_task`（[lift_pipeline.py L404-L477](../src/lift/pipeline/lift_pipeline.py#L404-L477)） |
-| **task（hold-out）** | 单题最终失败（baseline 或 evolved 二次失败） | — | `tasks_parallel`：`bounded_gather(return_exceptions=True)`；串行：`try/except` 跳过 | 该 task 不写入 `suite_run.tasks[]`，其余 task 正常落盘 | `_run_holdout_tasks`（[lift_pipeline.py L515-L532](../src/lift/pipeline/lift_pipeline.py#L515-L532)） |
+| **phase（baseline / evolved）** | holdout 单 phase 抛异常（`run_before_load` / `run_after_load`） | **原地重试 1 次**（重新起 holdout 容器） | `parallel` 时 `asyncio.gather(return_exceptions=True)` ⇒ baseline ↔ evolved 互不连坐 | 二次仍失败 → task 标 failed | `_run_phase` / `_one_task`（[lift_pipeline.py L404-L477](../src/lift/pipeline/lift_pipeline.py#L404-L477)） |
+| **task（holdout）** | 单题最终失败（baseline 或 evolved 二次失败） | — | `tasks_parallel`：`bounded_gather(return_exceptions=True)`；串行：`try/except` 跳过 | 该 task 不写入 `suite_run.tasks[]`，其余 task 正常落盘 | `_run_holdout_tasks`（[lift_pipeline.py L515-L532](../src/lift/pipeline/lift_pipeline.py#L515-L532)） |
 | **task（warmup，base 路径）** | 单题最终失败 | task 层已 `retry_each` 一次 | `bounded_gather(return_exceptions=True)`，单题失败不取消兄弟题 | 该 warmup 题被跳过；不影响后续 evolve_after_warmup / commit delta | `execute_tasks(tasks_isolated=True)`（[base.py L100-L113](../src/lift/adapters/base.py#L100-L113)） |
 | **task（warmup，GroupMemory 路径）** | 单题独立容器抛异常 | **原地重试 1 次**（重启容器、重跑该题） | `bounded_gather(return_exceptions=True)`，题间隔离 | 该 warmup 题被跳过；其余题独立容器照常运行 | `_run_warmup_in_isolated_container`（[mixin.py L126-L174](../src/lift/adapters/group_memory/mixin.py#L126-L174)） |
-| **suite** | 单 suite 抛异常（warmup / hold-out / produce_delta 任一阶段未捕获的失败） | **首轮失败队尾重跑 1 次** | 同 repeat 内并发 suite 用 `bounded_gather(return_exceptions=True)`，单 suite 失败不取消其它 suite | 二次仍失败 → 报告里该 suite 对应位置保留 `None` 占位（其它 suite 完整落盘） | `_attempt` + 队尾重跑（[lift_pipeline.py L167-L220](../src/lift/pipeline/lift_pipeline.py#L167-L220)） |
+| **suite** | 单 suite 抛异常（warmup / holdout / produce_delta 任一阶段未捕获的失败） | **首轮失败队尾重跑 1 次** | 同 repeat 内并发 suite 用 `bounded_gather(return_exceptions=True)`，单 suite 失败不取消其它 suite | 二次仍失败 → 报告里该 suite 对应位置保留 `None` 占位（其它 suite 完整落盘） | `_attempt` + 队尾重跑（[lift_pipeline.py L167-L220](../src/lift/pipeline/lift_pipeline.py#L167-L220)） |
 | **repeat** | 单 repeat 抛异常 | — | repeat 之间默认并行（`bounded_gather` 默认 `return_exceptions=False`，**未启用隔离**） | 当前会 fail-fast 取消其他 repeat | `LIFTPipeline.run`（[lift_pipeline.py L99-L114](../src/lift/pipeline/lift_pipeline.py#L99-L114)） |
 
 #### 4.7.1 状态事件契约（对应 dashboard / TUI）
@@ -325,7 +325,7 @@ flowchart TD
 
 ## 6. 一次 eval run 的编排顺序
 
-以下为逻辑顺序；具体实现可能在 repeat 粒度并行，**不改变** warmup → hold-out 的先后约束。
+以下为逻辑顺序；具体实现可能在 repeat 粒度并行，**不改变** warmup → holdout 的先后约束。
 
 ```mermaid
 flowchart TD
@@ -336,7 +336,7 @@ flowchart TD
   E --> F{每个 suite}
   F --> G[LIFTPipeline]
   G --> H[warmup + evolve + commit Δ]
-  H --> I[hold-out before/after load]
+  H --> I[holdout before/after load]
   I --> J[写入/更新 EvalReport JSON]
   J --> F
   F --> D
@@ -380,7 +380,7 @@ flowchart TD
 EvalReport（run_id）
   └── runs[]                    ← --repeat 的第 1/2/3 轮
         └── suites[]            ← 本轮跑过的每个 suite JSON
-              └── tasks[]       ← TaskRun（LIFT 下为 hold-out 题）
+              └── tasks[]       ← TaskRun（LIFT 下为 holdout 题）
                     ├── baseline: PhaseRun   ← before-load 的一次 run_task
                     └── evolved:  PhaseRun   ← after-load 的一次 run_task
 ```
@@ -390,10 +390,10 @@ EvalReport（run_id）
 | **eval run** | 整次 CLI invocation | 顶层 `EvalReport` |
 | **repeat** | `--repeat` 的一轮完整 LIFT | `EvalReport.runs[i]`（`EvalRepeat`） |
 | **suite** | 一个 `*.json` 规格 | `SuiteRun` |
-| **task（进 report）** | hold-out 题 | `TaskRun` |
+| **task（进 report）** | holdout 题 | `TaskRun` |
 | **phase** | 单题、单加载状态的一次执行 | `PhaseRun`（`baseline` 或 `evolved`） |
 
-**LIFT 注意**：warmup 题会 `run_task`，但 **一般不写入** `suite_run.tasks[]`，只打日志；进 report 的是 hold-out 的 `baseline` + `evolved` 两个 `PhaseRun`。
+**LIFT 注意**：warmup 题会 `run_task`，但 **一般不写入** `suite_run.tasks[]`，只打日志；进 report 的是 holdout 的 `baseline` + `evolved` 两个 `PhaseRun`。
 
 路径：`results/{run_id}/report.json`
 
@@ -422,8 +422,8 @@ EvalReport（run_id）
 ```text
 results/{run_id}/outcome/run-{repeat_index}/
   warmup/{category}/              ← warmup 共用工作区
-  baseline/{category}/{task}/   ← hold-out baseline
-  evolved/{category}/{task}/    ← hold-out evolved
+  baseline/{category}/{task}/   ← holdout baseline
+  evolved/{category}/{task}/    ← holdout evolved
 ```
 
 agent 在该目录下读写任务产物；baseline 与 evolved 使用不同 phase 子目录。
@@ -477,10 +477,10 @@ flowchart LR
 | `--benchmark_dir` | suite JSON 目录（默认 `assets/benchmarks`） |
 | `--suite` | 逗号分隔 suite 文件名，或 `all` |
 | `--run_id` | 自定义 eval run 后缀 |
-| `--warmup-only` | 只跑 warmup + evolve + Δ，跳过 hold-out |
+| `--warmup-only` | 只跑 warmup + evolve + Δ，跳过 holdout |
 | `--repeat` | 完整 LIFT 重复 N 次，写入 `EvalReport.runs[]` |
 | `--warmup-container-policy` | warmup 容器编排策略（`serial_single` / `parallel_single` / `parallel_multi`，默认 `parallel_single`），见 [§4.3](#43-warmup-容器策略warmupcontainerpolicy) |
-| `--holdout-container-policy` | hold-out 容器编排策略（`serial_multi` / `parallel_multi`，默认 `parallel_multi`），见 [§4.4](#44-hold-out-容器策略holdoutcontainerpolicy) |
+| `--holdout-container-policy` | holdout 容器编排策略（`serial_multi` / `parallel_multi`，默认 `parallel_multi`），见 [§4.4](#44-holdout-容器策略holdoutcontainerpolicy) |
 | `--holdout-phase-policy` | 单 task 内 baseline / evolved 顺序（`parallel` / `serial`，默认 `parallel`），见 [§4.5](#45-并发模型与限制) |
 | `--max-parallel-suites` | suites × repeats 矩阵 cell 级并发上限（默认 `3`；`1` 串行；`<=0` 无上限），见 [§4.5](#45-并发模型与限制) |
 | `--max-concurrent-tasks` | 单 phase 内题级并发容器数上限（默认无上限），见 [§4.5](#45-并发模型与限制) |
@@ -517,7 +517,7 @@ flowchart LR
 
 ## 12. 实现无关抽象：LIFT
 
-**LIFT**（Loaded Impact on Final Task）：度量能力产物加载对 hold-out final task 表现的影响；通过在终测题上对比 **before-artifact-load** 与 **after-artifact-load** 的配对结果实现。不限定 agent 运行时与产物生产方式。
+**LIFT**（Loaded Impact on Final Task）：度量能力产物加载对 holdout final task 表现的影响；通过在终测题上对比 **before-artifact-load** 与 **after-artifact-load** 的配对结果实现。不限定 agent 运行时与产物生产方式。
 
 ### 12.1 三层与部署假设
 
@@ -543,7 +543,7 @@ flowchart LR
 
 ```python
 class DeltaRef(BaseModel, Disposable):
-    image_tag: str           # hold-out evolved 启动用的镜像（可能等于 base 镜像）
+    image_tag: str           # holdout evolved 启动用的镜像（可能等于 base 镜像）
     source_container: str | None
     owned: bool = True       # cleanup 时是否 docker rmi（False = 复用外部镜像，不可删）
 ```
@@ -552,7 +552,7 @@ class DeltaRef(BaseModel, Disposable):
 
 | 信号 | 作用 | 谁消费 |
 |------|------|--------|
-| `DeltaRef.image_tag` | hold-out evolved 启动用的镜像 | `_run_holdout` → `start_holdout_environment` → `docker run` |
+| `DeltaRef.image_tag` | holdout evolved 启动用的镜像 | `_run_holdout` → `start_holdout_environment` → `docker run` |
 | `HoldoutLoadState` | 当前是 `BASELINE` 还是 `EVOLVED` | runtime 的 `start_container(load_state=…)`，决定是否注入 evolved-only 配置（env、卷、namespace） |
 
 **两种典型组合：**

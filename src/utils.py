@@ -33,7 +33,7 @@ def make_run_id(run_id_suffix: str | None = None) -> str:
 def outcome_workspace(
     run_id: str, repeat_index: int, phase: str, category_name: str
 ) -> Path:
-    """Host path for one hold-out task workspace, created if missing.
+    """Host path for one holdout task workspace, created if missing.
 
     Layout: ``results/{run_id}/outcome/run-{repeat}/{phase}/{category}/``.
     Mounted into containers as the per-task working directory.

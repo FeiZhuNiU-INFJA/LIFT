@@ -7,7 +7,7 @@
 
 仍**保留**继承自 ``ContainerAgentRuntimeAdapter`` 的 ``docker commit`` delta 物化：warmup
 阶段 OpenClaw 在使用过程中自然产生的 skill/memory 文件系统变化，会被 commit 进 delta 镜像并
-带到 hold-out 的 evolved 阶段。
+带到 holdout 的 evolved 阶段。
 
 带进化插件的变体见 ``OpenClawWithEvolveAdapter``（继承本类，仅 override 镜像与 evolve 钩子）。
 """

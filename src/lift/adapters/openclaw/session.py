@@ -224,7 +224,7 @@ async def start_openclaw_container(
     """启动 OpenClaw gateway 容器：端口、token、volume、readiness 与 seed 钩子。
 
     ``seed_workspace``: 为 ``True`` 时调用 ``seed_eval_workspace`` 并执行容器内 seed
-    shell，使 hold-out 工作区带固定人设、无 ``BOOTSTRAP.md``。
+    shell，使 holdout 工作区带固定人设、无 ``BOOTSTRAP.md``。
 
     ``container_memory`` / ``container_cpus``: 透传给 ``docker run --memory`` /
     ``--cpus`` 的单容器资源上限（None 表示不限制）。

@@ -44,7 +44,7 @@ class SuiteRunContext(BaseModel):
 
 
 class AgentRuntimeAdapter(ABC):
-    """Agent execution runtime base with template methods for warmup and hold-out."""
+    """Agent execution runtime base with template methods for warmup and holdout."""
 
     _EVOLVE_HOOK_ATTEMPTS = 3
 
@@ -53,7 +53,7 @@ class AgentRuntimeAdapter(ABC):
         self._options = options or RunOptions()  # CLI 解析后的运行时配置
 
     async def create_suite_run_resources(self, ctx: SuiteRunContext) -> SuiteRunResources:
-        """为当前 suite 创建资源登记簿，供本 suite 内 warmup / hold-out 共用。
+        """为当前 suite 创建资源登记簿，供本 suite 内 warmup / holdout 共用。
 
         pipeline 在每个 ``(repeat_index, suite)`` 开始时调用一次；adapter 在后续
         ``produce_delta`` / ``run_before_load`` / ``run_after_load`` 中通过
@@ -136,7 +136,7 @@ class AgentRuntimeAdapter(ABC):
             LOGGER.info("Delta materialized: %s", delta.image_tag)
             return delta
         finally:
-            # warmup 容器使命结束；hold-out 会起新容器加载 delta 镜像
+            # warmup 容器使命结束；holdout 会起新容器加载 delta 镜像
             await env.disposable.cleanup()
 
     async def _run_evolve_after_task_with_retry(
@@ -227,7 +227,7 @@ class AgentRuntimeAdapter(ABC):
         resources: SuiteRunResources,
         ctx: SuiteRunContext,
     ) -> PhaseRun:
-        """Hold-out before-load 对照：干净 baseline 镜像上跑单题。"""
+        """Holdout before-load 对照：干净 baseline 镜像上跑单题。"""
         return await self._run_holdout(
             task=task,
             resources=resources,
@@ -243,7 +243,7 @@ class AgentRuntimeAdapter(ABC):
         delta: DeltaRef,
         ctx: SuiteRunContext,
     ) -> PhaseRun:
-        """Hold-out after-load 对照：加载 warmup delta 镜像后跑单题。"""
+        """Holdout after-load 对照：加载 warmup delta 镜像后跑单题。"""
         return await self._run_holdout(
             task=task,
             resources=resources,
@@ -261,13 +261,13 @@ class AgentRuntimeAdapter(ABC):
         image: str,
         load_state: HoldoutLoadState,
     ) -> PhaseRun:
-        """Hold-out 单题执行内核：起容器 → factory → execute_task。"""
+        """Holdout 单题执行内核：起容器 → factory → execute_task。"""
         run_phase = SuiteRunPhase.holdout(load_state)
         workspace = self.holdout_workspace(ctx, task, load_state)
         # 把本题 materials 按原目录名复制进 workspace（容器内 /workspace/task），
         # 使 query 中的 ``qN_materials/`` 相对引用命中
         stage_task_materials(workspace, task.requirements.material_dir)
-        # Hold-out 每题新 workspace：seed 由 runtime 解释（OpenClaw=预置人设跳过 BOOTSTRAP）
+        # Holdout 每题新 workspace：seed 由 runtime 解释（OpenClaw=预置人设跳过 BOOTSTRAP）
         env = await self.start_holdout_environment(
             ctx,
             resources,
@@ -277,7 +277,7 @@ class AgentRuntimeAdapter(ABC):
             seed_workspace=True,
             load_state=load_state,  # runtime 据此区分 baseline/evolved（如群体记忆是否注入）
         )
-        resources.track(env.disposable)  # hold-out 每题独立容器，题末 finally 立刻 rm
+        resources.track(env.disposable)  # holdout 每题独立容器，题末 finally 立刻 rm
         try:
             factory = self.worker_judger_factory(
                 env, ctx, run_phase=run_phase, workspace_dir=workspace
@@ -312,7 +312,7 @@ class AgentRuntimeAdapter(ABC):
             )
             # adapter 自报 work agent tool 调用次数；OpenClaw 走 trajectory.jsonl，
             # 其他 runtime 默认 None（dashboard 显示 "—"）。失败仅 warning，绝不
-            # 拖垮 hold-out。
+            # 拖垮 holdout。
             try:
                 tool_calls = await self.count_tool_calls(env, task, result, ctx)
             except Exception as exc:  # noqa: BLE001
@@ -336,7 +336,7 @@ class AgentRuntimeAdapter(ABC):
     def holdout_workspace(
         self, ctx: SuiteRunContext, task: SuiteTask, load_state: HoldoutLoadState
     ) -> Path:
-        """Hold-out 单题隔离 workspace（``.../holdout/{task.name}/``）。"""
+        """Holdout 单题隔离 workspace（``.../holdout/{task.name}/``）。"""
         base = outcome_workspace(
             ctx.run_id,
             ctx.repeat_index,
@@ -379,16 +379,16 @@ class AgentRuntimeAdapter(ABC):
         seed_workspace: bool,
         load_state: HoldoutLoadState,
     ) -> ExecutionEnvironment:
-        """Start the runtime used for one hold-out task.
+        """Start the runtime used for one holdout task.
 
         ``seed_workspace``: 是否在挂载 ``workspace_dir`` 前写入「评测用初始工作区」。
-        框架在 hold-out 与 warmup 阶段均传 ``True``——避免 agent 在每次新建容器时重跑
+        框架在 holdout 与 warmup 阶段均传 ``True``——避免 agent 在每次新建容器时重跑
         首次上线 onboarding（问名字 / emoji 等），既浪费 turn 又污染评测语料；具体文件
         与是否 no-op 由 runtime 的 ``start_container`` 实现决定（OpenClaw 复制
         IDENTITY/USER/SOUL 并删 BOOTSTRAP；其他 agent 可注入项目指令、规则文件，或忽略
         该标志）。
 
-        ``load_state``: 当前 hold-out 加载态（``BASELINE`` / ``EVOLVED``）。多数
+        ``load_state``: 当前 holdout 加载态（``BASELINE`` / ``EVOLVED``）。多数
         runtime 通过 ``image`` 即可区分（base vs delta），但群体记忆等不依赖镜像
         commit 的策略需要这个显式信号决定是否注入"已学经验"配置。
         """
@@ -419,7 +419,7 @@ class AgentRuntimeAdapter(ABC):
         result: PhaseRun,
         ctx: SuiteRunContext,
     ) -> int | None:
-        """Hold-out 单题 work agent tool 调用总次数；默认返回 None。
+        """Holdout 单题 work agent tool 调用总次数；默认返回 None。
 
         子类按 runtime 自行覆写：OpenClaw 走 trajectory.jsonl 的
         ``model.completed.messagesSnapshot`` 数 ``toolCall`` block，其他 runtime
@@ -449,4 +449,4 @@ class AgentRuntimeAdapter(ABC):
 
     @abstractmethod
     def baseline_image(self, ctx: SuiteRunContext) -> str:
-        """Runtime image or identifier for before-load hold-out."""
+        """Runtime image or identifier for before-load holdout."""

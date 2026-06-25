@@ -7,8 +7,8 @@
     - warmup 每题独立容器并行（``WarmupContainerPolicy.PARALLEL_MULTI``，本 adapter
       默认覆盖该值）
     - evolve_after_task / evolve_after_warmup 默认 no-op（群体记忆在 chat 期间由 OpenClaw 插件写入）
-    - materialize_delta 不做 docker commit，evolved hold-out 复用 base 镜像
-    - hold-out 通过 ``load_state`` 区分 baseline / evolved（baseline 不读群体记忆，
+    - materialize_delta 不做 docker commit，evolved holdout 复用 base 镜像
+    - holdout 通过 ``load_state`` 区分 baseline / evolved（baseline 不读群体记忆，
       evolved 读取已学群体记忆——具体注入逻辑由 runtime 插件配合实现）
 
 依赖：

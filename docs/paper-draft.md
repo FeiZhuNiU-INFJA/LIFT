@@ -8,7 +8,7 @@
 
 现有 Agent 评测体系——无论是 AgentBench 类通用 benchmark、SWE-bench / GAIA 类任务 benchmark，还是 SkillsBench / EvolveTool-Bench 类产物 benchmark——大多停留在"看 Agent 在某个静态任务集上的最终通过率"这一层。对"加载产物 vs 不加载产物"的因果对照、"训练任务和测试任务的分离"的归因控制以及"运行时环境的可复现隔离"三件事处理得都不充分。
 
-我们提出 **LIFT（Loaded Impact on Final Task）** 评测框架：以 hold-out final task 上的 *Base vs Loaded* 对照为唯一科学问题，以容器快照（docker commit → delta 镜像）作为产物固化与回放载体，以 *work agent + judge agent* 的 review loop 作为单题评分内核，以 *adapter / pipeline / eval kernel* 三层解耦支持多种 Agent runtime（OpenClaw、带进化插件的 OpenClaw、群体记忆 OpenClaw 等），并在工程层支持 repeat / suite / phase 的多级并发与可观测性（Langfuse trace backfill）。配套的 benchmark 套件按 *warmup_tasks / holdout_tasks* 两段式组织，对应训练/测试分离的实验设计。
+我们提出 **LIFT（Loaded Impact on Final Task）** 评测框架：以 holdout final task 上的 *Base vs Loaded* 对照为唯一科学问题，以容器快照（docker commit → delta 镜像）作为产物固化与回放载体，以 *work agent + judge agent* 的 review loop 作为单题评分内核，以 *adapter / pipeline / eval kernel* 三层解耦支持多种 Agent runtime（OpenClaw、带进化插件的 OpenClaw、群体记忆 OpenClaw 等），并在工程层支持 repeat / suite / phase 的多级并发与可观测性（Langfuse trace backfill）。配套的 benchmark 套件按 *warmup_tasks / holdout_tasks* 两段式组织，对应训练/测试分离的实验设计。
 
 ---
 
@@ -54,7 +54,7 @@ LLM 评测最早是"输入一个 prompt，看输出对不对"。Agent 把这件�
 围绕这个论点，LIFT 给出了一组配套设计：
 
 1. **科学协议**：训练/测试分离（warmup_tasks / holdout_tasks） + 同题双跑（baseline / evolved） + work-judge review loop；
-2. **工程载体**：容器快照（docker commit → delta image）作为产物固化形式，每道 hold-out 题各起独立容器，runtime / pipeline / eval 三层解耦；
+2. **工程载体**：容器快照（docker commit → delta image）作为产物固化形式，每道 holdout 题各起独立容器，runtime / pipeline / eval 三层解耦；
 3. **可观测性**：pre-chat 上报 + Langfuse trace backfill，让评测**结论**和**过程**都可回查；
 4. **配套 benchmark**：以 warmup_tasks / holdout_tasks 两段式组织的 suite JSON。
 
@@ -84,7 +84,7 @@ ABC Checklist、Agent-as-a-Judge、MAJ-Eval 回答"评测怎么评才靠谱"。L
 
 ### 2.5 评测 SDK
 
-DeepEval、Opik、Promptfoo 面向 LLM API 层的开发者评测，工作粒度是 prompt × model。LIFT 的工作粒度是 *容器内 Agent × hold-out 题 × baseline/evolved*，层级不同。Langfuse 在 LIFT 中扮演 Opik 的 trace 角色——只用 trace 能力，不用 evaluator 能力，因为 evaluator 在我们这里由 work-judge review loop 承担。
+DeepEval、Opik、Promptfoo 面向 LLM API 层的开发者评测，工作粒度是 prompt × model。LIFT 的工作粒度是 *容器内 Agent × holdout 题 × baseline/evolved*，层级不同。Langfuse 在 LIFT 中扮演 Opik 的 trace 角色——只用 trace 能力，不用 evaluator 能力，因为 evaluator 在我们这里由 work-judge review loop 承担。
 
 ### 2.6 安全评测
 
@@ -94,7 +94,7 @@ OS-Harm、RAS-Eval 提示了一个事实：产物加载后会引入新安全风�
 
 ## 3 LIFT 评测框架
 
-LIFT = **L**oaded **I**mpact on **F**inal **T**ask。回答的科学问题：**产物加载后，在 final task（hold-out）上是否带来正向 impact？**
+LIFT = **L**oaded **I**mpact on **F**inal **T**ask。回答的科学问题：**产物加载后，在 final task（holdout）上是否带来正向 impact？**
 
 ### 3.1 设计原则
 
@@ -103,7 +103,7 @@ LIFT = **L**oaded **I**mpact on **F**inal **T**ask。回答的科学问题：**�
 | 原则 | 含义 |
 |---|---|
 | **P1 因果对照唯一** | 唯一被试问题是"加载 vs 不加载"，其余变量必须一致 |
-| **P2 训练/测试分离** | 进化用的题（warmup）和测试用的题（hold-out）不能重叠 |
+| **P2 训练/测试分离** | 进化用的题（warmup）和测试用的题（holdout）不能重叠 |
 | **P3 产物来源无关** | 不论产物是 Skill / Memory / SOP / MCP Box，评测逻辑相同 |
 | **P4 运行时可复现** | 同一 run_id 在任意机器上重跑应能产出一致结构（含 trace） |
 | **P5 进化诊断可选** | FWT / BWT 等学习曲线只在 P1 没结论时使用 |
@@ -118,9 +118,9 @@ SuiteSpec
 └── holdout_tasks[]  ← final task，被试题
 ```
 
-warmup 和 hold-out 在 suite JSON 里**显式**字段分开，不再让运行时按题号切。
+warmup 和 holdout 在 suite JSON 里**显式**字段分开，不再让运行时按题号切。
 
-**对照组**：每道 hold-out 题各跑两遍，组成一个 TaskRun：
+**对照组**：每道 holdout 题各跑两遍，组成一个 TaskRun：
 
 ```text
 TaskRun
@@ -131,8 +131,8 @@ TaskRun
 **关键工程取舍**：
 
 - **Warmup 容器编排可选**：单 Agent 进化场景下默认所有 warmup 题共用一个容器（`PARALLEL_SINGLE`，文件系统状态连续是进化插件的天然要求）；多用户/群体记忆场景（`multi_user_openclaw`）下切到 `PARALLEL_MULTI`，每题独立容器、产物落外部群体记忆，commit 行为退化为 no-op。两种形态对上层 pipeline 透明；
-- **Hold-out 每题起新容器**：与 warmup 不同，hold-out 是协议层硬约束——baseline 必须是"未污染环境"，题与题 workspace 也要隔离，所以 [`HoldoutContainerPolicy`](../src/lift/policies/container.py#L34-L50) 只提供 `SERIAL_MULTI` / `PARALLEL_MULTI` 两种"多容器"形态，没有"单容器"选项；
-- **多道 hold-out 共用同一份 delta**：产物是 suite 级常量，不应该随 hold-out 题变化。
+- **Holdout 每题起新容器**：与 warmup 不同，holdout 是协议层硬约束——baseline 必须是"未污染环境"，题与题 workspace 也要隔离，所以 [`HoldoutContainerPolicy`](../src/lift/policies/container.py#L34-L50) 只提供 `SERIAL_MULTI` / `PARALLEL_MULTI` 两种"多容器"形态，没有"单容器"选项；
+- **多道 holdout 共用同一份 delta**：产物是 suite 级常量，不应该随 holdout 题变化。
 
 **报告层级**：
 
@@ -152,7 +152,7 @@ LIFT 的代码组织遵循三层抽象，每一层只处理一个关注点：
 ```text
 CLI / Pipeline           ← 切题、循环、并发、写 report（不知道 OpenClaw 是什么）
         ↓
-AgentRuntimeAdapter      ← 容器、产物固化、chat 怎么调（不知道 hold-out / repeat 是什么）
+AgentRuntimeAdapter      ← 容器、产物固化、chat 怎么调（不知道 holdout / repeat 是什么）
         ↓
 lift/eval (work + judge) ← 单题 review loop（不知道 Docker 是什么）
 ```
@@ -165,7 +165,7 @@ lift/eval (work + judge) ← 单题 review loop（不知道 Docker 是什么）
 | `openclaw_with_evolve` | with-evolve 镜像 | warmup 后容器内 `openclaw learn review`，再 commit |
 | `multi_user_openclaw` | base 镜像 + GroupMemoryMixin | 多容器 warmup（模拟多用户），产物落到外部群体记忆系统 |
 
-新接 runtime 只需实现 4 个钩子：`resolve_docker_image` / `start_container` / `worker_judger_factory` / `evolve_after_warmup`。整个 docker commit / hold-out 编排逻辑在父类 `ContainerAgentRuntimeAdapter` 里复用。
+新接 runtime 只需实现 4 个钩子：`resolve_docker_image` / `start_container` / `worker_judger_factory` / `evolve_after_warmup`。整个 docker commit / holdout 编排逻辑在父类 `ContainerAgentRuntimeAdapter` 里复用。
 
 这一设计直接呼应 P3（产物来源无关）：不同 runtime 把产物放到镜像里 / 群体记忆里 / 文件系统里，对上层 pipeline 完全透明。
 
@@ -211,7 +211,7 @@ sequenceDiagram
   participant P as Pipeline
   participant A as Adapter
   participant W as Warmup 容器
-  participant H as Hold-out 容器
+  participant H as Holdout 容器
 
   P->>A: warmup 题（Q1..Qn-1）
   A->>W: 起一个容器，连续做题（默认 parallel_single）
@@ -219,7 +219,7 @@ sequenceDiagram
   W->>W: docker commit → delta 镜像
   A->>W: 删掉 warmup 容器
 
-  loop 每道 hold-out 题
+  loop 每道 holdout 题
     P->>A: baseline
     A->>H: 从 base 镜像起新容器 → 做题打分
     P->>A: evolved
@@ -232,7 +232,7 @@ sequenceDiagram
 注意几个隐含约束：
 
 - **Delta 是 suite 级临时产物**：suite 跑完就 `docker rmi` 掉，不污染本地镜像列表；
-- **Hold-out workspace 必须显式 seed**：避免 OpenClaw 首次上线问名字/emoji 把判分搞乱；
+- **Holdout workspace 必须显式 seed**：避免 OpenClaw 首次上线问名字/emoji 把判分搞乱；
 - **Group memory runtime** 用同一接口 `DeltaRef(image_tag=base_image, owned=False)`，把"产物在外部"统一到同一抽象。
 
 ### 3.6 并发与隔离：把"反复跑"做便宜
@@ -245,9 +245,9 @@ sequenceDiagram
 | Task 间（同一 phase 内） | `--max-concurrent-tasks` | 不限 |
 | Phase 间（同一 task 内） | `--holdout-phase-policy` | parallel |
 | Warmup 容器策略 | `--warmup-container-policy` | parallel_single |
-| Hold-out 容器策略 | `--holdout-container-policy` | parallel_multi |
+| Holdout 容器策略 | `--holdout-container-policy` | parallel_multi |
 
-每层并发都建立在容器隔离之上：每道 hold-out 题独立容器、独立 workspace 子目录、独立端口。clean-up 由 SuiteRunResources 登记簿统一管理。
+每层并发都建立在容器隔离之上：每道 holdout 题独立容器、独立 workspace 子目录、独立端口。clean-up 由 SuiteRunResources 登记簿统一管理。
 
 ### 3.7 可观测性：执行期 + 后处理双链
 
@@ -282,7 +282,7 @@ LIFT 框架本身只产出**结构化执行记录（ExecutionRecord，Pydantic�
 
 |  | LIFT（本文） | replay（legacy） |
 |---|---|---|
-| 评测焦点 | hold-out final 的加载对照 | 全部 task 进化前后各跑一遍 |
+| 评测焦点 | holdout final 的加载对照 | 全部 task 进化前后各跑一遍 |
 | 产物阶段 | warmup 产 Δ 镜像，再开始测 | 全 suite baseline 跑完后一次性 evolve |
 | 风险 | 无 | Q5 的 baseline 可能受 Q1..Q4 状态污染；Q5 的 evolved 可能直接复用 Q1..Q4 输出 |
 | 科学问题 | 产物对未见过的题是否有效（**外推**） | 每题进化幅度（**内插**，诊断用） |
@@ -302,7 +302,7 @@ LIFT 协议要求 benchmark 满足以下最小契约：
 3. **跨 runtime 中立**：query 不绑定特定 Agent 的工具命名，避免给某个 runtime 送分；
 4. **场景多样性**：当前已就绪 11 套数据集，涵盖团建 / 销售运营 / 写作 / 代码等场景。
 
-最小冒烟集 `assets/benchmarks_demo/hello.json` 提供 1 道 warmup（Q1：「回复一下你好」）+ 1 道 hold-out（Q2：「自我介绍一下你自己」），用于框架级回归测试。
+最小冒烟集 `assets/benchmarks_demo/hello.json` 提供 1 道 warmup（Q1：「回复一下你好」）+ 1 道 holdout（Q2：「自我介绍一下你自己」），用于框架级回归测试。
 
 完整 benchmark 由 `python -m src.cli.preprocess` 从外部存储拉取 markdown 源，转为 LIFT suite JSON。详细 schema、出题原则、rubric 设计参见姊妹篇。
 

@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-LIFT (Loaded Impact on Final Task) is an evaluation framework that tests whether an agent improves on hold-out tasks after completing warmup tasks and evolving. The framework runs agents in Docker containers (OpenClaw) and compares baseline vs evolved performance.
+LIFT (Loaded Impact on Final Task) is an evaluation framework that tests whether an agent improves on holdout tasks after completing warmup tasks and evolving. The framework runs agents in Docker containers (OpenClaw) and compares baseline vs evolved performance.
 
-**Key Concept**: Each hold-out task is run twice—once with a baseline image and once with a delta image (created after warmup+evolve)—to measure improvement.
+**Key Concept**: Each holdout task is run twice—once with a baseline image and once with a delta image (created after warmup+evolve)—to measure improvement.
 
 ## Common Commands
 
@@ -16,7 +16,7 @@ bash agent-runtimes/openclaw/build-image.sh
 # Produces evolve-eval-openclaw-with-evolve:latest (with evolution plugin)
 # INSTALL_SELF_EVOLVING=false bash ... build-image.sh  # without plugin
 
-# Smoke test (warmup only, skips hold-out)
+# Smoke test (warmup only, skips holdout)
 python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id smoke-test
 
 # Full LIFT evaluation
@@ -50,7 +50,7 @@ lift/eval (src/lift/eval)
 | Component | Path | Purpose |
 |-----------|------|---------|
 | CLI entry | `src/cli/lift_main.py` | Argument parsing, runs `LIFTPipeline` |
-| Pipeline | `src/lift/pipeline/lift_pipeline.py` | Main orchestration: warmup → hold-out → report |
+| Pipeline | `src/lift/pipeline/lift_pipeline.py` | Main orchestration: warmup → holdout → report |
 | Adapter base | `src/lift/adapters/base.py` | `AgentRuntimeAdapter` abstract interface |
 | Container adapter | `src/lift/adapters/container/` | Docker lifecycle, `docker commit` for delta |
 | OpenClaw adapter | `src/lift/adapters/openclaw/` | OpenClaw-specific: base image, chat factory |
@@ -64,7 +64,7 @@ lift/eval (src/lift/eval)
 1. **Warmup**: Tasks run in a single container with state preserved
 2. **Evolve**: Container executes evolution (`openclaw learn review` or no-op)
 3. **Delta**: Container committed to temporary image (`evolve-eval-delta:{run_id}-r{repeat}-{suite}`)
-4. **Hold-out**: Each task runs twice—baseline from base image, evolved from delta image
+4. **Holdout**: Each task runs twice—baseline from base image, evolved from delta image
 5. **Report**: Writes `results/{run_id}/report.json` with success/score/session_id
 6. **Post-process** (default): Fetches Langfuse traces, generates CSV/HTML
 
@@ -74,7 +74,7 @@ lift/eval (src/lift/eval)
 EvalReport
   └── runs[] (repeat iteration)
         └── suites[] (benchmark JSON file)
-              └── tasks[] (hold-out task only)
+              └── tasks[] (holdout task only)
                     ├── baseline: PhaseRun (success, content_score, langfuse, workspace_dir)
                     └── evolved: PhaseRun
 ```
@@ -87,10 +87,10 @@ EvalReport
 
 - **Model configuration**: `MODEL_NAME` in `.env` must match a `provider/model_id` registered in `agent-runtimes/openclaw/config/models.fragment.json`
 - **Delta naming**: `evolve-eval-delta:{run_id}-r{repeat}-{suite_name}` (auto-cleaned after suite)
-- **Workspace isolation**: Each hold-out task gets isolated workspace; warmup tasks share state
+- **Workspace isolation**: Each holdout task gets isolated workspace; warmup tasks share state
 - **Container policies**: 
   - Warmup: `parallel_single` (default), `serial_single`, `parallel_multi`
-  - Hold-out: `parallel_multi` (default), `serial_multi`
+  - Holdout: `parallel_multi` (default), `serial_multi`
   - Phase: `parallel` (baseline+evolved concurrent) or `serial`
 
 ## Environment Variables (.env required)

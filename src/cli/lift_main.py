@@ -1,4 +1,4 @@
-"""LIFT 评测 CLI 入口：warmup + hold-out baseline/evolved，可选后处理。
+"""LIFT 评测 CLI 入口：warmup + holdout baseline/evolved，可选后处理。
 
 用法示例::
 
@@ -60,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--warmup-only",
         action="store_true",
-        help="Run warmup tasks and produce delta only; skip hold-out baseline/evolved.",
+        help="Run warmup tasks and produce delta only; skip holdout baseline/evolved.",
     )
     parser.add_argument(
         "-e",
@@ -92,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=HoldoutContainerPolicy.PARALLEL_MULTI.value,
         choices=[p.value for p in HoldoutContainerPolicy],
         help=(
-            "Hold-out container orchestration policy: each task always gets its own "
+            "Holdout container orchestration policy: each task always gets its own "
             "container (image-split). Choose serial_multi (sequential) or "
             "parallel_multi (default; asyncio.gather across tasks)."
         ),
@@ -103,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[p.value for p in HoldoutPhasePolicy],
         help=(
             "Per-task baseline/evolved execution order. Default: parallel "
-            "(asyncio.gather both phases — saves ~1/3 hold-out time). "
+            "(asyncio.gather both phases — saves ~1/3 holdout time). "
             "Set to serial to keep the legacy baseline→evolved order."
         ),
     )
@@ -113,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=3,
         help=(
             "Cap parallel cells in the suites x repeats matrix (one cell = one "
-            "(repeat, suite) pair = one warmup+hold-out run). Default: 3. "
+            "(repeat, suite) pair = one warmup+holdout run). Default: 3. "
             "Set to 1 for serial; <=0 for no cap. Note: each cell carries its own "
             "task-level concurrency, so total containers = parallel cells x task parallelism."
         ),
@@ -124,7 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Cap concurrent task containers within a suite "
-            "(applies to warmup parallel_single/parallel_multi and hold-out "
+            "(applies to warmup parallel_single/parallel_multi and holdout "
             "parallel_multi). Default: no cap."
         ),
     )
@@ -216,7 +216,7 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
 
 
 async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
-    """执行完整 LIFT pipeline（warmup + hold-out），可选后处理。"""
+    """执行完整 LIFT pipeline（warmup + holdout），可选后处理。"""
     run_id = make_run_id(args.run_id)
     options = RunOptions(
         repeat=args.repeat,

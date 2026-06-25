@@ -339,7 +339,7 @@ async def run_task(
     Does not schedule multiple tasks; use ``execute_tasks`` for that.
     """
     tags = CustomTags.init_tags(task, run_id)
-    tags.is_final_task = is_final_task  # hold-out → Langfuse pre-chat / 后处理过滤
+    tags.is_final_task = is_final_task  # holdout → Langfuse pre-chat / 后处理过滤
     tags.is_evolve_turn = is_evolve_turn  # after-load → 标记加载了 warmup delta
     current_prompt = pair.work_agent.augment_work_prompt(task, task.query)
     last_content_score: float = 0.0

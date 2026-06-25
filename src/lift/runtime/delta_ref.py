@@ -22,7 +22,7 @@ class DeltaRef(BaseModel, Disposable):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     image_tag: str = Field(
-        description="evolved hold-out 启动时 docker run 用的镜像；可能等于 base 镜像（owned=False）"
+        description="evolved holdout 启动时 docker run 用的镜像；可能等于 base 镜像（owned=False）"
     )
     source_container: str | None = Field(
         default=None,

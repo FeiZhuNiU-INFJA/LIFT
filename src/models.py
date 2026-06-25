@@ -62,7 +62,7 @@ class SuiteTask(BaseModel):
 
 
 class Suite(BaseModel):
-    """标准评测集：warmup（train）与 hold-out（test）两组 task。"""
+    """标准评测集：warmup（train）与 holdout（test）两组 task。"""
 
     name: str = Field(description="suite 名称")
     category: str = Field(description="场景分类名（如 hello、coding）")
@@ -72,7 +72,7 @@ class Suite(BaseModel):
     )
     holdout_tasks: list[SuiteTask] = Field(
         default_factory=list,
-        description="hold-out 终测题列表（对应 benchmark_mds/test）",
+        description="holdout 终测题列表（对应 benchmark_mds/test）",
     )
 
     @classmethod
@@ -111,7 +111,7 @@ class LangfuseAgentTraceInput(BaseModel):
     run: str = Field(description="评测批次 ID（CustomTags.run）")
     task: str = Field(description="task 标识（通常为 category_name + task name）")
     task_query: str = Field(description="task 原始 query")
-    is_final_task: bool = Field(default=False, description="是否为 hold-out 最后一轮 task")
+    is_final_task: bool = Field(default=False, description="是否为 holdout 最后一轮 task")
     is_evolve_turn: bool = Field(default=False, description="是否为进化后的 evolved 阶段")
     content_reqs: str = Field(default="", description="内容评判标准")
     trajectory_reqs: str = Field(default="", description="轨迹评判标准")
@@ -540,7 +540,7 @@ class CustomTags:
     task_query: str
     """task 原始 query。"""
     is_final_task: bool
-    """是否为 hold-out 最后一轮 task。"""
+    """是否为 holdout 最后一轮 task。"""
     is_evolve_turn: bool
     """是否为进化后的 evolved 阶段。"""
     content_reqs: str

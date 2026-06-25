@@ -15,7 +15,7 @@
 │   │   └── q1_materials/     # 每一题所需的支撑材料
 │   └── q2_<任务短名>/
 │       └── ...
-├── test/                     # final / hold-out 题（LIFT 终测对照）
+├── test/                     # final / holdout 题（LIFT 终测对照）
 │   ├── q5_<任务短名>/
 │   │   └── ...
 │   └── q6_<任务短名>/
@@ -32,7 +32,7 @@ preprocess 生成的 `assets/benchmarks/*.json`（不纳入 git）使用 [src/mo
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `warmup_tasks` | `SuiteTask[]` | 对应场景下 ``train/`` 下题目，用于 warmup + evolve |
-| `holdout_tasks` | `SuiteTask[]` | 对应场景下 ``test/`` 下题目，用于 hold-out baseline/evolved 对照 |
+| `holdout_tasks` | `SuiteTask[]` | 对应场景下 ``test/`` 下题目，用于 holdout baseline/evolved 对照 |
 
 - 每个 **final** 题在 report 中各一条 `TaskRun`（`baseline` / `evolved`）。
 
@@ -71,7 +71,7 @@ preprocess 生成的 `assets/benchmarks/*.json`（不纳入 git）使用 [src/mo
 2. 得到Agent执行结果，通过LLM judge判定要求是否全部通过，没通过就给出要求清单中没完成的前两个要求作为提示，让Agent继续完成任务以达到要求，模拟人与Agent的交互
 3. 循环步骤2直到LLM judge通过，或者达到最大尝试次数
 
-### 训练集(Warmup Task)与测试集(Hold-out Task)
+### 训练集(Warmup Task)与测试集(Holdout Task)
 
 在本评测数据集中，训练集的含义与普通的数据集一致，不再赘述。对于测试集则有特殊要求：
 1. 测试集query所对应的任务类型需要与场景一致

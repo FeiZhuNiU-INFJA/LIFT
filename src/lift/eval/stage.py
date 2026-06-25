@@ -1,4 +1,4 @@
-"""LIFT suite stage: warmup vs hold-out, and hold-out load state."""
+"""LIFT suite stage: warmup vs holdout, and holdout load state."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from enum import StrEnum
 class SuiteStage(StrEnum):
     """Suite run 的大阶段：warmup（产物进化）或 holdout（终测对照）。"""
 
-    WARMUP = "warmup"  # 非 hold-out 题 + evolve，产出 delta
+    WARMUP = "warmup"  # 非 holdout 题 + evolve，产出 delta
     HOLDOUT = "holdout"  # before-load / after-load 对照评测
 
 
 class HoldoutLoadState(StrEnum):
-    """Hold-out artifact load state (before-load vs after-load)."""
+    """Holdout artifact load state (before-load vs after-load)."""
 
     BASELINE = "baseline"  # before-load: fresh runtime, no delta
     EVOLVED = "evolved"  # after-load: runtime with warmup delta
@@ -22,7 +22,7 @@ class HoldoutLoadState(StrEnum):
 
 @dataclass(frozen=True)
 class SuiteRunPhase:
-    """Which phase of a suite run is active (warmup vs hold-out load state).
+    """Which phase of a suite run is active (warmup vs holdout load state).
 
     Not a benchmark ``SuiteTask`` — describes where we are in the LIFT flow for
     the current ``SuiteRunContext``.
@@ -45,7 +45,7 @@ class SuiteRunPhase:
 
     @classmethod
     def holdout(cls, load_state: HoldoutLoadState) -> SuiteRunPhase:
-        """构造 hold-out 阶段，指定 before-load 或 after-load。"""
+        """构造 holdout 阶段，指定 before-load 或 after-load。"""
         return cls(stage=SuiteStage.HOLDOUT, load_state=load_state)
 
     @property
@@ -70,7 +70,7 @@ class SuiteRunPhase:
 
     @property
     def is_final_task(self) -> bool:
-        """hold-out 题标记为 final task（写入 Langfuse tags）。"""
+        """holdout 题标记为 final task（写入 Langfuse tags）。"""
         return self.stage == SuiteStage.HOLDOUT
 
     @property

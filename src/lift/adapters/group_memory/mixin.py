@@ -47,7 +47,7 @@ class GroupMemoryAdapterMixin:
 
     覆盖的方法：
         - ``produce_delta``: 为每道 warmup 题各起一个容器（``PARALLEL_MULTI``），跑完后
-          返回 ``owned=False`` 的占位 ``DeltaRef``——hold-out evolved 阶段会复用 base
+          返回 ``owned=False`` 的占位 ``DeltaRef``——holdout evolved 阶段会复用 base
           镜像，evolved 信号通过 ``load_state`` 透传给 ``start_container``，由 runtime
           决定如何加载群体记忆。
         - ``evolve_after_task``: 默认 no-op（群体记忆通常在 chat 期间由 runtime 插件

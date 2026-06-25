@@ -36,7 +36,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
 
     @override
     def baseline_image(self, ctx: SuiteRunContext) -> str:
-        """before-load hold-out 使用的 baseline 镜像（即 base 镜像）。"""
+        """before-load holdout 使用的 baseline 镜像（即 base 镜像）。"""
         _ = ctx
         return self._docker_image
 
@@ -108,14 +108,14 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         seed_workspace: bool,
         load_state: HoldoutLoadState,
     ) -> ExecutionEnvironment:
-        """hold-out 单题：独立容器 + 指定镜像（baseline 或 delta）。
+        """holdout 单题：独立容器 + 指定镜像（baseline 或 delta）。
 
         ``seed_workspace`` 原样传给 ``start_container``（见该方法的文档）。
         ``load_state`` 透传给 ``start_container``，由 runtime 决定是否注入
         evolved-only 配置（如群体记忆 namespace）。
         """
         _ = resources
-        # short_id 保证并行 hold-out 或重跑时容器名不撞；带上 suite_name 让运维能从
+        # short_id 保证并行 holdout 或重跑时容器名不撞；带上 suite_name 让运维能从
         # 容器名直接看出对应的 suite（中文 suite/task 会经 clip_name_segment 转写为
         # 拼音并各截到 20 字符，holdout 标记和 short_id 不再被截断）；load_state
         # （baseline/evolved）也编进容器名，方便 TUI / 日志一眼区分对照阶段。
@@ -172,9 +172,9 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         ``seed_workspace``: 挂载 ``workspace_dir`` 之前是否预置工作区内容。
         - **OpenClaw**（``True``）：``workspace_seed/`` → 跳过 BOOTSTRAP 首次上线。
         - **其他 runtime**：可实现为写入 AGENTS.md / 规则 / 空操作；框架不规定文件格式。
-        - **Warmup / Hold-out** 路径均传 ``True`` 由调用方保证；避免 agent 重复跑首次
+        - **Warmup / Holdout** 路径均传 ``True`` 由调用方保证；避免 agent 重复跑首次
           上线 onboarding。
 
-        ``load_state``: 仅在 hold-out 路径有值（``BASELINE`` / ``EVOLVED``），warmup 路径
+        ``load_state``: 仅在 holdout 路径有值（``BASELINE`` / ``EVOLVED``），warmup 路径
         为 ``None``。runtime 据此决定 evolved-only 注入（如群体记忆 namespace、token 等）。
         """

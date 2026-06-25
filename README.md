@@ -1,6 +1,6 @@
 # evolve-eval
 
-LIFT（Loaded Impact on Final Task）评测框架：Docker 容器内 OpenClaw agent，warmup → evolve → hold-out 对照。
+LIFT（Loaded Impact on Final Task）评测框架：Docker 容器内 OpenClaw agent，warmup → evolve → holdout 对照。
 
 ```bash
 # 1. 构建镜像（首次或 agent-runtimes 变更后）
@@ -153,7 +153,7 @@ TOS_SECRET_KEY=your_secret_key
 EvalReport
   └── runs[]（repeat）
         └── suites[]
-              └── tasks[]（hold-out 题）
+              └── tasks[]（holdout 题）
                     ├── baseline（PhaseRun）
                     └── evolved（PhaseRun）
 ```
@@ -177,10 +177,10 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 | `--benchmark_dir` | `assets/benchmarks` | suite JSON 目录 |
 | `--suite` | `all` | 逗号分隔文件名或 `all` |
 | `--run_id` | 自动生成 | 后缀，生成 `lift-runid-{run_id}` |
-| `--warmup-only` | off | 只跑 warmup + evolve + delta，跳过 hold-out |
+| `--warmup-only` | off | 只跑 warmup + evolve + delta，跳过 holdout |
 | `--repeat` | `1` | 重复完整 LIFT N 次 |
 | `--warmup-container-policy` | `parallel_single` | warmup 容器编排：`serial_single` / `parallel_single` / `parallel_multi`（替代旧的 `-p/--parallel`） |
-| `--holdout-container-policy` | `parallel_multi` | hold-out 多题间是否并发（`serial_multi` / `parallel_multi`） |
+| `--holdout-container-policy` | `parallel_multi` | holdout 多题间是否并发（`serial_multi` / `parallel_multi`） |
 | `--holdout-phase-policy` | `parallel` | 单 task 内 baseline / evolved 并行或串行 |
 | `--max-parallel-suites` | `3` | suites × repeats 矩阵 cell 级并行度上限；`<=0` 无上限 |
 | `--max-concurrent-tasks` | unlimited | 单 phase 内 task 并发上限 |
@@ -195,7 +195,7 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 ### LIFT 流程（简述）
 
 1. **Warmup**：默认同容器并发跑前序题（`parallel_single`，可切 `serial_single` / `parallel_multi`）→ `openclaw learn review` → `docker commit` 得 delta 镜像
-2. **Hold-out**：每题各起 baseline（base 镜像）与 evolved（delta 镜像）容器，workspace 按题隔离
+2. **Holdout**：每题各起 baseline（base 镜像）与 evolved（delta 镜像）容器，workspace 按题隔离
 3. **Report**：写入 `results/{run_id}/report.json`（执行期 `langfuse` 一般为 `null`）
 4. **后处理**（默认）：从 Langfuse 拉 trace，回填至 `results/{run_id}/*_backfilled.json` 并出 CSV/HTML
 

@@ -11,7 +11,7 @@
 
 > Agent 做完「练习题」并进化之后，**期末考**能不能考得更好？
 
-做法很直接：同一道 hold-out 题跑两遍——**没加载进化产物**（baseline）和**加载了**（evolved）——看分数差。
+做法很直接：同一道 holdout 题跑两遍——**没加载进化产物**（baseline）和**加载了**（evolved）——看分数差。
 
 ---
 
@@ -23,7 +23,7 @@
 |------|------|------------|
 | **Suite** | 一张卷子（多道题） | `hello.json` |
 | **Warmup 题** | 练习题，用来触发进化 | `produce_delta` |
-| **Hold-out 题** | 期末考，严格对照 | `run_before_load` / `run_after_load` |
+| **Holdout 题** | 期末考，严格对照 | `run_before_load` / `run_after_load` |
 | **Delta（Δ）** | 进化后的「记忆快照」 | `docker commit` 出的临时镜像 |
 | **Report** | 成绩单 | `results/{run_id}/report.json` |
 
@@ -48,7 +48,7 @@ sequenceDiagram
     participant P as Pipeline
     participant A as Adapter
     participant W as Warmup 容器
-    participant H as Hold-out 容器
+    participant H as Holdout 容器
 
     P->>A: warmup 题（如 Q1）
     A->>W: 起一个容器，连续做题
@@ -56,7 +56,7 @@ sequenceDiagram
     W->>W: docker commit → delta 镜像
     A->>W: 删掉 warmup 容器
 
-    loop 每道 hold-out 题（如 Q2）
+    loop 每道 holdout 题（如 Q2）
         P->>A: baseline
         A->>H: 从 base 镜像起新容器 → 做题打分
         P->>A: evolved
@@ -69,8 +69,8 @@ sequenceDiagram
 三个设计取舍，讲的时候顺带提一句：
 
 1. **Warmup 共用一个容器**——状态要连续，进化才有意义。
-2. **Hold-out 每轮起新容器**——baseline 必须是「干净环境」，题与题 workspace 也要隔离。
-3. **多道 hold-out 共用同一份 delta**——只换 workspace，不重复进化。
+2. **Holdout 每轮起新容器**——baseline 必须是「干净环境」，题与题 workspace 也要隔离。
+3. **多道 holdout 共用同一份 delta**——只换 workspace，不重复进化。
 
 ### 代码入口（不用背目录，知道从哪读就行）
 
@@ -107,7 +107,7 @@ sequenceDiagram
 | `openclaw/session.py` | Gateway 端口、卷挂载、容器 entrypoint |
 | `openclaw/chat_agent.py` | `docker exec openclaw agent --local --json` |
 | `openclaw_with_evolve/evolve.py` | warmup 后的 `learn review` |
-| `openclaw/workspace_seed.py` | Hold-out 跳过 OpenClaw 首次上线问名字/emoji（warmup 不 seed，避免干扰 onboard） |
+| `openclaw/workspace_seed.py` | Holdout 跳过 OpenClaw 首次上线问名字/emoji（warmup 不 seed，避免干扰 onboard） |
 | `openclaw/json_output.py` | 解析 `--json`  stdout |
 | `agent-runtimes/openclaw/` | 镜像：self-evolving 插件、langfuse-tracer、gateway 配置 |
 
@@ -136,7 +136,7 @@ sequenceDiagram
 | 题 | 内容 | 在 LIFT 里扮演 |
 |----|------|----------------|
 | **Q1** | 「回复一下你好」 | **Warmup**（`warmup_tasks`）——练习题 |
-| **Q2** | 「自我介绍一下你自己」 | **Hold-out**（`holdout_tasks`）——期末考 |
+| **Q2** | 「自我介绍一下你自己」 | **Holdout**（`holdout_tasks`）——期末考 |
 
 ### 跑之前准备什么
 
@@ -153,7 +153,7 @@ bash agent-runtimes/openclaw/build-image.sh
 ### 两条命令，两种粒度
 
 ```bash
-# 冒烟：只跑 warmup + evolve，不跑 hold-out 对照
+# 冒烟：只跑 warmup + evolve，不跑 holdout 对照
 python -m src.cli.lift_main --agent-runtime openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --warmup-only
 
 # 完整 LIFT：Q1 warmup → evolve → Q2 baseline vs evolved → 后处理
@@ -191,7 +191,7 @@ results/{run_id}/
 EvalReport
   └── runs[0]
         └── suites[0]          ← hello.json
-              └── tasks[0]     ← Q2（hold-out）
+              └── tasks[0]     ← Q2（holdout）
                     ├── baseline: PhaseRun   ← success、content_score、workspace_dir
                     └── evolved:  PhaseRun
 ```
@@ -203,7 +203,7 @@ EvalReport
 ## 讲稿收尾
 
 ```text
-LIFT = warmup 进化 → 同一道 hold-out 题考两遍 → 看有没有 LIFT
+LIFT = warmup 进化 → 同一道 holdout 题考两遍 → 看有没有 LIFT
 
 框架：Pipeline 编排 + eval 阅卷 + adapter 接 runtime
 
@@ -216,11 +216,11 @@ hello.json：Q1 练 → Q2 对照 → report + outcome
 
 ## 附录：常问两句
 
-**为什么 warmup 和 hold-out 容器策略不一样？**  
-Warmup 要状态连续才能进化；hold-out 要干净对照，每 phase 必须新容器。
+**为什么 warmup 和 holdout 容器策略不一样？**  
+Warmup 要状态连续才能进化；holdout 要干净对照，每 phase 必须新容器。
 
-**Warmup / Hold-out 串行还是并行？**  
-默认都是**多题并行**：warmup `parallel_single`（同容器并发）、hold-out `parallel_multi`（每题独立容器）。同题内部 baseline → evolved 顺序执行。所有维度的并发开关与已知限制集中在 [eval-flow.md §4.5](./eval-flow.md#45-并发模型与限制)；策略枚举详情见 [§4.3](./eval-flow.md#43-warmup-容器策略warmupcontainerpolicy) / [§4.4](./eval-flow.md#44-hold-out-容器策略holdoutcontainerpolicy)。
+**Warmup / Holdout 串行还是并行？**  
+默认都是**多题并行**：warmup `parallel_single`（同容器并发）、holdout `parallel_multi`（每题独立容器）。同题内部 baseline → evolved 顺序执行。所有维度的并发开关与已知限制集中在 [eval-flow.md §4.5](./eval-flow.md#45-并发模型与限制)；策略枚举详情见 [§4.3](./eval-flow.md#43-warmup-容器策略warmupcontainerpolicy) / [§4.4](./eval-flow.md#44-holdout-容器策略holdoutcontainerpolicy)。
 
 **轨迹分在哪？**  
 执行期 `PhaseRun` 记 success/score；轨迹相关指标在后处理结合 Langfuse trace 算（默认 `--evaluate` 开启）。
@@ -249,7 +249,7 @@ Warmup 要状态连续才能进化；hold-out 要干净对照，每 phase 必须
 ```text
 src/lift/
 ├── pipeline/lift_pipeline.py     # 主流程
-├── suite/                        # 读 JSON、切 warmup/hold-out
+├── suite/                        # 读 JSON、切 warmup/holdout
 ├── eval/                         # run_task、stage、task_exec（runtime 无关）
 ├── adapters/
 │   ├── base.py                   # AgentRuntimeAdapter 模板
