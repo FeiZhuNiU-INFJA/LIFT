@@ -27,7 +27,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from huggingface_hub import HfApi  # noqa: E402
 
-from src.paths import BENCHMARK_MDS_HF_PATH_IN_REPO, BENCHMARK_MDS_TOS_OBJECT_KEY  # noqa: E402
+from src.paths import (  # noqa: E402
+    BENCHMARK_MDS_HF_PATH_IN_REPO,
+    BENCHMARK_MDS_TOS_OBJECT_KEY,
+    DEFAULT_BENCHMARK_HF_REPO,
+)
 from src.preprocess.benchmark_mds_fetch import download_benchmark_mds_zip  # noqa: E402
 
 load_dotenv()
@@ -64,11 +68,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
-    repo_id = (args.repo or os.environ.get("BENCHMARK_HF_REPO", "")).strip()
-    if not repo_id:
-        raise SystemExit(
-            "BENCHMARK_HF_REPO is required (set in .env or pass --repo user/dataset)."
-        )
+    repo_id = (args.repo or os.environ.get("BENCHMARK_HF_REPO", "")).strip() or DEFAULT_BENCHMARK_HF_REPO
 
     token = os.environ.get("HF_TOKEN", "").strip()
     if not token:

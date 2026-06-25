@@ -1,295 +1,134 @@
-# evolve-eval
+# LIFT — Loaded Impact on Final Task
 
-LIFT（Loaded Impact on Final Task）评测框架：Docker 容器内 OpenClaw agent，warmup → evolve → holdout 对照。
+> Agent **越用越好用**到底是不是真的？给它一份「练习题」、一份「期末考」，把进化前后的成绩单摆在一起。
 
-```bash
-# 1. 构建镜像（首次或 agent-runtimes 变更后）
-bash agent-runtimes/openclaw/build-image.sh
+LIFT 是一套面向 **Agent 自我进化能力**的评测框架。它不评测 agent 本身的开箱能力，而是回答一个朴素但被忽视的问题：
 
-# 2. 冒烟（hello.json 在 assets/benchmarks_demo/，与完整 benchmark 目录分离）
-python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id my-run
+> Agent 做完练习题、跑过一轮记忆/技能/上下文沉淀之后，**期末考**能不能考得更好？好多少？
 
-# 3. 完整 benchmark 需先 preprocess（需 .env 中 TOS_ACCESS_KEY / TOS_SECRET_KEY）
-# python -m src.cli.preprocess
-# python -m src.cli.lift_main -r openclaw --suite all --run_id my-run
+<!-- TODO(screenshot): docs/assets/dashboard.png — 一张 LIFT dashboard 截图，体现 baseline / evolved 并排对照 + impr_metric -->
 
-# 4. 仅后处理已有 report
-python -m src.cli.lift_main -r openclaw --evaluate-only --run_id my-run
-```
+---
 
-更多细节见 [docs/README.md](./docs/README.md)、[docs/lift-framework-guide-cn.md](./docs/lift-framework-guide-cn.md) 与 [src/lift/README.md](./src/lift/README.md)。
+## 为什么需要它
 
-## 1. 环境准备
+近一两年，越来越多 agent 在试图从「一次性执行器」变成「长期合作伙伴」：优化记忆系统、沉淀 skill、根据用户反馈改写自身代码……这些机制统称 **Agent Self-Evolving**。
 
-- **Docker**（LIFT 在容器内跑 OpenClaw；宿主机**无需**安装 `openclaw` CLI）
-- **Conda**（Miniconda/Anaconda 任一）+ Python 3.12
-- **Langfuse**（**必需**）：pre-chat 上报、容器内 trace、后处理 trace backfill 与 token/延迟指标均依赖 Langfuse
+但现实是 —— **我们不知道一个 agent 进化之后到底变好了还是变坏了，更不知道好了多少**。
 
-### 安装 Docker（macOS）
+主流评测都在卷 agent 本身的能力（数学、代码、推理），却没人专门衡量"持续进化"这件事。LIFT 想填的就是这个空白：
 
-[Docker 官方文档](https://docs.docker.com/desktop/setup/install/mac-install/) 仅推荐 **Docker Desktop**（图形界面应用），**不包含** Colima 等第三方方案。本项目只需 `docker` CLI + 可用的 Docker daemon，以下两种方式任选其一：
+- **不评测 agent 本身**：基础能力差的 agent，本来就不在比较视野里
+- **评测进化的边际收益**：同一道题，同一个 agent，**加载进化产物前后** 的对照差值，才是关键信号
+- **以效率为核心指标**：完成任务的尝试轮数、工具调用次数、token 消耗 —— 这些是用户能直接感知的"越用越顺手"
 
-**方式 A：Docker Desktop（官方）**
+完整 motivation 与数据集设计见 [docs/benchmark-intro.md](./docs/benchmark-intro.md)。
 
-按 [Install Docker Desktop on Mac](https://docs.docker.com/desktop/setup/install/mac-install/) 下载安装，启动后确认：
+---
 
-```bash
-docker info
-```
+## 它怎么工作
 
-**方式 B：Colima + Docker CLI（轻量、纯命令行，非 Docker 官方产品）**
+LIFT 把每份 benchmark suite 切成两组任务：
 
-适合不想装 Docker Desktop、或偏好 Homebrew + 终端管理的 Mac 开发者。Colima 在 macOS 上启动一个 Linux 虚拟机并在其中运行 Docker Engine；本项目已在此方案下验证通过。
-
-```bash
-brew install colima docker docker-compose
-colima start --cpu 4 --memory 8   # 首次启动会下载 VM 镜像，需等待数分钟
-docker info                       # 应能正常输出 Server 信息
-```
-
-常用命令：`colima status`（查看状态）、`colima stop`（停止）。可选开机自启：`brew services start colima`。
-
-> **说明**：Colima 文档见 [abiosoft/colima](https://github.com/abiosoft/colima)。若 `docker compose` 找不到插件，在 `~/.docker/config.json` 中加入 `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]`（Apple Silicon Homebrew 路径；Intel 一般为 `/usr/local/lib/docker/cli-plugins`）。
-
-**Linux**：按 [Docker Engine 安装指南](https://docs.docker.com/engine/install/) 安装对应发行版包即可。
-
-## 2. 安装 Langfuse
-
-按官方文档用 Docker Compose 本地或 VM 部署即可：
-
-**[Langfuse 自托管：Docker Compose 部署](https://langfuse.com/self-hosting/deployment/docker-compose)**
-
-简要步骤：
-
-```bash
-git clone https://github.com/langfuse/langfuse.git
-cd langfuse
-docker compose up
-```
-
-待 `langfuse-web` 容器日志出现 `Ready` 后，打开 `http://localhost:3000`，创建项目并复制 **Public Key** / **Secret Key** 填入根目录 `.env` 的 `LANGFUSE_PUBLIC_KEY`、`LANGFUSE_SECRET_KEY`。`LANGFUSE_BASE_URL` 本地填 `http://localhost:3000`（评测容器内会自动改用 `host.docker.internal`）。
-
-## 3. 安装依赖与镜像
-
-```bash
-conda create -n lift python=3.12
-conda activate lift
-pip install -r requirements.txt
-```
-
-构建 OpenClaw 评测镜像（`self-evolving-plugin-pro`、`langfuse-tracer` 等已内置，无需宿主机手动装插件）：
-
-```bash
-bash agent-runtimes/openclaw/build-image.sh
-# 默认产出 evolve-eval-openclaw-with-evolve:latest（带进化插件）；
-# 设 INSTALL_SELF_EVOLVING=false 可产出 evolve-eval-openclaw-base:latest（不带进化插件）。详见 agent-runtimes/openclaw/README.md
-```
-
-Benchmark 预处理（从 TOS 拉取 `benchmark_mds.zip` 并生成 `assets/benchmarks/*.json`，与 LIFT CLI 解耦）：
-
-```bash
-# 需配置 .env 中的 TOS_ACCESS_KEY / TOS_SECRET_KEY（bucket: aml-fde-boe）
-python -m src.cli.preprocess
-# 强制重新下载
-python -m src.cli.preprocess --force-download
-# 已有本地 assets/benchmark_mds/ 时跳过下载
-python -m src.cli.preprocess --skip-download
-# 从 HuggingFace dataset 仓库下载（需 .env 中 BENCHMARK_HF_REPO；公开仓库无需 HF_TOKEN）
-python -m src.cli.preprocess --source huggingface
-# 也可通过 BENCHMARK_SOURCE=huggingface 默认走 HF
-```
-
-将 `benchmark_mds.zip` 同步推送到 HuggingFace（数据更新时维护者执行一次；需 `.env` 中 `HF_TOKEN` 写权限 token 与 `BENCHMARK_HF_REPO`）：
-
-```bash
-# 从 TOS 拉最新 zip 并上传到 HF（仓库不存在时自动创建为 public）
-python scripts/upload_benchmark_to_hf.py
-# 上传本地已有 zip，跳过 TOS 下载
-python scripts/upload_benchmark_to_hf.py --zip path/to/benchmark_mds.zip
-```
-
-## 4. 环境变量
-
-复制 [.env.example](./.env.example) 为 `.env`。LIFT 主链路常用项：
-
-```env
-# 模型（容器内 openclaw agents add --model）
-MODEL_NAME=custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215
-# 构建镜像时写入 models fragment；运行时亦传入容器
-ARK_API_KEY=your_ark_api_key
-
-# Langfuse（pre-chat 上报 + 后处理 trace backfill）
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
-# 宿主机 .env 可用 localhost；容器内由 src 自动改为 host.docker.internal
-LANGFUSE_BASE_URL=http://localhost:3000
-
-# 轨迹评判（后处理，可选）
-DO_TRAJECTORY_JUDGE=false
-OPENAI_API_KEY=your_api_key_here
-OPENAI_BASE_URL=https://your-openai-compatible-endpoint
-TRAJECTORY_JUDGE_MODEL=gpt-4o-mini
-
-# 联网搜索（部分 benchmark 可选）
-FIRECRAWL_API_KEY=
-
-# preprocess 从 TOS 下载 benchmark markdown（aml-fde-boe/benchmark_mds.zip）
-TOS_ACCESS_KEY=your_access_key
-TOS_SECRET_KEY=your_secret_key
-
-# 可选：preprocess 改走 HuggingFace dataset 仓库（公开仓库读取无需 token）
-BENCHMARK_SOURCE=tos          # 或 huggingface
-BENCHMARK_HF_REPO=FeiZhuNiU-INFJA/EALE
-# 维护者上传 benchmark_mds.zip 到 HF 时需要（写权限 token）
-HF_TOKEN=hf_xxx
-```
-
-说明：
-
-- `MODEL_NAME`：须为 `provider/model_id` 格式，且与评测镜像内已注册的 provider/model **一致**（详见 [docs/eval-flow.md §12.6](./docs/eval-flow.md#126-agent-模型配置契约lift--容器运行时)）
-- `LANGFUSE_*`：**必填**；在 Langfuse UI 创建项目后获取（见 §2）
-- `ARK_API_KEY`：构建镜像前建议在 `.env` 中设置，写入 `models.fragment.json`；否则镜像内模型 apiKey 为空
-
-> 单个 task 的最大 work→judge 对话轮数改由 CLI 参数 `--max-conversation-turns`（默认 5）控制，不再使用 `EVAL_MAX_TURNS` 环境变量。
-
-容器启动时通过 `--env-file .env` 挂载上述变量。
-
-## 5. Benchmark 数据格式
-
-### 术语
-
-| 术语 | 含义 | 示例 | CLI / 代码 |
-|------|------|------|------------|
-| **eval run** | 一次完整评测（一个 `run_id`、一份 report） | `lift-runid-my-run` | `EvalReport`；`--run_id` |
-| **repeat** | `--repeat` 的一轮完整 LIFT | 第 2 次 `--repeat 3` | `EvalReport.runs[]` |
-| **suite** | 一份规格 JSON | `hello.json` | `--suite`；`SuiteRun` |
-| **task** | suite 内 `tasks[]` 的一条 | `Q1`、`Q2` | `TaskRun` |
-| **phase** | 单题的 baseline 或 evolved 执行 | baseline / evolved | `PhaseRun` |
-| **benchmark_dir** | suite JSON 目录 | `assets/benchmarks` | `--benchmark_dir` |
-
-```
-EvalReport
-  └── runs[]（repeat）
-        └── suites[]
-              └── tasks[]（holdout 题）
-                    ├── baseline（PhaseRun）
-                    └── evolved（PhaseRun）
-```
-
-- 冒烟 suite：`assets/benchmarks_demo/hello.json`（随仓库提供；`--benchmark_dir assets/benchmarks_demo`）
-- 完整 benchmark：`assets/benchmarks/*.json`（由 `python -m src.cli.preprocess` 从 TOS markdown 生成；不纳入 git；默认 `--benchmark_dir`）
-- 规范说明：[assets/suite_requirement.md](./assets/suite_requirement.md)
-- 模型定义：[src/models.py](./src/models.py)（`SuiteSpec`、`EvalReport`、`PhaseRun`）
-
-## 6. 运行 LIFT
-
-```bash
-python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id my-run
-```
-
-常用参数：
-
-| 参数 | 默认 | 含义 |
-|------|------|------|
-| `-r` / `--agent-runtime` | **必填** | 当前支持 `openclaw` |
-| `--benchmark_dir` | `assets/benchmarks` | suite JSON 目录 |
-| `--suite` | `all` | 逗号分隔文件名或 `all` |
-| `--run_id` | 自动生成 | 后缀，生成 `lift-runid-{run_id}` |
-| `--warmup-only` | off | 只跑 warmup + evolve + delta，跳过 holdout |
-| `--repeat` | `1` | 重复完整 LIFT N 次 |
-| `--warmup-container-policy` | `parallel_single` | warmup 容器编排：`serial_single` / `parallel_single` / `parallel_multi`（替代旧的 `-p/--parallel`） |
-| `--holdout-container-policy` | `parallel_multi` | holdout 多题间是否并发（`serial_multi` / `parallel_multi`） |
-| `--holdout-phase-policy` | `parallel` | 单 task 内 baseline / evolved 并行或串行 |
-| `--max-parallel-suites` | `3` | suites × repeats 矩阵 cell 级并行度上限；`<=0` 无上限 |
-| `--max-concurrent-tasks` | unlimited | 单 phase 内 task 并发上限 |
-| `--max-conversation-turns` | `5` | 单 task 内 work→judge 最大轮数 |
-| `--status-viz` | off | 终端 TUI 实时状态面板 |
-| `--status-http` | off | 浏览器 HTTP 状态面板（`PORT` 或 `HOST:PORT`） |
-| `-e` / `--evaluate` | **on** | 结束后自动后处理；`--no-evaluate` 关闭 |
-| `--evaluate-only` | off | 仅后处理已有 report（需 `--run_id`） |
-
-等价入口：`python -m src.cli`。
-
-### LIFT 流程（简述）
-
-1. **Warmup**：默认同容器并发跑前序题（`parallel_single`，可切 `serial_single` / `parallel_multi`）→ `openclaw learn review` → `docker commit` 得 delta 镜像
-2. **Holdout**：每题各起 baseline（base 镜像）与 evolved（delta 镜像）容器，workspace 按题隔离
-3. **Report**：写入 `results/{run_id}/report.json`（执行期 `langfuse` 一般为 `null`）
-4. **后处理**（默认）：从 Langfuse 拉 trace，回填至 `results/{run_id}/*_backfilled.json` 并出 CSV/HTML
-
-### `run_task`（单题 judge 回路）
-
-每个 phase 对一题调用 `src/lift/eval/run_task.py`：work chat → judge chat（JSON 判定）→ 未通过则用 `reason` 重试，最多 `--max-conversation-turns` 轮（默认 5）。
+- **warmup_tasks**（练习题）—— 让 agent 跑、触发它的进化机制（记忆 / skill / 自改写）
+- **holdout_tasks**（期末考）—— 同一道题跑两遍：**baseline**（干净环境）+ **evolved**（加载进化产物）
 
 ```mermaid
-flowchart TD
-    A((run_task)) --> B{turn < max_conversation_turns?}
-    B -->|是| C[work chat]
-    C --> D[judge chat → JSON]
-    D --> E{success?}
-    E -->|是| F([返回 True])
-    E -->|否| G[current_prompt = reason]
-    G --> B
-    B -->|否| H([返回 False])
+flowchart LR
+    A[Warmup 题<br/>容器 A] -->|evolve| D[Delta 镜像]
+    D --> B[Holdout · baseline<br/>容器 B<br/>干净 base]
+    D --> C[Holdout · evolved<br/>容器 C<br/>带 delta]
+    B --> R[(成绩单)]
+    C --> R
 ```
 
-## 7. 产出物
+三个关键设计取舍：
 
-一次 `run_id` 对应目录 `results/{run_id}/`：
+1. **Warmup 共用一个容器**，状态要连续，进化才有意义
+2. **每道 holdout 起新容器**，baseline 必须是干净环境，题与题 workspace 也要隔离
+3. **进化产物以 docker image 形式落地**（`docker commit` → delta 镜像），baseline / evolved 完全对称
 
-| 路径 | 内容 |
-|------|------|
-| `report.json` | 执行期结构化 report（success、score、session、workspace_dir） |
-| `outcome/` | Agent 工作区（warmup / baseline / evolved） |
-| `{run_id}_backfilled.json` 等 | 后处理：trace 回填、对比/汇总 CSV、HTML 报告 |
+最终指标是相对改进率（越低越好）：
 
-> **为何 `report.json` 里 `langfuse` 为空？** 执行期只写评测结论；Langfuse trace 在**后处理**阶段填入 `{run_id}_backfilled.json`。请确认 Langfuse 已按 §2 启动且 `.env` 中 `LANGFUSE_*` 已配置。
+$$
+\mathrm{impr\_metric} = \frac{\mathrm{evolved}}{\mathrm{baseline}}
+$$
 
-单独跑后处理：
+| 指标 | 含义 |
+|---|---|
+| `impr_attempts` | 完美达成要求需要的对话轮数比值 |
+| `impr_tool_calls` | 工具调用次数比值 |
+| `impr_tokens` | 总 token 消耗比值 |
+
+---
+
+## 上手
+
+需要 Docker + Conda（Python 3.12）+ 本地 Langfuse + 一个 OpenClaw 评测镜像。
+
+**第一次配置环境**：调用 [`setup-eval-env`](./skill/setup-eval-env/SKILL.md) skill —— 它会按 6 步顺序检测并引导：Docker、Conda、Langfuse、`.env`、benchmark 数据、镜像构建，最后用 `hello.json` 冒烟。
+
+**已经配好环境，想直接跑**：
 
 ```bash
-python -m src.postprocess.run_post_process results/lift-runid-my-run/report.json
-# 或通过 CLI（自动解析 report 路径）
-python -m src.cli.lift_main -r openclaw --evaluate-only --run_id my-run
+conda activate lift
+python -m src.cli.lift_main \
+  -r openclaw \
+  --benchmark_dir assets/benchmarks_demo \
+  --suite hello.json \
+  --run_id my-first-run \
+  --status-viz \
+  --status-http 8080
 ```
 
-默认输出前缀见 [src/postprocess/run_post_process.py](./src/postprocess/run_post_process.py) 的 `default_output_paths()`（`*_backfilled.json` 等）。
+跑完看 [results/lift-runid-my-first-run/](./results) 下的 `report.json` 和 `*_backfilled.json`。
 
-### 后处理指标
+<!-- TODO(screenshot): docs/assets/tui.png — 终端 TUI 状态面板的实拍 -->
 
-- 抽取：[src/postprocess/extract.py](./src/postprocess/extract.py)
-- 对比与 `impr_*`：[src/postprocess/metrics.py](./src/postprocess/metrics.py)
-- 配对键：`run + suite_name + suite_path + task_name + category`
-- 相对改进：`impr_* = (evolved - baseline) / baseline`
+---
 
-## 8. Langfuse 与本项目
+## 想看更细的
 
-- **部署**：[Docker Compose 官方教程](https://langfuse.com/self-hosting/deployment/docker-compose)（§2）
-- **容器内插件**： [agent-runtimes/openclaw/plugins/langfuse-tracer/](./agent-runtimes/openclaw/plugins/langfuse-tracer/)（镜像已内置）
-- **框架 pre-chat**：[src/report/langfuse_reporting.py](./src/report/langfuse_reporting.py) 的 `emit_pre_chat_state`
-- **回填入口**：[src/report/langfuse_trace_stitch.py](./src/report/langfuse_trace_stitch.py) 的 `stitch_phase_langfuse_traces`
-- **关联契约（pre-chat ↔ 插件 trace）**：[docs/eval-flow.md §12.5](./docs/eval-flow.md#125-trace_backfill观测) — `session_id`、`openclaw-plugin` 命名、`agent_end` 等写入/检索/配对规则
+| 你想了解 | 去哪 |
+|---|---|
+| LIFT 框架讲稿（考试类比、推荐阅读顺序） | [docs/lift-framework-guide-cn.md](./docs/lift-framework-guide-cn.md) |
+| 评测设计动机 + 数据集三层结构 | [docs/benchmark-intro.md](./docs/benchmark-intro.md) |
+| 协议主仓：CLI 参数、report 字段、并发模型、Langfuse trace、模型契约 | [docs/eval-flow.md](./docs/eval-flow.md) |
+| 架构图、类图、时序图 | [docs/lift-framework-visualization.html](./docs/lift-framework-visualization.html) |
+| LIFT 代码速查 + 测试命令 | [src/lift/README.md](./src/lift/README.md) |
+| Benchmark 收集规范（query / 要求 / 轨迹要求） | [assets/suite_requirement.md](./assets/suite_requirement.md) |
+| OpenClaw 镜像构建细节 | [agent-runtimes/openclaw/README.md](./agent-runtimes/openclaw/README.md) |
+| 从零搭环境 | skill: [setup-eval-env](./skill/setup-eval-env/SKILL.md) |
+| 清理评测残留容器/镜像 | skill: [cleanup-eval-env](./skill/cleanup-eval-env/SKILL.md) |
+| 接入新的 agent runtime | skill: [lift-integrate-agent-runtime](./skill/lift-integrate-agent-runtime/SKILL.md) |
 
-流程：`trace.list`（按 `run_id` / session）→ `trace.get` → 合并 `*_agent` 与 `openclaw-plugin` → 写入 `PhaseRun.langfuse`。
+---
 
-## 9. 仓库布局
+## 仓库布局
 
 ```
-evolve_eval/
+agent_evolve_evaluation/
 ├── src/                    # LIFT 框架、CLI、后处理
 │   └── lift/               # pipeline、adapters、eval 内核
 ├── agent-runtimes/         # 各 runtime 的 Docker 镜像与插件
 │   └── openclaw/
 ├── assets/
-│   ├── benchmark_mds/      # 人类可读任务源（preprocess 从 TOS 下载，gitignore）
-│   ├── benchmarks_demo/    # 冒烟 demo suite（如 hello.json）
+│   ├── benchmark_mds/      # 人类可读任务源（preprocess 从 TOS / HF 下载，gitignore）
+│   ├── benchmarks_demo/    # 冒烟 demo suite（hello.json，随仓库提供）
 │   └── benchmarks/         # 完整 suite JSON（preprocess 生成，gitignore）
 ├── docs/                   # 流程与架构文档
-└── results/                # 每次 run 产物（report、outcome、后处理；gitignore）
+├── skill/                  # 引导用 SKILL（搭环境、清理、接 runtime）
+├── scripts/                # 一次性维护脚本
+└── results/                # 每次 run 产物（gitignore）
 ```
 
-## 10. 测试
+---
 
-```bash
-python -m pytest src/lift/tests -q
-```
+## Benchmark 数据：TOS / HuggingFace 双源
+
+完整 benchmark 的 markdown 源（`benchmark_mds.zip`）同时托管在：
+
+- **TOS**（字节内网，`aml-fde-boe/benchmark_mds.zip`，需 TOS 凭证）
+- **HuggingFace dataset**（公开仓库，默认 [`FeiZhuNiU-INFJA/EALE`](https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE)，读取无需 token；可用 `BENCHMARK_HF_REPO` 覆盖）
+
+切换走哪边：`.env` 的 `BENCHMARK_SOURCE=tos|huggingface`，或 CLI 加 `--source huggingface`。具体命令见 [`setup-eval-env`](./skill/setup-eval-env/SKILL.md) 步骤 4。

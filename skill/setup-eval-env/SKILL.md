@@ -96,7 +96,9 @@ cp .env.example .env
 | `LANGFUSE_PUBLIC_KEY` | 是 | 步骤 2 拿到的 `pk-lf-...` |
 | `LANGFUSE_SECRET_KEY` | 是 | 步骤 2 拿到的 `sk-lf-...` |
 | `LANGFUSE_BASE_URL` | 是 | 本地填 `http://localhost:3000`（容器内 src 自动改 host.docker.internal） |
-| `TOS_ACCESS_KEY` / `TOS_SECRET_KEY` | 仅步骤 4 需要 | preprocess 从 TOS 拉 benchmark_mds 用；只跑 hello.json 可暂不填 |
+| `TOS_ACCESS_KEY` / `TOS_SECRET_KEY` | 仅步骤 4 方式 A 需要 | preprocess 从 TOS 拉 benchmark_mds 用；只跑 hello.json 可暂不填 |
+| `BENCHMARK_HF_REPO` | 否 | HuggingFace dataset 仓库 id；默认 `FeiZhuNiU-INFJA/EALE`（公开），自建镜像才需要覆盖 |
+| `HF_TOKEN` | 仅上传到 HF 需要 | 维护者推 benchmark_mds.zip 到 HF 时的写权限 token |
 | `DO_TRAJECTORY_JUDGE` / `OPENAI_*` | 否 | 轨迹评判可选，默认 false |
 | `FIRECRAWL_API_KEY` | 否 | 部分 benchmark 联网搜索可选 |
 
@@ -112,13 +114,27 @@ grep -E '^(MODEL_NAME|ARK_API_KEY|LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFU
 ## 步骤 4：preprocess 拉取 benchmark 数据（完整 benchmark 才需要）
 
 > **仅跑 hello.json 冒烟可跳过本步**（demo suite 已随仓库提供）。
-> 需要完整 benchmark 时执行（依赖 `.env` 的 `TOS_ACCESS_KEY` / `TOS_SECRET_KEY`，bucket `aml-fde-boe`）：
+> 需要完整 benchmark 时，从 **TOS**（字节内网）或 **HuggingFace**（公开）二选一拉取。
+
+**方式 A：从 TOS 下载**（依赖 `.env` 的 `TOS_ACCESS_KEY` / `TOS_SECRET_KEY`，bucket `aml-fde-boe`）：
 
 ```bash
 python -m src.cli.preprocess                 # 从 TOS 下载 benchmark_mds.zip → 生成 assets/benchmarks/*.json
 python -m src.cli.preprocess --force-download # 强制重新下载
 python -m src.cli.preprocess --skip-download  # 已有本地 assets/benchmark_mds/ 时跳过下载
 ```
+
+**方式 B：从 HuggingFace dataset 仓库下载**（无需 TOS 凭证；公开仓库读取无需 HF_TOKEN）：
+
+```bash
+# 默认仓库 FeiZhuNiU-INFJA/EALE，自建镜像时在 .env 设 BENCHMARK_HF_REPO=<user-or-org>/<dataset-name>
+python -m src.cli.preprocess --source huggingface
+# 或者在 .env 设 BENCHMARK_SOURCE=huggingface 后直接：
+python -m src.cli.preprocess
+```
+
+> **维护者**：benchmark 源（markdown）有更新时，跑 `python scripts/upload_benchmark_to_hf.py`
+> 把 `benchmark_mds.zip` 同步推送到 HuggingFace（需 `.env` 中 `HF_TOKEN` 写权限 token 与 `BENCHMARK_HF_REPO`；仓库不存在会自动创建为 public）。
 
 ---
 

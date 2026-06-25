@@ -61,6 +61,9 @@ BENCHMARK_MDS_TOS_OBJECT_KEY = "benchmark_mds.zip"
 BENCHMARK_MDS_HF_PATH_IN_REPO = "benchmark_mds.zip"
 """HuggingFace dataset 仓库内 benchmark markdown 压缩包路径。"""
 
+DEFAULT_BENCHMARK_HF_REPO = "FeiZhuNiU-INFJA/EALE"
+"""HuggingFace dataset 仓库默认 id（公开仓库，``BENCHMARK_HF_REPO`` 可覆盖）。"""
+
 
 def _cwd(cwd: Path | None) -> Path:
     """解析工作目录，``None`` 时使用 ``Path.cwd()``。"""

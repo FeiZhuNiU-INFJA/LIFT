@@ -11,7 +11,11 @@ from dotenv import load_dotenv
 from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import HfHubHTTPError
 
-from src.paths import BENCHMARK_MDS_DIR, BENCHMARK_MDS_HF_PATH_IN_REPO
+from src.paths import (
+    BENCHMARK_MDS_DIR,
+    BENCHMARK_MDS_HF_PATH_IN_REPO,
+    DEFAULT_BENCHMARK_HF_REPO,
+)
 from src.preprocess.benchmark_mds_fetch import extract_benchmark_mds_zip
 
 load_dotenv()
@@ -22,12 +26,7 @@ class BenchmarkMdsHfFetchError(RuntimeError):
 
 
 def _hf_repo_id() -> str:
-    repo_id = os.environ.get("BENCHMARK_HF_REPO", "").strip()
-    if not repo_id:
-        raise BenchmarkMdsHfFetchError(
-            "BENCHMARK_HF_REPO required to download benchmark_mds.zip from HuggingFace. "
-            "Set it in .env (e.g. BENCHMARK_HF_REPO=<user-or-org>/<dataset-name>)."
-        )
+    repo_id = os.environ.get("BENCHMARK_HF_REPO", "").strip() or DEFAULT_BENCHMARK_HF_REPO
     return repo_id
 
 
