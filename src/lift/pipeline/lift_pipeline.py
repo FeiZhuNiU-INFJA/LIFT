@@ -87,20 +87,26 @@ class LIFTPipeline:
 
         # 预加载所有 suite 算 holdout 静态总数；放进 params 供 dashboard 渲染
         # "X of Y"，避免分母随 suite 陆续 plan 而动态增长。
+        # 同时收集每个 suite 的 viz name（取 JSON 内 ``name`` 字段，与容器层
+        # ``ContainerInfo.suite_name`` 保持一致；预扫描失败回落到文件 stem）。
         holdout_total = 0
+        viz_suite_names: list[str] = []
         for p in suite_paths:
             try:
-                _, holdouts = split_suite_tasks(load_lift_suite(p))
+                suite = load_lift_suite(p)
+                _, holdouts = split_suite_tasks(suite)
                 holdout_total += len(holdouts)
+                viz_suite_names.append(suite.name or p.stem)
             except Exception:  # noqa: BLE001 — 预扫描失败不阻塞 run
                 LOGGER.warning("preload holdout count failed: %s", p, exc_info=True)
+                viz_suite_names.append(p.stem)
         holdout_total *= options.repeat
 
         # 广播整体执行计划：repeat 数 + suite 列表（题级骨架在 suite 加载后补全）
         status_events.emit_run_plan(
             run_id=run_id,
             repeats=options.repeat,
-            suite_names=tuple(p.stem for p in suite_paths),
+            suite_names=tuple(viz_suite_names),
             params=_build_run_params(
                 options=options,
                 suite_count=len(suite_paths),

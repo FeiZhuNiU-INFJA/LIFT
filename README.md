@@ -6,8 +6,6 @@ LIFT 是一套面向 **Agent 自我进化能力**的评测框架。它不评测 
 
 > Agent 做完练习题、跑过一轮记忆/技能/上下文沉淀之后，**期末考**能不能考得更好？好多少？
 
-<!-- TODO(screenshot): docs/assets/dashboard.png — 一张 LIFT dashboard 截图，体现 baseline / evolved 并排对照 + impr_metric -->
-
 ---
 
 ## 为什么需要它
@@ -48,17 +46,55 @@ flowchart LR
 2. **每道 holdout 起新容器**，baseline 必须是干净环境，题与题 workspace 也要隔离
 3. **进化产物以 docker image 形式落地**（`docker commit` → delta 镜像），baseline / evolved 完全对称
 
-最终指标是相对改进率（越低越好）：
+---
+
+## 看得见的评测
+
+每一次 LIFT run 都带一个实时的「任务控制台」—— warmup / baseline / evolved 进度、容器生命周期、对话轮次、retry / truncation 状态全部实时刷新。三种打开方式：
+
+- **终端 TUI**（`--status-viz`）：`rich.Live` 渲染，header 进度条 + suite × repeat 矩阵 + 活跃容器表
+- **浏览器 Dashboard**（`--status-http 8080`）：零依赖 stdlib SSE，多人可同时连。点任一 task 弹出 work↔judge 完整对话；KPI 条 / phase delta 着色 / retry 闪烁告警一应俱全
+- **静态快照**（自动）：跑完自动写 `results/<run_id>/dashboard.html`，发出去同事打开就能复盘；`--evaluate-only` 可基于已有 `report.json` 重建整棵状态树
+
+![LIFT dashboard](./assets/dashboard_snapshot.png)
+
+![LIFT TUI](./assets/tui_demo.gif)
+
+实现见 [src/lift/status/](./src/lift/status)；协议细节见 [docs/eval-flow.md §12.8](./docs/eval-flow.md#128)。
+
+---
+
+## 怎么读这张图：核心指标
+
+Dashboard 有两层数据，**实时**和**跑完后**：
+
+### 实时（run 进行中）
+
+`StageEvent` 每完成一个 phase 就 emit 三个原始计数：
+
+- **`turns`** —— 这一 phase 的对话轮数。轮数下降 = agent "想清楚了再做"，是进化最直接的体现
+- **`tools`** —— 工具调用次数（仅 OpenClaw 路径）。次数下降 = 学会复用 / 合并 / 跳过冗余探查
+- **`score` / `success`** —— judge 直接打的分
+
+打开 dashboard 第一眼就在 **PHASE COMPARISON**：每道题的 `baseline → evolved` 三列对照，颜色 + 箭头明示哪几道题在 `turns` / `tools` 维度变好（↓ 绿）、变差（↑ 红）、持平。
+
+### 跑完后（post-process 注入）
+
+`report.json` 落地后，`src/postprocess/` 从 trace 抽出更细的口径，回写到 dashboard 的 **FINAL SUMMARY** 面板，KEY INDICATORS 来源也从 `live` 切到 `final (post-processed)`：
+
+| Post-process 字段 | 来源 | 含义 |
+|---|---|---|
+| `impr_trials` | judge backfill 推断的"完美达成所需轮数" | 比 raw `turns` 更严格的"努力次数"比 |
+| `impr_tool_use_num` | trace 聚合的工具调用次数 | 工具调用改进比 |
+| `impr_total_tokens` | Langfuse usage | token 成本改进比 |
+
+聚合公式（越低越好）：
 
 $$
 \mathrm{impr\_metric} = \frac{\mathrm{evolved}}{\mathrm{baseline}}
 $$
 
-| 指标 | 含义 |
-|---|---|
-| `impr_attempts` | 完美达成要求需要的对话轮数比值 |
-| `impr_tool_calls` | 工具调用次数比值 |
-| `impr_tokens` | 总 token 消耗比值 |
+更细的字段定义、列映射、汇总规则见 [docs/eval-flow.md](./docs/eval-flow.md)。
 
 ---
 
@@ -81,9 +117,7 @@ python -m src.cli.lift_main \
   --status-http 8080
 ```
 
-跑完看 [results/lift-runid-my-first-run/](./results) 下的 `report.json` 和 `*_backfilled.json`。
-
-<!-- TODO(screenshot): docs/assets/tui.png — 终端 TUI 状态面板的实拍 -->
+跑完看 [results/lift-runid-my-first-run/](./results) 下的 `report.json`、`*_backfilled.json`，以及自动生成的 `dashboard.html` 离线快照。
 
 ---
 
