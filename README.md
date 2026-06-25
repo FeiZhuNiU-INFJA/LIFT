@@ -56,9 +56,18 @@ flowchart LR
 - **浏览器 Dashboard**（`--status-http 8080`）：零依赖 stdlib SSE，多人可同时连。点任一 task 弹出 work↔judge 完整对话；KPI 条 / phase delta 着色 / retry 闪烁告警一应俱全
 - **静态快照**（自动）：跑完自动写 `results/<run_id>/dashboard.html`，发出去同事打开就能复盘；`--evaluate-only` 可基于已有 `report.json` 重建整棵状态树
 
-![LIFT dashboard](./assets/dashboard_snapshot.png)
-
-![LIFT TUI](./assets/tui_demo.gif)
+<table>
+  <tr>
+    <td width="60%" align="center">
+      <img src="./assets/dashboard_snapshot.png" alt="LIFT 浏览器 Dashboard 全景" /><br/>
+      <sub><b>浏览器 Dashboard</b> · KPI / phase 对比 / suite×repeat 矩阵 / 活跃容器</sub>
+    </td>
+    <td width="40%" align="center">
+      <img src="./assets/tui_demo.gif" alt="LIFT 终端 TUI 实时刷新" /><br/>
+      <sub><b>终端 TUI</b> · rich.Live 原地刷新</sub>
+    </td>
+  </tr>
+</table>
 
 实现见 [src/lift/status/](./src/lift/status)；协议细节见 [docs/eval-flow.md §12.8](./docs/eval-flow.md#128)。
 
