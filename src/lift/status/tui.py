@@ -348,6 +348,25 @@ def _short_container_name(name: str, max_len: int = 36) -> str:
     return "…" + keep
 
 
+def _live_warmup_task(snapshot: RunSnapshot, c: ContainerInfo) -> str | None:
+    """warmup 容器是 suite 级共享的，``ContainerEvent.task_name`` 合法为 None；
+    按 (repeat, suite) 反查当前 status=running 的 warmup task 名拼起来展示，
+    与浏览器 dashboard 的 ``liveWarmupTask`` 行为对齐。"""
+    if c.stage != "warmup" or c.repeat_index is None:
+        return None
+    if c.repeat_index >= len(snapshot.repeats):
+        return None
+    repeat = snapshot.repeats[c.repeat_index]
+    suite = next(
+        (s for s in repeat.suites.values() if s.name == c.suite_name),
+        None,
+    )
+    if suite is None:
+        return None
+    names = [w.name for w in suite.warmup_tasks.values() if w.status == RUNNING]
+    return ", ".join(names) if names else None
+
+
 def render_containers(snapshot: RunSnapshot) -> Panel:
     """当前存活容器表：按启动时长降序，超过 MAX_CONTAINERS 折叠。"""
     table = Table(expand=True, show_edge=False, pad_edge=False)
@@ -355,7 +374,7 @@ def render_containers(snapshot: RunSnapshot) -> Panel:
     table.add_column("repeat", style="magenta", justify="right", min_width=4)
     table.add_column("stage", style="magenta", min_width=8)
     table.add_column("suite", style="white", overflow="fold", ratio=2)
-    table.add_column("task", style="white", overflow="fold", ratio=2)
+    table.add_column("running tasks", style="white", overflow="fold", ratio=2)
     table.add_column("uptime", style="white", justify="right", min_width=6)
 
     sorted_containers = sorted(snapshot.containers, key=_container_sort_key)
@@ -366,12 +385,13 @@ def render_containers(snapshot: RunSnapshot) -> Panel:
             overflow = len(sorted_containers) - MAX_CONTAINERS
             break
         uptime = now - (c.started_at or now)
+        task_cell = c.task_name or _live_warmup_task(snapshot, c) or "-"
         table.add_row(
             _short_container_name(c.container_name),
             "-" if c.repeat_index is None else str(c.repeat_index),
             c.stage or "-",
             c.suite_name or "-",
-            c.task_name or "-",
+            task_cell,
             _format_duration(uptime),
         )
     if overflow > 0:

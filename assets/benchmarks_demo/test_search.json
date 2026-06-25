@@ -1,6 +1,6 @@
 {
-  "name": "TestSearch",
-  "category": "Hello",
+  "name": "test_search",
+  "category": "test_search",
   "warmup_tasks": [
     {
       "name": "W1",
