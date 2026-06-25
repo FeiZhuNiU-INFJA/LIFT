@@ -228,6 +228,7 @@ def preprocess_suite_mds(
     *,
     skip_download: bool = False,
     force_download: bool = False,
+    source: str | None = None,
 ) -> list[Path]:
     """Convert default or custom markdown benchmark roots to JSON benchmark specs."""
     resolved_input_root = (input_root or BENCHMARK_MDS_DIR).resolve()
@@ -235,7 +236,7 @@ def preprocess_suite_mds(
 
     using_default_input = input_root is None or resolved_input_root == BENCHMARK_MDS_DIR.resolve()
     if using_default_input and not skip_download:
-        ensure_benchmark_mds(resolved_input_root, force=force_download)
+        ensure_benchmark_mds(resolved_input_root, force=force_download, source=source)
     elif not resolved_input_root.exists():
         raise FileNotFoundError(f"benchmark markdown root does not exist: {resolved_input_root}")
 

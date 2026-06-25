@@ -94,6 +94,18 @@ python -m src.cli.preprocess
 python -m src.cli.preprocess --force-download
 # 已有本地 assets/benchmark_mds/ 时跳过下载
 python -m src.cli.preprocess --skip-download
+# 从 HuggingFace dataset 仓库下载（需 .env 中 BENCHMARK_HF_REPO；公开仓库无需 HF_TOKEN）
+python -m src.cli.preprocess --source huggingface
+# 也可通过 BENCHMARK_SOURCE=huggingface 默认走 HF
+```
+
+将 `benchmark_mds.zip` 同步推送到 HuggingFace（数据更新时维护者执行一次；需 `.env` 中 `HF_TOKEN` 写权限 token 与 `BENCHMARK_HF_REPO`）：
+
+```bash
+# 从 TOS 拉最新 zip 并上传到 HF（仓库不存在时自动创建为 public）
+python scripts/upload_benchmark_to_hf.py
+# 上传本地已有 zip，跳过 TOS 下载
+python scripts/upload_benchmark_to_hf.py --zip path/to/benchmark_mds.zip
 ```
 
 ## 4. 环境变量
@@ -124,6 +136,12 @@ FIRECRAWL_API_KEY=
 # preprocess 从 TOS 下载 benchmark markdown（aml-fde-boe/benchmark_mds.zip）
 TOS_ACCESS_KEY=your_access_key
 TOS_SECRET_KEY=your_secret_key
+
+# 可选：preprocess 改走 HuggingFace dataset 仓库（公开仓库读取无需 token）
+BENCHMARK_SOURCE=tos          # 或 huggingface
+BENCHMARK_HF_REPO=FeiZhuNiU-INFJA/EALE
+# 维护者上传 benchmark_mds.zip 到 HF 时需要（写权限 token）
+HF_TOKEN=hf_xxx
 ```
 
 说明：

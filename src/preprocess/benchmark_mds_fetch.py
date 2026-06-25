@@ -86,11 +86,27 @@ def ensure_benchmark_mds(
     target_dir: Path | None = None,
     *,
     force: bool = False,
+    source: str | None = None,
 ) -> Path:
-    """Ensure markdown benchmark assets exist locally, downloading from TOS when needed."""
+    """Ensure markdown benchmark assets exist locally, downloading from TOS or HuggingFace.
+
+    *source* overrides the ``BENCHMARK_SOURCE`` env var (defaults to ``tos``).
+    Accepted values: ``tos`` (default) or ``huggingface``.
+    """
     resolved_target = (target_dir or BENCHMARK_MDS_DIR).resolve()
     if resolved_target.exists() and any(resolved_target.iterdir()) and not force:
         return resolved_target
+
+    selected = (source or os.environ.get("BENCHMARK_SOURCE", "tos")).strip().lower()
+    if selected in {"huggingface", "hf"}:
+        # Lazy import keeps huggingface_hub optional for TOS-only users.
+        from src.preprocess.benchmark_mds_hf import ensure_benchmark_mds_from_hf
+
+        return ensure_benchmark_mds_from_hf(resolved_target, force=force)
+    if selected != "tos":
+        raise BenchmarkMdsFetchError(
+            f"Unknown BENCHMARK_SOURCE={selected!r}; expected 'tos' or 'huggingface'."
+        )
 
     with tempfile.TemporaryDirectory(prefix="benchmark_mds_download_") as tmp:
         zip_path = Path(tmp) / BENCHMARK_MDS_TOS_OBJECT_KEY

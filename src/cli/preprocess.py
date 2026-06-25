@@ -42,6 +42,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Re-download benchmark_mds.zip from TOS even if assets/benchmark_mds already exists.",
     )
+    parser.add_argument(
+        "--source",
+        choices=("tos", "huggingface"),
+        default=None,
+        help=(
+            "Download source for benchmark_mds.zip. Defaults to BENCHMARK_SOURCE env "
+            "(or 'tos' if unset). 'huggingface' requires BENCHMARK_HF_REPO in env."
+        ),
+    )
     return parser
 
 
@@ -53,6 +62,7 @@ def main(argv: list[str] | None = None) -> None:
         output_root=args.output_root,
         skip_download=args.skip_download,
         force_download=args.force_download,
+        source=args.source,
     )
     for path in written:
         print(path)

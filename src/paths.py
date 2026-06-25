@@ -58,6 +58,9 @@ BENCHMARK_MDS_TOS_BUCKET = "aml-fde-boe"
 BENCHMARK_MDS_TOS_OBJECT_KEY = "benchmark_mds.zip"
 """TOS 上 benchmark markdown 压缩包对象名。"""
 
+BENCHMARK_MDS_HF_PATH_IN_REPO = "benchmark_mds.zip"
+"""HuggingFace dataset 仓库内 benchmark markdown 压缩包路径。"""
+
 
 def _cwd(cwd: Path | None) -> Path:
     """解析工作目录，``None`` 时使用 ``Path.cwd()``。"""

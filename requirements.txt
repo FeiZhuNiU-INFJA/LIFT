@@ -1,6 +1,7 @@
 --extra-index-url https://bytedpypi.byted.org/simple
 
 bytedtos
+huggingface_hub
 openai
 pydantic
 python-dotenv
