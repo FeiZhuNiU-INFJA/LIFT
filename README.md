@@ -44,7 +44,7 @@ flowchart LR
 
 1. **Warmup 共用一个容器**，状态要连续，进化才有意义
 2. **每道 holdout 起新容器**，baseline 必须是干净环境，题与题 workspace 也要隔离
-3. **进化产物以 docker image 形式落地**（`docker commit` → delta 镜像），baseline / evolved 完全对称
+3. **进化产物以 Docker 镜像形式落地**，baseline / evolved 完全对称
 
 ---
 
@@ -52,9 +52,9 @@ flowchart LR
 
 每一次 LIFT run 都带一个实时的「任务控制台」—— warmup / baseline / evolved 进度、容器生命周期、对话轮次、retry / truncation 状态全部实时刷新。三种打开方式：
 
-- **终端 TUI**（`--status-viz`）：`rich.Live` 渲染，header 进度条 + suite × repeat 矩阵 + 活跃容器表
-- **浏览器 Dashboard**（`--status-http 8080`）：零依赖 stdlib SSE，多人可同时连。点任一 task 弹出 work↔judge 完整对话；KPI 条 / phase delta 着色 / retry 闪烁告警一应俱全
-- **静态快照**（自动）：跑完自动写 `results/<run_id>/dashboard.html`，发出去同事打开就能复盘；`--evaluate-only` 可基于已有 `report.json` 重建整棵状态树
+- **终端 TUI**（`--status-viz`）：终端里原地刷新，header 进度条 + suite × repeat 矩阵 + 活跃容器表
+- **浏览器 Dashboard**（`--status-http 8080`）：无需额外依赖，多人可同时连。点任一 task 弹出 work↔judge 完整对话；KPI 条 / phase delta 着色 / retry 闪烁告警一应俱全
+- **静态快照**（自动）：跑完自动写 `results/<run_id>/dashboard.html`，发出去同事打开就能复盘；事后用 `--evaluate-only` 还能在不重跑 agent 的前提下，把整个评测过程的 dashboard 重建出来
 
 <table>
   <tr>
@@ -64,12 +64,12 @@ flowchart LR
     </td>
     <td width="40%" align="center">
       <img src="./assets/tui_demo.gif" alt="LIFT 终端 TUI 实时刷新" /><br/>
-      <sub><b>终端 TUI</b> · rich.Live 原地刷新</sub>
+      <sub><b>终端 TUI</b> · 终端里原地刷新</sub>
     </td>
   </tr>
 </table>
 
-实现见 [src/lift/status/](./src/lift/status)；协议细节见 [docs/eval-flow.md §12.8](./docs/eval-flow.md#128)。
+协议细节见 [docs/eval-flow.md §12.8](./docs/eval-flow.md#128)。
 
 ---
 
@@ -79,23 +79,23 @@ Dashboard 有两层数据，**实时**和**跑完后**：
 
 ### 实时（run 进行中）
 
-`StageEvent` 每完成一个 phase 就 emit 三个原始计数：
+agent 每完成一个 phase，dashboard 立刻显示三个原始计数：
 
 - **`turns`** —— 这一 phase 的对话轮数。轮数下降 = agent "想清楚了再做"，是进化最直接的体现
-- **`tools`** —— 工具调用次数（仅 OpenClaw 路径）。次数下降 = 学会复用 / 合并 / 跳过冗余探查
+- **`tools`** —— 工具调用次数。次数下降 = 学会复用 / 合并 / 跳过冗余探查
 - **`score` / `success`** —— judge 直接打的分
 
 打开 dashboard 第一眼就在 **PHASE COMPARISON**：每道题的 `baseline → evolved` 三列对照，颜色 + 箭头明示哪几道题在 `turns` / `tools` 维度变好（↓ 绿）、变差（↑ 红）、持平。
 
-### 跑完后（post-process 注入）
+### 跑完后
 
-`report.json` 落地后，`src/postprocess/` 从 trace 抽出更细的口径，回写到 dashboard 的 **FINAL SUMMARY** 面板，KEY INDICATORS 来源也从 `live` 切到 `final (post-processed)`：
+跑完后，后处理会从 trace 抽出更精细的口径，回写到 dashboard 的 **FINAL SUMMARY** 面板，把核心指标从「实时聚合」切到「最终成绩单」：
 
-| Post-process 字段 | 来源 | 含义 |
-|---|---|---|
-| `impr_trials` | judge backfill 推断的"完美达成所需轮数" | 比 raw `turns` 更严格的"努力次数"比 |
-| `impr_tool_use_num` | trace 聚合的工具调用次数 | 工具调用改进比 |
-| `impr_total_tokens` | Langfuse usage | token 成本改进比 |
+| 指标 | 含义 |
+|---|---|
+| `impr_trials` | "完美达成所需轮数"的比值 —— 比实时 `turns` 更严格 |
+| `impr_tool_use_num` | 工具调用次数比 |
+| `impr_total_tokens` | token 成本比 |
 
 聚合公式（越低越好）：
 
@@ -104,6 +104,21 @@ $$
 $$
 
 更细的字段定义、列映射、汇总规则见 [docs/eval-flow.md](./docs/eval-flow.md)。
+
+---
+
+## 跑得快也跑得稳
+
+LIFT 一次 run 是个 **`repeat × suite` 的并发矩阵**：默认 3 个 cell 同时跑，
+cell 内 warmup tasks、holdout tasks、baseline / evolved 双相也都默认并行。
+典型 3 repeats × 14 suites × 6 holdouts 的 run，holdout 高峰
+**3 × 6 × 2 = 36 个容器同时在跑**。
+
+跑稳的关键设计：
+
+- **Cell 级隔离 + 自动重试**：一道题挂掉不波及矩阵其他位置，失败的 cell 收集起来自动再跑一遍
+- **容器端口随机化**：宿主交给 Docker 自分配，启动后反查映射 —— 几十个容器并行也不会撞口
+- **资源闸门**：宿主吃紧时调一个参数（`--max-parallel-suites`）即可全局收口，不用改业务参数
 
 ---
 
@@ -126,7 +141,7 @@ python -m src.cli.lift_main \
   --status-http 8080
 ```
 
-跑完看 [results/lift-runid-my-first-run/](./results) 下的 `report.json`、`*_backfilled.json`，以及自动生成的 `dashboard.html` 离线快照。
+跑完看 [results/lift-runid-my-first-run/](./results) 下的报告与自动生成的 `dashboard.html` 离线快照。
 
 ---
 
