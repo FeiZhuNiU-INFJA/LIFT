@@ -144,7 +144,9 @@ def _make_row_hermes(
     """Hermes 模式：
     - ``total_tokens``：直接使用 trace 聚合的 ``global_stats.total_tokens``（与 messages 无关，
       由 GENERATION observation usage 累加得到，准确）。
-    - ``trials``：``role == 'user'`` 的 message 数（不再扣 1）。
+    - ``trials``：``chat_turns`` 长度，与 OpenClaw 口径对齐，避免 ``all_messages`` 在
+      context compaction 后丢失早期 user message 导致少算 / 把 compaction summary
+      误算成 user message。
     - ``tool_use_num``：``role == 'tool'`` 的 message 数（不再扣"最后一条 user 之后的 tool"）。
     - ``cached_token`` / ``cached_token_ratio``：当前 hermes 链路未上报 cacheRead，置 0。
     - 若 ``all_messages`` 为空（hermes 未上报 ``metadata.messages``），trials/tool_use 退化为 0；
@@ -152,8 +154,9 @@ def _make_row_hermes(
     """
     global_stats = work_analytics.get("global_stats") or {}
     all_messages = work_analytics.get("all_messages") or []
+    chat_turns = work_analytics.get("chat_turns") or []
     total_tokens = int_value(global_stats.get("total_tokens"))
-    trials = _hermes_count_user_messages(all_messages)
+    trials = len(chat_turns)
     tool_use_num = _hermes_count_tool_role_total(all_messages)
     return {
         "trials": trials,

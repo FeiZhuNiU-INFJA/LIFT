@@ -354,7 +354,8 @@ def build_trajectory_nodes(raw_messages: Any) -> list[dict[str, Any]]:
     - An ``assistant`` with embedded ``tool_calls`` (OpenAI-style) or ``toolCall``
       blocks (OpenClaw-style) emits one ``tool`` node per call (name, reasoning,
       arguments), after the assistant's text node when it also has visible text.
-    - Drop tool *result* messages (``role == 'tool'`` carrying ``tool_call_id``).
+    - Drop tool *result* messages (e.g. ``role == 'tool'`` / ``role == 'toolResult'``
+      or messages carrying ``tool_call_id``).
       Each surviving tool node is therefore a distinct tool *call*; consecutive
       calls are all kept (no adjacency collapse).
     - Each ``user`` node carries an incrementing ``turn`` counter starting at 1.
@@ -365,8 +366,8 @@ def build_trajectory_nodes(raw_messages: Any) -> list[dict[str, Any]]:
 
     for message in messages:
         role = message.get("role")
-        # Tool *result* messages: role == 'tool' with a tool_call_id / output -> drop.
-        if role == "tool" or message.get("tool_call_id") is not None:
+        # Tool *result* messages in Hermes/OpenAI/OpenClaw formats -> drop.
+        if role in {"tool", "toolResult"} or message.get("tool_call_id") is not None:
             continue
 
         text, reasoning, content_tool_blocks = _block_text(message.get("content"))
@@ -438,8 +439,9 @@ def build_trajectory_nodes(raw_messages: Any) -> list[dict[str, Any]]:
                 }
             )
 
-    # Tool *result* messages were already dropped above by role (role == 'tool' /
-    # tool_call_id), so each surviving tool node is a distinct tool *call*. We do NOT
+    # Tool *result* messages were already dropped above by role (e.g. ``tool`` /
+    # ``toolResult`` / tool_call_id), so each surviving tool node is a distinct
+    # tool *call*. We do NOT
     # collapse adjacent tool nodes here: in OpenAI/hermes format an assistant message
     # often carries empty content + one tool_call, so consecutive calls produce
     # neighboring tool nodes that are legitimately different and must all be kept.
