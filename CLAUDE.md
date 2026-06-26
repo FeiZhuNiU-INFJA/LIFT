@@ -12,9 +12,9 @@ LIFT (Loaded Impact on Final Task) is an evaluation framework that tests whether
 
 ```bash
 # Build OpenClaw evaluation image (required after runtime changes)
-bash agent-runtimes/openclaw/build-image.sh
+# Default builds the base image (evolve-eval-openclaw-base:latest); add --with-evolve for the plugin
+bash agent-runtimes/openclaw/build-image.sh --with-evolve
 # Produces evolve-eval-openclaw-with-evolve:latest (with evolution plugin)
-# INSTALL_SELF_EVOLVING=false bash ... build-image.sh  # without plugin
 
 # Smoke test (warmup only, skips holdout)
 python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id smoke-test
@@ -121,7 +121,7 @@ TOS_SECRET_KEY=your_secret_key
 - **Plugins**: Pre-installed in image (`self-evolving-plugin-pro`, `langfuse-tracer`)
 - **Chat**: `docker exec openclaw agent --local --json` with stdout JSON parsing
 - **Langfuse correlation**: `session_id` links framework pre-chat with container plugin traces
-- **Workspace seed**: `agent-runtimes/openclaw/workspace_seed/` copied to skip onboarding
+- **Workspace seed**: `agent-runtimes/openclaw/workspace_seed/` baked into the image at build time (`COPY workspace_seed /root/.openclaw/workspace` in Dockerfile) to skip onboarding
 
 ## Testing
 

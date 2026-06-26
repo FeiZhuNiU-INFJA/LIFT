@@ -17,6 +17,7 @@ import argparse
 import os
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -34,7 +35,17 @@ from src.paths import (  # noqa: E402
 )
 from src.preprocess.benchmark_mds_fetch import download_benchmark_mds_zip  # noqa: E402
 
+EXTRACTED_DIR_IN_REPO = "benchmark_mds"
+"""HuggingFace 仓库内解压后浏览目录（仅用于网页预览，下载仍走 zip）。"""
+
 load_dotenv()
+
+# huggingface_hub uses httpx, which reads proxy env vars in UPPERCASE only.
+# Mirror the lowercase variants users typically set (e.g. byted internal proxy)
+# so this script works in environments without direct outbound access.
+for _lower, _upper in (("http_proxy", "HTTP_PROXY"), ("https_proxy", "HTTPS_PROXY"), ("no_proxy", "NO_PROXY")):
+    if os.environ.get(_lower) and not os.environ.get(_upper):
+        os.environ[_upper] = os.environ[_lower]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -62,6 +73,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Create the dataset repo as private if it does not exist (default: public).",
     )
+    parser.add_argument(
+        "--skip-extracted",
+        action="store_true",
+        help=(
+            "Only upload benchmark_mds.zip. By default the script also uploads the unzipped "
+            f"tree under '{EXTRACTED_DIR_IN_REPO}/' so users can preview markdowns on the web."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -86,17 +105,24 @@ def main(argv: list[str] | None = None) -> None:
         zip_path = args.zip.expanduser().resolve()
         if not zip_path.is_file():
             raise SystemExit(f"--zip file does not exist: {zip_path}")
-        _upload(api, repo_id, zip_path, args.commit_message)
+        _upload(api, repo_id, zip_path, args.commit_message, upload_extracted=not args.skip_extracted)
         return
 
     with tempfile.TemporaryDirectory(prefix="benchmark_mds_upload_") as tmp:
         zip_path = Path(tmp) / BENCHMARK_MDS_TOS_OBJECT_KEY
         print(f"Downloading {BENCHMARK_MDS_TOS_OBJECT_KEY} from TOS to {zip_path} ...")
         download_benchmark_mds_zip(zip_path)
-        _upload(api, repo_id, zip_path, args.commit_message)
+        _upload(api, repo_id, zip_path, args.commit_message, upload_extracted=not args.skip_extracted)
 
 
-def _upload(api: HfApi, repo_id: str, zip_path: Path, commit_message: str) -> None:
+def _upload(
+    api: HfApi,
+    repo_id: str,
+    zip_path: Path,
+    commit_message: str,
+    *,
+    upload_extracted: bool,
+) -> None:
     size_mb = zip_path.stat().st_size / (1024 * 1024)
     print(f"Uploading {zip_path.name} ({size_mb:.2f} MB) to dataset {repo_id} ...")
     api.upload_file(
@@ -106,7 +132,47 @@ def _upload(api: HfApi, repo_id: str, zip_path: Path, commit_message: str) -> No
         repo_type="dataset",
         commit_message=commit_message,
     )
+
+    if upload_extracted:
+        _upload_extracted_tree(api, repo_id, zip_path, commit_message)
+
     print(f"Done. https://huggingface.co/datasets/{repo_id}")
+
+
+def _upload_extracted_tree(
+    api: HfApi,
+    repo_id: str,
+    zip_path: Path,
+    commit_message: str,
+) -> None:
+    """Mirror the unzipped tree under ``benchmark_mds/`` for in-browser preview."""
+    with tempfile.TemporaryDirectory(prefix="benchmark_mds_extract_") as tmp:
+        extract_root = Path(tmp)
+        with zipfile.ZipFile(zip_path) as archive:
+            archive.extractall(extract_root)
+
+        source_root = _resolve_extracted_root(extract_root)
+        file_count = sum(1 for _ in source_root.rglob("*") if _.is_file())
+        print(
+            f"Uploading extracted tree ({file_count} files) to "
+            f"'{EXTRACTED_DIR_IN_REPO}/' for web preview ..."
+        )
+        api.upload_folder(
+            folder_path=str(source_root),
+            path_in_repo=EXTRACTED_DIR_IN_REPO,
+            repo_id=repo_id,
+            repo_type="dataset",
+            commit_message=f"{commit_message} (extracted preview)",
+            ignore_patterns=["__MACOSX/**", ".DS_Store", "**/.DS_Store"],
+        )
+
+
+def _resolve_extracted_root(extract_dir: Path) -> Path:
+    """Return the directory that contains benchmark scene folders (skip single wrapper folder)."""
+    children = [p for p in extract_dir.iterdir() if p.name != "__MACOSX"]
+    if len(children) == 1 and children[0].is_dir():
+        return children[0]
+    return extract_dir
 
 
 if __name__ == "__main__":

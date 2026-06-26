@@ -103,6 +103,23 @@ bash agent-runtimes/openclaw/verify-image.sh evolve-eval-openclaw-with-evolve:la
 
 Benchmark 任务可在 `requirements.extra_skills_dir` 中提供额外 skill 目录。OpenClaw 容器会把该目录挂载到 `/workspace/task/skills`，容器启动时由 LIFT 把挂载内容复制进 `${OPENCLAW_STATE_DIR:-/root/.openclaw}/skills`，使得 warmup 阶段的 `docker commit` 能把任务 skill 一并打进 delta 镜像；而 bind mount 本身的 `/workspace/task/skills` 内容是不会被 `docker commit` 捕获的。
 
+### 插件清单与 OpenClaw 版本兼容性
+
+构建期 [install-plugins-in-image.sh](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openclaw/install-plugins-in-image.sh) 会装这三个插件（运行时 enable）：
+
+| 插件 | 来源 | 运行时依赖 | 备注 |
+|------|------|------------|------|
+| `langfuse-tracer` | repo 内 `plugins/langfuse-tracer` | `LANGFUSE_*` env | LIFT trace 写入 |
+| `self-evolving-plugin-pro` | repo 内 `plugins/self-evolving-plugin-pro-*.zip` | 仅 with-evolve 镜像装 | warmup→evolve 阶段 `openclaw learn review` |
+| `firecrawl` (`@openclaw/firecrawl-plugin`) | npm（构建期 `openclaw plugins install` 拉取） | `FIRECRAWL_API_KEY` env | 提供 `web_search` / `scrape` / `browser` 工具 |
+
+**注意 firecrawl 的来源会随 OpenClaw 大版本飘移**：
+
+- 旧版本（≲ 2026.5.x）firecrawl 是 stock plugin（`/app/dist/extensions/firecrawl/`），脚本里 `openclaw plugins enable firecrawl` 就能直接生效。
+- 当前版本（2026.6.10 起）firecrawl 已被剥离为外置 npm 包，必须显式 `openclaw plugins install @openclaw/firecrawl-plugin`，否则 gateway 启动会打 warning，`web_search` 工具调用会返回 `{"status":"error","error":"web_search is disabled or no provider is available."}`。
+
+排查 `web_search` 不工作时，先 `docker run --rm <image> openclaw plugins list | grep -i firecrawl` 看是否 `enabled`；如果只看到 stock list 里没有 firecrawl，且 `~/.openclaw/extensions/`、`~/.openclaw/npm/projects/` 都没有，就是这一步漏装了。升级 base image 后如果 firecrawl 的分发方式又变（重新进 stock 或换包名），同步更新 [install-plugins-in-image.sh](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openclaw/install-plugins-in-image.sh) 第 3 步即可。
+
 ## Workspace 布局（镜像 FS vs bind mount）
 
 OpenClaw 有意采用**两个**工作区根。agent 实际只看到一个（`/root/.openclaw/workspace`），但任务的输入/输出住在另一个（`/workspace/task`），让评测器可以从宿主机直接读写。

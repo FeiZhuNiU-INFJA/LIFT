@@ -70,7 +70,14 @@ python scripts/upload_benchmark_to_hf.py
 
 # 推已有的本地 zip
 python scripts/upload_benchmark_to_hf.py --zip /path/to/benchmark_mds.zip
+
+# 只上传 zip 包，不同步解压目录（默认会同时把解压后的目录推到 benchmark_mds/，方便网页预览）
+python scripts/upload_benchmark_to_hf.py --skip-extracted
 ```
+
+> 注：HF 上传默认同时维护两份产物：
+> - `benchmark_mds.zip` —— 下载用，框架预处理也只读这个；
+> - `benchmark_mds/` —— 仅供网页浏览，下载流程不会访问。
 
 ### 清空跑批结果
 
