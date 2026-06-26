@@ -51,6 +51,7 @@ class TraceState:
     turn_tool_calls: list[dict[str, Any]] = field(default_factory=list)
     last_updated_at: float = field(default_factory=time.time)
     messages: list = field(default_factory=list)  # 存储完整 messages 列表
+    generation_seq: int = 0  # 已发起的 generation 次数（用于区分首次/后续上报）
 
 
 _STATE_LOCK = threading.Lock()
@@ -448,6 +449,44 @@ def _serialize_messages(messages: Any) -> list[dict[str, Any]]:
     return serialized
 
 
+def _select_generation_input_messages(
+    messages: Any,
+    *,
+    is_first_call: bool,
+) -> list[dict[str, Any]]:
+    """裁剪要上报到 ``generation.input`` 的 message 列表。
+
+    首次调用：保留首条 system prompt（如有） + 最后一条 user message（当轮 prompt）。
+    后续调用：只保留最后一条 message（最新一轮新增的内容，通常是 tool / user / assistant）。
+
+    完整历史改写到 root span 的 metadata.messages，本函数只决定 Langfuse UI 的
+    Input 面板显示什么，不影响 trace 顶层 metadata。
+    """
+    if not isinstance(messages, list) or not messages:
+        return []
+
+    if not is_first_call:
+        return [messages[-1]]
+
+    selected: list[dict[str, Any]] = []
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("role") == "system":
+            selected.append(msg)
+            break
+
+    last_user: Optional[dict[str, Any]] = None
+    for msg in reversed(messages):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            last_user = msg
+            break
+    if last_user is not None:
+        selected.append(last_user)
+
+    if not selected:
+        return [messages[-1]] if isinstance(messages[-1], dict) else []
+    return selected
+
+
 def _serialize_tool_calls(tool_calls: Any) -> list[dict[str, Any]]:
     if not tool_calls:
         return []
@@ -614,19 +653,11 @@ def _start_root_trace(task_key: str, *, task_id: str, session_id: str, platform:
 def _start_child_observation(state: TraceState, *, client: Langfuse, name: str, as_type: str,
                              input_value: Any, metadata: Optional[dict] = None,
                              model: Optional[str] = None, model_parameters: Optional[dict] = None) -> Any:
-    # 自动将 messages 添加到 metadata（去掉第一条 system prompt）
+    # 注意：不再把全量 messages 写进每个子 observation 的 metadata，避免每个
+    # LLM call / tool call 节点都携带 N 份完整对话历史，徒增存储。完整历史改在
+    # root span（"Hermes turn" chain）的 metadata.messages 上一次性维护，
+    # 见 `_publish_messages_to_root`。
     merged_metadata = dict(metadata or {})
-    if state.messages:
-        # 过滤掉第一条 system prompt
-        filtered_messages = []
-        system_skipped = False
-        for msg in state.messages:
-            if msg.get("role") == "system" and not system_skipped:
-                system_skipped = True  # 跳过第一条 system prompt
-                continue
-            filtered_messages.append(msg)
-        merged_metadata["messages"] = _serialize_messages(filtered_messages)
-        merged_metadata["message_count"] = len(filtered_messages)
     return state.root_span.start_observation(
         name=name,
         as_type=as_type,
@@ -635,6 +666,38 @@ def _start_child_observation(state: TraceState, *, client: Langfuse, name: str, 
         model=model,
         model_parameters=model_parameters,
     )
+
+
+def _publish_messages_to_root(state: TraceState) -> None:
+    """把 ``state.messages`` 全量序列化后写到 root span（Hermes turn）的 metadata。
+
+    设计要点：
+    - 必须保持 ``messages`` 全量。下游 ``langfuse_trace_fetch`` / ``postprocess`` 依赖
+      ``LangfusePluginTraceMetadata.messages`` 计算 tokens、trials、tool_call_blocks 等。
+    - 复用 ``_serialize_messages`` 做与之前 generation.metadata.messages 一致的清洗
+      （tool 消息 / tool_calls / 截断），保证下游解析口径不变。
+    - 仍跳过首条 system prompt（与历史 generation.metadata 行为一致），避免把超长
+      system 重复写入 trace metadata。
+    """
+    if state.root_span is None:
+        return
+    if not state.messages:
+        return
+    filtered: list[dict[str, Any]] = []
+    system_skipped = False
+    for msg in state.messages:
+        if isinstance(msg, dict) and msg.get("role") == "system" and not system_skipped:
+            system_skipped = True
+            continue
+        filtered.append(msg)
+    serialized = _serialize_messages(filtered)
+    try:
+        state.root_span.update(metadata={
+            "messages": serialized,
+            "message_count": len(serialized),
+        })
+    except Exception as exc:  # pragma: no cover - fail-open
+        _debug(f"publish root messages failed: {exc}")
 
 
 def _end_observation(observation: Any, *, output: Any = None, metadata: Optional[dict] = None,
@@ -798,18 +861,26 @@ def on_pre_llm_request(
                 client=client,
             )
             _TRACE_STATE[task_key] = state
-        # 同步更新 messages 列表
+        # 同步更新 messages 列表（用于 root span 全量 metadata 与裁剪后的 generation input）
         state.messages = input_messages if isinstance(input_messages, list) else []
         state.last_updated_at = time.time()
         previous = state.generations.pop(req_key, None)
         if previous is not None:
             _end_observation(previous)
+        is_first_call = state.generation_seq == 0
+        state.generation_seq += 1
+        # trace.input / generation.input 只上报增量：首次 = system + 当前 user prompt；
+        # 之后 = 最近一条 message。完整历史走 root span 的 metadata.messages，
+        # 见 `_publish_messages_to_root`。
+        generation_input = _serialize_messages(
+            _select_generation_input_messages(input_messages, is_first_call=is_first_call)
+        )
         state.generations[req_key] = _start_child_observation(
             state,
             client=client,
             name=f"LLM call {api_call_count}",
             as_type="generation",
-            input_value=_serialize_messages(input_messages),
+            input_value=generation_input,
             metadata={
                 "provider": provider,
                 "platform": platform,
@@ -819,6 +890,9 @@ def on_pre_llm_request(
             model=model,
             model_parameters={"api_mode": api_mode, "provider": provider},
         )
+        # 每次请求都把当前完整 messages 推到 root span metadata，保证下游能从
+        # trace 顶层一次性拿到 full transcript（不依赖任何子 observation）。
+        _publish_messages_to_root(state)
 
 
 def on_post_llm_call(*, task_id: str = "", session_id: str = "", provider: str = "", base_url: str = "",
@@ -923,7 +997,10 @@ def on_post_llm_call(*, task_id: str = "", session_id: str = "", provider: str =
         usage_details, cost_details = {}, {}
 
     tool_count = len(output.get("tool_calls", [])) or assistant_tool_call_count
-    gen_metadata: Dict[str, Any] = {"tool_call_count": tool_count}
+    gen_metadata: Dict[str, Any] = {
+        "tool_call_count": tool_count,
+        "cumulative_tool_call_count": len(state.turn_tool_calls),
+    }
     if api_duration and api_duration > 0:
         gen_metadata["api_duration_s"] = round(api_duration, 3)
     if finish_reason:
