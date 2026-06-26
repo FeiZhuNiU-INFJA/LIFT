@@ -221,20 +221,63 @@
       Agent 做完「练习题」并进化之后，<strong>期末考</strong>能不能考得更好？
     </p>
     <p>
-      同一道 holdout 题跑两遍——没加载进化产物（baseline）和加载了（evolved）——看分数差。
+      LIFT 把这个问题变成一个可一键复现的 A/B 实验：同一道 holdout 题跑两遍——
+      不加载进化产物（baseline）和加载（evolved）——看分数差。
       文字讲稿见 <a href="lift-framework-guide-cn.md">lift-framework-guide-cn.md</a>。
     </p>
   </header>
 
   <nav>
+    <a href="#why">为什么</a>
     <a href="#framework">框架总览</a>
     <a href="#openclaw">OpenClaw 接入</a>
+    <a href="#workspace">记忆怎么进 delta</a>
     <a href="#hello">hello.json 走一遍</a>
     <a href="#summary">收尾</a>
     <a href="#deep">延伸阅读</a>
   </nav>
 
   <main>
+    <!-- Part 0: Why -->
+    <section id="why">
+      <h2>为什么需要 LIFT</h2>
+      <p class="section-lead">
+        大模型是<strong>静态</strong>的：今天答对的，明天还这么答；昨天踩的坑，明天还会踩。
+        但我们做的 Agent 被设计成<strong>会进化</strong>——会更新自己的 SOUL、MEMORY、技能库。
+        那么问题来了：这种进化，<strong>到底有没有用</strong>？我们怎么科学地证明它，而不是听起来很有用？
+      </p>
+
+      <div class="three-cols">
+        <div class="mini-card">
+          <div class="label">问题 1</div>
+          <div class="title">记忆怎么搬</div>
+          <p>SOUL / MEMORY / 技能散落在文件系统。怎么把进化前后的 Agent 整体冻结成一个可复现的快照？</p>
+          <p style="margin-top:.5rem;color:var(--green);">→ <code>docker commit</code> 原子打包</p>
+        </div>
+        <div class="mini-card">
+          <div class="label">问题 2</div>
+          <div class="title">对照怎么干净</div>
+          <p>baseline 不能被 evolved 污染，题与题也不能互相干扰。</p>
+          <p style="margin-top:.5rem;color:var(--green);">→ 每相位、每题都从镜像起新容器</p>
+        </div>
+        <div class="mini-card">
+          <div class="label">问题 3</div>
+          <div class="title">怎么接新 Agent</div>
+          <p>评测内核不能绑死 OpenClaw。</p>
+          <p style="margin-top:.5rem;color:var(--green);">→ 三层解耦，新 runtime 只写 Adapter</p>
+        </div>
+      </div>
+
+      <div class="summary-box" style="margin-top:1rem;">
+LIFT = 把「Agent 进化有没有用」这件事，
+变成一个<strong>可一键复现的 A/B 实验</strong>。
+
+· <strong>受试者</strong>：同一个 Agent
+· <strong>变量</strong>：是否加载进化产物
+· <strong>测量</strong>：同一道 holdout 题的得分差
+      </div>
+    </section>
+
     <!-- Part 1: Framework -->
     <section id="framework">
       <h2>框架长什么样</h2>
@@ -259,8 +302,8 @@
       </div>
 
       <div class="pill-row">
-        <span class="pill">默认 <strong>最后一题</strong> 是 holdout</span>
-        <span class="pill"><code>holdout_count</code> 默认 1</span>
+        <span class="pill">Suite JSON 显式分 <strong>warmup_tasks / holdout_tasks</strong></span>
+        <span class="pill">对应 benchmark <strong>train / test</strong></span>
         <span class="pill">成绩单 → <code>report.json</code></span>
       </div>
 
@@ -347,7 +390,7 @@ sequenceDiagram
             </tr>
             <tr>
               <td><code>start_container</code></td>
-              <td>起 gateway、挂卷、可选 workspace seed</td>
+              <td>起 gateway、挂 bind mount、把素材软链进容器 workspace</td>
               <td><code>openclaw/session.py</code></td>
             </tr>
             <tr>
@@ -395,10 +438,11 @@ flowchart LR
             <tr><th>模块</th><th>解决什么问题</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>json_output.py</code></td><td>解析 <code>openclaw --json</code> 输出</td></tr>
-            <tr><td><code>workspace_seed.py</code></td><td>holdout 跳过首次 onboarding（warmup 不 seed）</td></tr>
-            <tr><td><code>container_exec.py</code></td><td>容器内异步执行 openclaw CLI</td></tr>
-            <tr><td><code>agent-runtimes/openclaw/</code></td><td>镜像：插件、langfuse-tracer、gateway 配置</td></tr>
+            <tr><td><code>openclaw/session.py</code></td><td>gateway 端口（随机映射）、卷挂载、容器 entrypoint</td></tr>
+            <tr><td><code>openclaw/chat_agent.py</code></td><td><code>docker exec openclaw agent --local --json</code></td></tr>
+            <tr><td><code>openclaw/json_output.py</code></td><td>解析 <code>--json</code> stdout</td></tr>
+            <tr><td><code>openclaw_with_evolve/evolve.py</code></td><td>warmup 后跑 <code>openclaw learn review</code></td></tr>
+            <tr><td><code>agent-runtimes/openclaw/</code></td><td>镜像构建：插件、langfuse-tracer、gateway 配置、baked workspace 种子</td></tr>
           </tbody>
         </table>
       </div>
@@ -415,6 +459,56 @@ flowchart LR
           </tbody>
         </table>
       </div>
+    </section>
+
+    <!-- Workspace deep-dive -->
+    <section id="workspace">
+      <h2>记忆是怎么进入 delta 镜像的</h2>
+      <p class="section-lead">
+        最近的关键演进：把 Agent workspace baked 进镜像，否则 <code>docker commit</code> 抓不到任何「学到的东西」。
+      </p>
+
+      <div class="three-cols">
+        <div class="mini-card">
+          <div class="label">早期问题</div>
+          <div class="title" style="color: var(--orange);">bind mount 上的记忆 commit 不到</div>
+          <p>workspace 在宿主机 <code>/workspace/task</code>（bind mount），不在容器层；
+            warmup 时 Agent 写的 MEMORY、改的 SOUL 全都<strong>进不了 delta</strong>，进化等于白做。</p>
+        </div>
+        <div class="mini-card">
+          <div class="label">现在的方案</div>
+          <div class="title" style="color: var(--green);">workspace 进容器，bind mount 只放素材</div>
+          <p>OpenClaw 默认 workspace 改为容器内 <code>/root/.openclaw/workspace</code>；
+            种子文件由 Dockerfile <code>COPY</code> 在构建期 baked 进镜像；
+            素材 / 产物通过<strong>软链桥接</strong>到 bind mount。</p>
+        </div>
+        <div class="mini-card">
+          <div class="label">结果</div>
+          <div class="title" style="color: var(--purple);">该进的进，不该进的不进</div>
+          <p>能进化的状态（记忆 / 技能）在容器层 → 被 <code>docker commit</code> 捕获；
+            任务素材 / 产物仍在 bind mount → 宿主机和评测系统能看见。</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="mermaid">
+flowchart LR
+    subgraph Img["容器内 / 镜像层"]
+        WS["/root/.openclaw/workspace<br/>IDENTITY · SOUL · MEMORY · 技能"]
+        PLG["self-evolving 插件状态"]
+    end
+    subgraph Host["宿主机 / bind mount"]
+        TASK["/workspace/task<br/>素材 + 产物"]
+    end
+    WS -. 软链桥接 .-> TASK
+    Img == "docker commit" ==> Delta["delta 镜像<br/>带 学到的东西"]
+    TASK -. 不进 delta .-> Skip["X"]
+        </div>
+      </div>
+
+      <p style="color: var(--muted); font-size: .9rem; margin: .75rem 0 0;">
+        一句话总结：<strong>该进 delta 的东西就让它进 delta，不该进的就让它别进</strong>。
+      </p>
     </section>
 
     <!-- Part 3: hello.json -->
@@ -434,9 +528,9 @@ flowchart LR
           <p>baseline（base 镜像）vs evolved（delta 镜像）</p>
         </div>
         <div class="mini-card">
-          <div class="label">默认切分</div>
-          <div class="title">holdout_count = 1</div>
-          <p>最后一题是 holdout，前面都是 warmup</p>
+          <div class="label">显式切分</div>
+          <div class="title">warmup_tasks / holdout_tasks</div>
+          <p>Suite JSON 直接列出两段；不再在运行时按题号切分</p>
         </div>
       </div>
 
@@ -446,10 +540,12 @@ flowchart LR
 bash agent-runtimes/openclaw/build-image.sh
 
 # 冒烟：只 warmup + evolve
-python -m src.cli.lift_main -r openclaw --suite hello.json --warmup-only
+python -m src.cli.lift_main -r openclaw \
+  --benchmark_dir assets/benchmarks_demo --suite hello.json --warmup-only
 
 # 完整 LIFT
-python -m src.cli.lift_main -r openclaw --suite hello.json --run_id hello-full</code></pre>
+python -m src.cli.lift_main -r openclaw \
+  --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id hello-full</code></pre>
       </div>
 
       <h3>执行顺序</h3>
@@ -470,12 +566,12 @@ python -m src.cli.lift_main -r openclaw --suite hello.json --run_id hello-full</
         <div class="mermaid">
 flowchart TB
     R["results/{run_id}/"]
-    R --> REP["report.json\nQ2 baseline / evolved 分数"]
+    R --> REP["report.json<br/>Q2 baseline / evolved 分数"]
     R --> OUT["outcome/run-0/"]
-    OUT --> WU["warmup/Hello/\nQ1 + learn review"]
+    OUT --> WU["warmup/Hello/<br/>Q1 + learn review"]
     OUT --> BL["baseline/Hello/Q2/"]
     OUT --> EV["evolved/Hello/Q2/"]
-    R --> PP["*_comparison_metrics.csv\n*_metrics_report.html"]
+    R --> PP["*_comparison_metrics.csv<br/>*_metrics_report.html"]
         </div>
       </div>
 
@@ -496,11 +592,13 @@ flowchart TB
     <section id="summary">
       <h2>收尾</h2>
       <div class="summary-box">
+<strong>问题</strong> = Agent 进化到底有没有用？怎么科学地证明？
+
 <strong>LIFT</strong> = warmup 进化 → 同一道 holdout 题考两遍 → 看有没有 LIFT
 
-<strong>框架</strong> = Pipeline 编排 + eval 阅卷 + adapter 接 runtime
+<strong>框架</strong> = Pipeline 编排 + eval 阅卷 + adapter 接 runtime（三层解耦）
 
-<strong>OpenClaw</strong> = 4 个钩子 + 容器/chat/evolve/seed 胶水
+<strong>OpenClaw</strong> = 4 个钩子 + baked workspace + 容器/chat/evolve 胶水
 
 <strong>hello.json</strong> = Q1 练 → Q2 对照 → report + outcome
       </div>
