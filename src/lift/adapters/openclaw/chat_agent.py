@@ -16,8 +16,6 @@ from src.lift.eval.worker_judger import WorkerJudgerPair
 from src.models import SuiteTask
 from src.utils import short_id
 
-CONTAINER_WORKSPACE = "/workspace/task"
-
 # 单次 ``openclaw agent --message`` 在宿主机侧的 wall-clock 上限。
 # 正常一轮 work / judge chat 在 30-90 秒内返回，触达模型 maxTokens 会走另一条
 # truncation marker 通道；这里 600 秒纯粹用于兜底"既不出错也不返回"的情况——
@@ -26,6 +24,11 @@ CONTAINER_WORKSPACE = "/workspace/task"
 # ~50 分钟内自愈。
 CHAT_EXEC_TIMEOUT_SECONDS = 600.0
 CHAT_EXEC_TIMEOUT_MARKER = "chat exec timeout"
+
+# Agent cwd：与 ``agents.fragment.json`` 的 ``agents.defaults.workspace`` 同步。
+# 必须显式传给 ``agents add --workspace`` —— OpenClaw CLI 不会读 fragment 默认值，
+# 不传会直接报错（fragments 默认值仅在 gateway 自身、agent 通道之外的场景生效）。
+CONTAINER_AGENT_WORKSPACE = "/root/.openclaw/workspace"
 
 
 class OpenClawContainerAgent(ChatAgent):
@@ -121,7 +124,7 @@ class OpenClawContainerAgent(ChatAgent):
                         "--model",
                         CONFIG.model,
                         "--workspace",
-                        CONTAINER_WORKSPACE,
+                        CONTAINER_AGENT_WORKSPACE,
                     ],
                 )
                 return  # ``add`` 退 0 即视作成功；不再做后置 list 双确认

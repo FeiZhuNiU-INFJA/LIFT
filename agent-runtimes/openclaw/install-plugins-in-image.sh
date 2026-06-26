@@ -30,11 +30,15 @@ else
   echo "INSTALL_SELF_EVOLVING=${INSTALL_SELF_EVOLVING}: skip self-evolving-plugin-pro install (raw image)"
 fi
 
-# 3) Ensure required plugins enabled (含 OpenClaw 自带 stock firecrawl，运行时读 FIRECRAWL_API_KEY)
+# 3) Ensure required plugins enabled
+#    - langfuse-tracer / self-evolving-plugin-pro: 上面已 cp/install 到 extensions
+#    - firecrawl: 从 2026.6.10 起从 stock 剥离为 npm 外置插件 @openclaw/firecrawl-plugin，
+#      必须 `openclaw plugins install` 才有 web_search provider；运行时只读 FIRECRAWL_API_KEY 鉴权
 openclaw plugins enable langfuse-tracer 2>/dev/null || true
 if [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
   openclaw plugins enable self-evolving-plugin-pro 2>/dev/null || true
 fi
+openclaw plugins install @openclaw/firecrawl-plugin
 openclaw plugins enable firecrawl 2>/dev/null || true
 
 # Ark / custom providers often only support thinking=off (plugin defaults to low).

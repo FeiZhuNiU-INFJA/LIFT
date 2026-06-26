@@ -19,20 +19,19 @@ _PLUGIN_SERVICE_ENDPOINT = "http://127.0.0.1:18090"
 
 
 # self-evolving-plugin-pro `/instances/onboard` 要求 workspace_root 是 git repo
-# （git_root == workspace_root）且至少有一个 HEAD commit；warmup workspace 是
-# LIFT 现 seed 的目录，没初始化过，需要在调用 plugin 任何 ensureReady 入口（包括
-# bootstrap 走的 ``learn status``）之前 git init + 一次空 commit，否则 onboard
-# 会被 plugin 拒为 400。``safe.directory`` 是为了让 host bind mount 下的 git 不
-# 因 owner 不符报错。
+# （git_root == workspace_root）且至少有一个 HEAD commit；agent workspace 是镜像内
+# ``/root/.openclaw/workspace``（参与 docker commit，承载 SOUL/memory 等持久态），
+# 没初始化过，需要在调用 plugin 任何 ensureReady 入口（包括 bootstrap 走的
+# ``learn status``）之前 git init + 一次空 commit，否则 onboard 会被 plugin 拒为 400。
 _PREPARE_WORKSPACE_GIT_SCRIPT = """
-mkdir -p /workspace/task
-git config --global --add safe.directory /workspace/task
+mkdir -p /root/.openclaw/workspace
+git config --global --add safe.directory /root/.openclaw/workspace
 git config --global user.email "lift@local"
 git config --global user.name "lift"
-if [[ ! -d /workspace/task/.git ]]; then
-  git -C /workspace/task init -q
-  git -C /workspace/task add -A
-  git -C /workspace/task commit -q --allow-empty -m "lift: warmup baseline"
+if [[ ! -d /root/.openclaw/workspace/.git ]]; then
+  git -C /root/.openclaw/workspace init -q
+  git -C /root/.openclaw/workspace add -A
+  git -C /root/.openclaw/workspace commit -q --allow-empty -m "lift: warmup baseline"
 fi
 """.strip()
 
@@ -51,8 +50,8 @@ async def bootstrap_evolution_runtime(container: OpenClawContainerContext) -> No
     好后立刻调一次即可让后续每题的 ``post_signal`` 命中真实的 ``/signals`` 路由。
 
     onboard 要求 workspace_root 是 git repo 且 HEAD 有 commit，所以这里先跑
-    ``_PREPARE_WORKSPACE_GIT_SCRIPT`` 把 ``/workspace/task`` 初始化成 git
-    （``learn review`` 路径里也跑一次相同脚本，幂等）。
+    ``_PREPARE_WORKSPACE_GIT_SCRIPT`` 把 ``/root/.openclaw/workspace`` 初始化成
+    git（``learn review`` 路径里也跑一次相同脚本，幂等）。
 
     失败仅 ``LOGGER.warning``——bootstrap 是评测旁路，不能拖垮 warmup。
     """

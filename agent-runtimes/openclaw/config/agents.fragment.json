@@ -1,7 +1,7 @@
 {
   "agents": {
     "defaults": {
-      "workspace": "/workspace/task",
+      "workspace": "/root/.openclaw/workspace",
       "model": {
         "primary": "custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215"
       },

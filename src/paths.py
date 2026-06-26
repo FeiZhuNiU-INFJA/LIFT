@@ -18,9 +18,6 @@ OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE = "evolve-eval-openclaw-with-evolve:latest"
 """带 self-evolving-plugin-pro 进化插件的 OpenClaw 镜像（``OpenClawWithEvolveAdapter`` 使用；
 ``build-image.sh`` 默认 tag，对应 ``INSTALL_SELF_EVOLVING=true``）。"""
 
-OPENCLAW_WORKSPACE_SEED_DIR = OPENCLAW_AGENT_DIR / "workspace_seed"
-"""宿主机 OpenClaw eval workspace seed 源目录。"""
-
 GENERICAGENT_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "genericagent"
 """GenericAgent 镜像与容器配置目录（``agent-runtimes/genericagent/``）。"""
 
