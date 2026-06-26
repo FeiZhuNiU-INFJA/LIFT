@@ -39,18 +39,19 @@ ENV OPENCLAW_STATE_DIR=/root/.openclaw \
     HOME=/root \
     PATH="/root/.openclaw/uv-bin:/root/.openclaw/uv-bin/bin:${PATH}"
 
-RUN mkdir -p /root/.openclaw/extensions /root/.openclaw/skills /workspace
+RUN mkdir -p /root/.openclaw/extensions /root/.openclaw/skills /workspace/task
 
-# Firecrawl 通过 OpenClaw 自带的 stock plugin (`stock:firecrawl/index.js`) 提供
-# search/scrape/browser 能力；运行时只需在容器 env 注入 FIRECRAWL_API_KEY 鉴权。
-# 启用动作放在 install-plugins-in-image.sh，allowlist 在 config/plugins.fragment.json。
+# Firecrawl 自 OpenClaw 2026.6.10 起从 stock 剥离为外置 npm 插件
+# (@openclaw/firecrawl-plugin)，提供 web_search/scrape/browser 能力；安装与启用
+# 由 install-plugins-in-image.sh 完成，运行时只需在容器 env 注入 FIRECRAWL_API_KEY
+# 鉴权。allowlist 在 config/plugins.fragment.json。
 
 COPY plugins/langfuse-tracer /tmp/langfuse-tracer
 COPY plugins/self-evolving-plugin-pro-2026.4.23.zip /tmp/self-evolving-plugin-pro.zip
 COPY config /tmp/config
 COPY merge-openclaw-config.mjs /tmp/merge-openclaw-config.mjs
 COPY install-plugins-in-image.sh /tmp/install-plugins-in-image.sh
-COPY workspace_seed /opt/evolve-eval/workspace_seed
+COPY workspace_seed /root/.openclaw/workspace
 
 ARG ARK_API_KEY=
 ENV ARK_API_KEY=${ARK_API_KEY}

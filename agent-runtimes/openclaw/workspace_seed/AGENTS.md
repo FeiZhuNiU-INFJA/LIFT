@@ -128,6 +128,16 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 
 Evaluation tasks may provide extra skills. They are mounted at `skills/` in this workspace and installed into `/root/.openclaw/skills` at container startup. Check the relevant `SKILL.md` before using a task-specific workflow.
 
+## Task Workspace Layout
+
+Your home (`/root/.openclaw/workspace`) is also where evaluation tasks land:
+
+- `qN_materials/` (e.g. `q1_materials/`, `q2_materials/`) — task materials provided by the evaluator. Read them as needed; don't modify or delete.
+- `result/result_qN/` — write **all** task deliverables here. The evaluator only inspects what lands under `result/`.
+- Everything else (SOUL.md, memory/, your own notes) is yours — it persists across sessions and survives evolution.
+
+Treat `qN_materials/` as read-only inputs and `result/` as the only output gate; keep the rest of the workspace tidy as your personal continuity.
+
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 
 **📝 Platform Formatting:**

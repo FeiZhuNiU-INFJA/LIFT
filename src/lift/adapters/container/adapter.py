@@ -73,10 +73,11 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         resources: SuiteRunResources,
         workspace_dir,
     ) -> ExecutionEnvironment:
-        """warmup 阶段：单容器 + base 镜像；``seed_workspace=True`` 注入人设种子。
+        """warmup 阶段：单容器 + base 镜像。
 
-        warmup 容器同样需要 IDENTITY/USER/SOUL 等 seed 文件，否则 agent 会在每次 warmup
-        首发时跑首次上线问名字 / emoji 的 onboarding 流程，浪费 turn 也污染评测语料。
+        ``seed_workspace=True`` 历史上用来在 host workspace 复制 IDENTITY/USER/SOUL
+        seed，现在 OpenClaw seed 已 baked 进镜像（``/root/.openclaw/workspace``），
+        参数保留仅为与 group_memory mixin 等子类签名兼容。
         """
         _ = resources
         instance_id = (
@@ -169,11 +170,9 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
     ) -> ContainerSession:
         """启动运行时特定的容器会话（子类实现 gateway/entrypoint 等）。
 
-        ``seed_workspace``: 挂载 ``workspace_dir`` 之前是否预置工作区内容。
-        - **OpenClaw**（``True``）：``workspace_seed/`` → 跳过 BOOTSTRAP 首次上线。
-        - **其他 runtime**：可实现为写入 AGENTS.md / 规则 / 空操作；框架不规定文件格式。
-        - **Warmup / Holdout** 路径均传 ``True`` 由调用方保证；避免 agent 重复跑首次
-          上线 onboarding。
+        ``seed_workspace``: 历史标志位，原指挂载 ``workspace_dir`` 之前是否在 host
+        预置工作区内容（IDENTITY/USER/SOUL）。OpenClaw 已把 seed baked 进镜像，
+        此参数当前为 no-op；保留签名以兼容 group_memory mixin。
 
         ``load_state``: 仅在 holdout 路径有值（``BASELINE`` / ``EVOLVED``），warmup 路径
         为 ``None``。runtime 据此决定 evolved-only 注入（如群体记忆 namespace、token 等）。

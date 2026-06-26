@@ -1,11 +1,10 @@
-"""OpenClaw gateway 容器启动：端口分配、volume、readiness、workspace seed 与运行时 env。"""
+"""OpenClaw gateway 容器启动：端口分配、volume、readiness、workspace bridge 与运行时 env。"""
 
 from __future__ import annotations
 
 import asyncio
 import os
 import secrets
-import shutil
 from pathlib import Path
 
 from src.config import LOGGER
@@ -18,16 +17,15 @@ from src.lift.adapters.container.volumes import (
 )
 from src.lift.adapters.openclaw.container_exec import OpenClawContainerContext
 from src.models import SuiteTask
-from src.paths import OPENCLAW_WORKSPACE_SEED_DIR
 
 _GATEWAY_CONTAINER_PORT = 18789  # 容器内 gateway 端口（agent --local 连此）
 _FASTAPI_CONTAINER_PORT = 18090  # 容器内 self-evolving plugin HTTP 端口
 _CONTAINER_PREFIX = "evolve-openclaw"  # docker 容器名前缀
 
 CONTAINER_LANGFUSE_BASE_URL = "http://host.docker.internal:3000"  # 容器内访问宿主机 Langfuse
-CONTAINER_WORKSPACE_SEED_DIR = "/opt/evolve-eval/workspace_seed"  # 镜像内 seed 路径
-CONTAINER_EXTRA_SKILLS_DIR = "/workspace/task/skills"  # task.requirements.extra_skills_dir 挂载点
-WORKSPACE_READY_MARKER = ".lift-workspace-ready"  # seed 完成标记文件
+CONTAINER_AGENT_WORKSPACE = "/root/.openclaw/workspace"  # 与 agents.fragment.json 对齐
+CONTAINER_TASK_DIR = "/workspace/task"  # host bind mount：任务素材 + 当题产物
+CONTAINER_EXTRA_SKILLS_DIR = f"{CONTAINER_TASK_DIR}/skills"  # task.requirements.extra_skills_dir 挂载点
 
 
 def _normalize_langfuse_base_url(raw: str | None) -> str:
@@ -68,32 +66,35 @@ done
 
 
 def seed_eval_workspace(workspace_dir: Path, *, seed_dir: Path | None = None) -> None:
-    """Copy eval workspace seed into a host workspace before Docker volume mount."""
-    source = seed_dir or OPENCLAW_WORKSPACE_SEED_DIR
-    if not source.is_dir():
-        raise FileNotFoundError(f"OpenClaw workspace seed not found: {source}")
-
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-    for entry in sorted(source.iterdir()):
-        dest = workspace_dir / entry.name
-        if entry.is_dir():
-            shutil.copytree(entry, dest, dirs_exist_ok=True)
-        else:
-            shutil.copy2(entry, dest)
-
-    (workspace_dir / "BOOTSTRAP.md").unlink(missing_ok=True)
-    (workspace_dir / WORKSPACE_READY_MARKER).touch()
-    LOGGER.info("Seeded eval workspace: %s <- %s", workspace_dir, source)
+    """Deprecated no-op: workspace seed now ships baked into the image at
+    ``/root/.openclaw/workspace``. Kept as a no-op for callers (e.g. group_memory
+    mixin) that still pass ``seed_workspace=True``.
+    """
+    _ = (workspace_dir, seed_dir)
 
 
-def _container_workspace_seed_shell() -> str:
-    """Run inside container after mount: sync image seed and drop BOOTSTRAP."""
+def _bridge_workspace_shell() -> str:
+    """Symlink task materials (bind mount) into the agent workspace, and route
+    the agent's ``result/`` directory back out to the bind mount so produced
+    files are visible on the host while seed/memory stays inside the image.
+    """
     return f"""
-if [[ -d "{CONTAINER_WORKSPACE_SEED_DIR}" ]]; then
-  cp -a "{CONTAINER_WORKSPACE_SEED_DIR}/." /workspace/task/ 2>/dev/null || true
-fi
-rm -f /workspace/task/BOOTSTRAP.md 2>/dev/null || true
-touch /workspace/task/{WORKSPACE_READY_MARKER} 2>/dev/null || true
+ws={CONTAINER_AGENT_WORKSPACE}
+task={CONTAINER_TASK_DIR}
+mkdir -p "$ws" "$task"
+# Material directories: bind mount -> workspace (so agent reads `qN_materials/`
+# via cwd-relative path, but the bytes live on the host).
+for d in "$task"/*_materials; do
+  [[ -d "$d" ]] || continue
+  name=$(basename "$d")
+  rm -rf "$ws/$name"
+  ln -s "$d" "$ws/$name"
+done
+# Result directory: workspace -> bind mount (agent writes `result/result_qN/`
+# under workspace; bytes land on the host where evaluation/observability reads).
+mkdir -p "$task/result"
+rm -rf "$ws/result"
+ln -s "$task/result" "$ws/result"
 """.strip()
 
 
@@ -160,16 +161,16 @@ async def _reset_workspace_attestations(session: ContainerSession) -> None:
     )
 
 
-async def _ensure_workspace_seed(session: ContainerSession) -> None:
-    """容器内同步镜像内 workspace seed 并移除 BOOTSTRAP。"""
+async def _bridge_workspace(session: ContainerSession) -> None:
+    """Symlink task materials/result between bind mount and agent workspace."""
     try:
         await docker_exec_shell_async(
             session.container_name,
-            _container_workspace_seed_shell(),
+            _bridge_workspace_shell(),
         )
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning(
-            "Failed to apply workspace seed in %s: %s",
+            "Failed to bridge workspace in %s: %s",
             session.container_name,
             exc,
         )
@@ -221,10 +222,15 @@ async def start_openclaw_container(
     container_memory: str | None = None,
     container_cpus: str | None = None,
 ) -> ContainerSession:
-    """启动 OpenClaw gateway 容器：端口、token、volume、readiness 与 seed 钩子。
+    """启动 OpenClaw gateway 容器：端口、token、volume、readiness 与 workspace bridge。
 
-    ``seed_workspace``: 为 ``True`` 时调用 ``seed_eval_workspace`` 并执行容器内 seed
-    shell，使 holdout 工作区带固定人设、无 ``BOOTSTRAP.md``。
+    Workspace 布局：agent 真正的 cwd 是镜像内 ``/root/.openclaw/workspace``（参与
+    ``docker commit``，承载 SOUL/memory 等持久态）；host 侧任务素材与产物通过
+    ``/workspace/task`` bind mount 传入传出，并由 ``_bridge_workspace`` 把
+    ``*_materials/`` 与 ``result/`` 软链桥接到 agent workspace。
+
+    ``seed_workspace``: 保留以兼容 group_memory mixin；当前为 no-op（seed 已 baked
+    进镜像，不再需要宿主机侧复制）。
 
     ``container_memory`` / ``container_cpus``: 透传给 ``docker run --memory`` /
     ``--cpus`` 的单容器资源上限（None 表示不限制）。
@@ -232,6 +238,7 @@ async def start_openclaw_container(
     宿主机端口由 Docker 自动分配（避免确定性 hash 端口的碰撞与占用冲突）；启动后
     ``_resolve_gateway_port`` 把真实端口写回 ``metadata['gateway_port']``。
     """
+    _ = seed_workspace  # 保留参数签名兼容 group_memory mixin；seed 已 baked 进镜像
     token = secrets.token_hex(32)
 
     binds = default_volume_binds(
@@ -239,9 +246,7 @@ async def start_openclaw_container(
         repeat_index=ctx.repeat_index,
     )
     if workspace_dir is not None:
-        if seed_workspace:
-            seed_eval_workspace(workspace_dir)  # 宿主机侧复制 IDENTITY/USER/SOUL
-        binds.append((str(workspace_dir.resolve()), "/workspace/task", "rw"))
+        binds.append((str(workspace_dir.resolve()), CONTAINER_TASK_DIR, "rw"))
     if task is not None:
         binds.extend(task_volume_binds(task))
 
@@ -265,8 +270,7 @@ async def start_openclaw_container(
     post_start_hooks: list = []
     if workspace_dir is not None:
         post_start_hooks.append(_reset_workspace_attestations)  # 清跨题 attestations 状态
-        if seed_workspace:
-            post_start_hooks.append(_ensure_workspace_seed)  # 容器内删 BOOTSTRAP、同步 seed
+        post_start_hooks.append(_bridge_workspace)  # 任务素材/产物 ↔ agent workspace 软链
     if task is not None:
         post_start_hooks.append(_install_extra_skills)  # 注册 workspace skills 到 OpenClaw state
 
