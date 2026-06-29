@@ -223,6 +223,7 @@
     <p>
       LIFT 把这个问题变成一个可一键复现的 A/B 实验：同一道 holdout 题跑两遍——
       不加载进化产物（baseline）和加载（evolved）——看分数差。
+      演讲版幻灯片见 <a href="lift-framework-slides.html">lift-framework-slides.html</a>，
       文字讲稿见 <a href="lift-framework-guide-cn.md">lift-framework-guide-cn.md</a>。
     </p>
   </header>
@@ -334,19 +335,19 @@ sequenceDiagram
     participant P as Pipeline
     participant A as Adapter
     participant W as Warmup 容器
-    participant H as Holdout 容器
+    participant H as Holdout 容器（每题独立）
 
-    P->>A: warmup 题（如 Q1）
+    P->>A: warmup 题（Q1..Q4）
     A->>W: 起一个容器，连续做题
     W->>W: evolve（learn review）
     W->>W: docker commit → delta 镜像
     A->>W: 删掉 warmup 容器
 
-    loop 每道 holdout 题（如 Q2）
+    loop 每道 holdout 题（如 Q5, Q6）
         P->>A: baseline
-        A->>H: 从 base 镜像起新容器
+        A->>H: base 镜像新容器 → 做题打分
         P->>A: evolved
-        A->>H: 从 delta 镜像起新容器
+        A->>H: delta 镜像新容器 → 做题打分
     end
 
     P->>P: 写 report.json
@@ -680,7 +681,7 @@ sequenceDiagram
     end
     AD->>AD: learn review
     AD->>DK: docker commit → delta
-    loop holdout 题
+    loop holdout 题（如 Q5, Q6）
         LP->>AD: run_before_load
         AD->>DK: docker run base
         AD->>RT: baseline
