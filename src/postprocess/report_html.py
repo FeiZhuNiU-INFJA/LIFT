@@ -14,7 +14,7 @@ from typing import Any, Callable, Literal
 import pandas as pd
 
 from src.postprocess.extract import _should_ignore_tool_call_block
-from src.postprocess.metrics import METRIC_COLUMNS
+from src.postprocess.metrics import METRIC_COLUMNS, _outlier_mask
 
 # Agent backend that produced the traces; controls which metrics appear in HTML.
 AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent", "genericagent_active_evolve"]
@@ -156,6 +156,87 @@ def summary_table_html(summary_row: pd.Series, agent_source: AgentSource) -> str
     return "\n".join(lines)
 
 
+# Anthropic-style accent (warm terracotta / "Crail orange") used for profound marks.
+_PROFOUND_COLOR = "#d97757"
+
+
+def build_profound_flags(
+    comparison_df: pd.DataFrame, agent_source: AgentSource = "openclaw"
+) -> dict[tuple, set[str]]:
+    """Map each task-row key to the set of metrics where evolution is *profound*.
+
+    A metric is *profound* for a given (run) row when its evolved value is strictly
+    better than the **best baseline value of that task across all runs**. "Best" is
+    direction-aware: the minimum baseline for cost-style metrics (lower is better) and
+    the maximum baseline for score-style metrics (higher is better). By construction
+    ``profound ⊆ good`` (beating the best baseline implies beating the same-run one).
+
+    Only metrics *visible* for *agent_source* are considered, so a profound mark always
+    has a corresponding ``Impr`` column on screen (e.g. hermes hides latency / cached
+    token, which must not silently star a task without a visible starred Impr cell).
+
+    The row key is ``(run, suite_path, task_name, suite)`` — matching
+    ``build_trajectory_map`` — which uniquely identifies a comparison row.
+    """
+    flags: dict[tuple, set[str]] = {}
+    if comparison_df.empty:
+        return flags
+
+    task_keys = ["suite_name", "suite_path", "task_name", "suite"]
+    if any(k not in comparison_df.columns for k in task_keys):
+        return flags
+
+    for metric in _html_summary_metrics(agent_source):
+        base_col = f"baseline_{metric}"
+        if metric not in comparison_df.columns or base_col not in comparison_df.columns:
+            continue
+        lower_is_better = _METRIC_LOWER_IS_BETTER.get(metric, True)
+
+        grouped = comparison_df[task_keys].copy()
+        grouped["_base"] = pd.to_numeric(comparison_df[base_col], errors="coerce")
+        best = grouped.groupby(task_keys, dropna=False)["_base"].transform(
+            "min" if lower_is_better else "max"
+        )
+        evolved = pd.to_numeric(comparison_df[metric], errors="coerce")
+        is_profound = (evolved < best) if lower_is_better else (evolved > best)
+
+        for idx, profound in is_profound.items():
+            if not bool(profound):
+                continue
+            row = comparison_df.loc[idx]
+            key = (
+                row.get("run"),
+                row.get("suite_path"),
+                row.get("task_name"),
+                row.get("suite"),
+            )
+            flags.setdefault(key, set()).add(metric)
+    return flags
+
+
+def _row_profound_key(row: pd.Series) -> tuple:
+    """Return the profound-flags lookup key for a comparison *row*."""
+    return (
+        row.get("run"),
+        row.get("suite_path"),
+        row.get("task_name"),
+        row.get("suite"),
+    )
+
+
+def _profound_count(
+    scope_df: pd.DataFrame, profound_flags: dict[tuple, set[str]] | None, metric: str
+) -> int:
+    """Count rows within *scope_df* whose *metric* is profound (per *profound_flags*)."""
+    if not profound_flags:
+        return 0
+    count = 0
+    for _, row in scope_df.iterrows():
+        if metric in profound_flags.get(_row_profound_key(row), ()):
+            count += 1
+    return count
+
+
 def _good_bad_counts(scope_df: pd.DataFrame, metric: str) -> tuple[int, int, int]:
     """Count tasks per outcome for *metric* within *scope_df*: (good, tie, bad).
 
@@ -180,21 +261,40 @@ def _good_bad_counts(scope_df: pd.DataFrame, metric: str) -> tuple[int, int, int
     return good, tie, bad
 
 
-def good_bad_chart_html(scope_df: pd.DataFrame, agent_source: AgentSource) -> str:
+def good_bad_chart_html(
+    scope_df: pd.DataFrame,
+    agent_source: AgentSource,
+    profound_flags: dict[tuple, set[str]] | None = None,
+    chart_id: str = "gb",
+) -> str:
     """Render a horizontal good/tie/bad stacked-bar SVG (one bar per metric).
 
     Each bar shares the same total length; segments are green (better, left),
     gray (tie / no change, middle) and red (worse, right), sized proportionally
     to their task counts. Each segment's count is labeled below the bar, centered
     on that segment, in black text (so even very short segments stay readable).
+
+    When *profound_flags* is supplied, the *profound* sub-portion of the green
+    (better) segment is overlaid with a terracotta diagonal hatch (sized
+    proportionally within the green segment) and the profound count is printed in
+    terracotta to the left of the bar, so it does not disturb the existing labels.
+
+    Outlier tasks (per ``metrics._outlier_mask``: evolved vs. baseline differs too much
+    on trials / tool_use_num) are excluded from every chart count so the SVG matches the
+    summary aggregation口径. Those tasks still render in the per-task Run Block tables.
     """
     metrics = _html_summary_metrics(agent_source)
-    rows = [(metric, *_good_bad_counts(scope_df, metric)) for metric in metrics]
+    if not scope_df.empty:
+        scope_df = scope_df.loc[~_outlier_mask(scope_df)]
+    rows = [
+        (metric, *_good_bad_counts(scope_df, metric), _profound_count(scope_df, profound_flags, metric))
+        for metric in metrics
+    ]
 
-    label_w = 180
-    bar_x = 190
-    bar_w = 540
-    total_w = 760
+    label_w = 165
+    bar_x = 235
+    bar_w = 570
+    total_w = 820
     row_h = 28
     count_h = 16  # vertical space below each bar for the count labels
     row_gap = 18
@@ -204,13 +304,20 @@ def good_bad_chart_html(scope_df: pd.DataFrame, agent_source: AgentSource) -> st
     block_h = row_h + count_h + row_gap
     height = top_pad + n * block_h + bottom_pad
 
+    hatch_id = f"profound-hatch-{chart_id}"
     svg: list[str] = [
         f"<svg class='gb-chart' viewBox='0 0 {total_w} {height}' "
         f"role='img' aria-label='Better / tie / worse task counts per metric' "
         "preserveAspectRatio='xMinYMin meet'>",
+        "<defs>"
+        f"<pattern id='{escape(hatch_id)}' width='7' height='7' patternUnits='userSpaceOnUse' "
+        "patternTransform='rotate(45)'>"
+        f"<line x1='0' y1='0' x2='0' y2='7' stroke='{_PROFOUND_COLOR}' stroke-width='2.4'/>"
+        "</pattern>"
+        "</defs>",
     ]
 
-    for i, (metric, good, tie, bad) in enumerate(rows):
+    for i, (metric, good, tie, bad, profound) in enumerate(rows):
         y_top = top_pad + i * block_h
         y_center = y_top + row_h / 2
         count_y = y_top + row_h + count_h - 4  # baseline for count labels below bar
@@ -251,15 +358,35 @@ def good_bad_chart_html(scope_df: pd.DataFrame, agent_source: AgentSource) -> st
                         f"text-anchor='middle'>{count}</text>"
                     )
 
+            # Profound overlay: hatch the left sub-portion of the green segment and
+            # print the profound count to the left of the whole bar.
+            if profound > 0 and good > 0 and good_w > 0:
+                prof_w = good_w * (min(profound, good) / good)
+                svg.append(
+                    f"<rect x='{bar_x:.2f}' y='{y_top}' width='{prof_w:.2f}' height='{row_h}' "
+                    f"fill='url(#{escape(hatch_id)})' stroke='none'/>"
+                )
+                svg.append(
+                    f"<text x='{bar_x - 12:.1f}' y='{y_center:.1f}' class='gb-profound-count' "
+                    f"text-anchor='end' dominant-baseline='middle'>&#9733;{profound}</text>"
+                )
+
     svg.append("</svg>")
+
+    legend_spans = [
+        "<span><span class='swatch gb-sw-good'>&nbsp;</span> Better (green)</span>",
+        "<span><span class='swatch gb-sw-tie'>&nbsp;</span> Tie / no change (gray)</span>",
+        "<span><span class='swatch gb-sw-bad'>&nbsp;</span> Worse (red)</span>",
+    ]
+    if profound_flags:
+        legend_spans.append(
+            "<span><span class='swatch gb-sw-profound'>&nbsp;</span> "
+            "&#9733; Profound (better than best baseline)</span>"
+        )
 
     return (
         "<div class='gb-wrap'>"
-        "<div class='gb-legend'>"
-        "<span><span class='swatch gb-sw-good'>&nbsp;</span> Better (green)</span>"
-        "<span><span class='swatch gb-sw-tie'>&nbsp;</span> Tie / no change (gray)</span>"
-        "<span><span class='swatch gb-sw-bad'>&nbsp;</span> Worse (red)</span>"
-        "</div>"
+        "<div class='gb-legend'>" + "".join(legend_spans) + "</div>"
         + "\n".join(svg)
         + "</div>"
     )
@@ -613,7 +740,7 @@ def trajectory_compare_html(
 
 
 def build_trajectory_map(scored_df: pd.DataFrame) -> dict[tuple, dict[str, Any]]:
-    """Map ``(run, suite_path, task_name, category)`` to both variants' ``all_messages``.
+    """Map ``(run, suite_path, task_name, suite)`` to both variants' ``all_messages``.
 
     Returns ``{key: {"evolved": <all_messages>, "baseline": <all_messages>}}`` built
     from the extracted/scored DataFrame (one row per variant), so the HTML can show
@@ -631,7 +758,7 @@ def build_trajectory_map(scored_df: pd.DataFrame) -> dict[tuple, dict[str, Any]]
                 row.get("run"),
                 row.get("suite_path"),
                 row.get("task_name"),
-                row.get("category"),
+                row.get("suite"),
             )
             traj_map.setdefault(key, {})[variant] = row.get("all_messages")
     return traj_map
@@ -667,14 +794,19 @@ def success_badges_html(summary_row: pd.Series) -> str:
 
 
 def task_table_html(
-    category_df: pd.DataFrame,
+    suite_df: pd.DataFrame,
     agent_source: AgentSource,
     trajectory_map: dict[tuple, Any] | None = None,
+    profound_flags: dict[tuple, set[str]] | None = None,
 ) -> str:
     """Render per-task evolved vs baseline metrics and improvement columns as an HTML table.
 
     When *trajectory_map* is provided, each task row is followed by a collapsible
     "Show trajectory" row rendering the evolved run's execution map.
+
+    When *profound_flags* is provided, a star (★) is added to the Task cell for any
+    task with at least one profound metric, and each profound ``Impr <metric>`` cell is
+    prefixed with a star.
     """
     hidden = _hidden_metrics(agent_source)
     metric_columns: list[str] = [
@@ -703,11 +835,18 @@ def task_table_html(
     ]
 
     total_cols = 3 + len(metric_columns) * 2
-    for seq, (_, row) in enumerate(category_df.iterrows()):
+    for seq, (_, row) in enumerate(suite_df.iterrows()):
+        row_profound = profound_flags.get(_row_profound_key(row), set()) if profound_flags else set()
+        task_cell = escape(task_label(row))
+        if row_profound:
+            task_cell = (
+                "<span class='profound-star' title='Profound: better than the best baseline "
+                "on at least one metric'>&#9733;</span> " + task_cell
+            )
         cells = [
             f"<td class='cell-run'>{format_number(row['run'])}</td>",
             f"<td class='cell-benchmark'>{escape(str(row.get('suite_name', '')))}</td>",
-            f"<td class='cell-task'>{escape(task_label(row))}</td>",
+            f"<td class='cell-task'>{task_cell}</td>",
         ]
         for metric in metric_columns:
             evolved_val = format_number(row[metric])
@@ -719,7 +858,15 @@ def task_table_html(
                 f" <span class='baseline'>({baseline_val})</span>"
             )
             cells.append(_colored_td(diff_val, metric, format_number, inner=paired))
-            cells.append(_colored_td(impr_val, metric, format_percent))
+            if metric in row_profound:
+                impr_inner = (
+                    "<span class='profound-star' title='Profound on this metric: "
+                    "better than the best baseline across runs'>&#9733;</span> "
+                    + format_percent(impr_val)
+                )
+                cells.append(_colored_td(impr_val, metric, format_percent, inner=impr_inner))
+            else:
+                cells.append(_colored_td(impr_val, metric, format_percent))
         lines.append("<tr>" + "".join(cells) + "</tr>")
 
         # Optional trajectory comparison row (evolved vs baseline) for this task.
@@ -728,11 +875,11 @@ def task_table_html(
                 row.get("run"),
                 row.get("suite_path"),
                 row.get("task_name"),
-                row.get("category"),
+                row.get("suite"),
             )
             variants = trajectory_map.get(key)
             if variants:
-                base_id = f"traj-{escape(str(row.get('category')))}-{format_number(row['run'])}-{seq}"
+                base_id = f"traj-{escape(str(row.get('suite')))}-{format_number(row['run'])}-{seq}"
                 base_id = base_id.replace(" ", "_")
                 compare = trajectory_compare_html(
                     variants.get("evolved"),
@@ -760,6 +907,9 @@ _LEGEND_HTML = """
         <li><span class='legend-icon'>🎓</span> Test-set task</li>
         <li><span class='legend-icon'>✅</span> All task requirements satisfied</li>
         <li><span class='legend-icon'>❌</span> Some task requirements not satisfied</li>
+        <li><span class='legend-icon profound-star'>&#9733;</span> Profound task: evolved beats the
+        <em>best</em> baseline of that task across all runs on at least one metric (the matching
+        <code>Impr</code> cell is also starred).</li>
       </ul>
     </div>
     <div class='legend-card'>
@@ -770,14 +920,13 @@ _LEGEND_HTML = """
         <li><span class='swatch val-zero'>&nbsp;</span> Equal to baseline (black)</li>
         <li><span class='swatch val-nan'>&nbsp;</span> Undefined / NaN (gray)</li>
       </ul>
-      <p class='muted'>Direction: cost-style metrics (Trials, Tool Use Num, Total Tokens, Latency, Cached Token) are
-      <em>lower is better</em>; score-style metrics (Outcome Score, Trajectory Score, Cached Token Ratio) are
-      <em>higher is better</em>.</p>
     </div>
     <div class='legend-card'>
       <h3>Notation &amp; Outlier Rule</h3>
       <ul>
         <li><code>Impr metric</code>: relative improvement of evolved over baseline.</li>
+        <li><span class='profound-star'>&#9733;</span> <strong>Profound</strong>: evolved metric is better
+        than the best baseline of that task across runs.</li>
       </ul>
       <p class='muted' style='margin:6px 0 0;'>Outlier Rule: if a task's evolved vs. baseline differs too much on
       trials or tool use num, that task is excluded from the summary aggregation (it still appears in the
@@ -991,6 +1140,7 @@ _STYLE = """
   --muted: #6b7280;
   --accent: #2546b8;
   --accent-soft: #eef3ff;
+  --profound: #d97757;
 }
 * { box-sizing: border-box; }
 body {
@@ -1149,6 +1299,9 @@ details.run-block .task-table th { background: #eef1f7; }
 .gb-sw-good { background: var(--good); }
 .gb-sw-tie { background: var(--nan); }
 .gb-sw-bad { background: var(--bad); }
+.gb-sw-profound {
+  background: repeating-linear-gradient(45deg, var(--profound) 0 2px, transparent 2px 5px), #ecfdf5;
+}
 .gb-chart { width: 100%; height: auto; max-width: 880px; display: block; margin: 0 auto; }
 .gb-chart .gb-label { font-size: 13px; fill: #1f2937; font-weight: 600; }
 .gb-chart .gb-good { fill: var(--good); }
@@ -1157,6 +1310,9 @@ details.run-block .task-table th { background: #eef1f7; }
 .gb-chart .gb-empty { fill: #eef0f4; stroke: var(--border); }
 .gb-chart .gb-empty-text { font-size: 12px; fill: var(--nan); }
 .gb-chart .gb-count { font-size: 13px; fill: #111827; font-weight: 700; }
+.gb-chart .gb-profound-count { font-size: 12.5px; fill: var(--profound); font-weight: 700; }
+
+.profound-star { color: var(--profound); font-weight: 700; }
 
 .traj-row > td { background: #fbfcff; padding: 0 12px 14px; }
 .traj-compare-wrap { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: #fff; margin-top: 8px; }
@@ -1246,14 +1402,18 @@ def render_report_html(
     agent_source: AgentSource = "openclaw",
     trajectory_map: dict[tuple, Any] | None = None,
 ) -> str:
-    """Assemble a full HTML metrics report with global and per-category sections.
+    """Assemble a full HTML metrics report with global and per-suite sections.
 
-    *trajectory_map* maps ``(run, suite_path, task_name, category)`` to
+    *trajectory_map* maps ``(run, suite_path, task_name, suite)`` to
     ``{"evolved": <all_messages>, "baseline": <all_messages>}``; when provided, each
     task row gains a side-by-side evolved/baseline trajectory comparison.
     """
     global_row = summary_df[summary_df["scope"] == "global"].iloc[0]
-    category_rows = summary_df[summary_df["scope"] == "category"]
+    suite_rows = summary_df[summary_df["scope"] == "suite"]
+
+    # Profound flags: per task-row, the metrics where evolved beats the best baseline
+    # across runs. The global chart sums them automatically by iterating all rows.
+    profound_flags = build_profound_flags(comparison_df, agent_source)
 
     parts = [
         "<!DOCTYPE html>",
@@ -1270,21 +1430,21 @@ def render_report_html(
         "<body>",
         "<div class='container'>",
         f"<h1>{escape(title)}</h1>",
-        "<div class='muted'>每个 category 单独展示汇总指标与任务对比明细。</div>",
+        "<div class='muted'>每个 suite 单独展示汇总指标与任务对比明细。</div>",
         _LEGEND_HTML,
         "<section class='section'>",
         "<h2>Global Summary</h2>",
         success_badges_html(global_row),
         summary_table_html(global_row, agent_source),
         "<h3>Better / Worse Task Counts</h3>",
-        good_bad_chart_html(comparison_df, agent_source),
+        good_bad_chart_html(comparison_df, agent_source, profound_flags, chart_id="global"),
         "</section>",
     ]
 
-    for _, summary_row in category_rows.iterrows():
-        category = summary_row["category"]
-        category_df = comparison_df[comparison_df["category"] == category].copy()
-        run_groups = list(category_df.groupby("run", dropna=False))
+    for suite_seq, (_, summary_row) in enumerate(suite_rows.iterrows()):
+        suite = summary_row["suite"]
+        suite_df = comparison_df[comparison_df["suite"] == suite].copy()
+        run_groups = list(suite_df.groupby("run", dropna=False))
 
         run_blocks: list[str] = []
         for _, (run_index, run_df) in enumerate(run_groups):
@@ -1293,18 +1453,18 @@ def render_report_html(
                 "<details class='run-block'>"
                 f"<summary>Run {escape(str(run_index))} "
                 f"<span class='muted'>({task_count} tasks)</span></summary>"
-                f"{task_table_html(run_df, agent_source, trajectory_map)}"
+                f"{task_table_html(run_df, agent_source, trajectory_map, profound_flags)}"
                 "</details>"
             )
 
         parts.extend(
             [
                 "<section class='section'>",
-                f"<h2>Category: {escape(str(category))}</h2>",
+                f"<h2>Suite: {escape(str(suite))}</h2>",
                 success_badges_html(summary_row),
                 summary_table_html(summary_row, agent_source),
                 "<h3>Better / Worse Task Counts</h3>",
-                good_bad_chart_html(category_df, agent_source),
+                good_bad_chart_html(suite_df, agent_source, profound_flags, chart_id=f"suite{suite_seq}"),
                 "<h3>Run Blocks</h3>",
                 "<div class='run-toolbar'>"
                 "<button type='button' onclick='toggleAllRuns(this, true)'>Expand All</button>"
