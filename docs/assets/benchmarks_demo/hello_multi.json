@@ -1,0 +1,60 @@
+{
+  "name": "TestMulti",
+  "category": "Hello",
+  "warmup_tasks": [
+    {
+      "name": "W1",
+      "query": "用一句话介绍一下今天的天气",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": ""
+      },
+      "expected_result": {
+        "content_reqs": "1. 包含\"天气\"二字\n2. 仅一句话",
+        "trajectory_reqs": "1. 直接给出回答，不调用外部工具"
+      }
+    },
+    {
+      "name": "W2",
+      "query": "请用中文写一句问候语",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": ""
+      },
+      "expected_result": {
+        "content_reqs": "1. 使用中文\n2. 是问候语（含\"你好/早上好/下午好\"等）",
+        "trajectory_reqs": "1. 直接给出回答，不调用外部工具"
+      }
+    }
+  ],
+  "holdout_tasks": [
+    {
+      "name": "H1",
+      "query": "用一句话自我介绍",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": ""
+      },
+      "expected_result": {
+        "content_reqs": "1. 包含\"我\"\n2. 仅一句话",
+        "trajectory_reqs": "1. 直接给出回答，不调用外部工具"
+      }
+    },
+    {
+      "name": "H2",
+      "query": "用一句话告别",
+      "requirements": {
+        "default_skills": [],
+        "extra_skills_dir": "",
+        "material_dir": ""
+      },
+      "expected_result": {
+        "content_reqs": "1. 包含\"再见/拜拜/告别\"等告别词\n2. 仅一句话",
+        "trajectory_reqs": "1. 直接给出回答，不调用外部工具"
+      }
+    }
+  ]
+}
