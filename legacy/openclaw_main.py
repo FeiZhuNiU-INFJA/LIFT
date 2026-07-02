@@ -8,11 +8,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 from src.config import LOGGER
 from src.eval_core import openclaw_run_task
-from src.utils import make_run_id, outcome_workspace, resolve_suite_paths, short_id
+from src.utils import make_run_id, outcome_workspace, resolve_suite_paths, session_short_id, short_id
 
 from preprocess.convert_suite_mds_to_json import preprocess_suite_mds
 from postprocess.run_post_process import run_post_process_pipeline
@@ -98,8 +98,8 @@ def _create_agents_for_task(
         task=task,
         workspace_dir=workspace_dir,
     )
-    user_session_id = f"user-{short_id()}"
-    judge_session_id = f"judge-{short_id()}"
+    user_session_id = f"user-{session_short_id()}"
+    judge_session_id = f"judge-{session_short_id()}"
     user_agent = agent_factory(f"user-{user_session_id}")
     judge_agent = agent_factory(f"judge-{judge_session_id}")
     user_agent.initialize()
@@ -244,7 +244,8 @@ async def replay_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None
 
         for suite_path in suite_paths:
             suite = SuiteSpec.from_json_file(suite_path)
-            if not suite.tasks:
+            replay_tasks = [*suite.train, *suite.test]
+            if not replay_tasks:
                 raise ValueError(f"No tasks found in {suite_path}")
 
             category_name = suite.category
@@ -262,7 +263,7 @@ async def replay_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None
 
             LOGGER.info("Running benchmark: %s (suite run %d)", suite_path, repeat_index)
 
-            baseline_tasks = suite.tasks[:1] if args.test else suite.tasks
+            baseline_tasks = replay_tasks[:1] if args.test else replay_tasks
             baseline_results = await run_openclaw_task_phase_batch(
                 tasks=baseline_tasks,
                 run_id=run_id,
@@ -291,7 +292,7 @@ async def replay_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None
             # openclaw_copy_evolved_skills(baseline_workspace, evolved_workspace)
 
             evolved_results = await run_openclaw_task_phase_batch(
-                tasks=suite.tasks,
+                tasks=replay_tasks,
                 run_id=run_id,
                 repeat_index=repeat_index,
                 phase="evolved",
@@ -343,8 +344,10 @@ async def exam_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None:
 
         for suite_path in suite_paths:
             suite = SuiteSpec.from_json_file(suite_path)
-            if not suite.tasks:
-                raise ValueError(f"No tasks found in {suite_path}")
+            if not suite.train:
+                raise ValueError(f"No train tasks found in {suite_path}")
+            if not suite.test:
+                raise ValueError(f"No test tasks found in {suite_path}")
 
             category_name = suite.category
             if category_name not in eval_report.categories:
@@ -356,20 +359,22 @@ async def exam_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None:
                 tasks=[],
             )
             repeat_run.suites.append(suite_run)
-            baseline_workspace = outcome_workspace(run_id, repeat_index, "baseline", category_name)
-            evolved_workspace = outcome_workspace(run_id, repeat_index, "evolved", category_name)
+            benchmark_workspace = outcome_workspace(run_id, repeat_index, "benchmark", category_name)
+            test_baseline_workspace = outcome_workspace(
+                run_id, repeat_index, "test-baseline", category_name
+            )
 
             LOGGER.info("Running exam benchmark: %s (suite run %d)", suite_path, repeat_index)
 
-            warmup_tasks = suite.tasks[:-1]
-            final_task = suite.tasks[-1]
+            warmup_tasks = suite.train
+            final_tasks = suite.test
 
             warmup_results = await run_openclaw_task_phase_batch(
                 tasks=warmup_tasks,
                 run_id=run_id,
                 repeat_index=repeat_index,
                 phase="baseline",
-                workspace_dir=baseline_workspace,
+                workspace_dir=benchmark_workspace,
                 parallel=args.parallel,
                 is_final_task=False,
                 log_label="exam warmup task",
@@ -393,50 +398,48 @@ async def exam_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None:
             # 禁用进化信息，测试final task的baseline性能
             OpenClawAgent.disable_evolve()
 
-            baseline_final_result = (
-                await run_openclaw_task_phase_batch(
-                    tasks=[final_task],
-                    run_id=run_id,
-                    repeat_index=repeat_index,
-                    phase="baseline",
-                    workspace_dir=baseline_workspace,
-                    parallel=args.parallel,
-                    is_evolve_turn=False,
-                    is_final_task=True,
-                    log_label="exam final task",
-                )
-            )[0]
+            test_baseline_results = await run_openclaw_task_phase_batch(
+                tasks=final_tasks,
+                run_id=run_id,
+                repeat_index=repeat_index,
+                phase="baseline",
+                workspace_dir=test_baseline_workspace,
+                parallel=args.parallel,
+                is_evolve_turn=False,
+                is_final_task=True,
+                log_label="exam final task",
+            )
             # 启用进化，测试evolve后的性能
             OpenClawAgent.enable_evolve()
 
-            evolved_final_result = (
-                await run_openclaw_task_phase_batch(
-                    tasks=[final_task],
-                    run_id=run_id,
-                    repeat_index=repeat_index,
-                    phase="evolved",
-                    workspace_dir=evolved_workspace,
-                    parallel=args.parallel,
-                    is_evolve_turn=True,
-                    is_final_task=True,
-                    log_label="exam final task",
-                )
-            )[0]
-
-            suite_run.tasks.append(
-                TaskRun(
-                    task_name=final_task.name,
-                    category=category_name,
-                    baseline=baseline_final_result,
-                    evolved=evolved_final_result,
-                )
+            evolved_final_results = await run_openclaw_task_phase_batch(
+                tasks=final_tasks,
+                run_id=run_id,
+                repeat_index=repeat_index,
+                phase="evolved",
+                workspace_dir=benchmark_workspace,
+                parallel=args.parallel,
+                is_evolve_turn=True,
+                is_final_task=True,
+                log_label="exam final task",
             )
-            LOGGER.info(
-                "Exam final task %s completed: baseline_success=%s evolved_success=%s",
-                final_task.name,
-                baseline_final_result.success,
-                evolved_final_result.success,
-            )
+            for task, test_baseline_result, evolved_final_result in zip(
+                final_tasks, test_baseline_results, evolved_final_results
+            ):
+                suite_run.tasks.append(
+                    TaskRun(
+                        task_name=task.name,
+                        category=category_name,
+                        baseline=test_baseline_result,
+                        evolved=evolved_final_result,
+                    )
+                )
+                LOGGER.info(
+                    "Exam final task %s completed: baseline_success=%s evolved_success=%s",
+                    task.name,
+                    test_baseline_result.success,
+                    evolved_final_result.success,
+                )
 
             reset_benchmark_evolution_state(run_id, category_name, repeat_index)
             _write_report(eval_report, report_root / f"{run_id}.json")

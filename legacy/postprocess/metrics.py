@@ -21,6 +21,10 @@ PAIR_KEY_COLUMNS = ["run", "suite_name", "suite_path", "task_name", "category"]
 SUMMARY_IMPR_OUTLIER_METRICS = ("trials", "tool_use_num")
 SUMMARY_IMPR_OUTLIER_THRESHOLD = 2.0
 
+# Summary 计算时，``impr_trials`` / ``impr_tool_use_num`` 超过该阈值的样本视为离群（退化过强），
+# 仅在 task 详情表展示，不参与 category / global 的 mean_impr 与 mean_diff 聚合。
+SUMMARY_IMPR_OUTLIER_METRICS = ("trials", "tool_use_num")
+SUMMARY_IMPR_OUTLIER_THRESHOLD = 2.0
 
 def compute_improvement_pct(evolved_value: Any, baseline_value: Any) -> float:
     """改进比例 ``(evolved - baseline) / baseline``，常用百分比形式展示。
@@ -101,7 +105,7 @@ def build_comparison_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 def _outlier_mask(comparison_df: pd.DataFrame) -> pd.Series:
     """返回 summary 聚合时应剔除的样本布尔掩码。
 
-    - ``impr_trials`` / ``impr_tool_use_num`` 任一项 > ``SUMMARY_IMPR_OUTLIER_THRESHOLD``
+    - ``impr_trials`` / ``impr_tool_use_num`` 任一项 >= ``SUMMARY_IMPR_OUTLIER_THRESHOLD``
       表示进化后比基线退化过强（消耗过高），视为离群。
     """
     if comparison_df.empty:
@@ -112,7 +116,7 @@ def _outlier_mask(comparison_df: pd.DataFrame) -> pd.Series:
         if col not in comparison_df.columns:
             continue
         series = pd.to_numeric(comparison_df[col], errors="coerce")
-        mask = mask | (series > SUMMARY_IMPR_OUTLIER_THRESHOLD)
+        mask = mask | (series >= SUMMARY_IMPR_OUTLIER_THRESHOLD)
     return mask
 
 
@@ -147,11 +151,23 @@ def build_summary_row(
     row["evolved_success_rate"] = float(evolved_success_rate) if pd.notna(evolved_success_rate) else float("nan")
 
     for metric in METRIC_COLUMNS:
-        impr_series = pd.to_numeric(aggregate_df.get(f"impr_{metric}"), errors="coerce")
+        # mean_impr 采用聚合口径：先对 evolved / baseline 原值各自求和，再算相对改进
+        # (Σevolved - Σbaseline) / Σbaseline，而非"逐样本 impr 取平均"。
+        # 列顺序保持 mean_impr 在 mean_diff 之前（与历史 summary CSV 一致）。
+        evolved_series = pd.to_numeric(aggregate_df.get(metric), errors="coerce")
+        baseline_series = pd.to_numeric(aggregate_df.get(f"baseline_{metric}"), errors="coerce")
+        paired = pd.concat([evolved_series, baseline_series], axis=1).dropna()
+        if paired.empty:
+            row[f"mean_impr_{metric}"] = float("nan")
+        else:
+            evolved_sum = float(paired.iloc[:, 0].sum())
+            baseline_sum = float(paired.iloc[:, 1].sum())
+            row[f"mean_impr_{metric}"] = (
+                (evolved_sum - baseline_sum) / baseline_sum if baseline_sum != 0 else float("nan")
+            )
+
+        # mean_diff 仍为各样本绝对差值的算术平均。
         diff_series = pd.to_numeric(aggregate_df.get(f"diff_{metric}"), errors="coerce")
-        row[f"mean_impr_{metric}"] = (
-            float(impr_series.mean()) if impr_series is not None and pd.notna(impr_series.mean()) else float("nan")
-        )
         row[f"mean_diff_{metric}"] = (
             float(diff_series.mean()) if diff_series is not None and pd.notna(diff_series.mean()) else float("nan")
         )

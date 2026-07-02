@@ -43,13 +43,14 @@ class SuiteTask(BaseModel):
 class SuiteSpec(BaseModel):
     name: str
     category: str
-    tasks: list[SuiteTask] = Field(default_factory=list)
+    train: list[SuiteTask] = Field(default_factory=list)
+    test: list[SuiteTask] = Field(default_factory=list)
 
     @classmethod
     def from_json_file(cls, file_path: str | Path) -> SuiteSpec:
         data = json.loads(Path(file_path).read_text(encoding="utf-8"))
         spec = cls.model_validate(data)
-        for task in spec.tasks:
+        for task in [*spec.train, *spec.test]:
             task.category_name = spec.category
         return spec
 
@@ -410,6 +411,11 @@ class CustomTags:
     trajectory_reqs: str
     content_score: float
     agent_name: str
+    # 仅运行期使用（不写入 to_env_value / to_dict / langfuse 上报），
+    # 用于覆盖 hermes runner 是否触发 background review 的默认行为。
+    # 默认 True：work_agent 在非 evolve 阶段会跑 review。
+    # 显式置 False 时无论 is_evolve_turn 取值都不跑 review（如 exam test_baseline）。
+    enable_review: bool = True
 
     @classmethod
     def init_tags(cls, task: SuiteTask, run_id: str) -> CustomTags:
@@ -423,6 +429,7 @@ class CustomTags:
             trajectory_reqs=task.expected_result.trajectory_reqs,
             content_score=0.0,
             agent_name="unknown",
+            enable_review=True,
         )
 
     def to_env_value(self) -> str:

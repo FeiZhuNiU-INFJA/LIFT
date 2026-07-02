@@ -459,8 +459,8 @@ def _select_generation_input_messages(
     首次调用：保留首条 system prompt（如有） + 最后一条 user message（当轮 prompt）。
     后续调用：只保留最后一条 message（最新一轮新增的内容，通常是 tool / user / assistant）。
 
-    完整历史改写到 root span 的 metadata.messages，本函数只决定 Langfuse UI 的
-    Input 面板显示什么，不影响 trace 顶层 metadata。
+    metadata.messages 仍由 ``_start_child_observation`` 写入全量，本函数只决定
+    Langfuse UI 的 Input 面板显示什么，不影响 metadata。
     """
     if not isinstance(messages, list) or not messages:
         return []

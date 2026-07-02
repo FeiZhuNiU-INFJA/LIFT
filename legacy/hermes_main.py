@@ -7,7 +7,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 from src.agents import HermesAgent
 from src.config import LOGGER
@@ -21,7 +21,7 @@ from src.models import (
     SuiteRun,
     TaskRun,
 )
-from src.utils import make_run_id, outcome_workspace, resolve_suite_paths, short_id
+from src.utils import make_run_id, outcome_workspace, resolve_suite_paths, session_short_id, short_id
 from preprocess.convert_suite_mds_to_json import preprocess_suite_mds
 from postprocess.run_post_process import run_post_process_pipeline
 
@@ -57,6 +57,7 @@ async def run_hermes_task_phase(
     is_evolve_turn: bool = False,
     is_final_task: bool | None = None,
     log_label: str = "task",
+    enable_review: bool = True,
 ) -> PhaseRun:
     LOGGER.info(
         "Running %s %s: %s with run_id: %s suite_run: %d workspace: %s",
@@ -67,7 +68,8 @@ async def run_hermes_task_phase(
         repeat_index,
         workspace_dir,
     )
-    agent.copy_task_assets(
+    # 并发安全的拷贝：实例级 lock 串行化对同一 workspace 的写入，避免 task 间并发竞态。
+    await agent.copy_task_assets_async(
         task.requirements.extra_skills_dir,
         task.requirements.material_dir,
     )
@@ -79,6 +81,7 @@ async def run_hermes_task_phase(
         judge_session_id=judge_session_id,
         is_evolve_turn=is_evolve_turn,
         is_final_task=(task_index == total_tasks - 1) if is_final_task is None else is_final_task,
+        enable_review=enable_review,
     )
     agent.reset_pre_chat_state()
     LOGGER.info("%s %s %s: success: %s", phase.capitalize(), log_label, task.name, success)
@@ -102,31 +105,48 @@ async def run_hermes_task_phase_batch(
     is_evolve_turn: bool = False,
     is_final_task: bool | None = None,
     log_label: str = "task",
+    parallel: bool = False,
+    enable_review: bool = True,
 ) -> list[PhaseRun]:
+    """跑一组 task：``parallel=True`` 时所有 task 通过 ``asyncio.gather`` 并发执行，
+    每个 task 各自的 work / judge session_id 唯一，对应不同的 hermes_runner 子进程，
+    互相不干扰。``parallel=False`` 时按顺序串行执行（与原行为一致）。
+
+    ``enable_review`` 控制 work_agent 在结束时是否触发 background review；
+    默认 True 时仍会被 ``is_evolve_turn`` 关闭（evolve 阶段无 review）。"""
     if not tasks:
         return []
 
+    total = len(tasks)
+
+    async def _run_one(idx: int, task: SuiteTask) -> PhaseRun:
+        user_session_id = f"user-{session_short_id()}"
+        judge_session_id = f"judge-{session_short_id()}"
+        return await run_hermes_task_phase(
+            task=task,
+            run_id=run_id,
+            agent=agent,
+            user_session_id=user_session_id,
+            judge_session_id=judge_session_id,
+            repeat_index=repeat_index,
+            phase=phase,
+            workspace_dir=workspace_dir,
+            task_index=idx,
+            total_tasks=total,
+            is_evolve_turn=is_evolve_turn,
+            is_final_task=is_final_task,
+            log_label=log_label,
+            enable_review=enable_review,
+        )
+
+    if parallel:
+        return list(
+            await asyncio.gather(*[_run_one(idx, task) for idx, task in enumerate(tasks)])
+        )
+
     results: list[PhaseRun] = []
     for idx, task in enumerate(tasks):
-        user_session_id = f"user-{short_id()}"
-        judge_session_id = f"judge-{short_id()}"
-        results.append(
-            await run_hermes_task_phase(
-                task=task,
-                run_id=run_id,
-                agent=agent,
-                user_session_id=user_session_id,
-                judge_session_id=judge_session_id,
-                repeat_index=repeat_index,
-                phase=phase,
-                workspace_dir=workspace_dir,
-                task_index=idx,
-                total_tasks=len(tasks),
-                is_evolve_turn=is_evolve_turn,
-                is_final_task=is_final_task,
-                log_label=log_label,
-            )
-        )
+        results.append(await _run_one(idx, task))
     return results
 
 
@@ -142,7 +162,8 @@ async def replay_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None
 
         async def run_suite_path(suite_path: Path) -> SuiteRun:
             suite = SuiteSpec.from_json_file(suite_path)
-            if not suite.tasks:
+            replay_tasks = [*suite.train, *suite.test]
+            if not replay_tasks:
                 raise ValueError(f"No tasks found in {suite_path}")
 
             category_name = suite.category
@@ -153,7 +174,7 @@ async def replay_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None
 
             baseline_agent = await HermesAgent.create(workspace_path=baseline_workspace)
             try:
-                baseline_tasks = suite.tasks[:1] if args.test else suite.tasks
+                baseline_tasks = replay_tasks[:1] if args.test else replay_tasks
                 baseline_results = await run_hermes_task_phase_batch(
                     tasks=baseline_tasks,
                     run_id=run_id,
@@ -162,6 +183,9 @@ async def replay_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None
                     phase="baseline",
                     workspace_dir=baseline_workspace,
                     log_label="task",
+                    # task 间始终串行：suite 间并发已经能撑满 langfuse 后端，
+                    # 再加 task 内并发会触发 langfuse HTTP timeout。
+                    parallel=False,
                 )
 
                 suite_run = SuiteRun(
@@ -193,7 +217,7 @@ async def replay_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None
 
                 baseline_agent._workspace_path = evolved_workspace
                 evolved_results = await run_hermes_task_phase_batch(
-                    tasks=suite.tasks,
+                    tasks=replay_tasks,
                     run_id=run_id,
                     agent=baseline_agent,
                     repeat_index=repeat_index,
@@ -201,6 +225,7 @@ async def replay_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None
                     workspace_dir=evolved_workspace,
                     is_evolve_turn=True,
                     log_label="task",
+                    parallel=args.parallel,
                 )
                 for idx, evolved_result in enumerate(evolved_results):
                     row = suite_run.tasks[idx]
@@ -255,22 +280,24 @@ async def exam_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None:
 
         async def run_suite_path(suite_path: Path) -> SuiteRun:
             suite = SuiteSpec.from_json_file(suite_path)
-            if not suite.tasks:
-                raise ValueError(f"No tasks found in {suite_path}")
+            if not suite.train:
+                raise ValueError(f"No train tasks found in {suite_path}")
+            if not suite.test:
+                raise ValueError(f"No test tasks found in {suite_path}")
 
             category_name = suite.category
-            baseline_workspace = outcome_workspace(run_id, repeat_index, "baseline", category_name)
-            baseline_final_workspace = outcome_workspace(
-                run_id, repeat_index, "baseline-final", category_name
+            benchmark_workspace = outcome_workspace(run_id, repeat_index, "benchmark", category_name)
+            test_baseline_workspace = outcome_workspace(
+                run_id, repeat_index, "test-baseline", category_name
             )
 
             LOGGER.info("Running exam suite: %s (repeat %d)", suite_path, repeat_index)
 
-            warmup_tasks = suite.tasks[:-1]
-            final_task = suite.tasks[-1]
+            warmup_tasks = suite.train
+            final_tasks = suite.test
 
-            warmup_agent = await HermesAgent.create(workspace_path=baseline_workspace)
-            baseline_final_agent: HermesAgent | None = None
+            warmup_agent = await HermesAgent.create(workspace_path=benchmark_workspace)
+            test_baseline_agent: HermesAgent | None = None
             try:
                 warmup_results = await run_hermes_task_phase_batch(
                     tasks=warmup_tasks,
@@ -278,9 +305,11 @@ async def exam_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None:
                     agent=warmup_agent,
                     repeat_index=repeat_index,
                     phase="baseline",
-                    workspace_dir=baseline_workspace,
+                    workspace_dir=benchmark_workspace,
                     is_final_task=False,
                     log_label="exam warmup task",
+                    # 同上：保留 suite 间并发，禁用 task 间并发。
+                    parallel=False,
                 )
                 for task, warmup_result in zip(warmup_tasks, warmup_results):
                     LOGGER.info(
@@ -299,58 +328,64 @@ async def exam_mode(args: argparse.Namespace, suite_paths: list[Path]) -> None:
                 )
                 await HermesAgent.evolve(f"exam-evolve-run-{repeat_index}-{category_name}-{short_id()}")
 
-                baseline_final_agent = await HermesAgent.create(workspace_path=baseline_final_workspace)
-                baseline_final_result = (
-                    await run_hermes_task_phase_batch(
-                        tasks=[final_task],
-                        run_id=run_id,
-                        agent=baseline_final_agent,
-                        repeat_index=repeat_index,
-                        phase="baseline",
-                        workspace_dir=baseline_final_workspace,
-                        is_evolve_turn=False,
-                        is_final_task=True,
-                        log_label="exam final task",
-                    )
-                )[0]
+                test_baseline_agent = await HermesAgent.create(workspace_path=test_baseline_workspace)
+                test_baseline_results = await run_hermes_task_phase_batch(
+                    tasks=final_tasks,
+                    run_id=run_id,
+                    agent=test_baseline_agent,
+                    repeat_index=repeat_index,
+                    phase="baseline",
+                    workspace_dir=test_baseline_workspace,
+                    is_evolve_turn=False,
+                    is_final_task=True,
+                    log_label="exam final task",
+                    parallel=args.parallel,
+                    # test_baseline 是"未进化对照组"，不应改写它的 memory / skills，
+                    # 因此显式关闭 review。
+                    enable_review=False,
+                )
 
-                evolved_final_result = (
-                    await run_hermes_task_phase_batch(
-                        tasks=[final_task],
-                        run_id=run_id,
-                        agent=warmup_agent,
-                        repeat_index=repeat_index,
-                        phase="evolved",
-                        workspace_dir=baseline_workspace,
-                        is_evolve_turn=True,
-                        is_final_task=True,
-                        log_label="exam final task",
-                    )
-                )[0]
+                evolved_final_results = await run_hermes_task_phase_batch(
+                    tasks=final_tasks,
+                    run_id=run_id,
+                    agent=warmup_agent,
+                    repeat_index=repeat_index,
+                    phase="evolved",
+                    workspace_dir=benchmark_workspace,
+                    is_evolve_turn=True,
+                    is_final_task=True,
+                    log_label="exam final task",
+                    # 同上：保留 suite 间并发，禁用 task 间并发。
+                    parallel=False,
+                )
 
                 suite_run = SuiteRun(
                     suite_name=suite.name,
                     suite_path=str(suite_path.resolve()),
                     category=category_name,
-                    tasks=[
+                    tasks=[],
+                )
+                for task, test_baseline_result, evolved_final_result in zip(
+                    final_tasks, test_baseline_results, evolved_final_results
+                ):
+                    suite_run.tasks.append(
                         TaskRun(
-                            task_name=final_task.name,
+                            task_name=task.name,
                             category=category_name,
-                            baseline=baseline_final_result,
+                            baseline=test_baseline_result,
                             evolved=evolved_final_result,
                         )
-                    ],
-                )
-                LOGGER.info(
-                    "Exam final task %s completed: baseline_success=%s evolved_success=%s",
-                    final_task.name,
-                    baseline_final_result.success,
-                    evolved_final_result.success,
-                )
+                    )
+                    LOGGER.info(
+                        "Exam final task %s completed: baseline_success=%s evolved_success=%s",
+                        task.name,
+                        test_baseline_result.success,
+                        evolved_final_result.success,
+                    )
                 return suite_run
             finally:
-                if baseline_final_agent is not None:
-                    await baseline_final_agent.aclose()
+                if test_baseline_agent is not None:
+                    await test_baseline_agent.aclose()
                 await warmup_agent.aclose()
 
         if args.parallel:

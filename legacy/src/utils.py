@@ -11,6 +11,17 @@ def long_id() -> str:
     return uuid.uuid4().hex
 
 
+def session_short_id(n: int = 8) -> str:
+    """生成 session id 用的标识：``<毫秒时间戳>-<uuid 前 n 位>``。
+
+    时间戳保证不同 session 创建顺序天然不撞，uuid 兜底同一毫秒内的并发碰撞，
+    使最终 session id（如 ``user-<ts>-<uuid>``）在多 agent / 多协程并发场景下
+    几乎不可能重复。
+    """
+    ts_ms = int(datetime.now().timestamp() * 1000)
+    return f"{ts_ms}-{uuid.uuid4().hex[:n]}"
+
+
 def make_run_id(run_id_suffix: str | None = None) -> str:
     if run_id_suffix:
         return f"evobench-runid-{run_id_suffix}"
