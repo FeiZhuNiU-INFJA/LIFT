@@ -83,30 +83,34 @@ lift/eval               ← 评测内核：单题 work + judge 多轮（跟 Open
 sequenceDiagram
     participant P as Pipeline
     participant A as Adapter
-    participant W as Warmup 容器
-    participant H as Holdout 容器（每题独立）
+    participant W as Warmup 容器（base 镜像）
+    participant Hb as Baseline 容器（base 镜像）
+    participant He as Evolved 容器（delta 镜像）
 
     P->>A: warmup 题（如 Q1..Q4）
     A->>W: 起一个容器，连续做题
     W->>W: evolve（learn review）
     W->>W: docker commit → delta 镜像
-    A->>W: 删掉 warmup 容器
+    A->>W: 销毁 warmup 容器
 
     loop 每道 holdout 题（如 Q5, Q6）
         P->>A: baseline
-        A->>H: base 镜像新容器 → 做题打分
+        A->>Hb: 起 → 做题打分 → 销毁
         P->>A: evolved
-        A->>H: delta 镜像新容器 → 做题打分
+        A->>He: 起 → 做题打分 → 销毁
     end
 
     P->>P: 写 report.json
 ```
 
-讲到这里把三个设计取舍点出来：
+讲到这里把四个设计取舍点出来：
 
 1. **Warmup 共用一个容器**——状态要连续，进化才有意义；
-2. **Holdout 每相位起新容器**——baseline 必须是干净环境，题与题、相位与相位 workspace 互不污染；
-3. **多道 holdout 共用同一份 delta**——只换 workspace，不重复进化（进化是昂贵的）。
+2. **Holdout baseline 和 evolved 是两个独立容器**——不是同一容器加不加产物，而是分别从 base / delta 镜像新起，对照才干净；
+3. **每道 holdout 题之间也起新容器**——题与题 workspace 互不污染；
+4. **多道 holdout 共用同一份 delta 镜像**——只换 workspace，不重复进化（进化是昂贵的）。
+
+镜像血缘一句话总结：**base 起两类容器（warmup + holdout baseline），delta 起一类（holdout evolved）**——三类容器实例、两个镜像。
 
 ### 代码入口（不用背目录，知道从哪读就行）
 

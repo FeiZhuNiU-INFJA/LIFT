@@ -9,6 +9,7 @@ Collect Langfuse traces for one ``openclaw_run_task`` phase (single pipeline).
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Literal
 
 from src.report.langfuse_trace_fetch import fetch_trace_details, trace_ref_from_detail
@@ -24,6 +25,11 @@ from src.models import LangfuseTraceRef, PhaseLangfuseBundle
 AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent"]
 
 
+# 单 phase 内 4 路 ``trace.list`` 互相独立（work_sid / judge_sid / work_tag /
+# judge_tag），用线程池并行 4 路即可消掉 4× RTT 串行累加。
+_LIST_PARALLELISM = 4
+
+
 def _list_traces_all_pages(client: Any, *, page_limit: int = 100, **kwargs: Any) -> list[Any]:
     """Discover trace ids; full payload always loaded via ``trace.get`` afterward."""
     page = 1
@@ -37,6 +43,24 @@ def _list_traces_all_pages(client: Any, *, page_limit: int = 100, **kwargs: Any)
             break
         page += 1
     return out
+
+
+def _list_traces_parallel(
+    client: Any,
+    queries: list[dict[str, Any]],
+    *,
+    page_limit: int,
+) -> list[list[Any]]:
+    """并行执行多路 ``trace.list``，返回每路的完整结果列表（保留输入顺序）。"""
+    if not queries:
+        return []
+    workers = min(_LIST_PARALLELISM, len(queries))
+    if workers <= 1:
+        return [_list_traces_all_pages(client, page_limit=page_limit, **q) for q in queries]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(
+            pool.map(lambda q: _list_traces_all_pages(client, page_limit=page_limit, **q), queries)
+        )
 
 
 def _normalize_eval_session(
@@ -85,17 +109,15 @@ def _stitch_openclaw(
     检索会把全 run trace 拖进 ``trace.get``，但 classify 阶段只保留本 phase 的 work/judge
     trace，其余全部丢弃，造成 O(phase 数 × 全 run trace 数) 的 N+1 放大。
     """
-    by_work = _list_traces_all_pages(
-        client, session_id=work_session_id, page_limit=page_limit, order_by="timestamp.asc"
-    )
-    by_judge = _list_traces_all_pages(
-        client, session_id=judge_session_id, page_limit=page_limit, order_by="timestamp.asc"
-    )
-    by_work_tag = _list_traces_all_pages(
-        client, tags=[work_session_id], page_limit=page_limit, order_by="timestamp.asc"
-    )
-    by_judge_tag = _list_traces_all_pages(
-        client, tags=[judge_session_id], page_limit=page_limit, order_by="timestamp.asc"
+    by_work, by_judge, by_work_tag, by_judge_tag = _list_traces_parallel(
+        client,
+        [
+            {"session_id": work_session_id, "order_by": "timestamp.asc"},
+            {"session_id": judge_session_id, "order_by": "timestamp.asc"},
+            {"tags": [work_session_id], "order_by": "timestamp.asc"},
+            {"tags": [judge_session_id], "order_by": "timestamp.asc"},
+        ],
+        page_limit=page_limit,
     )
 
     # 多路 trace.list 并集去重；完整 payload 一律 trace.get 拉取
@@ -152,17 +174,15 @@ def _stitch_hermes(
       （而不是 session_id 比对），避免 ``Hermes turn`` 因 sid 不一致被丢弃。
     - 配对：``pair_hermes_traces_to_agent_turns`` 不按 session_id 分组，纯按时间 1:1 合并。
     """
-    by_work_sid = _list_traces_all_pages(
-        client, session_id=work_session_id, page_limit=page_limit, order_by="timestamp.asc"
-    )
-    by_judge_sid = _list_traces_all_pages(
-        client, session_id=judge_session_id, page_limit=page_limit, order_by="timestamp.asc"
-    )
-    by_work_tag = _list_traces_all_pages(
-        client, tags=[work_session_id], page_limit=page_limit, order_by="timestamp.asc"
-    )
-    by_judge_tag = _list_traces_all_pages(
-        client, tags=[judge_session_id], page_limit=page_limit, order_by="timestamp.asc"
+    by_work_sid, by_judge_sid, by_work_tag, by_judge_tag = _list_traces_parallel(
+        client,
+        [
+            {"session_id": work_session_id, "order_by": "timestamp.asc"},
+            {"session_id": judge_session_id, "order_by": "timestamp.asc"},
+            {"tags": [work_session_id], "order_by": "timestamp.asc"},
+            {"tags": [judge_session_id], "order_by": "timestamp.asc"},
+        ],
+        page_limit=page_limit,
     )
 
     merged: dict[str, Any] = {}
