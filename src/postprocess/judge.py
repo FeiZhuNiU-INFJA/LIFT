@@ -164,7 +164,10 @@ def judge_trajectory_with_openai(messages: list[dict[str, str]]) -> float:
     """Call the configured OpenAI-compatible judge model and parse the trajectory score."""
     from openai import OpenAI
 
-    client = OpenAI(api_key=CONFIG.openai_api_key, base_url=CONFIG.openai_base_url)
+    client = OpenAI(
+        api_key=CONFIG.trajectory_judge_openai_api_key,
+        base_url=CONFIG.trajectory_judge_openai_base_url,
+    )
     last_error: Exception | None = None
 
     for _ in range(3):

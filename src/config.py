@@ -37,11 +37,19 @@ class AppConfig:
     """从环境变量加载的不可变应用配置。"""
 
     hermes_api_key: str | None
-    """Hermes API 密钥（``HERMES_API_KEY``）。"""
+    """Hermes API 密钥（``HERMES_API_KEY``，legacy 宿主机 Hermes debug 用）。"""
     hermes_env_file: str | None
-    """Hermes profile 的 ``.env`` 文件路径（``HERMES_ENV_FILE``）。"""
+    """Hermes profile 的 ``.env`` 文件路径（``HERMES_ENV_FILE``，仅 legacy 宿主机 debug 用）。"""
+    hermes_model_name: str | None
+    """Hermes runner ``--model`` 显式模型 id（``HERMES_MODEL_NAME``）；未设置时由 ``model`` 派生后缀。"""
+    hermes_api_url: str | None
+    """Hermes work LLM base url 覆盖（``HERMES_API_URL``）；未设置时回退 ``work_openai_base_url``。"""
+    hermes_base_image_tag: str
+    """Hermes 上游基础镜像 tag（``HERMES_BASE_IMAGE_TAG``，默认 ``v2026.5.16``）。"""
     model: str
-    """OpenClaw agent 使用的模型名（``MODEL_NAME``）。"""
+    """agent 使用的模型名（``MODEL_NAME``，形如 provider/model_id）。"""
+    max_tokens: int
+    """单轮 work/judge chat 的最大输出 token（``MAX_TOKENS``，默认 51200）。"""
     log_file: str
     """日志文件路径（``EVAL_LOG_FILE``，默认项目根下 ``evolve_eval.log``）。"""
     langfuse_pre_chat: bool
@@ -52,10 +60,14 @@ class AppConfig:
     """Langfuse secret key（``LANGFUSE_SECRET_KEY``）。"""
     langfuse_base_url: str | None
     """Langfuse API base URL（``LANGFUSE_BASE_URL``）。"""
-    openai_api_key: str | None
-    """OpenAI 兼容 API 密钥（``OPENAI_API_KEY``，judge 等使用）。"""
-    openai_base_url: str | None
-    """OpenAI 兼容 API base URL（``OPENAI_BASE_URL``）。"""
+    work_openai_api_key: str | None
+    """Work agent 的 OpenAI 兼容 API 密钥（``WORK_OPENAI_API_KEY``，替代 legacy ARK_API_KEY）。"""
+    work_openai_base_url: str | None
+    """Work agent 的 OpenAI 兼容 base URL（``WORK_OPENAI_BASE_URL``）。"""
+    trajectory_judge_openai_api_key: str | None
+    """轨迹评判 LLM 的 API 密钥（``TRAJECTORY_JUDGE_OPENAI_API_KEY``）。"""
+    trajectory_judge_openai_base_url: str | None
+    """轨迹评判 LLM 的 base URL（``TRAJECTORY_JUDGE_OPENAI_BASE_URL``）。"""
     firecrawl_api_key: str | None
     """Firecrawl API 密钥（``FIRECRAWL_API_KEY``）。"""
     api_server_enabled: bool
@@ -78,14 +90,20 @@ def load_config() -> AppConfig:
     return AppConfig(
         hermes_api_key=os.getenv("HERMES_API_KEY"),
         hermes_env_file=os.getenv("HERMES_ENV_FILE"),
+        hermes_model_name=os.getenv("HERMES_MODEL_NAME"),
+        hermes_api_url=os.getenv("HERMES_API_URL"),
+        hermes_base_image_tag=os.getenv("HERMES_BASE_IMAGE_TAG", "v2026.5.16"),
         model=os.getenv("MODEL_NAME", "unknown"),
+        max_tokens=int(os.getenv("MAX_TOKENS", "51200")),
         log_file=os.getenv("EVAL_LOG_FILE", str(_default_log_file())),
         langfuse_pre_chat=_env_flag("EVAL_LANGFUSE_PRE_CHAT", default=True),
         langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
         langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
         langfuse_base_url=os.getenv("LANGFUSE_BASE_URL"),
-        openai_api_key=os.getenv("OPENAI_API_KEY"),
-        openai_base_url=os.getenv("OPENAI_BASE_URL"),
+        work_openai_api_key=os.getenv("WORK_OPENAI_API_KEY"),
+        work_openai_base_url=os.getenv("WORK_OPENAI_BASE_URL"),
+        trajectory_judge_openai_api_key=os.getenv("TRAJECTORY_JUDGE_OPENAI_API_KEY"),
+        trajectory_judge_openai_base_url=os.getenv("TRAJECTORY_JUDGE_OPENAI_BASE_URL"),
         firecrawl_api_key=os.getenv("FIRECRAWL_API_KEY"),
         api_server_enabled=_env_flag("API_SERVER_ENABLED", default=False),
         api_server_key=os.getenv("API_SERVER_KEY"),

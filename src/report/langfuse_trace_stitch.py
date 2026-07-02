@@ -22,7 +22,13 @@ from src.models import LangfuseTraceRef, PhaseLangfuseBundle
 
 
 # Agent backend whose trace pairing rules are applied during stitching.
-AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent"]
+AgentSource = Literal[
+    "openclaw",
+    "openclaw_with_evolve",
+    "hermes",
+    "genericagent",
+    "genericagent_active_evolve",
+]
 
 
 # 单 phase 内 4 路 ``trace.list`` 互相独立（work_sid / judge_sid / work_tag /
