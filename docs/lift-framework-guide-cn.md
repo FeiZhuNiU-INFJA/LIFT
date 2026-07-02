@@ -1,7 +1,7 @@
 # LIFT 框架讲稿
 
 > 面向内部分享：先把故事讲清楚，再按需深挖。
-> 演讲幻灯片：[lift-framework-slides.html](./lift-framework-slides.html)（图示为主，配 speaker notes）。
+> 演讲幻灯片：[index.html](./index.html)（图示为主，配 speaker notes）。
 > 更细的协议与字段说明见 [eval-flow.md](./eval-flow.md)；镜像与运行时见 [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)；同主题深度可视化见 [lift-framework-visualization.html](./lift-framework-visualization.html)。
 
 ---
