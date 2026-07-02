@@ -1,0 +1,11 @@
+{
+  "id": "langfuse-tracer",
+  "name": "Langfuse Tracer",
+  "description": "Sends OpenClaw agent traces to a self-hosted Langfuse instance for observability. No npm packages required — uses the Langfuse REST API directly via native fetch.",
+  "version": "1.0.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

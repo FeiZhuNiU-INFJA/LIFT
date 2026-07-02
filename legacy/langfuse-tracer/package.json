@@ -1,0 +1,10 @@
+{
+  "name": "langfuse-tracer",
+  "version": "1.0.0",
+  "description": "Sends OpenClaw agent traces to Langfuse (REST ingestion)",
+  "type": "module",
+  "private": true,
+  "openclaw": {
+    "extensions": ["./index.js"]
+  }
+}
