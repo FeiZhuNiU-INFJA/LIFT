@@ -1,7 +1,8 @@
 # LIFT 框架讲稿
 
 > 面向内部分享：先把故事讲清楚，再按需深挖。
-> 更细的协议与字段说明见 [eval-flow.md](./eval-flow.md)；镜像与运行时见 [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)；同主题可视化见 [lift-framework-visualization.html](./lift-framework-visualization.html)。
+> 演讲幻灯片：[lift-framework-slides.html](./lift-framework-slides.html)（图示为主，配 speaker notes）。
+> 更细的协议与字段说明见 [eval-flow.md](./eval-flow.md)；镜像与运行时见 [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)；同主题深度可视化见 [lift-framework-visualization.html](./lift-framework-visualization.html)。
 
 ---
 
@@ -35,11 +36,9 @@ LIFT 就是为了回答这个问题。
 1. **「记忆」长在哪？怎么搬？**
    Agent 的状态分散在文件系统里——SOUL.md、MEMORY.md、技能目录、向量库……如何把进化前和进化后的 Agent **整体**冻结成一个可复现的"快照"？
    👉 我们用 **Docker commit**：进化后的容器直接 `docker commit` 出 delta 镜像，Agent 的所有状态被原子地打包。
-
 2. **怎么保证「对照」是干净的？**
    baseline 不能受 evolved 污染，evolved 不能复用 baseline 的环境。题与题之间也必须互不干扰。
    👉 每道 holdout 题、每一相位（baseline / evolved）都**从镜像起新容器**，workspace 按题隔离。
-
 3. **怎么让框架既支持 OpenClaw，也支持未来的别的 Agent？**
    评测内核（怎么阅卷）不应该绑死在 OpenClaw 上。
    👉 三层架构：**Pipeline 编排 / Adapter 接入运行时 / eval 阅卷**。每一层都不知道下一层的具体实现细节。
@@ -52,13 +51,13 @@ LIFT 框架的本质，就是把这三件事打包成一个**可一键复现的�
 
 ### 用考试来类比（核心心智模型）
 
-| 概念 | 类比 | 在代码里对应谁 |
-|------|------|---------------|
-| **Suite** | 一张卷子（多道题） | 一个 suite JSON，如 `hello.json` |
-| **Warmup 题** | 平时的练习题，让 Agent 「学」 | `warmup_tasks` → `produce_delta` |
-| **Holdout 题** | 期末考，严格对照 | `holdout_tasks` → `run_before_load` / `run_after_load` |
-| **Delta（Δ）** | 进化后的「记忆快照」 | `docker commit` 出来的临时镜像 |
-| **Report** | 成绩单 | `results/{run_id}/report.json` |
+| 概念                  | 类比                          | 在代码里对应谁                                                |
+| --------------------- | ----------------------------- | ------------------------------------------------------------- |
+| **Suite**       | 一张卷子（多道题）            | 一个 suite JSON，如`hello.json`                             |
+| **Warmup 题**   | 平时的练习题，让 Agent 「学」 | `warmup_tasks` → `produce_delta`                         |
+| **Holdout 题**  | 期末考，严格对照              | `holdout_tasks` → `run_before_load` / `run_after_load` |
+| **Delta（Δ）** | 进化后的「记忆快照」          | `docker commit` 出来的临时镜像                              |
+| **Report**      | 成绩单                        | `results/{run_id}/report.json`                              |
 
 Suite JSON 显式分为 **`warmup_tasks`**（对应 benchmark `train/`）与 **`holdout_tasks`**（对应 benchmark `test/`），训练/测试分离从数据规范层面就被强制约束。
 
@@ -84,39 +83,43 @@ lift/eval               ← 评测内核：单题 work + judge 多轮（跟 Open
 sequenceDiagram
     participant P as Pipeline
     participant A as Adapter
-    participant W as Warmup 容器
-    participant H as Holdout 容器
+    participant W as Warmup 容器（base 镜像）
+    participant Hb as Baseline 容器（base 镜像）
+    participant He as Evolved 容器（delta 镜像）
 
-    P->>A: warmup 题（如 Q1）
+    P->>A: warmup 题（如 Q1..Q4）
     A->>W: 起一个容器，连续做题
     W->>W: evolve（learn review）
     W->>W: docker commit → delta 镜像
-    A->>W: 删掉 warmup 容器
+    A->>W: 销毁 warmup 容器
 
-    loop 每道 holdout 题（如 Q2）
+    loop 每道 holdout 题（如 Q5, Q6）
         P->>A: baseline
-        A->>H: 从 base 镜像起新容器 → 做题打分
+        A->>Hb: 起 → 做题打分 → 销毁
         P->>A: evolved
-        A->>H: 从 delta 镜像起新容器 → 做题打分
+        A->>He: 起 → 做题打分 → 销毁
     end
 
     P->>P: 写 report.json
 ```
 
-讲到这里把三个设计取舍点出来：
+讲到这里把四个设计取舍点出来：
 
 1. **Warmup 共用一个容器**——状态要连续，进化才有意义；
-2. **Holdout 每相位起新容器**——baseline 必须是干净环境，题与题 workspace 也要隔离；
-3. **多道 holdout 共用同一份 delta**——只换 workspace，不重复进化（进化是昂贵的）。
+2. **Holdout baseline 和 evolved 是两个独立容器**——不是同一容器加不加产物，而是分别从 base / delta 镜像新起，对照才干净；
+3. **每道 holdout 题之间也起新容器**——题与题 workspace 互不污染；
+4. **多道 holdout 共用同一份 delta 镜像**——只换 workspace，不重复进化（进化是昂贵的）。
+
+镜像血缘一句话总结：**base 起两类容器（warmup + holdout baseline），delta 起一类（holdout evolved）**——三类容器实例、两个镜像。
 
 ### 代码入口（不用背目录，知道从哪读就行）
 
-| 想看什么 | 打开哪个文件 |
-|----------|--------------|
-| 主流程 | `src/lift/pipeline/lift_pipeline.py` |
-| 适配器契约 | `src/lift/adapters/base.py` |
-| 单题评测 | `src/lift/eval/run_task.py` |
-| CLI | `src/cli/lift_main.py` |
+| 想看什么   | 打开哪个文件                           |
+| ---------- | -------------------------------------- |
+| 主流程     | `src/lift/pipeline/lift_pipeline.py` |
+| 适配器契约 | `src/lift/adapters/base.py`          |
+| 单题评测   | `src/lift/eval/run_task.py`          |
+| CLI        | `src/cli/lift_main.py`               |
 
 ---
 
@@ -128,12 +131,12 @@ sequenceDiagram
 
 `OpenClawAdapter`（[src/lift/adapters/openclaw/adapter.py](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/openclaw/adapter.py)）很薄，继承通用 Docker 层后，只需要填这 4 个钩子：
 
-| 钩子 | 干什么 |
-|------|--------|
-| `resolve_docker_image` | 用哪个镜像（基础 `evolve-eval-openclaw-base:latest`，不带进化插件） |
-| `start_container` | 起 gateway、挂卷、记录 session_id |
-| `worker_judger_factory` | 容器里怎么跑 chat（work agent + judge agent） |
-| `evolve_after_warmup` | 基础 adapter 是 no-op；`OpenClawWithEvolveAdapter`（镜像 `evolve-eval-openclaw-with-evolve:latest`）在 warmup 后跑 `openclaw learn review` |
+| 钩子                      | 干什么                                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `resolve_docker_image`  | 用哪个镜像（基础`evolve-eval-openclaw-base:latest`，不带进化插件）                                                                             |
+| `start_container`       | 起 gateway、挂卷、记录 session_id                                                                                                                |
+| `worker_judger_factory` | 容器里怎么跑 chat（work agent + judge agent）                                                                                                    |
+| `evolve_after_warmup`   | 基础 adapter 是 no-op；`OpenClawWithEvolveAdapter`（镜像 `evolve-eval-openclaw-with-evolve:latest`）在 warmup 后跑 `openclaw learn review` |
 
 **Docker commit 产 delta 镜像**是上层 `ContainerAgentRuntimeAdapter` 已经写好的，OpenClaw 不用重复实现——这是分层带来的红利。
 
@@ -159,20 +162,20 @@ sequenceDiagram
 
 ### 胶水模块（让 OpenClaw 跑起来的零件）
 
-| 模块 | 解决什么问题 |
-|------|--------------|
-| `openclaw/session.py` | gateway 端口（随机映射避冲突）、卷挂载、容器 entrypoint |
-| `openclaw/chat_agent.py` | `docker exec openclaw agent --local --json` 调 work / judge |
-| `openclaw_with_evolve/evolve.py` | warmup 后的 `openclaw learn review` |
-| `openclaw/json_output.py` | 解析 `--json` stdout |
-| `agent-runtimes/openclaw/` | 镜像构建：self-evolving 插件、langfuse-tracer、gateway 配置、baked workspace 种子 |
+| 模块                               | 解决什么问题                                                                      |
+| ---------------------------------- | --------------------------------------------------------------------------------- |
+| `openclaw/session.py`            | gateway 端口（随机映射避冲突）、卷挂载、容器 entrypoint                           |
+| `openclaw/chat_agent.py`         | `docker exec openclaw agent --local --json` 调 work / judge                     |
+| `openclaw_with_evolve/evolve.py` | warmup 后的`openclaw learn review`                                              |
+| `openclaw/json_output.py`        | 解析`--json` stdout                                                             |
+| `agent-runtimes/openclaw/`       | 镜像构建：self-evolving 插件、langfuse-tracer、gateway 配置、baked workspace 种子 |
 
 ### 和 legacy 的区别（一句话）
 
-| | **LIFT（src）** | **legacy** |
-|--|-----------------|------------|
-| 执行 | 容器内 | 宿主机直跑 |
-| 产物 | delta 镜像 + 每题独立容器 | 宿主机 toggle 加载 |
+|      | **LIFT（src）**     | **legacy**            |
+| ---- | ------------------------- | --------------------------- |
+| 执行 | 容器内                    | 宿主机直跑                  |
+| 产物 | delta 镜像 + 每题独立容器 | 宿主机 toggle 加载          |
 | 入口 | `lift_main -r openclaw` | `legacy/openclaw_main.py` |
 
 **新开发只走 src 这条线**。
@@ -189,9 +192,9 @@ sequenceDiagram
 
 [assets/benchmarks_demo/hello.json](file:///root/workspace/agent_evolve_evaluation/assets/benchmarks_demo/hello.json) 是最小冒烟集，两道题：
 
-| 题 | 内容 | 在 LIFT 里扮演 |
-|----|------|----------------|
-| **Q1** | 「回复一下你好」 | **Warmup**（`warmup_tasks`）——练习题 |
+| 题           | 内容                   | 在 LIFT 里扮演                                   |
+| ------------ | ---------------------- | ------------------------------------------------ |
+| **Q1** | 「回复一下你好」       | **Warmup**（`warmup_tasks`）——练习题   |
 | **Q2** | 「自我介绍一下你自己」 | **Holdout**（`holdout_tasks`）——期末考 |
 
 Q2 是关键——它能直观验证 Q1 的练习是否让 Agent **更了解自己**（baseline 时只是普通自我介绍，evolved 时会带上从 Q1 沉淀的人格 / 偏好）。
@@ -307,14 +310,14 @@ A：容器内 root 写的文件；新跑会自动 chown，历史残留用 `bash 
 
 ## 附录 B：详细参考（需要时再翻）
 
-| 主题 | 文档 / 路径 |
-|------|-------------|
-| 抽象流程与 report 字段 | [eval-flow.md](./eval-flow.md) |
-| Agent 模型配置契约（fragment ↔ `MODEL_NAME`） | [eval-flow.md §12.6](./eval-flow.md#126-agent-模型配置契约lift--容器运行时) |
-| Suite JSON 规范 | [assets/suite_requirement.md](../assets/suite_requirement.md) |
-| 英文 README | [src/lift/README.md](../src/lift/README.md) |
-| 单元测试（理解行为） | `src/lift/tests/` |
-| OpenClaw 镜像（含字节内网构建） | [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md) |
+| 主题                                            | 文档 / 路径                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------- |
+| 抽象流程与 report 字段                          | [eval-flow.md](./eval-flow.md)                                               |
+| Agent 模型配置契约（fragment ↔`MODEL_NAME`） | [eval-flow.md §12.6](./eval-flow.md#126-agent-模型配置契约lift--容器运行时) |
+| Suite JSON 规范                                 | [assets/suite_requirement.md](../assets/suite_requirement.md)                |
+| 英文 README                                     | [src/lift/README.md](../src/lift/README.md)                                  |
+| 单元测试（理解行为）                            | `src/lift/tests/`                                                       |
+| OpenClaw 镜像（含字节内网构建）                 | [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)    |
 
 ### 完整目录地图（阅读代码时用）
 

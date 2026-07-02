@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from src.report.langfuse_trace_parse import structure_trace_payload, is_plugin_trace
@@ -11,6 +13,24 @@ from src.models import (
     LangfuseTraceRef,
     LangfuseTraceTokens,
 )
+
+
+# 单个 phase 内 ``trace.get`` 的线程池上限。Langfuse SDK 同步客户端底层是
+# httpx.Client，连接池天然线程安全，可直接喂 ThreadPoolExecutor。注意外层
+# ``backfill_report`` 已并发 N phase（``EVAL_BACKFILL_WORKERS``），总并发
+# = N × _TRACE_GET_WORKERS，所以这里默认压到 4 防止打挂自托管 Langfuse。
+_TRACE_GET_WORKERS_ENV = "EVAL_BACKFILL_TRACE_GET_WORKERS"
+_TRACE_GET_WORKERS_DEFAULT = 4
+
+
+def _resolve_trace_get_workers() -> int:
+    raw = os.environ.get(_TRACE_GET_WORKERS_ENV)
+    if raw is None:
+        return _TRACE_GET_WORKERS_DEFAULT
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return _TRACE_GET_WORKERS_DEFAULT
 
 
 def _latency_seconds(raw: Any) -> float | None:
@@ -194,12 +214,25 @@ def fetch_trace_details(
     trace_ids: list[str],
     cache: dict[str, LangfuseTraceDetailRecord] | None = None,
 ) -> dict[str, LangfuseTraceDetailRecord]:
-    """Fetch full trace details for *trace_ids*, reusing entries in *cache* when provided."""
+    """Fetch full trace details for *trace_ids*, reusing entries in *cache* when provided.
+
+    用线程池并发 ``trace.get``：单 phase 通常几十~上百条 trace，每条 RTT
+    ~200-500ms（要拉完整 observations），串行 fetch 是 backfill 的主要瓶颈。
+    并发上限通过 ``EVAL_BACKFILL_TRACE_GET_WORKERS`` 调节。
+    """
     out = cache if cache is not None else {}
-    for tid in trace_ids:
-        if tid not in out:
+    pending = [tid for tid in trace_ids if tid not in out]
+    if not pending:
+        return out
+    workers = min(_resolve_trace_get_workers(), len(pending))
+    if workers <= 1:
+        for tid in pending:
             full = client.api.trace.get(tid)
             out[tid] = trace_detail_from_api(full)
+        return out
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for tid, detail in zip(pending, pool.map(lambda t: trace_detail_from_api(client.api.trace.get(t)), pending)):
+            out[tid] = detail
     return out
 
 

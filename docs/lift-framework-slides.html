@@ -1,0 +1,2107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>LIFT · 内部分享</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Spline+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reset.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.css" />
+
+  <style>
+    /* ============================================================
+       LIFT — "The Instrument Field"
+       A drafting-paper measurement instrument for agent self-evolution.
+       Tokens → Type → Ground → Components.
+       ============================================================ */
+    :root {
+      --paper:    #E8E3D6;   /* drafting vellum (ground)            */
+      --paper-2:  #DDD7C7;   /* recessed surface                    */
+      --paper-3:  #F1EDE2;   /* raised readout / card               */
+      --ink:      #19180F;   /* warm near-black                     */
+      --ink-72:   rgba(25,24,15,.72);
+      --ink-52:   rgba(25,24,15,.52);
+      --ink-34:   rgba(25,24,15,.34);
+      --ink-22:   rgba(25,24,15,.22);
+      --ink-14:   rgba(25,24,15,.14);
+      --ink-10:   rgba(25,24,15,.10);
+      --graph:    rgba(25,24,15,.055);
+      --signal:   #A8362A;   /* instrument red — failure / harm     */
+      --pass:     #2C6A4E;   /* lab green — evolved / success       */
+      --mark:     #A07A22;   /* ochre — warmup / baseline control   */
+      --steel:    #36506B;   /* calm blue — values / code / refs    */
+
+      --serif: "Instrument Serif", "Songti SC", "STSong", "SimSun", Georgia, serif;
+      --sans:  "Spline Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --mono:  "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+      /* reveal.js theme variables (we ship our own theme, but pin these) */
+      --r-background-color: var(--paper);
+      --r-main-color: var(--ink);
+      --r-heading-color: var(--ink);
+      --r-link-color: var(--steel);
+      --r-selection-background-color: var(--ink);
+      --r-selection-color: var(--paper);
+    }
+
+    /* ---------- ground: vellum + graph + drawing border ---------- */
+    html, body { background: var(--paper); }
+    .reveal {
+      position: relative;
+      font-family: var(--sans);
+      color: var(--ink);
+      background-color: var(--paper);
+      background-image:
+        linear-gradient(var(--graph) 1px, transparent 1px),
+        linear-gradient(90deg, var(--graph) 1px, transparent 1px);
+      background-size: 28px 28px;
+      background-position: center center;
+    }
+    /* drafting-sheet double hairline border */
+    .reveal::before {
+      content: ""; position: absolute; inset: 16px;
+      border: 1px solid var(--ink-22); pointer-events: none; z-index: 3;
+    }
+    .reveal::after {
+      content: ""; position: absolute; inset: 21px;
+      border: 1px solid var(--ink-10); pointer-events: none; z-index: 3;
+    }
+    /* corner registration ticks — instrument detail */
+    .corner-tick { position: absolute; width: 11px; height: 11px; z-index: 4; pointer-events: none; }
+    .corner-tick::before, .corner-tick::after {
+      content: ""; position: absolute; background: var(--ink-52);
+    }
+    .corner-tick::before { left: 50%; top: 0; width: 1px; height: 100%; transform: translateX(-50%); }
+    .corner-tick::after  { top: 50%; left: 0; height: 1px; width: 100%; transform: translateY(-50%); }
+    .ct-tl { top: 21px; left: 21px; }
+    .ct-tr { top: 21px; right: 21px; }
+    .ct-bl { bottom: 21px; left: 21px; }
+    .ct-br { bottom: 21px; right: 21px; }
+
+    /* drawing title block (bottom-left, persists across slides) */
+    .titleblock {
+      position: absolute; left: 40px; bottom: 32px; z-index: 4;
+      font-family: var(--mono); font-size: 9px; line-height: 1.5;
+      color: var(--ink-52); letter-spacing: .04em; text-align: left;
+      border-left: 1px solid var(--ink-22); padding-left: 9px;
+    }
+    .titleblock b { color: var(--ink); font-weight: 700; letter-spacing: .12em; }
+    .titleblock em { font-style: normal; color: var(--mark); }
+
+    /* ---------- type base (bumped deck-wide) ---------- */
+    .reveal section { text-align: left; }
+    .reveal h1, .reveal h2, .reveal h3 {
+      font-family: var(--serif); font-weight: 400;
+      text-transform: none; letter-spacing: 0;
+      color: var(--ink); margin: 0 0 .3em; line-height: 1.1;
+    }
+    .reveal h2 { font-size: 2.2em; }
+    .reveal h3 { font-size: .9em; color: var(--ink-52); font-family: var(--sans); font-weight: 500; margin-bottom: 1em; letter-spacing: .01em; }
+    .reveal p, .reveal li { color: var(--ink-72); line-height: 1.55; }
+    .reveal strong { color: var(--ink); font-weight: 600; }
+    .reveal em { font-style: italic; }
+    .reveal a { color: var(--steel); text-decoration: none; border-bottom: 1px solid var(--ink-22); }
+    .reveal a:hover { border-bottom-color: var(--steel); }
+    .reveal a:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
+    .reveal code {
+      font-family: var(--mono); color: var(--steel);
+      background: var(--paper-2); padding: .08em .38em;
+      border-radius: 2px; font-size: .86em;
+    }
+
+    /* figure-caption eyebrow — replaces templated "eyebrow" chip */
+    .slide-eyebrow {
+      display: flex; align-items: center; gap: .55em;
+      font-family: var(--mono); font-size: .64em; font-weight: 500;
+      letter-spacing: .16em; text-transform: uppercase;
+      color: var(--mark); margin-bottom: .8em;
+    }
+    .slide-eyebrow::before {
+      content: ""; width: 16px; height: 1px; background: var(--mark); display: inline-block;
+    }
+    .slide-eyebrow span.fig { color: var(--ink-52); margin-right: .2em; }
+
+    .reveal .slide-number {
+      font-family: var(--mono); color: var(--ink-52); font-size: 11px;
+      letter-spacing: .08em; bottom: 30px; right: auto; left: 50%; transform: translateX(-50%);
+    }
+
+    /* ============================================================
+       COVER
+       ============================================================ */
+    .cover {
+      text-align: center !important;
+      display: flex !important; flex-direction: column;
+      align-items: center; justify-content: center; height: 100%;
+    }
+    .cover .kicker {
+      font-family: var(--mono); font-size: .64em; letter-spacing: .3em;
+      text-transform: uppercase; color: var(--ink-52); margin-bottom: .3em;
+    }
+    .cover .brand {
+      font-family: var(--serif); font-style: italic;
+      font-size: 8.4em; font-weight: 400; line-height: .92;
+      letter-spacing: .01em; color: var(--ink); margin: 0;
+    }
+    .cover .bracket {
+      position: relative; width: 11em; height: 14px; margin: .12em auto 0;
+      border-left: 1px solid var(--ink); border-right: 1px solid var(--ink);
+      border-bottom: 1px solid var(--ink);
+    }
+    .cover .bracket::before,
+    .cover .bracket::after {
+      content: ""; position: absolute; bottom: -1px; width: 1px; height: 6px; background: var(--ink);
+    }
+    .cover .bracket::before { left: 30%; }
+    .cover .bracket::after  { left: 70%; }
+    .cover .full {
+      font-family: var(--mono); font-size: .64em; letter-spacing: .22em;
+      text-transform: uppercase; color: var(--ink-52); margin: .9em 0 0;
+    }
+    .cover .tagline {
+      font-family: var(--serif); font-size: 1.6em; line-height: 1.45;
+      color: var(--ink); margin-top: 1.4em; max-width: 18em;
+    }
+    .cover .tagline em { color: var(--signal); }
+    .cover .meta {
+      position: absolute; bottom: 84px; left: 0; right: 0;
+      font-family: var(--mono); font-size: .6em; color: var(--ink-52);
+      letter-spacing: .12em;
+    }
+
+    /* ============================================================
+       SECTION DIVIDER
+       ============================================================ */
+    .divider {
+      text-align: center !important;
+      display: flex !important; flex-direction: column;
+      align-items: center; justify-content: center; height: 100%;
+    }
+    .divider .num {
+      font-family: var(--serif); font-style: italic;
+      font-size: 9em; line-height: .85; color: var(--mark);
+    }
+    .divider .label {
+      font-family: var(--mono); font-size: .68em; letter-spacing: .26em;
+      text-transform: uppercase; color: var(--ink-52); margin-top: .5em;
+    }
+    .divider .title {
+      font-family: var(--serif); font-size: 2.7em; color: var(--ink);
+      margin-top: .25em; max-width: 13em; line-height: 1.15;
+    }
+    .divider .rule {
+      width: 5em; height: 1px; background: var(--ink); margin: 1.1em auto 0;
+    }
+
+    /* ============================================================
+       OUTLINE — roadmap of the four acts (previews the dividers)
+       ============================================================ */
+    .outline {
+      display: flex; flex-direction: column; justify-content: space-between;
+      margin-top: .7em; min-height: 600px;
+    }
+    .outline-station {
+      display: grid; grid-template-columns: 3.2em 1fr;
+      gap: 1.4rem; align-items: center;
+      padding: 1.2rem .2rem;
+      border-top: 1px solid var(--ink-14);
+    }
+    .outline-station:last-child { border-bottom: 1px solid var(--ink-14); }
+    .outline-station .o-num {
+      font-family: var(--serif); font-style: italic; font-size: 3.2em;
+      line-height: 1; color: var(--mark); text-align: left;
+    }
+    .outline-station .o-body { display: flex; flex-direction: column; gap: .15rem; }
+    .outline-station .o-label {
+      font-family: var(--mono); font-size: .68em; letter-spacing: .16em;
+      text-transform: uppercase; color: var(--ink-52);
+    }
+    .outline-station .o-title {
+      font-family: var(--serif); font-size: 1.65em; color: var(--ink); line-height: 1.15;
+    }
+    .outline-station .o-desc {
+      color: var(--ink-52); font-size: .96em; line-height: 1.5; margin-top: .15rem;
+    }
+
+    /* ============================================================
+       SNAPSHOT — a real run's dashboard, shown as a framed screen
+       ============================================================ */
+    .shot {
+      margin: .4em auto 0; width: 100%; max-width: 1120px;
+      display: flex; flex-direction: column; align-items: center; gap: .55em;
+    }
+    .shot .frame {
+      width: 100%; height: 540px; overflow: hidden; position: relative;
+      border: 1px solid var(--ink-22); border-radius: 4px;
+      box-shadow: 0 8px 26px rgba(25,24,15,.20), 0 1px 0 rgba(25,24,15,.08);
+    }
+    .shot .frame img {
+      width: 100%; height: 100%; display: block;
+      object-fit: cover; object-position: top center;
+    }
+    /* graceful bottom fade so the crop reads as intentional */
+    .shot .frame::after {
+      content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 72px;
+      background: linear-gradient(to top, rgba(13,17,23,.85), transparent);
+      pointer-events: none;
+    }
+    .shot figcaption {
+      font-family: var(--mono); font-size: .82em; color: var(--ink-52);
+      text-align: center; letter-spacing: .02em; line-height: 1.5;
+    }
+    .shot figcaption b { color: var(--ink); font-weight: 700; }
+
+    /* ---- dashboard image: click-to-zoom lightbox ---- */
+    .shot .frame { cursor: zoom-in; }
+    .shot .frame::before {
+      content: "⊕  点击放大"; position: absolute; top: 10px; left: 10px; z-index: 2;
+      font-family: var(--mono); font-size: 11px; letter-spacing: .04em; color: var(--paper);
+      background: rgba(13,17,23,.72); padding: .32em .6em; border-radius: 3px;
+      opacity: 0; transition: opacity .15s ease; pointer-events: none;
+    }
+    .shot .frame:hover::before { opacity: 1; }
+
+    /* lightbox overlay (lives outside .reveal, sits above everything) */
+    .lightbox {
+      position: fixed; inset: 0; z-index: 100000;
+      background: rgba(13,17,23,.94);
+      display: none; align-items: center; justify-content: center;
+    }
+    .lightbox.is-open { display: flex; }
+    .lightbox-stage {
+      position: relative; width: 100vw; height: 100vh;
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+    }
+    .lightbox-img {
+      max-width: 92vw; max-height: 88vh; transform-origin: center center;
+      transition: transform .12s ease-out; user-select: none; -webkit-user-drag: none;
+      cursor: grab; touch-action: none;
+    }
+    .lightbox-img.dragging { cursor: grabbing; transition: none; }
+    .lightbox-controls {
+      position: fixed; top: 18px; right: 22px; z-index: 100001;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .lightbox-controls button {
+      width: 38px; height: 38px; border-radius: 4px; cursor: pointer;
+      border: 1px solid rgba(232,227,214,.28); background: rgba(232,227,214,.08);
+      color: var(--paper); font-family: var(--mono); font-size: 16px;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: background .12s;
+    }
+    .lightbox-controls button:hover { background: rgba(232,227,214,.2); }
+    .lightbox-controls button:focus-visible { outline: 2px solid var(--paper); outline-offset: 2px; }
+    .lightbox-controls .zoom-pct {
+      height: 38px; min-width: 54px; padding: 0 6px; line-height: 36px; text-align: center;
+      font-family: var(--mono); font-size: 12px; color: rgba(232,227,214,.82);
+      border: 1px solid rgba(232,227,214,.28); border-radius: 4px;
+    }
+    .lightbox-hint {
+      position: fixed; left: 0; right: 0; bottom: 20px; z-index: 100001;
+      text-align: center; pointer-events: none;
+      font-family: var(--mono); font-size: 12px; letter-spacing: .04em;
+      color: rgba(232,227,214,.55);
+    }
+
+    /* ============================================================
+       VALUE STORY — the 4-step user journey (接入→运行→监控→报告)
+       ============================================================ */
+    .story { display: flex; align-items: stretch; gap: .4rem; margin-top: 1em; }
+    .story-step {
+      flex: 1 1 0; min-width: 0; position: relative;
+      background: var(--paper-3); border: 1px solid var(--ink-14); border-radius: 3px;
+      padding: 1.3rem 1.2rem; display: flex; flex-direction: column; gap: .3rem;
+    }
+    .story-step::before { content: ""; position: absolute; top: -1px; left: -1px; width: 24px; height: 3px; background: var(--mark); }
+    .story-step .s-glyph { font-family: var(--mono); font-size: 3.6em; line-height: 1; color: var(--steel); }
+    .story-step .s-title { font-family: var(--serif); font-size: 1.7em; color: var(--ink); line-height: 1.1; margin-top: .15rem; }
+    .story-step .s-desc { font-family: var(--sans); color: var(--ink-72); font-size: 1.02em; line-height: 1.5; margin-top: .35rem; }
+    .story-arrow { align-self: center; font-family: var(--serif); font-size: 1.8em; color: var(--ink-34); flex: 0 0 auto; }
+    .story-foot { text-align: center; margin-top: 1em; font-family: var(--mono); font-size: .82em; color: var(--ink-52); letter-spacing: .02em; }
+    .story-foot b { color: var(--ink); font-weight: 700; }
+
+    /* ============================================================
+       EVIDENCE — instrument readouts (pain ①②)
+       ============================================================ */
+    .evidence {
+      display: grid; grid-template-columns: repeat(2, 1fr);
+      gap: .9rem; margin-top: .3em;
+    }
+    .evidence .ev {
+      background: var(--paper-3);
+      border: 1px solid var(--ink-14);
+      border-radius: 3px;
+      padding: 1.15rem 1.25rem 1.15rem 1.3rem;
+      position: relative;
+      display: flex; flex-direction: column; gap: .55rem;
+      min-height: 244px; justify-content: space-between;
+    }
+    /* corner failure tick */
+    .evidence .ev::before {
+      content: ""; position: absolute; top: -1px; left: -1px;
+      width: 24px; height: 3px; background: var(--signal);
+    }
+    .evidence .ev .src {
+      display: flex; justify-content: space-between; align-items: baseline; gap: .5em;
+      padding-bottom: .45rem; border-bottom: 1px solid var(--ink-14);
+    }
+    .evidence .ev .src .name {
+      font-family: var(--mono); font-size: .7em; font-weight: 700;
+      letter-spacing: .1em; text-transform: uppercase; color: var(--ink);
+    }
+    .evidence .ev .src .ref {
+      font-family: var(--mono); font-size: .66em; color: var(--ink-52); letter-spacing: .02em;
+    }
+    .evidence .ev .stat {
+      font-family: var(--mono); font-size: 1.7em; font-weight: 500;
+      color: var(--signal); line-height: 1.1; letter-spacing: -.01em;
+    }
+    .evidence .ev .stat .unit {
+      display: block; font-size: .42em; color: var(--ink-52);
+      font-weight: 400; letter-spacing: .04em; margin-top: .15em;
+    }
+    .evidence .ev .punch { color: var(--ink-72); font-size: .9em; line-height: 1.5; }
+    .evidence .ev .punch strong { color: var(--signal); font-weight: 600; }
+    .evidence .ev .punch em { color: var(--mark); font-style: normal; }
+    .evidence-footer {
+      margin-top: 1em; text-align: center;
+      font-family: var(--mono); font-size: .76em; letter-spacing: .04em;
+      color: var(--ink-52);
+    }
+    .evidence-footer .pin {
+      color: var(--ink); font-weight: 700; letter-spacing: .12em;
+      text-transform: uppercase; margin-right: .4em;
+    }
+
+    /* ============================================================
+       SUITE STANDARD — train/test split
+       ============================================================ */
+    .suite-flow {
+      display: grid; grid-template-columns: 1fr auto 1fr;
+      gap: 1.4rem; margin-top: 1em; align-items: stretch;
+    }
+    .suite-col {
+      background: var(--paper-3); border: 1px solid var(--ink-14);
+      border-radius: 3px; padding: 1.6rem 1.4rem; position: relative;
+    }
+    .suite-col::before {
+      content: ""; position: absolute; top: -1px; left: -1px;
+      width: 28px; height: 3px;
+    }
+    .suite-col.train::before { background: var(--mark); }
+    .suite-col.test::before  { background: var(--pass); }
+    .suite-col .header {
+      display: flex; align-items: center; gap: .6rem;
+      padding-bottom: .75rem; border-bottom: 1px solid var(--ink-14);
+    }
+    .suite-col .header .tick {
+      width: 9px; height: 9px; transform: rotate(45deg);
+    }
+    .suite-col.train .header .tick { background: var(--mark); }
+    .suite-col.test  .header .tick { background: var(--pass); }
+    .suite-col .header .label {
+      font-family: var(--mono); font-size: .7em; letter-spacing: .14em;
+      text-transform: uppercase; color: var(--ink-52);
+    }
+    .suite-col .title {
+      font-family: var(--serif); color: var(--ink); font-size: 1.7em; margin-top: .55em;
+    }
+    .suite-col .items {
+      font-family: var(--mono); color: var(--ink-72); font-size: .92em;
+      line-height: 1.8; margin-top: .7em;
+    }
+    .suite-col .note {
+      color: var(--ink-52); font-size: .86em; margin-top: .7em; line-height: 1.55;
+    }
+    .suite-col .note em { color: var(--mark); font-style: normal; }
+    .suite-col.test .note em { color: var(--pass); }
+    .suite-bridge {
+      display: flex; flex-direction: column; justify-content: center;
+      align-items: center; gap: .45rem; color: var(--ink-52);
+    }
+    .suite-bridge .arrow { font-family: var(--serif); font-size: 2.6em; line-height: 1; color: var(--ink); }
+    .suite-bridge .text { font-family: var(--mono); font-size: .64em; text-align: center; letter-spacing: .06em; text-transform: uppercase; }
+    .delegate-hint {
+      margin-top: 1.1em; text-align: center;
+      font-family: var(--mono); font-size: .8em; color: var(--ink-52); letter-spacing: .04em;
+    }
+
+    /* ============================================================
+       EQUATION — the signature measurement
+       ============================================================ */
+    .equation {
+      display: flex; align-items: stretch; justify-content: center;
+      gap: .8rem; margin: 1em auto 0; font-size: 1em; max-width: 940px;
+    }
+    .eq-box {
+      background: var(--paper-3); border: 1px solid var(--ink-14);
+      border-radius: 3px; padding: 1.2rem 1.4rem; min-width: 180px;
+      text-align: center; display: flex; flex-direction: column; justify-content: center;
+      position: relative;
+    }
+    .eq-box::before { content: ""; position: absolute; top: -1px; left: -1px; width: 24px; height: 3px; }
+    .eq-box.evolved::before  { background: var(--pass); }
+    .eq-box.baseline::before { background: var(--mark); }
+    .eq-box .top {
+      font-family: var(--mono); color: var(--ink-52); font-size: .62em;
+      letter-spacing: .14em; text-transform: uppercase;
+    }
+    .eq-box .mid {
+      font-family: var(--serif); font-style: italic; font-size: 1.75em;
+      color: var(--ink); margin-top: .2em;
+    }
+    .eq-box.evolved .mid  { color: var(--pass); }
+    .eq-box.baseline .mid { color: var(--mark); }
+    .eq-op { font-family: var(--serif); font-size: 2.4em; color: var(--ink-34); align-self: center; font-weight: 400; }
+    .eq-box.lift {
+      background: var(--ink); border-color: var(--ink);
+    }
+    .eq-box.lift::before { background: var(--paper); }
+    .eq-box.lift .top { color: rgba(232,227,214,.55); }
+    .eq-box.lift .mid { color: var(--paper); }
+    /* measurement bracket beneath the comparison */
+    .eq-bracket-wrap { max-width: 940px; margin: .2em auto 0; }
+    .eq-bracket {
+      position: relative; height: 16px;
+      border-left: 1px solid var(--ink); border-right: 1px solid var(--ink);
+      border-bottom: 1px solid var(--ink);
+    }
+    .eq-bracket::before, .eq-bracket::after {
+      content: ""; position: absolute; bottom: -1px; width: 1px; height: 5px; background: var(--ink);
+    }
+    .eq-bracket::before { left: 28%; }
+    .eq-bracket::after  { left: 72%; }
+    .eq-caption {
+      text-align: center; margin-top: .7em;
+      font-family: var(--mono); font-size: .8em; letter-spacing: .06em; color: var(--ink-52);
+    }
+    .eq-caption b { color: var(--ink); font-weight: 700; }
+
+    /* LIFT 四字母拆解条 */
+    .lift-letters {
+      max-width: 940px; margin: 1.4em auto 0;
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: .55rem;
+      border-top: 1px solid var(--ink-14); padding-top: 1em;
+    }
+    .lift-letters .ll {
+      display: flex; flex-direction: column; gap: .15em;
+    }
+    .lift-letters .L {
+      font-family: var(--serif); font-weight: 700;
+      font-size: 1.45em; line-height: 1; color: var(--ink);
+      letter-spacing: .04em;
+    }
+    .lift-letters .L em {
+      font-style: normal; color: var(--mark);
+    }
+    .lift-letters .word {
+      font-family: var(--mono); font-size: .72em; letter-spacing: .04em;
+      color: var(--ink); text-transform: uppercase;
+    }
+    .lift-letters .gloss {
+      font-size: .7em; color: var(--ink-52); line-height: 1.4;
+    }
+
+    /* ============================================================
+       JUDGE-AS-USER multi-turn
+       ============================================================ */
+    .judge-chat {
+      display: grid; grid-template-columns: 1.08fr 1fr;
+      gap: 1.1rem; margin-top: .8em; align-items: stretch;
+    }
+    .judge-chat .col {
+      background: var(--paper-3); border: 1px solid var(--ink-14);
+      border-radius: 3px; padding: 1.05rem 1.1rem;
+      display: flex; flex-direction: column; gap: .5rem;
+    }
+    .judge-chat .col-head {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding-bottom: .55rem; border-bottom: 1px solid var(--ink-14); margin-bottom: .15rem;
+    }
+    .judge-chat .col-head .ctitle { font-family: var(--serif); font-size: 1.15em; color: var(--ink); }
+    .judge-chat .col-head .ctag {
+      font-family: var(--mono); font-size: .58em; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--ink-52);
+    }
+    .judge-chat .bubble {
+      border-radius: 2px; padding: .5rem .75rem; font-size: .84em; line-height: 1.5;
+      max-width: 94%; position: relative;
+    }
+    .judge-chat .bubble .who {
+      font-family: var(--mono); font-size: .68em; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--ink-52); margin-bottom: .2rem;
+    }
+    .judge-chat .bubble strong { color: var(--ink); font-weight: 600; }
+    .judge-chat .bubble.work {
+      background: var(--paper-2); border-left: 2px solid var(--steel);
+      align-self: flex-start;
+    }
+    .judge-chat .bubble.work .who { color: var(--steel); }
+    .judge-chat .bubble.judge {
+      background: #EBE2C9; border-left: 2px solid var(--mark);
+      align-self: flex-end;
+    }
+    .judge-chat .bubble.judge .who { color: var(--mark); }
+    .judge-chat .bubble.pass {
+      background: #DCE7DF; border-left: 2px solid var(--pass);
+      align-self: flex-end;
+    }
+    .judge-chat .bubble.pass .who { color: var(--pass); }
+    .judge-chat .turn-sep {
+      text-align: center; font-family: var(--mono); color: var(--ink-34);
+      font-size: .64em; letter-spacing: .12em; margin: .05rem 0;
+    }
+    .judge-chat .why-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .55rem; }
+    .judge-chat .why-list li {
+      display: flex; gap: .6rem; font-size: .88em; line-height: 1.5; color: var(--ink-72);
+      padding-bottom: .55rem; border-bottom: 1px solid var(--ink-14);
+    }
+    .judge-chat .why-list li:last-child { border-bottom: none; padding-bottom: 0; }
+    .judge-chat .why-list .icon {
+      flex: 0 0 auto; font-family: var(--mono); font-weight: 700;
+      color: var(--mark); font-size: .92em; padding-top: .05em;
+    }
+    .judge-chat .why-list strong { color: var(--ink); }
+    .judge-chat .why-list em { color: var(--signal); font-style: normal; font-weight: 500; }
+
+    /* ============================================================
+       SCRIPT v1 vs v2
+       ============================================================ */
+    .script { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin-top: .6em; }
+    .script-side {
+      background: var(--paper-3); border: 1px solid var(--ink-14);
+      border-radius: 3px; padding: 1.3rem 1.2rem; position: relative;
+    }
+    .script-side::before { content: ""; position: absolute; top: -1px; left: -1px; width: 28px; height: 3px; }
+    .script-side.good::before { background: var(--pass); }
+    .script-side.bad::before  { background: var(--signal); }
+    .script-side .head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: .6rem; border-bottom: 1px solid var(--ink-14);
+    }
+    .script-side .head .title { font-family: var(--mono); color: var(--ink); font-size: .98em; font-weight: 600; }
+    .script-side .head .ver {
+      font-family: var(--mono); font-size: .66em; letter-spacing: .08em;
+      color: var(--ink-52); text-transform: uppercase;
+    }
+    .script-side.good .head .ver { color: var(--pass); }
+    .script-side.bad  .head .ver { color: var(--signal); }
+    .script-side .pseudo {
+      font-family: var(--mono); color: var(--ink-72); font-size: .84em; line-height: 1.7;
+      background: var(--paper); border: 1px solid var(--ink-14); border-radius: 2px;
+      padding: .9rem 1rem; margin-top: .8rem; white-space: pre; overflow-x: auto;
+    }
+    .script-side .pseudo .k { color: var(--signal); }
+    .script-side .pseudo .v { color: var(--steel); }
+    .script-side .pseudo .c { color: var(--ink-52); }
+    .script-side .verdict {
+      font-size: .9em; color: var(--ink-52); margin-top: .75rem; line-height: 1.5;
+    }
+    .script-side.good .verdict strong { color: var(--pass); }
+    .script-side.bad  .verdict strong { color: var(--signal); }
+
+    /* ============================================================
+       CASCADE — RING ("re-invent these wheels")
+       4 nodes ride a dashed wheel-rim around a dark hub.
+       The ring IS a wheel → the 轮子 metaphor.
+       ============================================================ */
+    .cascade-ring {
+      position: relative;
+      width: 620px; height: 520px;
+      margin: .2em auto 0;
+    }
+    .cascade-ring > svg.ring-bg {
+      position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible;
+    }
+    .cascade-ring .hub {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 158px; height: 158px; border-radius: 50%;
+      background: var(--ink); color: var(--paper);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; gap: .1em; z-index: 2;
+    }
+    .cascade-ring .hub .h-top {
+      font-family: var(--mono); font-size: 10px; letter-spacing: .18em;
+      text-transform: uppercase; color: rgba(232,227,214,.62);
+    }
+    .cascade-ring .hub .h-mid {
+      font-family: var(--serif); font-style: italic; font-size: 2.9em;
+      line-height: 1; color: var(--paper);
+    }
+    .cascade-ring .hub .h-bot {
+      font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+      text-transform: uppercase; color: rgba(232,227,214,.62);
+    }
+    .cascade-ring .cnode {
+      position: absolute; top: 50%; left: 50%; width: 210px;
+      background: var(--paper-3); border: 1px solid var(--ink-14);
+      border-radius: 3px; padding: .85rem .95rem; z-index: 2;
+    }
+    .cascade-ring .cnode::before {
+      content: ""; position: absolute; top: -1px; left: -1px;
+      width: 3px; height: 22px; background: var(--signal);
+    }
+    .cascade-ring .cnode.n { transform: translate(-50%, calc(-50% - 175px)); }
+    .cascade-ring .cnode.e { transform: translate(calc(-50% + 215px), -50%); }
+    .cascade-ring .cnode.s { transform: translate(-50%, calc(-50% + 175px)); }
+    .cascade-ring .cnode.w { transform: translate(calc(-50% - 215px), -50%); }
+    .cascade-ring .cnode .num {
+      font-family: var(--mono); color: var(--signal); font-size: .72em;
+      letter-spacing: .14em; font-weight: 700;
+    }
+    .cascade-ring .cnode .what {
+      font-family: var(--serif); color: var(--ink); font-size: 1.4em;
+      margin-top: .1em; line-height: 1.15;
+    }
+    .cascade-ring .cnode .why {
+      color: var(--ink-52); font-size: .82em; margin-top: .35em; line-height: 1.45;
+    }
+    .cascade-foot {
+      text-align: center; margin-top: .4em;
+      font-family: var(--mono); font-size: .82em; color: var(--ink-52); letter-spacing: .03em;
+    }
+    .cascade-foot b { color: var(--signal); font-weight: 700; }
+
+    /* ============================================================
+       THREE-LAYER STACK
+       ============================================================ */
+    .stack {
+      display: flex; flex-direction: column; gap: .4rem;
+      align-items: center; margin: .8em auto .6em; max-width: 820px;
+    }
+    .stack-box {
+      width: 100%; background: var(--paper-3); border: 1px solid var(--ink-14);
+      border-radius: 3px; padding: 1rem 1.4rem 1.05rem; text-align: left; position: relative;
+    }
+    .stack-box::before { content: ""; position: absolute; top: -1px; left: -1px; width: 28px; height: 3px; }
+    .stack-box.l1::before { background: var(--steel); }
+    .stack-box.l2::before { background: var(--mark); }
+    .stack-box.l3::before { background: var(--pass); }
+    .stack-row {
+      display: grid; grid-template-columns: 200px 1fr auto; gap: 1.2rem; align-items: center;
+    }
+    .stack-box .layer {
+      font-family: var(--mono); font-weight: 700; font-size: 1em; letter-spacing: .02em;
+    }
+    .stack-box.l1 .layer { color: var(--steel); }
+    .stack-box.l2 .layer { color: var(--mark); }
+    .stack-box.l3 .layer { color: var(--pass); }
+    .stack-box .role-main {
+      font-size: .9em; color: var(--ink); line-height: 1.5;
+    }
+    .stack-box .role-main b { font-weight: 700; }
+    .stack-box .role-sub {
+      font-family: var(--mono); font-size: .72em; color: var(--ink-52);
+      margin-top: .25em; letter-spacing: .01em;
+    }
+    .stack-box .agent-tag {
+      font-family: var(--mono); font-size: .68em; padding: .25em .55em;
+      border: 1px solid var(--ink-14); border-radius: 2px;
+      color: var(--ink-52); white-space: nowrap; letter-spacing: .04em;
+    }
+    .stack-box.l2 .agent-tag {
+      color: var(--mark); border-color: var(--mark);
+    }
+    .stack-box.l1 .agent-tag, .stack-box.l3 .agent-tag {
+      color: var(--pass); border-color: var(--pass);
+    }
+    .stack-box.l2 { border-color: var(--mark); }
+    .stack-arrow { font-family: var(--mono); color: var(--ink-34); font-size: 1.15em; line-height: 1; }
+    .stack-tag {
+      text-align: center; margin-top: .8em;
+      font-family: var(--mono); font-size: .82em; color: var(--ink-52); letter-spacing: .02em;
+    }
+    .stack-tag b { color: var(--mark); font-weight: 700; }
+
+    /* ============================================================
+       ADAPTER — 4 hooks
+       ============================================================ */
+    .hooks { display: grid; grid-template-columns: repeat(2, 1fr); gap: .9rem; margin-top: .7em; }
+    .hook {
+      background: var(--paper-3); border: 1px solid var(--ink-14);
+      border-radius: 3px; padding: 1.15rem 1.3rem;
+      display: flex; align-items: baseline; gap: 1rem; position: relative;
+    }
+    .hook::before { content: ""; position: absolute; top: -1px; left: -1px; width: 24px; height: 3px; background: var(--mark); }
+    .hook .idx { font-family: var(--mono); color: var(--mark); font-size: 1.4em; font-weight: 700; }
+    .hook .name { font-family: var(--mono); font-size: 1.02em; font-weight: 600; color: var(--ink); }
+    .hook .desc { color: var(--ink-52); font-size: .88em; margin-top: .25em; line-height: 1.5; }
+    .hooks-foot {
+      text-align: center; margin-top: 1em;
+      font-family: var(--mono); font-size: .86em; color: var(--ink-52); letter-spacing: .02em;
+    }
+    .hooks-foot b { color: var(--ink); font-weight: 700; }
+
+    /* ============================================================
+       PRODUCT-FORM AGNOSTIC
+       ============================================================ */
+    .agnostic {
+      display: grid; grid-template-columns: 1fr auto 1fr;
+      gap: 1.4rem; margin-top: 1em; align-items: center;
+    }
+    .agnostic-products { display: flex; flex-direction: column; gap: .6rem; }
+    .ap-item {
+      background: var(--paper-3); border: 1px solid var(--ink-14);
+      border-radius: 3px; padding: .7rem .95rem;
+      display: flex; align-items: center; gap: .85rem;
+    }
+    .ap-item .glyph {
+      font-family: var(--mono); font-size: 1.4em; color: var(--steel);
+      width: 1.4em; text-align: center; font-weight: 500;
+    }
+    .ap-item.a2 .glyph { color: var(--mark); }
+    .ap-item.a3 .glyph { color: var(--pass); }
+    .ap-item.a4 .glyph { color: var(--signal); }
+    .ap-item .name { font-family: var(--mono); color: var(--ink); font-weight: 600; font-size: .96em; }
+    .ap-item .form { font-family: var(--mono); color: var(--ink-52); font-size: .78em; }
+    .agnostic-arrow { display: flex; flex-direction: column; align-items: center; gap: .35rem; color: var(--ink-52); }
+    .agnostic-arrow .arrow { font-family: var(--serif); font-size: 2.6em; line-height: 1; color: var(--ink); }
+    .agnostic-arrow .text { font-family: var(--mono); font-size: .62em; letter-spacing: .12em; text-transform: uppercase; }
+    .agnostic-frame {
+      background: var(--ink); color: var(--paper);
+      border-radius: 3px; padding: 1.8rem 1.6rem; text-align: center; position: relative;
+    }
+    .agnostic-frame::before {
+      content: ""; position: absolute; top: 10px; left: 10px; right: 10px; bottom: 10px;
+      border: 1px solid rgba(232,227,214,.22); pointer-events: none;
+    }
+    .agnostic-frame .head {
+      font-family: var(--mono); font-size: .64em; letter-spacing: .16em;
+      text-transform: uppercase; color: rgba(232,227,214,.6);
+    }
+    .agnostic-frame .title {
+      font-family: var(--serif); font-style: italic; font-size: 1.95em;
+      color: var(--paper); margin: .35em 0; line-height: 1.15;
+    }
+    .agnostic-frame .sub {
+      font-family: var(--mono); color: rgba(232,227,214,.62);
+      font-size: .76em; line-height: 1.6;
+    }
+
+    /* ============================================================
+       MERMAID TIMELINE
+       ============================================================ */
+    .mermaid-wrap {
+      background: var(--paper-3); border: 1px solid var(--ink-14);
+      border-radius: 3px; padding: 1.2rem; margin-top: .5em;
+    }
+    .mermaid-rendered { display: flex; justify-content: center; align-items: center; }
+    .mermaid-rendered svg { max-width: 100%; max-height: 500px; height: auto !important; }
+
+    /* ============================================================
+       BENEFITS GRID — 2×2 (bigger cards, bigger type)
+       ============================================================ */
+    .bonus { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-top: .7em; }
+    .bonus-card {
+      background: var(--paper-3); border: 1px solid var(--ink-14);
+      border-radius: 3px; padding: 1.4rem 1.4rem; position: relative;
+      display: flex; flex-direction: column; gap: .5rem; min-height: 175px;
+    }
+    .bonus-card::before { content: ""; position: absolute; top: -1px; left: -1px; width: 26px; height: 3px; background: var(--steel); }
+    .bonus-card.b2::before { background: var(--pass); }
+    .bonus-card.b3::before { background: var(--mark); }
+    .bonus-card.b4::before { background: var(--ink); }
+    .bonus-card .glyph {
+      font-family: var(--mono); font-size: 2.4em; line-height: 1; color: var(--steel);
+    }
+    .bonus-card.b2 .glyph { color: var(--pass); }
+    .bonus-card.b3 .glyph { color: var(--mark); }
+    .bonus-card.b4 .glyph { color: var(--ink); }
+    .bonus-card .title { font-family: var(--serif); color: var(--ink); font-size: 1.4em; line-height: 1.15; }
+    .bonus-card .body { color: var(--ink-52); font-size: .92em; line-height: 1.55; }
+    .bonus-card .body strong { color: var(--ink); }
+    .bonus-card .body code { font-family: var(--mono); font-size: .9em; color: var(--ink); background: var(--paper-2); padding: 0 .2em; }
+
+    /* ============================================================
+       HELLO FLOW (multi)
+       ============================================================ */
+    .qflow-multi {
+      display: grid; grid-template-columns: 1fr auto 1.5fr;
+      gap: 1rem; align-items: center; margin-top: .7em;
+    }
+    .qflow-multi .warm-col { display: flex; flex-direction: column; gap: .6rem; }
+    .qflow-multi .arrow-col { text-align: center; color: var(--ink-52); }
+    .qflow-multi .arrow-col .arrow { font-family: var(--serif); font-size: 2.1em; line-height: 1; color: var(--ink); }
+    .qflow-multi .arrow-col .lbl {
+      display: block; font-family: var(--mono); font-size: .52em;
+      letter-spacing: .14em; text-transform: uppercase; margin-top: .35em; color: var(--mark);
+    }
+    .qflow-multi .hold-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: .55rem .65rem; align-items: stretch;
+    }
+    .qflow-multi .hold-grid .row-label {
+      grid-column: 1 / -1; font-family: var(--mono); font-size: .68em;
+      letter-spacing: .12em; text-transform: uppercase; color: var(--ink-52);
+      margin-top: .35em; padding-bottom: .2em; border-bottom: 1px solid var(--ink-14);
+    }
+    .qflow-multi .hold-grid .row-label:first-child { margin-top: 0; }
+    .qcard {
+      background: var(--paper-3); border: 1px solid var(--ink-14);
+      border-radius: 3px; padding: 1.15rem 1.05rem; position: relative;
+      display: flex; flex-direction: column; gap: .4rem;
+    }
+    .qcard::before { content: ""; position: absolute; top: -1px; left: -1px; width: 22px; height: 3px; }
+    .qcard.warm::before { background: var(--mark); }
+    .qcard.base::before { background: var(--mark); }
+    .qcard.evol::before { background: var(--pass); }
+    .qcard .tag {
+      font-family: var(--mono); font-size: .66em; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--ink-52);
+    }
+    .qcard.warm .tag, .qcard.base .tag { color: var(--mark); }
+    .qcard.evol .tag { color: var(--pass); }
+    .qcard .q { font-family: var(--serif); font-size: 1.12em; color: var(--ink); line-height: 1.3; }
+    .qcard .body { color: var(--ink-52); font-size: .86em; line-height: 1.5; }
+    .qflow-multi .qcard { padding: .8rem .9rem; gap: .25rem; }
+    .qflow-multi .qcard .q { font-size: .92em; }
+    .qflow-multi .qcard .body { font-size: .8em; }
+    .qflow-multi .qcard .tag { font-size: .6em; }
+    .cmd-line {
+      margin-top: 1em;
+      font-family: var(--mono); font-size: .8em; color: var(--ink-72);
+      background: var(--paper); border: 1px solid var(--ink-14); border-radius: 2px;
+      padding: .75rem .95rem; white-space: pre; overflow-x: auto; line-height: 1.7;
+    }
+    .cmd-line .p { color: var(--signal); }
+    .cmd-line .f { color: var(--steel); }
+    .cmd-line .v { color: var(--mark); }
+
+    /* ============================================================
+       DASHBOARD SHOT — single hero image card
+       ============================================================ */
+    .dashboard-shot {
+      margin-top: .4em;
+      background: var(--paper-3);
+      border: 1px solid var(--ink-14);
+      border-radius: 3px;
+      padding: .9rem .9rem .7rem;
+      position: relative;
+      display: flex; flex-direction: column; gap: .55rem;
+    }
+    .dashboard-shot::before {
+      content: ""; position: absolute; top: -1px; left: -1px;
+      width: 28px; height: 3px; background: var(--pass);
+    }
+    .dashboard-shot .frame {
+      background: var(--paper-2);
+      border: 1px solid var(--ink-14);
+      border-radius: 2px;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .dashboard-shot .frame img {
+      width: 100%; height: 100%; object-fit: contain; display: block;
+    }
+    .dashboard-shot .frame .placeholder {
+      font-family: var(--mono); font-size: .8em; color: var(--ink-52);
+      letter-spacing: .08em; text-transform: uppercase;
+    }
+    .dashboard-shot .caption {
+      display: flex; justify-content: space-between; align-items: baseline;
+      gap: 1rem;
+      font-family: var(--mono); font-size: .68em; color: var(--ink-52);
+      letter-spacing: .04em;
+    }
+    .dashboard-shot .caption strong { color: var(--ink); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-right: .35em; }
+    .dashboard-shot .caption em { color: var(--mark); font-style: normal; }
+
+    /* ============================================================
+       RECAP — spec sheet
+       ============================================================ */
+    .recap {
+      display: grid; grid-template-columns: 10em 1fr;
+      gap: .6em 1.4rem; font-size: 1em; margin-top: .9em; align-items: baseline;
+    }
+    .recap .k {
+      font-family: var(--mono); font-weight: 700; color: var(--mark);
+      letter-spacing: .08em; text-transform: uppercase; font-size: .76em;
+      padding-top: .2em;
+    }
+    .recap .v {
+      color: var(--ink-72); line-height: 1.5; font-size: 1.04em;
+      padding-bottom: .55em; border-bottom: 1px solid var(--ink-14);
+    }
+    .recap .v em { color: var(--ink-52); font-style: normal; font-size: .82em; display: block; margin-top: .15em; font-family: var(--mono); letter-spacing: .01em; }
+
+    /* ============================================================
+       reduced motion / responsive guard
+       ============================================================ */
+    @media (prefers-reduced-motion: reduce) {
+      .reveal, .reveal *, .lightbox, .lightbox * { transition: none !important; animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="reveal">
+  <!-- drafting registration ticks -->
+  <span class="corner-tick ct-tl"></span>
+  <span class="corner-tick ct-tr"></span>
+  <span class="corner-tick ct-bl"></span>
+  <span class="corner-tick ct-br"></span>
+
+  <!-- drawing title block -->
+  <div class="titleblock">
+    <b>LIFT</b> &nbsp; Loaded Impact on Final Task<br/>
+    internal share &nbsp;·&nbsp; <em>measurement instrument</em> for self-evolving agents
+  </div>
+
+  <div class="slides">
+
+    <!-- 1. Cover -->
+    <section class="cover">
+      <div class="kicker">an instrument for self-evolving agents</div>
+      <h1 class="brand">LIFT</h1>
+      <div class="bracket" aria-hidden="true"></div>
+      <div class="full">Loaded Impact on Final Task</div>
+      <p class="tagline">让「Agent 进化」从感觉，<br/>变成可测的 <em>数字</em>。</p>
+      <div class="meta"><a href="https://github.com/FeiZhuNiU-INFJA/LIFT" target="_blank" rel="noopener">github.com/FeiZhuNiU-INFJA/LIFT ↗</a> · cover · 2026.06</div>
+      <aside class="notes">Agent 自进化现在很火。
+        那么Agent自进化之后——是不是真的变厉害了？变厉害了多少？这就引出了今天要给大家介绍的，由我们提出的 LIFT 。LIFT本身是一个专门用于评估Agent进化能力的<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">框架，是</span>&nbsp;Loaded impact on final task的缩写。什么意思呢？Agent进化之后不是会有各种形式的产物嘛，比如大家熟悉的memory和skill，那我们评估的就是在load这些产物前后<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">Agent</span>在final task上的效果变化了多少。这里的final task是啥，后面会慢慢道来。<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;"><br></span><br></aside>
+    </section>
+
+    <!-- 1. Dashboard snapshot — a live run in progress -->
+    <section>
+      <div class="slide-eyebrow"><span class="fig">live ·</span> 实时看板</div>
+      <h2>这是它跑到一半的样子</h2>
+      <figure class="shot">
+        <div class="frame">
+          <img src="../assets/dashboard_snapshot.png" alt="LIFT 一次跑分进行中的 dashboard：baseline / evolved 在并行，状态实时刷新" />
+        </div>
+        <figcaption>跑分进行中 · <b>baseline 与 evolved 两路在并行跑</b>，状态、分数实时回灌。</figcaption>
+      </figure>
+      <aside class="notes">先给大家一个最直观的LIFT实际运行时候的可视化，这是LIFT的dashboard<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">。</span>让我们来看看能看到哪些信息。<br>1. 这是一个对openclaw的评测。进度目前是7% 预计还要12小时完成。<br>2. 任务成功率进化前后都是100% ；turns是对话轮数，对话轮数从进化前的11轮涨到了进化后的12.2轮，变差了1.2轮，其中变好的任务是4个，变差的是11个； TOOLS是工具调用次数，从23次涨到了25.5次，差了2.5次。 其中变好了的3个，变差了11个。score是任务得分，0-1之间。只要不是1分，就认为是失败。这里的1.00和100%是对应的。<br>3. 这一块是细分到每个任务集的指标变化。关于任务集的概念后面会展开，这里先简单看一下，“PPT制作” “销售的每周数据分析” “初创公司融资路演的材料整理” 等等都是一个个的任务集<br>4. 再下面是一个表格，这是一个细粒度的进度监控，表格中每一行代表一个任务集，我们把任务集称作suite，每列表示这个suite重复跑多次（我们称之为repeat）。表格的每个cell，也就是每个suite的每个repeat，被分成三个阶段，w,b,e ，分别代表warmup，baseline和evolved。warmup是热身做题的过程，agent在热身过程中进化。baseline和evolved是agent在进化前后分别进入考试状态，得到两个考试结果之后，就能作对比了。 所以通过这个表格可以非常直观看到整体的状态。<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;"><br></span></aside>
+    </section>
+
+    <!-- 1a. Value story — what LIFT does, as a 4-step user journey -->
+    <section>
+      <div class="slide-eyebrow"><span class="fig">the value ·</span> 用户故事</div>
+      <h2>想知道你的 Agent 进化能力到底有多强？</h2>
+      <div class="story">
+        <div class="story-step">
+          <div class="s-glyph">⊕</div>
+          <div class="s-title">接入</div>
+          <div class="s-desc">通过 skill 接入新的 agent runtime</div>
+        </div>
+        <div class="story-arrow">→</div>
+        <div class="story-step">
+          <div class="s-glyph">▷</div>
+          <div class="s-title">运行</div>
+          <div class="s-desc">CLI 运行benchmark评测</div>
+        </div>
+        <div class="story-arrow">→</div>
+        <div class="story-step">
+          <div class="s-glyph">◎</div>
+          <div class="s-title">监控</div>
+          <div class="s-desc">dashboard 监控评测进度</div>
+        </div>
+        <div class="story-arrow">→</div>
+        <div class="story-step">
+          <div class="s-glyph">▦</div>
+          <div class="s-title">报告</div>
+          <div class="s-desc">获得 HTML 报告</div>
+        </div>
+      </div>
+      <div class="story-foot">全程框架兜底 —— <b>你只管接 Agent</b>。</div>
+      <aside class="notes">对于使用LIFT的用户来说，完整的user story的这样的：<br>假设现在手上有一个新的 Agent，或者是新版本的Agent，想知道它进化能力到底有多强。走这四步：<br>&nbsp;① 第一步，用我们预制的 skill，生成新的agent runtime。所谓的runtime，就是你得告诉lift这个agent的镜像在哪，如何构建对话。<br>&nbsp;② 第二步，运行CLI命令，跑benchmark数据集<br>&nbsp;③ 第三部，通过 dashboard 实时监控运行状态，也就是大家前一页看到的<br>&nbsp;④最后，获得进化能力评估报告<br><br>全程我们真正动手的就是生成新的 Agent runtime，其他事情全部由框架来兜底了。着重再说一下，第一步我们已经有了skill，所以动手的时候非常丝滑。我自己在接入新的agent的时候是0代码的。<br><br>这里说明一下，关于benchmark数据集的细节设计和最终报告的解读稍后会由另外一位FDE同学韩通来介绍。我这边会介绍剩余的部分</aside>
+    </section>
+
+    <!-- 1b. Outline / roadmap -->
+    <section>
+      <div class="slide-eyebrow"><span class="fig">roadmap ·</span> 四段</div>
+      <h2>从问题，到落地</h2>
+      <div class="outline">
+        <div class="outline-station">
+          <div class="o-num">01</div>
+          <div class="o-body">
+            <div class="o-label">现状 · the problem</div>
+            <div class="o-title">自进化 Agent 评测的两个痛</div>
+            <div class="o-desc">进化常是假阳性，评测本身也不可信</div>
+          </div>
+        </div>
+        <div class="outline-station">
+          <div class="o-num">02</div>
+          <div class="o-body">
+            <div class="o-label">我们的回答 · the standard</div>
+            <div class="o-title">先立一套数据集标准</div>
+            <div class="o-desc">train/test 分离 · A/B 对照 · judge 扮用户多轮</div>
+          </div>
+        </div>
+        <div class="outline-station">
+          <div class="o-num">03</div>
+          <div class="o-body">
+            <div class="o-label">工程演化 · the build</div>
+            <div class="o-title">为什么是框架，不是脚本？</div>
+            <div class="o-desc">评测与 Agent 解耦，4 个钩子接入任意 runtime</div>
+          </div>
+        </div>
+        <div class="outline-station">
+          <div class="o-num">04</div>
+          <div class="o-body">
+            <div class="o-label">演示 · the demo</div>
+            <div class="o-title">最小集走一遍，看一眼成绩单</div>
+            <div class="o-desc">hello_multi 一行命令，分数 + dashboard 全自动</div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">好的，讲完user story之后。接下来正式进入主题。今天的presentation分为四个部分：
+<br>第1 介绍<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">agent进化评测领域前沿研究的痛点</span>；<br>第2 我们自己建立了一套评测进化能力的数据集标准；<br>第3 工程上为什么要做成框架<br>最后是个hello world级别的快速演示</aside>
+    </section>
+
+    <!-- 2. Section 1 divider -->
+    <section class="divider">
+      <div class="num">01</div>
+      <div class="label">现状 · the problem</div>
+      <div class="title">自进化 Agent 评测的两个痛</div>
+      <div class="rule"></div>
+      <aside class="notes">首先是痛点</aside>
+    </section>
+
+    <!-- 3. Pain 1: 自进化「变好」其实站不住脚 -->
+    <section>
+      <div class="slide-eyebrow">痛点 ①</div>
+      <h2>"Agent 进化变好了"——证据其实站不住</h2>
+      <div class="evidence">
+        <div class="ev">
+          <div class="src">
+            <span class="name">SkillsBench</span>
+            <span class="ref">arXiv:2602.12670</span>
+          </div>
+          <div class="stat">≈ 0<span class="unit">self-gen skill · 86 tasks</span></div>
+          <div class="punch">Agent <strong>自生成 Skill</strong> 加载后，对原任务的提升<em>接近零甚至为负</em>。精选 Skill +16.2pp，自生成 ≈ 0。</div>
+        </div>
+        <div class="ev">
+          <div class="src">
+            <span class="name">LifeLongAgentBench</span>
+            <span class="ref">#16 · NeurIPS 2025</span>
+          </div>
+          <div class="stat">BWT &lt; 0<span class="unit">大部分自进化 Agent</span></div>
+          <div class="punch">学新任务的同时<strong>忘了旧任务</strong>——只看新任务就报"进化成功"，回头测旧任务发现灾难性遗忘。</div>
+        </div>
+        <div class="ev">
+          <div class="src">
+            <span class="name">MLR-bench</span>
+            <span class="ref">arXiv:2505.19955</span>
+          </div>
+          <div class="stat">80%<span class="unit">coding agent 产出</span></div>
+          <div class="punch">声称跑通了实验、给出了 metric，但<strong>伪造或无法验证</strong>。"我自己测了，挺好"——80% 的情况是这样。</div>
+        </div>
+        <div class="ev">
+          <div class="src">
+            <span class="name">SEA-Eval</span>
+            <span class="ref">arXiv:2604.08988</span>
+          </div>
+          <div class="stat">大部分<span class="unit">"自进化" Agent</span></div>
+          <div class="punch">所谓"自进化" 其实只是<strong>任务内执行 · 任务间清零</strong>——
+          下一题不知道之前发生过什么，谈不上跨任务沉淀。<em>"自进化"很多时候只是个标签</em></div>
+        </div>
+      </div>
+      <div class="evidence-footer">
+        <span class="pin">共同点</span>靠的不是数字 · 是定义模糊 + 协议漏洞 + 自说自话
+      </div>
+      <aside class="notes">第一个痛点：其实大部分agent的自进化并没有变得更好：<br>① A论文对比了人类精选 Skill 和 自生成 Skill。
+           发现：精选 Skill 可以提点（16.2pp），而自生成的 Skill 平均无效甚至有害。<br>② B论文引入了一个 叫BWT的指标，用大白话解释就是agent在新任务上进化出的能力在老的任务上表现如何，结果发现&lt;0，意思是存在灾难性遗忘，学了新的忘了旧的<br>③ C论文对 coding agent 进行了评测过程中发现，80% 情况下产出的实验是伪造或无法验证的。 伪造的意思是，agent的中间过程有报错，但还是通过幻觉产出了一个类似正确的结果<div>④ B论文，大部分声称"自进化"的 Agent，实际上只是在一个任务内可以反思、改方案、跨任务根本没有任何东西被沉淀、积累、复用。&nbsp;<br><br>&nbsp;所以第一个痛点是Agent 自进化这件事本身就特别容易是假阳性&nbsp; false positive。</div></aside>
+    </section>
+
+    <!-- 4. Pain 2: 评测协议本身不可信 -->
+    <section>
+      <div class="slide-eyebrow">痛点 ②</div>
+      <h2>退一步说——评测这件事本身就不可信</h2>
+      <div class="evidence">
+        <div class="ev">
+          <div class="src">
+            <span class="name">Safety Benchmarks</span>
+            <span class="ref">arXiv:2605.16282</span>
+          </div>
+          <div class="stat">W = 0.10<span class="unit">Kendall's W · p = 0.94</span></div>
+          <div class="punch">12 个模型 × 4 个安全 benchmark：<strong>排名完全不一致</strong>。在 A benchmark 上第一名，在 B 上可能垫底。结论无法迁移。</div>
+        </div>
+        <div class="ev">
+          <div class="src">
+            <span class="name">ABC Checklist</span>
+            <span class="ref">arXiv:2507.02825</span>
+          </div>
+          <div class="stat">±100%<span class="unit">性能误判幅度</span></div>
+          <div class="punch">SWE-bench 测试用例不足、TAU-bench 把空回复算成功……评测设计 bug <strong>最多让性能误判 100%</strong>。</div>
+        </div>
+        <div class="ev">
+          <div class="src">
+            <span class="name">WildClawBench</span>
+            <span class="ref">InternLM · #28</span>
+          </div>
+          <div class="stat">8.4 pp<span class="unit">同模型 · 不同框架</span></div>
+          <div class="punch">同一个底层模型，<strong>挂在不同 Agent 框架</strong>下分差好几个点（Codex 56.8% vs Claude Code 48.4%）。比的是模型还是框架？</div>
+        </div>
+        <div class="ev">
+          <div class="src">
+            <span class="name">环境保真度</span>
+            <span class="ref">arXiv:2605.16282 · 同篇</span>
+          </div>
+          <div class="stat">沙箱 ≠ 真实<span class="unit">系统性偏差</span></div>
+          <div class="punch">同一篇综述还发现：沙箱里的安全表现<strong>无法外推到真实环境</strong>。漂亮的报告数字到了客户场景就翻车。</div>
+        </div>
+      </div>
+      <div class="evidence-footer">
+        <span class="pin">含义</span>没有标准化、对照清晰的评测协议，谁也说不清谁更强
+      </div>
+      <aside class="notes">第二个痛点是评测，评测这件事本身现在也很混乱。<br>① A论文发现，在安全领域的众多benchmark中，不同的agent的排名一致性是0.1， 什么意思？接近随机——一个 benchmark 上排第一的agent，换一个 benchmark 可能排倒数。&nbsp;<br>② B论文发现主流 benchmark中存在严重的的设计 bug，包括测试用例不足，把"空回复"也算成功；
+           这些 bug甚至可以让结果完全颠倒。&nbsp;<br>③ C论文中指出，同一个基座模型，用不同的agent，效果差距巨大。所以提出了一个灵魂拷问，我们到底在比模型、比提示词、还是比 Agent 框架？
+<br>④ D论文中还提到一个问题：沙箱环境中跑的测试和用户真实场景中的效果大相径庭。
+<br><br>&nbsp;总结一下两个痛点：自进化是个特别容易出false positive的事，而评测本身也很乱。
+        所以如果我们要严肃地回答「 Agent 进化了多少」——
+        必须要建立一套博采众长的数据集标准和评测模式。</aside>
+    </section>
+
+    <!-- 5. Section 2 divider -->
+    <section class="divider">
+      <div class="num">02</div>
+      <div class="label">我们的回答 · the standard</div>
+      <div class="title">先立一套数据集标准</div>
+      <div class="rule"></div>
+      <aside class="notes">首先来聊一下数据集标准，这部分前面提到细节会由韩通来介绍，我的这一趴主要介绍一些基本概念</aside>
+    </section>
+
+    <!-- 6. Suite standard: train/test split -->
+    <section>
+      <div class="slide-eyebrow">数据集标准</div>
+      <h2>每个 Suite 显式分两堆题</h2>
+      <div class="suite-flow">
+        <div class="suite-col train">
+          <div class="header">
+            <span class="tick"></span>
+            <span class="label">train · warmup</span>
+          </div>
+          <div class="title">练习题</div>
+          <div class="items">q1_xxx/<br/>q2_xxx/<br/>q3_xxx/<br/>q4_xxx/</div>
+          <div class="note">Agent 在这里"学"，跑完触发进化</div>
+        </div>
+        <div class="suite-bridge">
+          <div class="arrow">↦</div>
+          <div class="text">学到的东西<br/>带过去</div>
+        </div>
+        <div class="suite-col test">
+          <div class="header">
+            <span class="tick"></span>
+            <span class="label">test · holdout</span>
+          </div>
+          <div class="title">期末考</div>
+          <div class="items">q5_xxx/<br/>q6_xxx/</div>
+          <div class="note">75% 要求与 train 一致<br/>25% 是变体或矛盾<br/><em>考过拟合 · 考泛化</em></div>
+        </div>
+      </div>
+      <div class="delegate-hint">真实案例 <a href="assets/benchmarks/股票投资决策.json" target="_blank" rel="noopener">股票投资决策.json ↗</a></div>
+      <aside class="notes">首先我们用任务集suite来定义一组任务，一个suite会包含若干task，比如这里的q1-q6,&nbsp;<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">任务的复杂度是一个递进的关系，简单理解就是越来越难</span><br>这些任务会被显式分成 warmup和holdout两组。或者叫train set和test set.&nbsp; Holdout是统计学中的一个概念，表示不参与训练的一批数据。<br>我们把warmup的q1-q4理解成练习题——拿来让 Agent 学，触发自进化；
+<br>holdout是期末考——这才是真正用来打分的。&nbsp;<br>一道holdout，进化前跑一遍、进化后跑一遍，就能看出是不是变厉害了。给大家看一个suite的例子<br><br>这是suite的名字叫股票投资决策，有warmup有四个任务，holdout有两个任务。我们就看一个任务包含哪些内容<br>首先是query，这个是题面， balabala<br>然后是expected_result, 可以看到有12个点，这些点大部分没有出现在题面中，可以理解成是存在用户脑子里的终极目标。真实场景中，一上来一般都是一个大致的方向，用户通过多轮对话才能把自己的需求讲清楚</aside>
+    </section>
+
+    <!-- 7. The measurement -->
+    <section>
+      <div class="slide-eyebrow">怎么打分</div>
+      <h2>同一道 holdout 题，跑两遍</h2>
+      <div class="equation">
+        <div class="eq-box evolved">
+          <div class="top">加载进化产物</div>
+          <div class="mid">evolved 分</div>
+        </div>
+        <div class="eq-op">−</div>
+        <div class="eq-box baseline">
+          <div class="top">不加载</div>
+          <div class="mid">baseline 分</div>
+        </div>
+        <div class="eq-op">=</div>
+        <div class="eq-box lift">
+          <div class="top">真正的提升</div>
+          <div class="mid">LIFT</div>
+        </div>
+      </div>
+      <div class="eq-bracket-wrap"><div class="eq-bracket" aria-hidden="true"></div></div>
+      <div class="eq-caption">经典 <b>A/B 实验</b> —— 同一题、两条件、看 Δscore</div>
+
+      <div class="lift-letters">
+        <div class="ll">
+          <div class="L"><em>L</em>oaded</div>
+          <div class="word">加载产物后的</div>
+          <div class="gloss">对应 evolved 那一侧——加载了进化产物的版本</div>
+        </div>
+        <div class="ll">
+          <div class="L"><em>I</em>mpact</div>
+          <div class="word">影响</div>
+          <div class="gloss">evolved 减 baseline 的 Δscore，不是 evolved 一个绝对分</div>
+        </div>
+        <div class="ll">
+          <div class="L">on <em>F</em>inal</div>
+          <div class="word">在最终的</div>
+          <div class="gloss">在 holdout 上测，而不是在 warmup 练过的题上测</div>
+        </div>
+        <div class="ll">
+          <div class="L"><em>T</em>ask</div>
+          <div class="word">任务上</div>
+          <div class="gloss">真实任务，不是合成的 toy benchmark</div>
+        </div>
+      </div>
+
+      <aside class="notes">我们的打分方式非常朴素—— A/B test。<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">终极目标完成的越完整，分数越高。</span>&nbsp; <br>同一道 holdout 题，跑两遍：一遍进化前，不加载进化产物，一遍进化后，加载产物。 分差就是进化的效果了，这个 LIFT 正好一语双关，看看agent能不能把自己举起来。<br>这里再重温一下LIFT的全称：&nbsp; Loaded Impact on Final Task<br></aside>
+    </section>
+
+    <!-- 7b. Judge as user -->
+    <section>
+      <div class="slide-eyebrow">单题怎么评 · 必经一步</div>
+      <h2>"跑一遍"是多轮——那"用户反馈"谁来给？</h2>
+      <div class="judge-chat">
+        <div class="col">
+          <div class="col-head">
+            <span class="ctitle">真实 Agent 工作长这样</span>
+            <span class="ctag">为什么必须多轮</span>
+          </div>
+          <div class="bubble work">
+            <div class="who">Work Agent · turn 1</div>
+            "写完了，简报放在 result/ 下。"
+          </div>
+          <div class="bubble judge">
+            <div class="who">用户 · turn 1</div>
+            "你这把结构不太对啊——我想要"<strong>业绩概览 / 异常拆解 / 后续动作</strong>"三个二级标题，开头先写一下汇报日期。"
+          </div>
+          <div class="turn-sep">▼  agent 看到反馈，继续干</div>
+          <div class="bubble work">
+            <div class="who">Work Agent · turn 2</div>
+            "好的，已经加了三个二级标题和日期。"
+          </div>
+          <div class="bubble judge">
+            <div class="who">用户 · turn 2</div>
+            "差不多了，金额我想要<strong>保留 2 位小数</strong>。"
+          </div>
+          <div class="turn-sep">▼</div>
+          <div class="bubble work">
+            <div class="who">Work Agent · turn 3</div>
+            "已调整。"
+          </div>
+          <div class="bubble pass">
+            <div class="who">用户 · success ✓</div>
+            <code style="font-size:.9em;">{"success": true, "score": 1.0}</code>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-head">
+            <span class="ctitle">那"用户"谁来扮？</span>
+            <span class="ctag">引入 Judge Agent</span>
+          </div>
+          <ul class="why-list">
+            <li>
+              <span class="icon">01</span>
+              <span><strong>真人 reviewer 跑不起</strong> — 每道题 baseline+evolved 各 5–10 轮，几百题 × 几个 Agent，<em>纯人工不可能自动化跑</em>。</span>
+            </li>
+            <li>
+              <span class="icon">02</span>
+              <span><strong>固定 rubric 打分太死</strong> — 给 LLM 一份验收清单让它打 0–100 分？agent 看不到清单，不知道哪儿错了，<em>多轮迭代就退化成乱猜</em>。</span>
+            </li>
+            <li>
+              <span class="icon">03</span>
+              <span><strong>LIFT 的方案：再起一个 LLM agent，让它<em>扮成用户</em></strong> — 验收清单<em>只在它脑子里</em>，每轮挑一条没满足的、用口语化反馈丢给 work agent。</span>
+            </li>
+            <li>
+              <span class="icon">04</span>
+              <span><strong>业界少有人这么干</strong> — 多数 benchmark 是单轮+脚本，只有 <code>tau-bench</code> 同类思路（评策略合规）。LIFT 把它用在<em>进化产物对照评测</em>上。</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <aside class="notes">细心的同学肯定想到一个问题，既然任务都是需要不断引导agent去完成终极目标的，那多轮对话里这个"用户反馈"谁来给？<div><br>LIFT 的方案是再起一个 Judge agent，让它扮成用户：
+           - 终极目标只有他能看到&nbsp; 而真正干活的哪个work agent一开始只看到题面，看不到清单；
+<br><br>目前为止，"测什么、怎么测"就闭环了。</div></aside>
+    </section>
+
+    <!-- 8. Section 3 divider -->
+    <section class="divider">
+      <div class="num">03</div>
+      <div class="label">工程演化 · the build</div>
+      <div class="title">为什么是框架，不是脚本？</div>
+      <div class="rule"></div>
+      <aside class="notes"><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">其实LIFT做的事已经讲完了，看上去并不复杂，那下一个问题就是</span>为什么要做成框架而不是脚就够了</aside>
+    </section>
+
+    <!-- 9. Script v1 vs v2 -->
+    <section>
+      <div class="slide-eyebrow">起点</div>
+      <h2>v1：一个 Agent 时，脚本就够了</h2>
+      <div class="script">
+        <div class="script-side good">
+          <div class="head">
+            <div class="title">openclaw_main.py</div>
+            <span class="ver">v1 · 单 agent</span>
+          </div>
+<div class="pseudo"><span class="c"># 一切都很直接</span>
+<span class="k">for</span> q <span class="k">in</span> warmup:
+    openclaw.run(q)
+openclaw.<span class="v">learn_review</span>()
+
+<span class="k">for</span> q <span class="k">in</span> holdout:
+    base = openclaw.run(q)
+    evol = openclaw_with_evolve.run(q)
+    <span class="v">compare</span>(base, evol)</div>
+          <div class="verdict"><strong>能跑就行</strong>，逻辑写死，简单粗暴</div>
+        </div>
+        <div class="script-side bad">
+          <div class="head">
+            <div class="title">??? 想接第二个 Agent</div>
+            <span class="ver">v2 · 危机来了</span>
+          </div>
+<div class="pseudo"><span class="c"># 复制整个 main，然后改</span>
+<span class="k">for</span> q <span class="k">in</span> warmup:
+    <span class="c"># 怎么 chat?</span>
+    other_agent.<span class="v">??</span>(q)
+<span class="c"># 进化命令是什么?</span>
+other_agent.<span class="v">??</span>()
+
+<span class="k">for</span> q <span class="k">in</span> holdout:
+    <span class="c"># 产物是权重 / 文件 / db?</span>
+    <span class="c"># baseline / evolved 怎么切?</span></div>
+          <div class="verdict"><strong>每接一个就要重写一遍</strong>，并发 / 日志 / 报告全要复制</div>
+        </div>
+      </div>
+      <aside class="notes">这个项目第一版其实就是个脚本。当时我们拿OpenClaw来跑通流程，几个 for 循环就够了。 从 warmup 到主动触发进化 到 跑 holdout 。<br>但是规模化的时候就碰到各种工程为题，并发怎么搞，任务之间如何做环境隔离等等， 包括要测第二个agent的时候，看似大部分代码可以复制粘贴，但细节太多。都是常见的工程问题，所以框架是自然而然的结果。<br>&nbsp;</aside>
+    </section>
+
+    <!-- 10. Cascade of duplications — RING -->
+    <section>
+      <div class="slide-eyebrow">如果继续脚本化</div>
+      <h2>每个 Agent 都要重复造这些轮子</h2>
+      <div class="cascade-ring">
+        <svg class="ring-bg" viewBox="0 0 620 520" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <!-- wheel rim -->
+          <ellipse cx="310" cy="260" rx="215" ry="170" fill="none" stroke="rgba(25,24,15,.24)" stroke-width="1" stroke-dasharray="2 6"/>
+          <!-- spokes from hub to each node -->
+          <line x1="310" y1="260" x2="310" y2="90"  stroke="rgba(25,24,15,.14)" stroke-width="1"/>
+          <line x1="310" y1="260" x2="525" y2="260" stroke="rgba(25,24,15,.14)" stroke-width="1"/>
+          <line x1="310" y1="260" x2="310" y2="430" stroke="rgba(25,24,15,.14)" stroke-width="1"/>
+          <line x1="310" y1="260" x2="95"  y2="260" stroke="rgba(25,24,15,.14)" stroke-width="1"/>
+          <!-- node anchors on the rim -->
+          <circle cx="310" cy="90"  r="3" fill="rgba(25,24,15,.34)"/>
+          <circle cx="525" cy="260" r="3" fill="rgba(25,24,15,.34)"/>
+          <circle cx="310" cy="430" r="3" fill="rgba(25,24,15,.34)"/>
+          <circle cx="95"  cy="260" r="3" fill="rgba(25,24,15,.34)"/>
+        </svg>
+        <div class="hub">
+          <div class="h-top">PER AGENT</div>
+          <div class="h-mid">×4</div>
+          <div class="h-bot">重造轮子</div>
+        </div>
+        <div class="cnode n">
+          <div class="num">▸ 01</div>
+          <div class="what">Agent 对话 / 启停</div>
+          <div class="why">HTTP / 本地库 / CLI + 启停，每家不同</div>
+        </div>
+        <div class="cnode e">
+          <div class="num">▸ 02</div>
+          <div class="what">并发调度</div>
+          <div class="why">多题并行、资源上限、错误隔离</div>
+        </div>
+        <div class="cnode s">
+          <div class="num">▸ 03</div>
+          <div class="what">work-judge 多轮对话</div>
+          <div class="why">work / judge 交替、retry 逻辑</div>
+        </div>
+        <div class="cnode w">
+          <div class="num">▸ 04</div>
+          <div class="what">trajectory 追踪 / 报告</div>
+          <div class="why">CSV / HTML / trace 关联</div>
+        </div>
+      </div>
+      <aside class="notes">先看下重复造了哪些轮子，然后从里面找到共性和个性的部分.<div>轮子主要分四大块。 agent对话 、 资源并发调度、 work/judge多轮对话、对话trajectory的追踪和报告的输出<br><div><br>显然共性部分是2,3,4。 这些是与具体的Agent无关的下沉到框架，一次性做好就行</div><div>只有1是agent的个性部分，这部分被抽象成了多个接口即可</div></div></aside>
+    </section>
+
+    <!-- 11. LIFT three-layer arch -->
+    <section>
+      <div class="slide-eyebrow">解药</div>
+      <h2>把"评测"和"Agent"剥开</h2>
+      <div class="stack">
+        <div class="stack-box l1">
+          <div class="stack-row">
+            <div class="layer">CLI / Pipeline</div>
+            <div class="role-main">
+              <b>顶层编排</b>——切题、跑 warmup / holdout、并发调度、写 report
+              <div class="role-sub">改这里 = 改"考几门 / 怎么排考"</div>
+            </div>
+            <div class="agent-tag">Agent 无关</div>
+          </div>
+        </div>
+        <div class="stack-arrow">↓</div>
+        <div class="stack-box l2">
+          <div class="stack-row">
+            <div class="layer">AgentRuntimeAdapter</div>
+            <div class="role-main">
+              <b>Agent 接入层</b>——起 / 停容器、向 Agent 喂题、收回答、warmup 后触发进化
+              <div class="role-sub">改这里 = 接一种新 Agent（Hermes / GenericAgent…）</div>
+            </div>
+            <div class="agent-tag">每家不同</div>
+          </div>
+        </div>
+        <div class="stack-arrow">↓</div>
+        <div class="stack-box l3">
+          <div class="stack-row">
+            <div class="layer">eval</div>
+            <div class="role-main">
+              <b>多轮阅卷循环</b>——work ↔ judge 交替、retry、判定 success / fail
+              <div class="role-sub">改这里 = 改阅卷规则（重试上限、success 判定）</div>
+            </div>
+            <div class="agent-tag">Agent 无关</div>
+          </div>
+        </div>
+      </div>
+      <div class="stack-tag">三层各自变化<b>互不牵连</b> · 接新 Agent 只动中间一层</div>
+      <aside class="notes">这页展示了框架的三层结构——把上一页的结论落到具体分层。
+<br>&nbsp;- 第一层 CLI / Pipeline ：他负责CLI交互和完整的测试运行流程，同时负责并发调度、写 report。
+<br>&nbsp;- 第二层：AgentRuntimeAdapter，他是中间接入层：封装每家 Agent 差异的部分，对上暴露统一接口；接新 Agent 只动这一层。<br>&nbsp;- 第三层：eval&nbsp; 他负责 judge agent 如何打分，以及如何和work agent做多轮交互。跟具体的 Agent 无关。<br><br>这里补充两个点<br>1. agent必须容器化管理，环境才能隔离，容器的控制也是pipeline完成的<br>2. 实战过程中，dashboard的需求对于我来说太强烈了，所以也是在设计框架的时候把dashboard加了进来</aside>
+    </section>
+
+    <!-- 14. Product-form agnostic -->
+    <section>
+      <div class="slide-eyebrow">关键性质 · 从 Pipeline 视角</div>
+      <h2>Pipeline完全不关心你的"进化产物"是什么</h2>
+      <div class="agnostic">
+        <div class="agnostic-products">
+          <div class="ap-item a1"><span class="glyph">Δ</span><div><div class="name">LoRA</div><div class="form">权重 diff</div></div></div>
+          <div class="ap-item a2"><span class="glyph">{ }</span><div><div class="name">Prompt Pool</div><div class="form">JSON / JSONL</div></div></div>
+          <div class="ap-item a3"><span class="glyph">§</span><div><div class="name">技能文件</div><div class="form">SOUL / MEMORY</div></div></div>
+          <div class="ap-item a4"><span class="glyph">❖</span><div><div class="name">向量库</div><div class="form">embeddings DB</div></div></div>
+        </div>
+        <div class="agnostic-arrow">
+          <div class="arrow">→</div>
+          <div class="text">Adapter 自己负责</div>
+        </div>
+        <div class="agnostic-frame">
+          <div class="head">LIFT 只看一件事</div>
+          <div class="title">同一道题<br/>分数差</div>
+          <div class="sub">至于"加载进化产物"这一步<br/>是 git checkout、docker commit、还是 cp config<br/>—— 不关心</div>
+        </div>
+      </div>
+      <aside class="notes">站在第一层Pipeline 视角：他不关心agent的进化产物是什么，经过warmup之后，可能skill memeory变了，可能提示词变了，甚至可能模型权重变了。Pipeline 完全不感知，也不需要感知。
+        这是 LIFT 最重要的性质之一，产物形式无关。 <br>背后如何实现的呢？核心是agent容器化了之后，所有的变动都在容器内发生，通过docker commit的方式把<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">warmup之后的agent临时快照成一个</span>镜像（后面有张图会看到，我们把他叫做delta镜像）所以进化后的agent状态是可以随时复现的，所以在pipeline眼里任何agent进化后都是一个delta镜像</aside>
+    </section>
+
+    <!-- 15. Adapter = 4 hooks -->
+    <section>
+      <div class="slide-eyebrow">Adapter 的契约 · 从 Agent 视角</div>
+      <h2>接新 Agent 只填 4 件事</h2>
+      <div class="hooks">
+        <div class="hook">
+          <div class="idx">01</div>
+          <div>
+            <div class="name">resolve_image / runtime</div>
+            <div class="desc">从哪里起这个 Agent</div>
+          </div>
+        </div>
+        <div class="hook">
+          <div class="idx">02</div>
+          <div>
+            <div class="name">start / stop</div>
+            <div class="desc">怎么把它启动起来、清理掉</div>
+          </div>
+        </div>
+        <div class="hook">
+          <div class="idx">03</div>
+          <div>
+            <div class="name">worker_judger_factory</div>
+            <div class="desc">怎么向它发题、收回答</div>
+          </div>
+        </div>
+        <div class="hook">
+          <div class="idx">04</div>
+          <div>
+            <div class="name">evolve_after_warmup</div>
+            <div class="desc">warmup 跑完之后做什么</div>
+          </div>
+        </div>
+      </div>
+      <div class="hooks-foot">
+        OpenClaw adapter 核心 <b>~120 行</b>（4 个钩子的实现），剩下都被框架兜住了
+      </div>
+      <aside class="notes">然后从第二层 AgentRuntimeAdapter的视角：他被抽象成了4个接口<br>包括基础镜像在哪里，如何chat，如何构造work agent和judge agent， 如何进化。<br><br>这部分的细节就不展开了</aside>
+    </section>
+
+    <!-- 16. Benefits beyond the contract -->
+    <section>
+      <div class="slide-eyebrow">框架红利</div>
+      <h2>Agent 接入方完全不用操心的事</h2>
+      <div class="bonus">
+        <div class="bonus-card">
+          <div class="glyph">⫶</div>
+          <div class="title">并发调度</div>
+          <div class="body">多 Suite 并行、多题并发、phase 并发都在 Pipeline 兜底；Adapter 只暴露同步接口，<strong>不用懂 asyncio</strong></div>
+        </div>
+        <div class="bonus-card b2">
+          <div class="glyph">◧</div>
+          <div class="title">统一 Dashboard</div>
+          <div class="body">所有 Agent 的成绩单都长一样：<code>report.json</code> + CSV 对比表 + HTML 可视化，<strong>横向对比直接做</strong></div>
+        </div>
+        <div class="bonus-card b3">
+          <div class="glyph">◎</div>
+          <div class="title">Trace 自动关联</div>
+          <div class="body">框架 <code>pre-chat span</code> 与 runtime 内部 <code>plugin trace</code> 通过<strong>同一 session_id</strong> 串起来，work / judge / agent 内部工具调用 <strong>一条 trace 看到底</strong></div>
+        </div>
+        <div class="bonus-card b4">
+          <div class="glyph">⌘</div>
+          <div class="title">接入引导 · Skill</div>
+          <div class="body"><code>setup-eval-env</code> 一键搭环境、<code>lift-integrate-agent-runtime</code> 把 5 个 touchpoint 固化成清单，新 runtime 接入 <strong>跟着走不漏改</strong></div>
+        </div>
+      </div>
+      <aside class="notes">还是站在第二层agent的视角，这这四件事是接入方"免费拿到"的，完全不用操心。 特别是有了<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">接入引导 · Skill之后。我个人在接一个新的GenericAgent的时候前后花了不到两天的时间，0代码。随着skill的完善，接入的过程会越来越丝滑。</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">这也意味着——LIFT 不光是个框架，还是个能让别人快速上手的产品</span><br>--<br>&nbsp; &nbsp; &nbsp; &nbsp; ① 并发——LIFT 是 asyncio 单进程框架，能并行跑几十个容器。Adapter 写同步接口就行，并发由 Pipeline 兜底。
+
+        ② Dashboard——所有 Agent 跑出的 report 结构都一致，CSV 对比表、HTML 报告自动生成。
+        横向对比 Agent A 和 Agent B 谁进化得多，直接出图。
+
+        ③ Trace 自动关联——这是一个细节但很重要的红利，展开讲一下机制：
+        - 框架在 run_task 里跟 work / judge agent 对话时，每次首发都会调
+          emit_pre_chat_state(session_id, tags, chat_role) 落一条 Langfuse span，
+          名字是 work_agent 或 judge_agent，标签里挂着 task_id、phase（baseline/evolved）、suite 等元数据。
+        - Runtime 内部的 Agent（OpenClaw 插件、Hermes turn、GenericAgent 插件等）
+          自己也在用 Langfuse 上报 trace，名字在白名单里：openclaw-plugin / Hermes turn / genericagent-plugin。
+        - 关键关联机制：框架在 docker exec 调 agent 时，把同一个 session_id 通过
+          --session-id <sid> 透传进去；agent 侧的 plugin 在写 trace 时也带上这个 session_id。
+          这样在 Langfuse 上一搜这个 session_id，框架侧的 *_agent span 和 runtime 侧的
+          plugin trace 就出现在同一个会话里。
+        - 后处理 langfuse_trace_merge 在同一 session 内按时间排序、用扩展贪心算法
+          把 *_agent span 和它后面的 plugin trace（可能多条，因为 provider error 会原地重试）
+          配对，merge 字段（prompt、response、tokens、tool 调用数、latency）回灌到 EvalReport。
+        - 效果：调一次进化效果，能从「work agent 收到什么 prompt」一路看到
+          「插件内部调了什么工具、消耗多少 token、retry 了几次」，全链路有据可查。
+
+        这种关联完全由框架完成——接入方只需要在 runtime 侧把 session_id 透传进去、
+        给 plugin trace 起个白名单里的名字，剩下全是框架的事。
+
+        ④ 接入引导 · Skill——这是工程上另一个红利。
+        - setup-eval-env：从零起跑一遍要做的事（conda、docker、Langfuse 部署、.env、preprocess、镜像构建、冒烟）都固化成 skill，新机器 10 分钟跑通；
+        - lift-integrate-agent-runtime：接入新 runtime 需要同步的 5 个层面（镜像脚手架、adapter 三件套、CLI 注册、后处理类型同步、Langfuse trace 拼装）都固化成 checklist，跟着走不会漏改；
+        - cleanup-eval-env：兜底清理。
+        - 这意味着——LIFT 不光是个框架，还是个能让别人快速上手的产品。
+      </sid></aside>
+    </section>
+
+    <!-- Timeline mermaid (moved: capstone — full run on a timeline, right before the demo) -->
+    <section>
+      <div class="slide-eyebrow">一次完整跑下来</div>
+      <h2>三层在时间轴上怎么协作</h2>
+      <div class="mermaid-wrap">
+        <pre class="mermaid">
+sequenceDiagram
+    participant P as Pipeline
+    participant A as Adapter
+    participant E as eval（阅卷）
+    participant W as Warmup 容器（base 镜像）
+    participant Hb as Baseline 容器（base 镜像）
+    participant He as Evolved 容器（delta 镜像）
+
+    P->>A: warmup 题（如 Q1..Q4）
+    A->>W: 起一个容器
+    E->>W: work↔judge 多轮（agent 边做边学）
+    W->>W: evolve
+    W->>W: 固化进化产物 → delta 镜像
+    A->>W: 销毁 warmup 容器
+
+    loop 每道 holdout 题（如 Q5, Q6）
+        P->>A: baseline
+        A->>Hb: 起容器
+        E->>Hb: work↔judge 多轮 → 打分
+        A->>Hb: 销毁
+        P->>A: evolved
+        A->>He: 起容器
+        E->>He: work↔judge 多轮 → 打分
+        A->>He: 销毁
+    end
+
+    P->>P: 写 report.json
+        </pre>
+      </div>
+      <aside class="notes">这里花了一张时间序列图，展示了整个pipeline的big picture. 细节不过多赘述了，感兴趣的同学下来可以仔细看下。我就解释一个点：&nbsp;<br>每个agent都会有个base镜像，这里的delta镜像是<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">agent进化之后生成的。基于这个点再去理解这个流程图应该就不会有卡点了。<br></span>---<br><br><br>把前面讲的三层架构落到时间轴上，看一次完整 LIFT 怎么跑：
+        1. Pipeline 把 warmup 题交给 Adapter；
+        2. Adapter 从 base 镜像 起一个 warmup 容器，让 Agent 连续做题——状态要连续，进化才有意义；
+        3. 跑 evolve 命令（OpenClaw 里是 learn review）；
+        4. Adapter 把当前状态固化成 delta 镜像（OpenClaw 里是 docker commit，别的 Agent 可能是别的）；
+        5. warmup 容器使命完成，销毁；
+        6. 对每道 holdout 题，分别拉起两个全新容器：
+           - Baseline 容器：从 base 镜像 起 → 做题 → 销毁
+           - Evolved 容器：从 delta 镜像 起 → 做题 → 销毁
+           注意——baseline 和 evolved 是两个独立的容器实例，不是同一个容器加不加载产物；
+           对照干净的关键就在这里。
+        7. 最后 Pipeline 写 report.json。
+
+        镜像血缘一句话：base 起两次（warmup + baseline），delta 起一次（evolved）——
+        三个容器实例，两个镜像。
+
+        （"固化进化产物"这一格是 Adapter 负责、和具体形式强相关的——前面 Product-form 那页正是讲 Pipeline 对它完全不关心。）
+        一次完整 LIFT 就这样跑完；下一节用一个最小例子 hello_multi 实际跑一遍，看真实成绩单。</aside>
+    </section>
+
+    <!-- 16b. Section 4 divider -->
+    <section class="divider">
+      <div class="num">04</div>
+      <div class="label">演示 · the demo</div>
+      <div class="title">最小集走一遍，看一眼成绩单</div>
+      <div class="rule"></div>
+      <aside class="notes">最后是一个hello world 级别的演示&nbsp; 大概需要两分钟时间</aside>
+    </section>
+
+    <!-- 17. hello_multi.json -->
+    <section>
+      <div class="slide-eyebrow">举个最小例子</div>
+      <h2>hello_multi.json：2 道 warmup 练，2 道 holdout 各考两遍</h2>
+      <div class="cmd-line"><span class="p">python</span> -m src.cli.lift_main <span class="f">--agent-runtime</span> openclaw \
+  <span class="f">--benchmark_dir</span> <span class="v">assets/benchmarks_demo</span> \
+  <span class="f">--suite</span> <span class="v">hello_multi.json</span> <span class="f">--run_id</span> <span class="v">presentation_demo</span> <span class="f">--repeat</span> <span class="v">2</span> \
+  <span class="f">--status-http</span> <span class="v">0.0.0.0:8764</span></div>
+      <div class="delegate-hint">suite 定义：<a href="assets/benchmarks_demo/hello_multi.json" target="_blank" rel="noopener">hello_multi.json ↗</a></div>
+      <aside class="notes"><br></aside>
+    </section>
+
+    <!-- 19. Recap -->
+    <section>
+      <div class="slide-eyebrow">总结</div>
+      <h2>一张幻灯片记住</h2>
+      <div class="recap">
+        <div class="k">痛点</div>
+        <div class="v">自进化常是假阳性、评测本身也不可信 <em>SkillsBench 自生成 Skill 无效有害；安全 benchmark 排名 W=0.10</em></div>
+
+        <div class="k">标准</div>
+        <div class="v">每个 Suite 显式分 warmup / holdout <em>train 进化 → test 对照</em></div>
+
+        <div class="k">怎么打分</div>
+        <div class="v">Judge 扮成"用户"跟 Agent 多轮对话 <em>验收清单只在 judge 脑里，逼 agent 听反馈改</em></div>
+
+        <div class="k">为什么是框架</div>
+        <div class="v">脚本路线每接一个 Agent 都重抄一遍 <em>并发、报告、judge 都得复制</em></div>
+
+        <div class="k">红利</div>
+        <div class="v">并发 / Dashboard / Trace 关联 / Skill 接入引导，框架全兜底 <em>新 Agent 跟着 skill 走，丝滑接入</em></div>
+      </div>
+      <aside class="notes"><br></aside>
+    </section>
+
+    <!-- 18. Q&A -->
+    <section class="cover">
+      <div class="kicker">questions &amp; answers</div>
+      <h1 class="brand" style="font-size: 5.4em;">Q&nbsp;&amp;&nbsp;A</h1>
+      <div class="bracket" aria-hidden="true" style="width: 8em;"></div>
+      <aside class="notes">留给提问。
+        会后想看文字版讲稿、深度可视化文档、或者数据集设计细节，看下面的链接。</aside>
+    </section>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/plugin/notes/notes.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+
+<style>
+  /* minimal light token theme for the bash block (no monokai) */
+  .reveal pre { box-shadow: none; width: 100%; }
+  .reveal pre code {
+    font-family: var(--mono);
+    background: var(--paper); color: var(--ink-72);
+    border: 1px solid var(--ink-14); border-radius: 2px;
+    padding: .7rem .9rem; font-size: .72em; line-height: 1.7;
+  }
+  .hljs-comment { color: var(--ink-52); }
+  .hljs-keyword, .hljs-built_in, .hljs-meta { color: var(--steel); }
+  .hljs-string, .hljs-attr { color: var(--mark); }
+  .hljs-title, .hljs-section { color: var(--ink); }
+</style>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: "neutral",
+    themeVariables: {
+      primaryColor: "#F1EDE2",
+      primaryTextColor: "#19180F",
+      primaryBorderColor: "#36506B",
+      lineColor: "#837D6B",
+      secondaryColor: "#DDD7C7",
+      tertiaryColor: "#E8E3D6",
+      fontSize: "15px",
+      fontFamily: "Spline Sans, PingFang SC, sans-serif",
+      actorBkg: "#F1EDE2",
+      actorBorder: "#36506B",
+      actorTextColor: "#19180F",
+      signalColor: "#19180F",
+      signalTextColor: "#19180F",
+      labelBoxBkgColor: "#F1EDE2",
+      labelBoxBorderColor: "#36506B",
+      labelTextColor: "#19180F",
+      loopTextColor: "#19180F",
+      noteBkgColor: "#EBE2C9",
+      noteBorderColor: "#A07A22",
+      noteTextColor: "#19180F"
+    },
+    flowchart: { htmlLabels: true, curve: "basis", padding: 8 },
+    sequence: { mirrorActors: false, messageMargin: 32, boxMargin: 8 }
+  });
+
+  // Pre-render every mermaid block to SVG BEFORE reveal.js takes over,
+  // because reveal.js hides non-current slides with display:none,
+  // which makes lazy mermaid rendering compute zero size and silently fail.
+  const renderAllMermaid = async () => {
+    const blocks = Array.from(document.querySelectorAll("pre.mermaid"));
+    for (let i = 0; i < blocks.length; i++) {
+      const node = blocks[i];
+      const code = node.textContent.trim();
+      const id = `mmd-${i}`;
+      try {
+        const { svg } = await mermaid.render(id, code);
+        const wrapper = document.createElement("div");
+        wrapper.className = "mermaid-rendered";
+        wrapper.innerHTML = svg;
+        node.replaceWith(wrapper);
+      } catch (err) {
+        console.error("mermaid render failed", err);
+      }
+    }
+  };
+
+  /* ============================================================
+     EDITABLE SPEAKER NOTES — runtime-injected, source stays clean
+     • Press E (or click ✎) to open the notes drawer.
+     • Edits autosave to localStorage (key lift-notes-v1), per slide,
+       and sync into the live note block so reveal's speaker
+       view (press S) also reflects them.
+     • "保存到源文件" POSTs the rewritten document to the local save
+       server (docs/serve.py → POST /save) and overwrites the source
+       directly; on success the file becomes the new baseline and pending
+       local edits clear. "导出 HTML" is the no-server fallback (downloads
+       a copy). Both need the deck served over http (file:// blocks
+       self-fetch — see the button's message).
+     Drawer + CSS are injected at runtime, so they never pollute the
+     source and the export is byte-faithful to it.
+     ============================================================ */
+  function setupNotesEditor() {
+    const KEY = "lift-notes-v1";
+    const SAVE_FILE = "lift-framework-slides.html";
+    const sections = Array.from(document.querySelectorAll(".reveal .slides > section"));
+    const asides = sections.map(s => s.querySelector("aside.notes"));
+    const originals = asides.map(a => (a ? a.innerHTML.trim() : ""));
+    let edits = {};
+    try { edits = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { edits = {}; }
+    const cur = i => (edits[i] != null ? edits[i] : originals[i]);
+    const syncDom = () => asides.forEach((a, i) => { if (a && edits[i] != null) a.innerHTML = edits[i]; });
+    syncDom();
+
+    const sty = document.createElement("style");
+    sty.textContent = `
+      #ne-fab{position:fixed;right:40px;bottom:58px;z-index:60;width:22px;height:22px;border-radius:50%;
+        background:var(--paper-3);border:1px solid var(--ink-22);color:var(--ink-52);
+        font-family:var(--mono);font-size:11px;line-height:21px;text-align:center;cursor:pointer;
+        opacity:.55;transition:opacity .15s;}
+      #ne-fab:hover{opacity:1;color:var(--ink);}
+      #ne-drawer{position:fixed;left:40px;right:40px;bottom:54px;z-index:60;display:none;flex-direction:column;
+        max-height:40vh;background:var(--paper-3);border:1px solid var(--ink-22);border-radius:3px;
+        box-shadow:0 -2px 20px rgba(25,24,15,.12);}
+      #ne-drawer.open{display:flex;}
+      #ne-head{display:flex;align-items:center;gap:.65em;padding:.5rem .8rem;border-bottom:1px solid var(--ink-14);
+        font-family:var(--mono);font-size:11px;color:var(--ink-52);}
+      #ne-head .ne-title{color:var(--ink);font-weight:700;letter-spacing:.02em;}
+      #ne-head .ne-pos{color:var(--ink-52);}
+      #ne-head .ne-badge{display:none;background:#EBE2C9;color:var(--mark);padding:.05em .45em;border-radius:2px;letter-spacing:.04em;}
+      #ne-drawer.edited #ne-head .ne-badge{display:inline-block;}
+      #ne-head .ne-spacer{flex:1;}
+      #ne-head .ne-status{color:var(--pass);}
+      #ne-head button,#ne-foot button{font-family:var(--mono);font-size:10px;background:transparent;
+        border:1px solid var(--ink-22);color:var(--ink-52);padding:.2em .6em;border-radius:2px;cursor:pointer;letter-spacing:.04em;}
+      #ne-head button:hover,#ne-foot button:hover{color:var(--ink);border-color:var(--ink-52);}
+      #ne-editor{flex:1;overflow:auto;padding:.7rem .9rem;font-family:var(--sans);font-size:14px;
+        line-height:1.65;color:var(--ink);outline:none;min-height:120px;}
+      #ne-editor:focus{background:var(--paper);}
+      #ne-foot{display:flex;align-items:center;gap:.6em;padding:.5rem .8rem;border-top:1px solid var(--ink-14);
+        font-family:var(--mono);font-size:10px;color:var(--ink-52);}
+      #ne-foot .ne-save{background:var(--ink);color:var(--paper);border-color:var(--ink);font-weight:700;}
+      #ne-foot .ne-save:hover{color:var(--paper);opacity:.85;}
+    `;
+    document.head.appendChild(sty);
+
+    const fab = document.createElement("div");
+    fab.id = "ne-fab"; fab.title = "编辑讲稿 (E)"; fab.textContent = "✎";
+    const drawer = document.createElement("div");
+    drawer.id = "ne-drawer";
+    drawer.innerHTML = `
+      <div id="ne-head">
+        <span class="ne-title">讲稿 · <span class="ne-fig">—</span></span>
+        <span class="ne-pos"></span>
+        <span class="ne-badge">本页已改</span>
+        <span class="ne-spacer"></span>
+        <span class="ne-status">已保存</span>
+        <button class="ne-reset">还原本页</button>
+        <button class="ne-close">✕</button>
+      </div>
+      <div id="ne-editor" contenteditable="true" spellcheck="false"></div>
+      <div id="ne-foot">
+        <span class="ne-count">共 0 页有本地改动</span>
+        <span class="ne-spacer"></span>
+        <button class="ne-save">保存到源文件</button>
+        <button class="ne-export">导出 HTML</button>
+        <button class="ne-clear">清空全部</button>
+      </div>`;
+    const root = document.querySelector(".reveal");
+    root.appendChild(fab); root.appendChild(drawer);
+
+    const editor    = drawer.querySelector("#ne-editor");
+    const figEl     = drawer.querySelector(".ne-fig");
+    const posEl     = drawer.querySelector(".ne-pos");
+    const statusEl  = drawer.querySelector(".ne-status");
+    const countEl   = drawer.querySelector(".ne-count");
+
+    const figOf = i => {
+      const eb = sections[i].querySelector(".slide-eyebrow");
+      const f  = eb && eb.querySelector(".fig");
+      if (f) return f.textContent.replace(/[·\s]+$/, "").trim();
+      if (sections[i].classList.contains("cover"))   return "cover";
+      if (sections[i].classList.contains("divider")) return "§" + (sections[i].querySelector(".num") || {}).textContent;
+      return "slide " + (i + 1);
+    };
+    function load(i) {
+      editor.innerHTML = cur(i);
+      figEl.textContent  = figOf(i);
+      posEl.textContent  = (i + 1) + " / " + sections.length;
+      countEl.textContent = "共 " + Object.keys(edits).length + " 页有本地改动";
+      drawer.classList.toggle("edited", edits[i] != null);
+    }
+    const open  = () => { drawer.classList.add("open"); load(Reveal.getState().indexh); setTimeout(() => editor.focus(), 30); };
+    const close = () => drawer.classList.remove("open");
+    const toggle = () => (drawer.classList.contains("open") ? close() : open());
+
+    fab.addEventListener("click", toggle);
+    drawer.querySelector(".ne-close").addEventListener("click", close);
+    drawer.querySelector(".ne-reset").addEventListener("click", () => {
+      const i = Reveal.getState().indexh;
+      delete edits[i]; localStorage.setItem(KEY, JSON.stringify(edits));
+      if (asides[i]) asides[i].innerHTML = originals[i];
+      load(i); flash("已还原本页");
+    });
+    drawer.querySelector(".ne-clear").addEventListener("click", () => {
+      if (!confirm("清空全部本地讲稿改动？源文件不会被改动。")) return;
+      edits = {}; localStorage.removeItem(KEY);
+      asides.forEach((a, i) => { if (a) a.innerHTML = originals[i]; });
+      load(Reveal.getState().indexh); flash("已清空");
+    });
+
+    let t;
+    function flash(msg) { statusEl.textContent = msg; statusEl.style.color = "var(--pass)"; }
+    editor.addEventListener("input", () => {
+      const i = Reveal.getState().indexh;
+      edits[i] = editor.innerHTML;
+      localStorage.setItem(KEY, JSON.stringify(edits));
+      if (asides[i]) asides[i].innerHTML = editor.innerHTML;
+      drawer.classList.add("edited");
+      statusEl.textContent = "编辑中…"; statusEl.style.color = "var(--mark)";
+      clearTimeout(t); t = setTimeout(() => { statusEl.textContent = "已保存 ✓"; statusEl.style.color = "var(--pass)"; }, 400);
+      countEl.textContent = "共 " + Object.keys(edits).length + " 页有本地改动";
+    });
+
+    Reveal.addEventListener("slidechanged", e => { if (drawer.classList.contains("open")) load(e.indexh); });
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape") return close();
+      if ((e.key === "e" || e.key === "E") &&
+          document.activeElement !== editor &&
+          !/input|textarea/i.test((document.activeElement || {}).tagName || "")) {
+        e.preventDefault(); toggle();
+      }
+    });
+
+    async function getSource() {
+      try { const r = await fetch(location.href, { cache: "no-store" }); if (r.ok) return await r.text(); } catch (e) {}
+      try { const x = new XMLHttpRequest(); x.open("GET", location.href, false); x.send(); if (x.responseText) return x.responseText; } catch (e) {}
+      return null;
+    }
+    async function buildExport() {
+      const src = await getSource();
+      if (!src) return null;
+      let i = 0;
+      // Only match real note blocks (open tag at the start of its own line),
+      // so an inline literal mention inside a note/comment can't hijack it.
+      return src.replace(/(\n[ \t]*)<aside\s+class="notes">[\s\S]*?<\/aside>/g,
+        (m, lead) => lead + "<aside class=\"notes\">" + cur(i++) + "</aside>");
+    }
+    function download(out) {
+      const blob = new Blob([out], { type: "text/html;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = SAVE_FILE;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+    // Primary action: write the rewritten document straight back to the source
+    // file via the local save server (docs/serve.py → POST /save). On success
+    // the file becomes the new baseline and pending local edits are cleared.
+    // Falls back to a plain download if the server isn't reachable.
+    drawer.querySelector(".ne-save").addEventListener("click", async () => {
+      const out = await buildExport();
+      if (!out) { alert("保存需要先用本地服务器打开本文件（python3 docs/serve.py）；file:// 下浏览器禁止读取自身源文件。"); return; }
+      statusEl.textContent = "保存中…"; statusEl.style.color = "var(--mark)";
+      try {
+        const r = await fetch("/save?file=" + encodeURIComponent(SAVE_FILE), {
+          method: "POST",
+          headers: { "Content-Type": "text/html;charset=utf-8" },
+          body: out
+        });
+        if (!r.ok) throw new Error("http " + r.status);
+        asides.forEach((a, i) => { if (a) originals[i] = a.innerHTML.trim(); });
+        edits = {}; localStorage.removeItem(KEY);
+        load(Reveal.getState().indexh);
+        flash("已保存到源文件 ✓");
+      } catch (e) {
+        download(out);
+        flash("保存服务未启用，已改为下载");
+      }
+    });
+    drawer.querySelector(".ne-export").addEventListener("click", async () => {
+      const out = await buildExport();
+      if (!out) { alert("导出需要先用本地服务器打开本文件（例如 python -m http.server），浏览器在 file:// 下禁止读取自身源文件。"); return; }
+      download(out);
+      flash("已导出 ✓");
+    });
+    window.__liftBuildExport = buildExport; // test hook
+  }
+
+  renderAllMermaid().then(() => {
+    Reveal.initialize({
+      hash: true,
+      slideNumber: "c/t",
+      transition: "fade",
+      backgroundTransition: "fade",
+      width: 1280,
+      height: 800,
+      margin: 0.06,
+      minScale: 0.4,
+      maxScale: 1.6,
+      plugins: [RevealHighlight, RevealNotes]
+    }).then(setupNotesEditor);
+  });
+</script>
+
+<!-- lightbox: click the dashboard image to enlarge / zoom / pan -->
+<div class="lightbox" id="lightbox" aria-hidden="true" role="dialog" aria-modal="true" aria-label="图片放大查看">
+  <div class="lightbox-stage" id="lb-stage">
+    <img class="lightbox-img" id="lb-img" src="" alt="dashboard 放大查看" />
+  </div>
+  <div class="lightbox-controls">
+    <button type="button" data-act="out" aria-label="缩小">−</button>
+    <span class="zoom-pct" id="lb-pct">100%</span>
+    <button type="button" data-act="in" aria-label="放大">＋</button>
+    <button type="button" data-act="reset" aria-label="还原">↺</button>
+    <button type="button" data-act="close" aria-label="关闭">×</button>
+  </div>
+  <div class="lightbox-hint">滚轮缩放 · 拖拽平移 · 双击切换 · Esc 关闭 · ＋/－ 键 · 0 还原</div>
+</div>
+
+<script>
+(function () {
+  const box = document.getElementById('lightbox');
+  if (!box) return;
+  const img = document.getElementById('lb-img');
+  const stage = document.getElementById('lb-stage');
+  const pct = document.getElementById('lb-pct');
+  const MIN = 1, MAX = 6, STEP = 1.25;
+  let scale = 1, tx = 0, ty = 0, drag = null;
+
+  function render() {
+    img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    pct.textContent = Math.round(scale * 100) + '%';
+  }
+  function open(src) {
+    img.src = src;
+    scale = 1; tx = 0; ty = 0; render();
+    box.classList.add('is-open');
+    box.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    if (window.Reveal && Reveal.configure) { try { Reveal.configure({ keyboard: false }); } catch (e) {} }
+  }
+  function close() {
+    box.classList.remove('is-open');
+    box.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    if (window.Reveal && Reveal.configure) { try { Reveal.configure({ keyboard: true }); } catch (e) {} }
+  }
+  function center() {
+    const r = stage.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+  function zoomAt(cx, cy, factor) {
+    const ns = Math.max(MIN, Math.min(MAX, scale * factor));
+    if (ns === scale) return;
+    const c = center();
+    const dx = (cx - c.x - tx) / scale;
+    const dy = (cy - c.y - ty) / scale;
+    tx = cx - c.x - ns * dx;
+    ty = cy - c.y - ns * dy;
+    scale = ns; render();
+  }
+  function zoomButton(factor) { const c = center(); zoomAt(c.x, c.y, factor); }
+
+  // open from any .shot .frame
+  document.querySelectorAll('.shot .frame').forEach(function (fr) {
+    fr.addEventListener('click', function () {
+      const im = fr.querySelector('img');
+      if (im) open(im.src);
+    });
+  });
+
+  // backdrop close (click on background/stage, not the image itself)
+  box.addEventListener('click', function (e) { if (e.target === box || e.target === stage) close(); });
+
+  // controls
+  box.querySelector('[data-act="in"]').addEventListener('click', function (e) { e.stopPropagation(); zoomButton(STEP); });
+  box.querySelector('[data-act="out"]').addEventListener('click', function (e) { e.stopPropagation(); zoomButton(1 / STEP); });
+  box.querySelector('[data-act="reset"]').addEventListener('click', function (e) { e.stopPropagation(); scale = 1; tx = 0; ty = 0; render(); });
+  box.querySelector('[data-act="close"]').addEventListener('click', function (e) { e.stopPropagation(); close(); });
+
+  // wheel zoom toward cursor
+  stage.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.12 : 1 / 1.12);
+  }, { passive: false });
+
+  // double-click toggles between fit and 2.5×
+  img.addEventListener('dblclick', function (e) { e.stopPropagation(); zoomAt(e.clientX, e.clientY, scale < 2 ? 2.5 / scale : 1 / scale); });
+
+  // drag to pan
+  img.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    drag = { x: e.clientX, y: e.clientY, tx: tx, ty: ty };
+    img.classList.add('dragging');
+    try { img.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  img.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    tx = drag.tx + (e.clientX - drag.x);
+    ty = drag.ty + (e.clientY - drag.y);
+    render();
+  });
+  function endDrag(e) { if (!drag) return; drag = null; img.classList.remove('dragging'); try { img.releasePointerCapture(e.pointerId); } catch (_) {} }
+  img.addEventListener('pointerup', endDrag);
+  img.addEventListener('pointercancel', endDrag);
+  img.addEventListener('click', function (e) { e.stopPropagation(); }); // clicking the image won't close
+
+  // keyboard (reveal's own keyboard is disabled while open)
+  document.addEventListener('keydown', function (e) {
+    if (!box.classList.contains('is-open')) return;
+    switch (e.key) {
+      case 'Escape': close(); e.preventDefault(); break;
+      case '+': case '=': zoomButton(STEP); e.preventDefault(); break;
+      case '-': case '_': zoomButton(1 / STEP); e.preventDefault(); break;
+      case '0': scale = 1; tx = 0; ty = 0; render(); e.preventDefault(); break;
+      case 'ArrowUp':    ty += 44; render(); e.preventDefault(); break;
+      case 'ArrowDown':  ty -= 44; render(); e.preventDefault(); break;
+      case 'ArrowLeft':  tx += 44; render(); e.preventDefault(); break;
+      case 'ArrowRight': tx -= 44; render(); e.preventDefault(); break;
+    }
+  });
+})();
+</script>
+</body>
+</html>
