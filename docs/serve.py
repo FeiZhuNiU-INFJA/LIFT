@@ -8,9 +8,9 @@ Usage:
     python3 docs/serve.py 8957       # custom port
 
 Then open:
-    http://127.0.0.1:8000/lift-framework-slides.html
+    http://127.0.0.1:8000/index.html
 press E to open the notes drawer, edit, and click "保存到源文件" — the edits are
-written straight back to docs/lift-framework-slides.html (a .bak of the previous
+written straight back to docs/index.html (a .bak of the previous
 version is kept beside it). "导出 HTML" still works as a no-server fallback.
 
 What it does:
@@ -90,7 +90,7 @@ def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"[serve] docs root : {ROOT}")
-    print(f"[serve] open      : http://127.0.0.1:{port}/lift-framework-slides.html")
+    print(f"[serve] open      : http://127.0.0.1:{port}/index.html")
     print(f"[serve] save ep   : POST /save?file=<name>.html  (writes under docs/, keeps .bak)")
     print("[serve] Ctrl+C to stop")
     try:

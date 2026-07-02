@@ -1783,7 +1783,7 @@ sequenceDiagram
      ============================================================ */
   function setupNotesEditor() {
     const KEY = "lift-notes-v1";
-    const SAVE_FILE = "lift-framework-slides.html";
+    const SAVE_FILE = "index.html";
     const sections = Array.from(document.querySelectorAll(".reveal .slides > section"));
     const asides = sections.map(s => s.querySelector("aside.notes"));
     const originals = asides.map(a => (a ? a.innerHTML.trim() : ""));
