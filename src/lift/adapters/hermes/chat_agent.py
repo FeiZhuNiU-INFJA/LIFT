@@ -41,7 +41,7 @@ _MSG_END = "__evo_msg_end__"
 _RESP_END = "__evo_resp_end__"
 
 # 单轮 chat 宿主侧 wall-clock 上限；超时返回 provider-error marker 走重试通道。
-CHAT_EXEC_TIMEOUT_SECONDS = 600.0
+CHAT_EXEC_TIMEOUT_SECONDS = 1200.0
 CHAT_EXEC_TIMEOUT_MARKER = "chat exec timeout"
 
 # ContainerSession.metadata 中存放 session_id -> HermesContainerAgent 的注册表 key。
@@ -58,13 +58,19 @@ def register_runner_registry(session: ContainerSession) -> dict[str, "HermesCont
 
 
 async def end_all_runners(session: ContainerSession) -> None:
-    """容器 cleanup 前收尾所有残留 runner（best-effort，不触发 review）。"""
+    """容器 cleanup 前收尾所有残留 runner（best-effort）。
+
+    统一发 task_end 终止；是否 review 由各 runner spawn 时的 ``--enable-review``
+    决定（judge / holdout 本就不带，warmup work 若还没被 evolve_after_task 收掉则会
+    补跑一次 review）。正常路径下 warmup work 已在 evolve_after_task 里收尾，这里主要
+    兜底 judge 与异常残留。
+    """
     reg = session.metadata.get(_RUNNERS_META_KEY)
     if not reg:
         return
     for agent in list(reg.values()):
         try:
-            await agent.end_session(review=False)
+            await agent.end_session()
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("Failed ending hermes runner %s: %r", agent.agent_name, exc)
     reg.clear()
@@ -197,16 +203,32 @@ class HermesContainerAgent(ChatAgent):
             chunks.append(line)
         return "\n".join(chunks)
 
-    async def end_session(self, *, review: bool) -> None:
-        """结束 runner：写 ``__evo_task_end__``（触发 review，若 runner 起时带 --enable-review），
-        关闭 stdin 并等待退出。work session 在 warmup 结束时应传 ``review=True``。
+    async def end_session(self) -> bool:
+        """结束 runner 子进程：发送 ``__evo_task_end__`` 并关闭 stdin，等待退出。
 
-        ``review`` 仅影响是否等待 runner 完整跑完 review；实际是否 review 由 spawn
-        时的 ``--enable-review`` 决定。judge / holdout 传 ``review=False``。
+        与 legacy ``HermesAgent.end_session``（``legacy/src/agents.py`` L462-506）一致：
+        **无论是否 review，都必须发 task_end 哨兵来终止 runner**。runner 侧收到哨兵后
+        是否真跑 background review，**完全**由该 runner spawn 时是否带 ``--enable-review``
+        决定（见 ``hermes_runner.py::run_review_if_enabled``），不由结束流程控制——因此
+        这里没有 ``review`` 参数。
+
+        本类的 review 契约由构造参数 ``enable_review`` 在 spawn 时锁定：
+          - work agent（warmup）→ ``enable_review=True`` → 结束时跑 review 写 ``/opt/data``；
+          - judge agent / holdout work → ``enable_review=False`` → 结束时直接退出。
+
+        work runner 的 review 可能耗时，故这里的 ``await proc.wait()`` 会阻塞到 review
+        完成（正是期望语义）；超时兜底 kill。
+
+        Returns:
+            ``True`` 表示 runner 收到 task_end 后**干净退出**（rc==0，即 review 若启用
+            也已跑完）；``False`` 表示超时被 kill 或非零退出（review 未确认完成）。
+            上层（``evolve_after_task``）据此对 work runner 做硬保证。
+            若 runner 本就不存在（已被收尾），返回 ``True``（无需再收尾）。
         """
         proc = self._proc
         if proc is None:
-            return
+            return True
+        clean = False
         try:
             if proc.stdin is not None and proc.returncode is None:
                 try:
@@ -216,10 +238,21 @@ class HermesContainerAgent(ChatAgent):
                 except Exception:  # noqa: BLE001
                     LOGGER.exception("Failed sending task_end session=%s", self._session_id)
             try:
-                # review 可能耗时；给足超时，超时则 kill。
+                # work runner 的 review 可能耗时；给足超时，超时则 kill。
                 await asyncio.wait_for(proc.wait(), timeout=CHAT_EXEC_TIMEOUT_SECONDS)
+                clean = proc.returncode == 0
+                if not clean:
+                    LOGGER.warning(
+                        "hermes runner session=%s exited rc=%s (review may be incomplete)",
+                        self._session_id, proc.returncode,
+                    )
             except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+                clean = False
                 if proc.returncode is None:
+                    LOGGER.warning(
+                        "hermes runner session=%s wait timed out; killing (review incomplete)",
+                        self._session_id,
+                    )
                     try:
                         proc.kill()
                         await proc.wait()
@@ -235,13 +268,23 @@ class HermesContainerAgent(ChatAgent):
             if self._registry is not None:
                 self._registry.pop(self._session_id, None)
             self._proc = None
+        return clean
 
 
 class HermesWorkerJudgerPairFactory:
     """为同一 Hermes 容器内的题目构建 ``WorkerJudgerPair``。
 
-    ``enable_review`` 由 ``run_phase`` 决定：warmup 阶段 work agent 带 review，
-    holdout 阶段一律不 review（baseline/evolved 只测量）。
+    **review 契约（spawn 时锁定，不可变）**——对齐 legacy
+    ``HermesAgent.chat`` 的 ``enable_review = (chat_role=="work_agent") and
+    not is_evolve_turn`` 规则：
+
+    - **work agent runner**：``enable_review=self._warmup``——warmup 阶段一定带
+      ``--enable-review``（每题结束跑 review 写 ``/opt/data``）；holdout（测量阶段，
+      对应 legacy 的 evolve/baseline turn）一定不带。
+    - **judge agent runner**：``enable_review=False``——judge **永远**不 review。
+
+    end_session 不再有 review 参数：终止时统一发 task_end 哨兵，是否 review 只看这里
+    spawn 时的 ``--enable-review``。
     """
 
     def __init__(
@@ -268,7 +311,7 @@ class HermesWorkerJudgerPairFactory:
             agent_name=f"lift-hermes-work-{short_id()}",
             run_id=self._run_id,
             params=params,
-            enable_review=self._warmup,  # 仅 warmup work session review
+            enable_review=self._warmup,  # 契约：warmup work 一定 review，holdout work 一定不
             registry=self._registry,
         )
         judge_agent = HermesContainerAgent(
@@ -276,7 +319,7 @@ class HermesWorkerJudgerPairFactory:
             agent_name=f"lift-hermes-judge-{short_id()}",
             run_id=self._run_id,
             params=params,
-            enable_review=False,
+            enable_review=False,  # 契约：judge 永远不 review
             registry=self._registry,
         )
         await asyncio.gather(work_agent.initialize(), judge_agent.initialize())

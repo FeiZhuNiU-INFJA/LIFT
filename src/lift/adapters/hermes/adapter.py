@@ -129,9 +129,20 @@ class HermesAdapter(ContainerAgentRuntimeAdapter):
     ) -> None:
         """每道 warmup 题完成后收尾其 runner：work session 触发 review 写入 /opt/data。
 
-        - work runner：以 ``review=True`` end（若 spawn 时带 ``--enable-review``，
-          runner 会在退出前跑 background review 并阻塞到完成）；
-        - judge runner：以 ``review=False`` end，直接退出。
+        **holdout 前的硬保证**：delta 是在这里所有 warmup 题 review 完成后、经
+        ``materialize_delta`` 的 docker commit 固化的（时序见 ``base.py::produce_delta``
+        L114-136：``execute_tasks`` 内每题 ``run_one`` 会 ``await on_task_done``，即本
+        钩子，全部返回后才 commit）。因此若某题的 work review 没跑完就放行，holdout 就会
+        在“演化未完成”的 delta 上测量，破坏评测语义。为杜绝这种情况：
+
+        - work runner：``enable_review=True``（warmup spawn 时锁定）。收到 task_end 后
+          runner 会跑 background review 并阻塞到完成，``end_session`` 返回 ``True`` 才算
+          review 干净落盘。**这里对 work 做硬保证**——runner 缺失或未干净退出即 ``raise``，
+          交给 ``_run_evolve_after_task_with_retry`` 重试（3 次）；仍失败则整个
+          ``produce_delta`` 中止，绝不放行到 holdout。
+        - judge runner：``enable_review=False``，纯收尾（不 review），失败无害，
+          保持 best-effort。
+        是否 review 完全由 spawn 时的 --enable-review 决定，end_session 不带 review 参数；
         review 写入的 memory/skills 随后由 ``materialize_delta`` 的 docker commit 带入 delta。
         """
         _ = (task, ctx)
@@ -139,16 +150,30 @@ class HermesAdapter(ContainerAgentRuntimeAdapter):
         registry = register_runner_registry(session)
         work_agent = registry.get(result.work_session_id)
         judge_agent = registry.get(result.judge_session_id)
-        if work_agent is not None:
-            try:
-                await work_agent.end_session(review=True)
-            except Exception as exc:  # noqa: BLE001
-                LOGGER.warning("hermes work review end failed task=%s: %r", result.work_session_id, exc)
+
+        # judge 先收尾（best-effort）：judge 不 review，即使失败也不影响 delta 语义，
+        # 且要在 work 可能 raise 之前把 judge runner 释放掉，避免残留。
         if judge_agent is not None:
             try:
-                await judge_agent.end_session(review=False)
+                await judge_agent.end_session()
             except Exception as exc:  # noqa: BLE001
                 LOGGER.warning("hermes judge end failed task=%s: %r", result.judge_session_id, exc)
+
+        # work 硬保证：warmup work runner 一定启用了 review，必须跑完 review 才放行。
+        if work_agent is None:
+            # warmup work 一定 chat 过并注册到 registry；缺失说明状态异常，
+            # 宁可 raise 触发重试/中止，也不放行未 review 的 delta 到 holdout。
+            raise RuntimeError(
+                f"hermes work runner missing for warmup task={result.work_session_id}; "
+                "cannot guarantee review before holdout"
+            )
+        clean = await work_agent.end_session()
+        if not clean:
+            raise RuntimeError(
+                f"hermes work review did not complete cleanly for warmup "
+                f"task={result.work_session_id} (runner killed on timeout or exited "
+                "non-zero); refusing to materialize delta with incomplete review"
+            )
 
     @override
     async def evolve_after_warmup(
