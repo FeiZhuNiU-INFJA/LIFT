@@ -124,7 +124,6 @@ def main() -> int:
         sys.path.insert(0, str(hermes_agent_dir))
 
     from run_agent import AIAgent
-    from agent.background_review import spawn_background_review_thread
 
     agent = AIAgent(
         model=args.model,
@@ -140,11 +139,15 @@ def main() -> int:
         disabled_toolsets=["delegation"],
     )
 
-    # Disable the built-in cadence-triggered review; this script triggers it manually on session end.
+    # Disable the built-in cadence-triggered review; this script triggers it
+    # manually on session end via agent._spawn_background_review. These attrs
+    # exist on the upstream AIAgent; assigning them is a no-op if absent.
     agent._memory_nudge_interval = 0
     agent._skill_nudge_interval = 0
 
     # Suppress agent's own prints so they do not pollute the stdout protocol.
+    # background_review_callback is read inside _spawn_background_review's
+    # summary path; set it to None so that path never trips on a missing attr.
     agent._print_fn = lambda *a, **k: None
     agent.background_review_callback = None
 
@@ -162,9 +165,18 @@ def main() -> int:
         review_skills = not args.no_review_skills
         if not (review_memory or review_skills):
             return
-        review_launcher = AIAgent(
+        # 新建一个**独立** review agent（session_id=review-<work session>），在它上面
+        # 触发 _spawn_background_review，而不是复用 work agent。原因：该方法内部 fork 的
+        # review 子 agent 会把 session_id 固定成宿主 agent 的 session_id，如果宿主是 work
+        # agent，review 产生的 memory/skill 写入与 trace 就会挂到 work session 上，污染
+        # work 会话。用独立 holder 隔离 review 的 session。
+        #
+        # review 使用的对话历史仍是 work 的 full_history（作为 messages_snapshot 传入），
+        # 保证 review 基于本任务的完整多轮上下文。
+        review_holder = AIAgent(
             model=args.model,
             base_url=args.base_url.strip(),
+            provider='custom',
             api_key=args.api_key,
             quiet_mode=True,
             skip_context_files=True,
@@ -174,31 +186,42 @@ def main() -> int:
             max_tokens=args.max_tokens,
             disabled_toolsets=["delegation"],
         )
-        review_launcher._memory_nudge_interval = 0
-        review_launcher._skill_nudge_interval = 0
-        review_launcher._print_fn = lambda *a, **k: None
-        review_launcher.background_review_callback = None
+        review_holder._memory_nudge_interval = 0
+        review_holder._skill_nudge_interval = 0
+        review_holder._print_fn = lambda *a, **k: None
+        review_holder.background_review_callback = None
+
+        # _spawn_background_review 起一个 daemon 线程 name="bg-review" 后**不 join**，
+        # 所以这里 spawn 前先记录已有的同名线程，spawn 后 join 新出现的那个，阻塞到
+        # review 真正完成——保证 review 落盘先于容器 docker commit（holdout 前硬保证）。
+        before = {t for t in threading.enumerate() if t.name == "bg-review"}
         try:
-            target, _prompt = spawn_background_review_thread(
-                review_launcher,
+            review_holder._spawn_background_review(
                 full_history,
                 review_memory=review_memory,
                 review_skills=review_skills,
             )
-            thread = threading.Thread(
-                target=target,
-                daemon=False,
-                name="manual-bg-review",
-            )
-            thread.start()
-            thread.join()
+            # 找到本次 spawn 新增的 bg-review 线程并 join（阻塞到 review 完成）。
+            deadline_joined = False
+            for t in threading.enumerate():
+                if t.name == "bg-review" and t not in before and t.is_alive():
+                    t.join()
+                    deadline_joined = True
+            if not deadline_joined:
+                # 兜底：spawn 与 enumerate 之间线程可能已结束，或名称不同；再扫一遍 join。
+                for t in threading.enumerate():
+                    if t.name == "bg-review" and t.is_alive():
+                        t.join()
+        except Exception as exc:  # noqa: BLE001
+            sys.stderr.write(f"[hermes_runner] background review failed: {exc!r}\n")
+            sys.stderr.flush()
         finally:
             try:
-                review_launcher.shutdown_memory_provider()
+                review_holder.shutdown_memory_provider()
             except Exception:
                 pass
             try:
-                review_launcher.close()
+                review_holder.close()
             except Exception:
                 pass
 
