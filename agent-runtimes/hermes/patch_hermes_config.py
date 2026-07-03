@@ -12,6 +12,7 @@ Model block written (per plan §A.1 / §D.12):
       base_url: <HERMES_API_URL or WORK_OPENAI_BASE_URL>
       api_key:  <WORK_OPENAI_API_KEY>
       api_mode: chat_completions
+      max_tokens: <MAX_TOKENS>                     (output cap; default 51200)
 
 Existing config.yaml keys are preserved; only the `model` block is upserted.
 If PyYAML is unavailable, a plaintext fallback replaces ONLY the top-level
@@ -49,6 +50,17 @@ def _api_key() -> str:
     return os.environ.get("WORK_OPENAI_API_KEY", "").strip()
 
 
+def _max_tokens() -> int:
+    """model.max_tokens：读 ``MAX_TOKENS``（与 runner ``--max-tokens`` 同源），默认 51200。"""
+    raw = os.environ.get("MAX_TOKENS", "").strip()
+    if not raw:
+        return 51200
+    try:
+        return int(raw)
+    except ValueError:
+        return 51200
+
+
 def _model_block() -> dict:
     return {
         "default": _model_default(),
@@ -56,6 +68,7 @@ def _model_block() -> dict:
         "base_url": _base_url(),
         "api_key": _api_key(),
         "api_mode": "chat_completions",
+        "max_tokens": _max_tokens(),
     }
 
 
