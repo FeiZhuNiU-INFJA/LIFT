@@ -1,5 +1,29 @@
 # LIFT — Loaded Impact on Final Task
 
+<p align="center">
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/FeiZhuNiU-INFJA/LIFT?style=social"></a>
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/network/members"><img alt="GitHub forks" src="https://img.shields.io/github/forks/FeiZhuNiU-INFJA/LIFT?style=social"></a>
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/watchers"><img alt="GitHub watchers" src="https://img.shields.io/github/watchers/FeiZhuNiU-INFJA/LIFT?style=social"></a>
+  <img alt="Visitors" src="https://visitor-badge.laobi.icu/badge?page_id=FeiZhuNiU-INFJA.LIFT&left_color=gray&right_color=blue&left_text=views">
+</p>
+
+<p align="center">
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/FeiZhuNiU-INFJA/LIFT?color=informational"></a>
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/issues"><img alt="Issues" src="https://img.shields.io/github/issues/FeiZhuNiU-INFJA/LIFT"></a>
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/pulls"><img alt="PRs" src="https://img.shields.io/github/issues-pr/FeiZhuNiU-INFJA/LIFT"></a>
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/graphs/contributors"><img alt="Contributors" src="https://img.shields.io/github/contributors/FeiZhuNiU-INFJA/LIFT"></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/FeiZhuNiU-INFJA/LIFT?color=success"></a>
+</p>
+
+<p align="center">
+  <img alt="Repo size" src="https://img.shields.io/github/repo-size/FeiZhuNiU-INFJA/LIFT">
+  <img alt="Code size" src="https://img.shields.io/github/languages/code-size/FeiZhuNiU-INFJA/LIFT">
+  <img alt="Top language" src="https://img.shields.io/github/languages/top/FeiZhuNiU-INFJA/LIFT">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/runtime-Docker-2496ED?logo=docker&logoColor=white">
+  <img alt="Langfuse" src="https://img.shields.io/badge/tracing-Langfuse-ffb74d">
+</p>
+
 > Agent **越用越好用**到底是不是真的？给它一份「练习题」、一份「期末考」，把进化前后的成绩单摆在一起。
 
 LIFT 是一套面向 **Agent 自我进化能力**的评测框架。它不评测 agent 本身的开箱能力，而是回答一个朴素但被忽视的问题：
@@ -194,3 +218,24 @@ python -m src.cli.lift_main \
 - **HuggingFace dataset**（公开仓库，默认 [`FeiZhuNiU-INFJA/EALE`](https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE)，读取无需 token；可用 `BENCHMARK_HF_REPO` 覆盖）
 
 切换走哪边：`.env` 的 `BENCHMARK_SOURCE=tos|huggingface`，或 CLI 加 `--source huggingface`。具体命令见 [`setup-eval-env`](./skill/setup-eval-env/SKILL.md) 步骤 4。
+
+---
+
+## Star History
+
+如果 LIFT 对你有帮助，欢迎点一颗 ⭐️ —— 它是这个项目能被更多人看见的最直接方式。
+
+<p align="center">
+  <a href="https://star-history.com/#FeiZhuNiU-INFJA/LIFT&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=FeiZhuNiU-INFJA/LIFT&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=FeiZhuNiU-INFJA/LIFT&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=FeiZhuNiU-INFJA/LIFT&type=Date" />
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/stargazers"><img alt="Stargazers over time" src="https://img.shields.io/github/stars/FeiZhuNiU-INFJA/LIFT?style=for-the-badge&logo=github&color=yellow"></a>
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/network/members"><img alt="Forks over time" src="https://img.shields.io/github/forks/FeiZhuNiU-INFJA/LIFT?style=for-the-badge&logo=github&color=blue"></a>
+</p>
