@@ -38,6 +38,9 @@ Override via env:
   HERMES_BASE_IMAGE_TAG   上游镜像 tag，默认 v2026.5.16（对齐 legacy 版本）
   HERMES_BASE_IMAGE       直接指定完整上游镜像（优先于 REPO:TAG 拼接）
   PIP_INDEX_URL           内网构建时切换 PyPI 源
+  DOCKER_BUILD_NETWORK    docker build 网络模式，默认 host（构建期复用宿主机
+                          DNS/路由/代理，规避 BuildKit 沙箱 DNS 解析失败）；
+                          设为空可回退 Docker 默认 bridge
 EOF
 }
 while [[ $# -gt 0 ]]; do
@@ -66,8 +69,24 @@ if [[ -n "${FIRECRAWL_API_KEY:-}" ]]; then
   echo "==> Baking FIRECRAWL_API_KEY into image + running firecrawl-cli init"
 fi
 
+# Build-time network mode. The BuildKit sandbox does NOT inherit host DNS by
+# default, so uv/git/npx can fail with "dns error / failed to lookup address"
+# even when the host resolves fine (restricted networks / corporate proxy).
+# Default to host networking so the build reuses the host's DNS/route/proxy.
+# NOTE: affects the RUN steps only — the final image and runtime container
+# networking are unchanged. Under host net, `localhost` inside RUN means the
+# HOST (we don't rely on that). Override with DOCKER_BUILD_NETWORK= (empty) to
+# fall back to Docker's default bridge (e.g. if the daemon forbids host net).
+BUILD_NETWORK="${DOCKER_BUILD_NETWORK-host}"
+NETWORK_ARGS=()
+if [[ -n "${BUILD_NETWORK}" ]]; then
+  NETWORK_ARGS+=(--network "${BUILD_NETWORK}")
+  echo "==> Using docker build network: ${BUILD_NETWORK}"
+fi
+
 echo "==> Building ${TAG} (context: ${AGENT_DIR}, base: ${BASE_IMAGE})"
 docker build -f "${AGENT_DIR}/Dockerfile" \
+  "${NETWORK_ARGS[@]}" \
   "${BUILD_ARGS[@]}" \
   -t "${TAG}" \
   "${AGENT_DIR}"

@@ -23,8 +23,13 @@ FROM ${HERMES_BASE_IMAGE}
 USER root
 
 # Python 包索引：默认 https://pypi.org/simple/。内网构建时通过 --build-arg 切换。
+# uv 不认 PIP_INDEX_URL，必须显式设 UV_INDEX_URL / UV_DEFAULT_INDEX（对齐
+# genericagent/Dockerfile 的成功做法），否则 install-in-image.sh 的 `uv pip
+# install` 会忽略镜像源、回落到 pypi.org 并在受限网络下 DNS 超时。
 ARG PIP_INDEX_URL=https://pypi.org/simple/
-ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+ENV UV_INDEX_URL=${PIP_INDEX_URL} \
+    UV_DEFAULT_INDEX=${PIP_INDEX_URL} \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
