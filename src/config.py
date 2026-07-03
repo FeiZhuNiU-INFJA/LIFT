@@ -36,10 +36,6 @@ def _env_flag(name: str, default: bool = False) -> bool:
 class AppConfig:
     """从环境变量加载的不可变应用配置。"""
 
-    hermes_api_key: str | None
-    """Hermes API 密钥（``HERMES_API_KEY``，legacy 宿主机 Hermes debug 用）。"""
-    hermes_env_file: str | None
-    """Hermes profile 的 ``.env`` 文件路径（``HERMES_ENV_FILE``，仅 legacy 宿主机 debug 用）。"""
     hermes_model_name: str | None
     """Hermes runner ``--model`` 显式模型 id（``HERMES_MODEL_NAME``）；未设置时由 ``model`` 派生后缀。"""
     hermes_api_url: str | None
@@ -88,8 +84,6 @@ class AppConfig:
 def load_config() -> AppConfig:
     """从当前环境变量加载 ``AppConfig``。"""
     return AppConfig(
-        hermes_api_key=os.getenv("HERMES_API_KEY"),
-        hermes_env_file=os.getenv("HERMES_ENV_FILE"),
         hermes_model_name=os.getenv("HERMES_MODEL_NAME"),
         hermes_api_url=os.getenv("HERMES_API_URL"),
         hermes_base_image_tag=os.getenv("HERMES_BASE_IMAGE_TAG", "v2026.5.16"),
