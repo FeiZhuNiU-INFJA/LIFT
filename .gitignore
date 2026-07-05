@@ -147,3 +147,4 @@ nohup.out
 # docs/ 下的资源要跟随 GitHub Pages 一起发布，显式放行
 !docs/assets/
 !docs/assets/**
+*.bak

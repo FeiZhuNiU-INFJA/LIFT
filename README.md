@@ -1,9 +1,9 @@
 # LIFT — Loaded Impact on Final Task
 
 <p align="center">
-  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/FeiZhuNiU-INFJA/LIFT?style=social"></a>
-  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/network/members"><img alt="GitHub forks" src="https://img.shields.io/github/forks/FeiZhuNiU-INFJA/LIFT?style=social"></a>
-  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/watchers"><img alt="GitHub watchers" src="https://img.shields.io/github/watchers/FeiZhuNiU-INFJA/LIFT?style=social"></a>
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/FeiZhuNiU-INFJA/LIFT?style=flat&logo=github&label=Stars&color=yellow"></a>
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/network/members"><img alt="GitHub forks" src="https://img.shields.io/github/forks/FeiZhuNiU-INFJA/LIFT?style=flat&logo=github&label=Forks&color=blue"></a>
+  <a href="https://github.com/FeiZhuNiU-INFJA/LIFT/watchers"><img alt="GitHub watchers" src="https://img.shields.io/github/watchers/FeiZhuNiU-INFJA/LIFT?style=flat&logo=github&label=Watchers&color=lightgrey"></a>
   <img alt="Visitors" src="https://visitor-badge.laobi.icu/badge?page_id=FeiZhuNiU-INFJA.LIFT&left_color=gray&right_color=blue&left_text=views">
 </p>
 
