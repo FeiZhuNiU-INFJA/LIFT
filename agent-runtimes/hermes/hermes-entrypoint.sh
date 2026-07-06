@@ -71,10 +71,34 @@ append_hermes_env "API_SERVER_KEY" "${API_SERVER_KEY:-}"
 echo "[hermes-entrypoint] appended LIFT credentials into ${HERMES_ENV_FILE}"
 
 # Best-effort enable langfuse plugin now that HOME exists.
-if command -v hermes >/dev/null 2>&1; then
-  hermes plugins enable observability/langfuse >/dev/null 2>&1 \
-    && echo "[hermes-entrypoint] observability/langfuse enabled" \
-    || echo "[hermes-entrypoint] NOTE: plugin enable skipped/failed (non-fatal)"
+# The `hermes` CLI lives in the same venv bin dir as HERMES_VENV_PY (sourced from
+# hermes-paths.env above). `docker exec` / a stripped entrypoint PATH may not
+# include that dir, so resolve the CLI by absolute path first and prepend its dir
+# to PATH; fall back to a bare `hermes` only if discovery failed.
+HERMES_CLI=""
+if [[ -n "${HERMES_VENV_PY:-}" && -x "$HERMES_VENV_PY" ]]; then
+  HERMES_BIN_DIR="$(dirname "$HERMES_VENV_PY")"
+  export PATH="$HERMES_BIN_DIR:$PATH"
+  if [[ -x "$HERMES_BIN_DIR/hermes" ]]; then
+    HERMES_CLI="$HERMES_BIN_DIR/hermes"
+  fi
+fi
+if [[ -z "$HERMES_CLI" ]] && command -v hermes >/dev/null 2>&1; then
+  HERMES_CLI="hermes"
+fi
+
+if [[ -n "$HERMES_CLI" ]]; then
+  # Keep the command's own stdout/stderr in the container log so failures are
+  # diagnosable (previously silenced by >/dev/null 2>&1). Wrapped in `if` so a
+  # non-zero exit stays non-fatal under `set -e`.
+  echo "[hermes-entrypoint] enabling observability/langfuse via ${HERMES_CLI} ..."
+  if "$HERMES_CLI" plugins enable observability/langfuse 2>&1; then
+    echo "[hermes-entrypoint] observability/langfuse enabled"
+  else
+    echo "[hermes-entrypoint] NOTE: plugin enable skipped/failed (non-fatal)"
+  fi
+else
+  echo "[hermes-entrypoint] WARN: hermes CLI not found (HERMES_VENV_PY='${HERMES_VENV_PY:-}'); langfuse plugin enable skipped." >&2
 fi
 
 exec "$@"

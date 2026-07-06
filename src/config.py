@@ -42,6 +42,10 @@ class AppConfig:
     """Hermes work LLM base url 覆盖（``HERMES_API_URL``）；未设置时回退 ``work_openai_base_url``。"""
     hermes_base_image_tag: str
     """Hermes 上游基础镜像 tag（``HERMES_BASE_IMAGE_TAG``，默认 ``v2026.5.16``）。"""
+    hermes_network_mode: str | None
+    """Hermes 容器 ``docker run --network`` 模式（``HERMES_NETWORK_MODE``）。
+    默认 None（不覆盖，用 Docker 默认 bridge）
+    """
     model: str
     """agent 使用的模型名（``MODEL_NAME``，形如 provider/model_id）。"""
     max_tokens: int
@@ -87,6 +91,7 @@ def load_config() -> AppConfig:
         hermes_model_name=os.getenv("HERMES_MODEL_NAME"),
         hermes_api_url=os.getenv("HERMES_API_URL"),
         hermes_base_image_tag=os.getenv("HERMES_BASE_IMAGE_TAG", "v2026.5.16"),
+        hermes_network_mode=(os.getenv("HERMES_NETWORK_MODE") or "").strip() or None,
         model=os.getenv("MODEL_NAME", "unknown"),
         max_tokens=int(os.getenv("MAX_TOKENS", "51200")),
         log_file=os.getenv("EVAL_LOG_FILE", str(_default_log_file())),
