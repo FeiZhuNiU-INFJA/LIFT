@@ -306,7 +306,7 @@ nohup python -m src.cli.lift_main \
   --benchmark_dir assets/benchmarks_demo \
   --suite hello.json \
   --run_id <run_id> \
-  --status-http 0.0.0.0:<port> \
+  --dashboard 0.0.0.0:<port> \
   > logs/<run_id>.log 2>&1 &
 
 tail -f logs/<run_id>.log               # 主进度看这里
@@ -319,7 +319,7 @@ tail -f logs/<run_id>.log               # 主进度看这里
 > - **`hello.json`** — 1 W + 1 H 寒暄（Q1 "回复你好" / Q2 "自我介绍"），测的是基本 chat / warmup-commit-holdout 流水线连通性。
 > - **`test_search.json`** — 1 W + 1 H 联网题（W1 查 2026 北京展会、H1 查 Node.js LTS 版本），测的是 agent 的联网工具是否生效。如果 runtime 没接联网工具，H1 会失败但流水线本身仍然走完。
 
-> `--status-http 0.0.0.0:<port>` 远程机器开 dashboard 必须 0.0.0.0；只在本机调试用 PORT 单字段（默认绑 127.0.0.1）即可。
+> `--dashboard 0.0.0.0:<port>` 远程机器开 dashboard 必须 0.0.0.0；只在本机调试用 PORT 单字段（默认绑 127.0.0.1）即可。
 
 ### 6.1 镜像构建
 
@@ -339,7 +339,7 @@ docker images | grep evolve-eval-<runtime>
 ```bash
 nohup python -m src.cli.lift_main \
   -r <runtime> --benchmark_dir assets/benchmarks_demo \
-  --suite hello.json --run_id <run_id> --status-http 0.0.0.0:<port> \
+  --suite hello.json --run_id <run_id> --dashboard 0.0.0.0:<port> \
   > logs/<run_id>.log 2>&1 &
 tail -f logs/<run_id>.log
 ```
@@ -365,14 +365,14 @@ python -m src.cli.lift_main -r <runtime> --evaluate-only --run_id <run_id>
 > `--evaluate-only` 始终把 `report.json` 反向 replay 成事件总线广播（`emit_run_plan` /
 > `emit_suite_plan` / `emit_stage`）重建 tracker 骨架（repeat × suite × task ×
 > phase + score / success / turns / tool_calls / status），后处理跑完后用同一个
-> tracker 重导静态 dashboard，所以不依赖 `--status-http`。
+> tracker 重导静态 dashboard，所以不依赖 `--dashboard`。
 
 ### 6.4 test_search.json 联网能力 sanity（可选）
 
 ```bash
 nohup python -m src.cli.lift_main \
   -r <runtime> --benchmark_dir assets/benchmarks_demo \
-  --suite test_search.json --run_id <run_id> --status-http 0.0.0.0:<port> \
+  --suite test_search.json --run_id <run_id> --dashboard 0.0.0.0:<port> \
   > logs/<run_id>.log 2>&1 &
 tail -f logs/<run_id>.log | grep -E 'firecrawl|search|scrape|Action'
 ```

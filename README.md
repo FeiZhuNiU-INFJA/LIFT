@@ -76,8 +76,8 @@ flowchart LR
 
 每一次 LIFT run 都带一个实时的「任务控制台」—— warmup / baseline / evolved 进度、容器生命周期、对话轮次、retry / truncation 状态全部实时刷新。三种打开方式：
 
-- **终端 TUI**（`--status-viz`）：终端里原地刷新，header 进度条 + suite × repeat 矩阵 + 活跃容器表
-- **浏览器 Dashboard**（`--status-http 8080`）：无需额外依赖，多人可同时连。点任一 task 弹出 work↔judge 完整对话；KPI 条 / phase delta 着色 / retry 闪烁告警一应俱全
+- **终端 TUI**（`--tui`）：终端里原地刷新，header 进度条 + suite × repeat 矩阵 + 活跃容器表
+- **浏览器 Dashboard**（`--dashboard 8080`）：无需额外依赖，多人可同时连。点任一 task 弹出 work↔judge 完整对话；KPI 条 / phase delta 着色 / retry 闪烁告警一应俱全
 - **静态快照**（自动）：跑完自动写 `results/<run_id>/dashboard.html`，发出去同事打开就能复盘；事后用 `--evaluate-only` 还能在不重跑 agent 的前提下，把整个评测过程的 dashboard 重建出来
 
 <table>
@@ -161,8 +161,8 @@ python -m src.cli.lift_main \
   --benchmark_dir assets/benchmarks_demo \
   --suite hello.json \
   --run_id my-first-run \
-  --status-viz \
-  --status-http 8080
+  --tui \
+  --dashboard 8080
 ```
 
 跑完看 [results/lift-runid-my-first-run/](./results) 下的报告与自动生成的 `dashboard.html` 离线快照。

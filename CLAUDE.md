@@ -31,7 +31,7 @@ python -m src.cli.lift_main -r openclaw \
 # Full LIFT evaluation (with terminal TUI + browser dashboard)
 python -m src.cli.lift_main -r openclaw \
   --benchmark_dir assets/benchmarks_demo --suite hello.json \
-  --run_id my-run --status-viz --status-http 8080
+  --run_id my-run --tui --dashboard 8080
 
 # Post-process only (rebuild dashboard / metrics from existing report.json)
 python -m src.cli.lift_main -r openclaw --evaluate-only --run_id my-run
@@ -161,10 +161,10 @@ TOS_SECRET_KEY=your_secret_key
 
 ## Status Visualization
 
-- `--status-viz`: terminal TUI (`rich.Live`), best for foreground / tmux viewing; when enabled, console logging is muted to protect the render area while file logging continues
-- `--status-http [HOST:]PORT`: browser dashboard, zero-dep stdlib `http.server`; clicking any task expands the full work↔judge dialogue
+- `--tui`: terminal TUI (`rich.Live`), best for foreground / tmux viewing; when enabled, console logging is muted to protect the render area while file logging continues
+- `--dashboard [HOST:]PORT`: browser dashboard, zero-dep stdlib `http.server`; clicking any task expands the full work↔judge dialogue
 - Static snapshot: each run automatically writes `results/{run_id}/dashboard.html`; `--evaluate-only` replays the report to rebuild it
-- Do not use `nohup … --status-viz`: `rich.Live` needs a tty — redirecting to a file produces escape-code soup
+- Do not use `nohup … --tui`: `rich.Live` needs a tty — redirecting to a file produces escape-code soup
 
 ## Testing
 

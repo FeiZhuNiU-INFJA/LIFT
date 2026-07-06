@@ -235,7 +235,7 @@ docker run --rm evolve-eval-openclaw-with-evolve:latest openclaw plugins list
 ## 步骤 6：跑 hello.json 冒烟（TUI + Dashboard 可视化）
 
 `hello.json` 在 `assets/benchmarks_demo/`，与完整 benchmark 目录分离。
-同时开启终端 TUI 面板（`--status-viz`）和浏览器 HTTP dashboard（`--status-http`）：
+同时开启终端 TUI 面板（`--tui`）和浏览器 HTTP dashboard（`--dashboard`）：
 
 ```bash
 python -m src.cli.lift_main \
@@ -243,12 +243,12 @@ python -m src.cli.lift_main \
   --benchmark_dir assets/benchmarks_demo \
   --suite hello.json \
   --run_id hello-smoke \
-  --status-viz \
-  --status-http 8080
+  --tui \
+  --dashboard 8080
 ```
 
 - **TUI**：终端实时刷新 warmup / holdout / phase 状态面板（依赖 `rich`）。
-- **Dashboard**：浏览器打开 `http://localhost:8080`（`--status-http` 也可写 `HOST:PORT`）。
+- **Dashboard**：浏览器打开 `http://localhost:8080`（`--dashboard` 也可写 `HOST:PORT`）。
 - 运行结束后默认自动后处理，产物在 `results/lift-runid-hello-smoke/`：
   `report.json`、`outcome/`、`*_backfilled.json`（Langfuse trace 回填）、对比 CSV / HTML。
 

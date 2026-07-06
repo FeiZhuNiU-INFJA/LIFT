@@ -158,7 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--status-viz",
+        "--tui",
         action="store_true",
         help=(
             "Show a live terminal dashboard of run/repeat/suite/task/phase status and "
@@ -167,13 +167,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--status-http",
+        "--dashboard",
         default=None,
         metavar="[HOST:]PORT",
         help=(
             "Start a browser-side HTTP status dashboard (zero extra deps; stdlib http.server). "
             "Format: PORT (binds to 127.0.0.1) or HOST:PORT (e.g. 0.0.0.0:8765 for remote access). "
-            "Independent from --status-viz; both can be enabled simultaneously."
+            "Independent from --tui; both can be enabled simultaneously."
         ),
     )
     return parser
@@ -187,7 +187,7 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
     让 post-process pipeline 之后能用同一个 tracker 重导 ``dashboard.html``
     静态版（含 final summary、对话、tools 列）。
 
-    ``--status-viz`` / ``--status-http`` 仍按需启用对应的 TUI / HTTP 面板。
+    ``--tui`` / ``--dashboard`` 仍按需启用对应的 TUI / HTTP 面板。
     """
     from src.lift.status.state import RunStateTracker
     from src.postprocess.run_post_process import run_post_process_pipeline
@@ -205,7 +205,7 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
     try:
         replay_report_into_bus(run_id, report_path)
         with optional_status_panels(
-            tracker, viz_enabled=args.status_viz, http_endpoint=args.status_http
+            tracker, viz_enabled=args.tui, http_endpoint=args.dashboard
         ):
             run_post_process_pipeline(
                 run_id, report_path, agent_source=args.agent_runtime, tracker=tracker
@@ -242,7 +242,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         json.dumps(vars(args), default=str, ensure_ascii=False, sort_keys=True, indent=2),
     )
     with status_dashboard(
-        viz_enabled=args.status_viz, http_endpoint=args.status_http
+        viz_enabled=args.tui, http_endpoint=args.dashboard
     ) as tracker:
         await pipeline.run(
             run_id=run_id,
@@ -272,7 +272,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
             )
 
             # dashboard 关停前导出一份静态 HTML 快照，便于会后回看。
-            if tracker is not None and args.status_http:
+            if tracker is not None and args.dashboard:
                 export_dashboard_snapshot(run_id, tracker)
 
 
