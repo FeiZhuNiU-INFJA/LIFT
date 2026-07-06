@@ -1,9 +1,9 @@
 ---
-name: "setup-eval-env"
+name: "setup-lift-env"
 description: "从零配置 agent_evolve_evaluation (LIFT) 评测环境：conda python、本地 docker 部署 langfuse、引导 .env、preprocess 拉数据、构建 openclaw-with-evolve 镜像，并用 hello.json 冒烟（TUI + dashboard 可视化）。支持 macOS / Linux。当用户要求搭建/初始化/配置评测环境，或第一次跑通本仓库时使用。"
 ---
 
-# setup-eval-env
+# setup-lift-env
 
 引导用户在 **macOS** 或 **Linux** 上从零把 `agent_evolve_evaluation`（LIFT 评测框架）跑起来。
 按下面 6 个步骤顺序执行；每步先检测是否已就绪，避免重复操作。
@@ -29,6 +29,20 @@ uname -s                      # Darwin=macOS, Linux=Linux
 docker info >/dev/null 2>&1 && echo "docker OK" || echo "docker NOT ready"
 conda --version || echo "conda missing"
 ```
+
+### 探测是否在字节内网（决定后续构建镜像走公网还是内网）
+
+```bash
+# ≤3s 内出结论；两个都通 = 内网，任意一个不通就当作公网
+getent hosts mirrors.byted.org >/dev/null 2>&1 && \
+  curl -sf --max-time 3 https://bytedpypi.byted.org/simple/pip/ -o /dev/null && \
+  echo "==> 字节内网环境" || echo "==> 公网环境"
+```
+
+- **内网**：后续 openclaw / genericagent 镜像构建**务必**传
+  `APT_MIRROR=http://mirrors.byted.org` 与 `PIP_INDEX_URL=https://bytedpypi.byted.org/simple/`
+  两个环境变量，否则会卡在 `deb.debian.org` 或 `pypi.org`。
+- **公网**：直接跑，无需额外变量。
 
 ### 安装 Docker
 
@@ -66,16 +80,59 @@ Langfuse 用于 pre-chat 上报、容器内 trace、后处理 backfill，**不�
 # 建议放到 <ROOT> 外的独立目录，例如 ~/langfuse
 git clone https://github.com/langfuse/langfuse.git ~/langfuse
 cd ~/langfuse
-docker compose up -d
+# 优先用 v2 compose 插件；机器上只有 v1 docker-compose 时回退
+docker compose up -d 2>/dev/null || docker-compose up -d
 ```
 
-等 `langfuse-web` 容器日志出现 `Ready`，打开 `http://localhost:3000`：
-注册账号 → 创建 Organization/Project → 在 **Settings → API Keys** 创建一对密钥，
-拿到 **Public Key**（`pk-lf-...`）和 **Secret Key**（`sk-lf-...`），下一步填入 `.env`。
+> **compose 版本兼容**：新版 Docker Desktop / Docker Engine 已内置 v2（`docker compose`）；
+> 老机器 / 只装了 `apt install docker-compose` 的环境走 v1（`docker-compose`）。
+> 命令一样，语法完全兼容，本 skill 后续所有 `docker compose xxx` 都可替换为 `docker-compose xxx`。
+
+### 端口自定义（例如端口 3000 已被占用，换成 3888）
+
+`docker-compose.yml` 的 3000 出现在两处（`ports:` 与 `NEXTAUTH_URL:`），
+`.env` 里 `LANGFUSE_BASE_URL` 一处，**三处必须同步改**，否则登录跳转会 404 或链接不通：
+
+```yaml
+# ~/langfuse/docker-compose.yml
+services:
+  langfuse-worker:
+    environment: &langfuse-worker-env
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3888}   # ← 从 3000 改
+  langfuse-web:
+    ports:
+      - 3888:3000                                            # ← 从 3000:3000 改（左侧宿主端口，右侧容器内固定 3000 不动）
+```
+
+改完后 `docker compose up -d`（或 `docker-compose up -d`）会自动 recreate 受影响容器。
+
+> `.env` 里 `LANGFUSE_BASE_URL` 直接填 `http://localhost:<新端口>` 即可，src 会自动
+> 处理容器内主机名，见步骤 3 表格。
+
+### 就绪检测（比看日志更可靠）
 
 ```bash
-docker compose ps   # 确认 langfuse-web / langfuse-worker / postgres 等 Up
+# 端口默认 3000；换端口后改这里
+PORT=3000
+curl -sf "http://localhost:${PORT}" -o /dev/null && echo "langfuse ready" || echo "not ready yet"
+docker compose ps 2>/dev/null || docker-compose ps
 ```
+
+期望的 `compose ps` 输出（全部 `Up`，且 postgres/clickhouse/redis/minio 标为 `healthy`）：
+
+```
+NAME                         STATE               PORTS
+langfuse_langfuse-web_1      Up                  0.0.0.0:3000->3000/tcp
+langfuse_langfuse-worker_1   Up                  127.0.0.1:3030->3030/tcp
+langfuse_clickhouse_1        Up (healthy)        127.0.0.1:8123->8123/tcp, 127.0.0.1:9000->9000/tcp
+langfuse_postgres_1          Up (healthy)        127.0.0.1:5432->5432/tcp
+langfuse_redis_1             Up (healthy)        127.0.0.1:6379->6379/tcp
+langfuse_minio_1             Up (healthy)        0.0.0.0:9090->9000/tcp, 127.0.0.1:9091->9001/tcp
+```
+
+打开 `http://localhost:3000`（或你自定义的端口）：
+注册账号 → 创建 Organization/Project → 在 **Settings → API Keys** 创建一对密钥，
+拿到 **Public Key**（`pk-lf-...`）和 **Secret Key**（`sk-lf-...`），下一步填入 `.env`。
 
 完成后 `cd <ROOT>` 回到项目根。
 
@@ -216,4 +273,4 @@ python -m src.cli.lift_main -r openclaw --evaluate-only --run_id hello-smoke
 - **report.json 里 `langfuse` 为 null**：执行期只写结论，trace 在后处理阶段填入 `*_backfilled.json`；确认 Langfuse 已启动且 `.env` 的 `LANGFUSE_*` 正确。
 - **build 报 permission denied**：当前用户不在 docker 组（Linux）或 Docker daemon 未启动（macOS 未 `colima start` / 未开 Docker Desktop）。
 - **拉取基础镜像慢/失败**：设 `OPENCLAW_BASE_IMAGE` 切换加速源后重试。
-- **想清理残留容器/镜像再重来**：使用同仓库的 `cleanup-eval-env` skill。
+- **想清理残留容器/镜像再重来**：使用同仓库的 `cleanup-lift-env` skill。
