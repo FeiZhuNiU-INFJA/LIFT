@@ -9,6 +9,10 @@ description: "把一个新的 agent runtime（如 OpenClaw / GenericAgent）接�
 
 > **原则**：先把 baseline 跑通（hello.json sanity → test_search.json benchmark），再考虑 `_with_evolve` / `_active_evolve` 之类衍生 runtime。衍生只是在 baseline adapter 上叠 `evolve_after_warmup` 钩子或镜像 tag。
 
+> **两个反例警示**（在集成过程中主动去验证，别只信"跑通了 hello.json"）：
+> 1. **进化产物不进 delta 镜像**（§1.7）—— warmup 阶段 agent 写下的 memory / skills 如果落进 bind mount，`docker commit` 不会捕获，evolved 与 baseline 完全一致，improvement 恒为 0，整个 LIFT 数据无意义。核心症状：hello.json 100% 成功也一样中招。
+> 2. **hello.json 走通 ≠ evolve 生效**（§6.5）—— hello.json 只测流水线连通性；必须跑一个会让 agent 有话可记的复杂 suite 并做三层证据交叉验证（Log × Langfuse × Layer）才能证明 evolve 真的成立。
+
 ---
 
 ## 0. 必备前置认知
@@ -113,6 +117,49 @@ PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \
 ```
 
 `build-image.sh -h` 必须把这三个变量列在 `Override via env:` 区域（参考 [GA build-image.sh:25-38](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/build-image.sh#L25-L38)），方便后续接手者 `--help` 直接看到。
+
+> **内网自动探测**（可选优化）：如果 runtime 主要在内网机器上构建，可以在 `build-image.sh` 里加一段"探测到 `mirrors.byted.org` 就自动默认 APT_MIRROR / PIP_INDEX_URL"逻辑（参考 [GA build-image.sh:25-35](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/build-image.sh#L25-L35)），既支持公网构建的默认行为，又免掉每次手动 `APT_MIRROR=... PIP_INDEX_URL=... bash build-image.sh`。留一个 `LIFT_INTRANET_AUTODETECT=0` 兜底开关方便验证公网路径。
+
+### 1.7 进化产物落地契约（Docker commit 陷阱） ⚠️
+
+**LIFT 的核心命题是"baseline 镜像 vs evolved 镜像的差异，就是 warmup 阶段 agent 自主学到的所有东西"**。要让这个命题成立，你必须保证 agent 在 warmup 期写下的所有 evolve 产物（memory / skills / SOP / learned tools）都进入 **`docker commit` 能捕获的容器 FS 层**。
+
+**Docker commit 的边界**：仅捕获**容器根 FS 层**内的变更（例如 `/opt/**`、`/root/**`、`/etc/**`）。**以下路径都不进 commit**：
+- Bind mount 目录（例如 LIFT 的 `/workspace/task` = 宿主 `results/<run_id>/outcome/.../workspace/`）
+- Named volume
+- tmpfs
+- `--mount type=...` 的所有非本地 FS 挂载
+
+**三点错位** —— 新 runtime 接入时**必须**同时保证下面三个位置一致，任何一处错位都会让 evolve 无声无息地失效：
+
+| 位置 | 具体形态 | 陷阱 |
+|---|---|---|
+| **引擎读**：agent 上游代码读 memory / skills 的绝对路径 | GA `script_dir = /opt/GenericAgent`；OpenClaw `~/.openclaw/workspace` | 通常上游用 `os.path.dirname(__file__)` 或 `~` 拼绝对路径，天然在容器 FS 层 ✅ |
+| **LLM 写**：LLM 通过 tool call（`file_write` / `bash`）实际写文件的路径 | 由 system prompt 里的 `cwd` 和 `[Memory]` 提示决定 | LLM 用 `memory/xxx` 相对路径 → 落在 cwd = `/workspace/task/memory` = **bind mount** ❌ |
+| **docker commit 捕获**：容器 FS 层 | 由 Dockerfile 的 `mkdir -p /opt/<runtime>/memory` 决定 | 只有落到容器 FS 才能被 commit ✅ |
+
+**验证清单**（新 runtime 必跑）：
+
+```bash
+# 1. 引擎侧读什么绝对路径？
+docker run --rm <image> sh -c 'grep -nE "memory|skill|sop" /opt/<runtime>/<main>.py | head'
+
+# 2. system prompt 告诉 LLM 什么路径？
+docker run --rm <image> sh -c 'grep -nE "cwd\s*=|\[Memory\]|\.\./memory|\./memory" /opt/<runtime>/<main>.py'
+
+# 3. Dockerfile 是否 mkdir 了这些绝对路径？
+grep -nE "mkdir.*memory|mkdir.*skill" agent-runtimes/<runtime>/Dockerfile
+```
+
+三处路径**必须**指向同一个容器 FS 绝对路径（例如 `/opt/<runtime>/memory`）。如果 LLM 会看到相对路径（`memory/xxx` / `../memory/xxx`）且 cwd 在 bind mount 之内，就必须在 `install-in-image.sh` 里 patch 上游源码把提示改成绝对路径，同时（双保险）在 reflection prompt 里显式告诉 LLM"cwd 是 bind mount，只能用 `/opt/<runtime>/memory` 绝对路径"。
+
+**历史案例**（GA memory patch）：
+- GA 引擎读 `script_dir + 'memory/'` → 绝对路径 `/opt/GenericAgent/memory` ✅
+- GA system prompt 告诉 LLM `cwd = /workspace/task (./)` + `[Memory] (../memory)` → LLM 解析为 `/workspace/memory`（不存在）或 `/workspace/task/memory`（bind mount）❌
+- 引擎读的位置**永远拿不到** LLM 写的内容 → warmup 表面成功，delta 镜像里 `/opt/GenericAgent/memory` 空空如也 → evolved 与 baseline 无差异 → LIFT 数据毫无意义
+- 修复：`install-in-image.sh` patch [ga.py:518,590,591](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/install-in-image.sh#L86-L108) 三处相对路径都改成 `/opt/GenericAgent/memory` 绝对路径；reflection prompt 也加 `_MEMORY_PATH_NOTE`。
+
+> **验证方式**：首选看 pipeline 日志里 `Delta preflight diff` 一行（`commit_delta_image` 在 `docker commit` 前自动跑 `docker diff` 打摘要）；如果显示 `no changes` 或 `top` 里没有 `/opt/<runtime>/memory`，就是三点错位。也可以按 §6.5 "证据 C：Layer" 跑一个非 hello 的复杂 suite + `--warmup-only` 手动 diff delta 镜像。
 
 ---
 
@@ -379,7 +426,144 @@ tail -f logs/<run_id>.log | grep -E 'firecrawl|search|scrape|Action'
 
 如果 runtime 配了联网工具（如 firecrawl），应当看到 W1 / H1 调用搜索工具拿到当日数据；没接联网工具的 runtime 这步可以跳过。
 
-### 6.5 衍生 runtime（可选）
+### 6.5 三层证据交叉验证（必跑；hello.json 只能证连通，不能证 evolve）
+
+hello.json 太简单，LLM 通常直接回 "DONE"、不会真的写 memory —— 走完 hello 只能证明流水线**没崩**，不能证明 evolve 的**核心命题**（warmup 学到的东西真的进入 delta）成立。
+
+要真正证明 evolve 有效，必须做**三层交叉验证**（Log → Langfuse → Layer）：三个证据缺一不可，因为它们证明的不是同一件事。选择一个**会让 agent 有话可记**的 suite（比如 `test_search.json`，或自己拼一个含明确 memory 写入指令的 warmup 题）。
+
+#### 证据 A：Log —— agent 真的对话了吗？
+
+验证 work agent / judge agent 是否都跑了、reflection 钩子（如 `evolve_after_task` / `evolve_after_warmup`）是否触发。
+
+```bash
+LOG=logs/<run_id>.log
+
+# work / judge chat 次数（每题至少一对，评测多轮会更多）
+grep -cE "work-agent chat start|user-[0-9a-f]+ session" "$LOG"
+grep -cE "judge-agent chat start|judge-[0-9a-f]+ session" "$LOG"
+
+# reflection 钩子触发（active_evolve variant）
+grep -E "\[active_evolve\] reflection chat" "$LOG"
+
+# reflection 回复 head —— 全 DONE 说明 LLM 没写东西；有具体内容说明真触发写入
+grep "reply_head=" "$LOG"
+
+# 高频错误信号
+grep -E "wait output timeout|Cannot connect to Docker|Judge response is not valid JSON" "$LOG" | head
+```
+
+**红旗**：所有 reflection `reply_head='DONE\\n'` 且证据 C 里 delta diff 也空 → suite 太简单，换一个更复杂的 suite 再验证。
+
+#### 证据 B：Langfuse —— trace 写入 & 后处理拼装
+
+验证容器里的调用确实上报到 Langfuse，且后处理的 backfill 能拿回来做 stitching。
+
+```bash
+RID=lift-runid-<run_id>
+JSON=results/$RID/${RID}_backfilled.json
+
+# B.1 后处理 backfill 成功（有 work_agent_traces / judge_agent_traces）
+python -c "
+import json
+r = json.load(open('$JSON'))
+for rp in r['runs']:
+    for s in rp['suites']:
+        for t in s['tasks']:
+            for ph_name in ('baseline','evolved'):
+                ph = t[ph_name]
+                lf = ph.get('langfuse') or {}
+                wt = len(lf.get('work_agent_traces') or [])
+                jt = len(lf.get('judge_agent_traces') or [])
+                pt = len(lf.get('plugin_traces') or [])
+                tc = ph.get('tool_calls')
+                print(f'  {t[\"name\"]:6} {ph_name:8} work={wt} judge={jt} plugin={pt} tool_calls={tc}')
+"
+
+# B.2 检查后处理告警
+grep -E "trace not found|Failed to fetch trace|trace_backfill" "$LOG"
+
+# B.3 Langfuse UI 侧交叉检查：随便挑一条 trace
+# 打开 http://<langfuse-host>/project/<pid>，按 session_id (user-xxx / judge-xxx) 搜
+# 应该看到 name=<runtime>-plugin、session/tags 列非空的 root span
+```
+
+**通过标准**：
+- 每题两个 phase 都有 `work` ≥ 1、`judge` ≥ 1（`turns` 数对齐）
+- 静态 dashboard tools 列有非 null 值（说明 §5.3 的兜底链路走通）
+- Langfuse UI 上 trace 的 Session / Tags 列非空（说明 overlay 用的是 v4 上下文管理器，见 §1.3）
+
+**红旗**：`work=0` / `judge=0` 且日志无 timeout → overlay 没生效或 trace name 没进 `LANGFUSE_PLUGIN_TRACE_NAMES`（见 §5.1）。
+
+#### 证据 C：Layer —— delta 镜像真的包含进化内容吗？
+
+这是 LIFT 全流程的**核心命题**。必须在 warmup 结束、`docker commit` 之后、pipeline `docker rmi evolve-eval-delta:*` 之前抢到 delta 镜像做 diff。
+
+**优先看 pipeline 日志的 `Delta preflight diff` 行**（[commit_delta_image](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/container/delta.py) 在 `docker commit` 之前会自动跑 `docker diff` 并打一行摘要）：
+
+```
+INFO Delta preflight diff (evolve-genericagent-xxxxx): +12A ~3C -0D across 4 paths (top: /opt/GenericAgent/memory x9, /root x2, ...)
+INFO Delta materialized: evolve-eval-delta:<run_id>-r0-<suite>
+```
+
+- `+NA ~NC -ND` = 新增 / 修改 / 删除 的容器 FS 层文件计数（bind mount 天然不进 diff）
+- `top:` 按前 3 层目录聚合，一眼看出进化产物落到了哪儿
+- **红旗 1**：`no changes (empty upperdir)` —— warmup 没往容器 FS 写任何东西，铁定是 §1.7 三点错位
+- **红旗 2**：`top:` 里根本没出现 `/opt/<runtime>/memory` —— 写去了别的目录（例如 `/tmp` / `/root`），需要核对上游引擎的读路径
+
+如果日志摘要已经有明确红旗，可以跳过下面的手工 diff；如果想深挖具体新增了什么文件、mtime 情况：
+
+**方案 1（推荐）**：在 pipeline 的清理钩子前拦一次（`--warmup-only` 会跳过 holdout 且不会 `docker rmi` delta，最方便）：
+
+```bash
+# 用 --warmup-only 只跑 warmup + commit，delta 镜像会保留下来
+nohup python -m src.cli.lift_main -r <runtime> \
+  --benchmark_dir assets/benchmarks_demo --suite <suite>.json \
+  --run_id <run_id> --warmup-only > logs/<run_id>.log 2>&1 &
+wait
+
+# 找出 delta 镜像
+DELTA=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "evolve-eval-delta:.*<run_id>" | head -1)
+echo "delta = $DELTA"
+
+# 与 baseline 镜像 diff（看真的多了什么）
+BASE=evolve-eval-<runtime>:latest
+docker run --rm --entrypoint sh "$BASE" -c 'ls -la /opt/<runtime>/memory' > /tmp/base_memory.txt
+docker run --rm --entrypoint sh "$DELTA" -c 'ls -la /opt/<runtime>/memory' > /tmp/delta_memory.txt
+diff /tmp/base_memory.txt /tmp/delta_memory.txt
+
+# 也可以直接看 diff summary（A = added, C = changed, D = deleted）
+docker run --rm --entrypoint sh "$DELTA" -c 'find /opt/<runtime>/memory -newer /opt/<runtime>/agentmain.py -type f'
+```
+
+**方案 2**：正式跑（含 holdout），在 pipeline 打日志"Delta materialized"之后立刻 tag 保护：
+
+```bash
+# 提前开另一个 shell 循环抓 delta，第一次抓到就 docker tag 保留
+while true; do
+  D=$(docker images -q "evolve-eval-delta:*<run_id>*" | head -1)
+  if [[ -n "$D" ]]; then docker tag "$D" "kept-delta:<run_id>"; break; fi
+  sleep 2
+done
+```
+
+**通过标准**：
+- delta 镜像的 `/opt/<runtime>/memory/` （或 runtime 对应目录）**存在**且**内容不同于 baseline**（有新文件 / 有 mtime 更新的现有文件）
+- 具体新内容与日志证据 A 里的 reflection reply 一致（LLM 说要写什么就真的写下了什么）
+
+**红旗**：delta 与 baseline 完全一致 —— 意味着 warmup 阶段 agent 学到的所有东西都写去了别处（bind mount / tmpfs / /tmp）没进 commit。这就是 §1.7 描述的**三点错位** bug。**必须**先修好这一层再谈其他，否则整个 LIFT 数据都是伪造的（baseline vs evolved 无差异，improvement 恒为 0）。
+
+#### 综合判断表
+
+| 证据 A | 证据 B | 证据 C | 结论 |
+|---|---|---|---|
+| ✅ chat / reflection 都触发 | ✅ trace 齐全 | ✅ delta 有内容 | Runtime 接入完备 ✅ |
+| ✅ | ✅ | ❌ delta 与 baseline 一致 | §1.7 三点错位 bug，evolve **无效**，必须修 |
+| ✅ | ❌ trace 缺失 | ✅ delta 有内容 | overlay 或 `LANGFUSE_PLUGIN_TRACE_NAMES` 有问题，evolve 有效但 dashboard / 后处理拿不到分析数据 |
+| ❌ reflection 无 / timeout | — | — | reflection 钩子未生效或 chat 卡死，先修 chat 再验证其他 |
+| ✅ 全 DONE | ✅ | ❌ | suite 太简单不触发写入，换更复杂的 suite 再验 |
+
+### 6.6 衍生 runtime（可选）
 
 如果还要做 `<runtime>_with_evolve` / `<runtime>_active_evolve`：
 1. 镜像 tag 多加一条 `<RUNTIME>_WITH_EVOLVE_DOCKER_IMAGE`（或复用基础镜像）。
@@ -407,10 +591,22 @@ tail -f logs/<run_id>.log | grep -E 'firecrawl|search|scrape|Action'
 | `logs/<run_id>.log` 看到 `wait output timeout` | GA 主循环 600s 内没产出 / 死循环 / LLM 卡 | `docker exec <c> tail -50 /opt/GenericAgent/temp/<iodir>/ga.stderr.log` 看 GA 自己日志 |
 | Langfuse trace 上 `Session` / `Tags` 列空 | overlay 还在用 v3 的 `obs.update_trace(...)` / `client.update_current_trace(...)`，4.x SDK 已删除 | overlay 改成 `propagate_attributes(session_id=, tags=)` 上下文管理器 + `start_as_current_observation`（见 §1.3） |
 | 静态 dashboard tools 列空，但 `*_backfilled.json` 里 `tool_calls` 已有数 | B 路径 langfuse 兜底拿到了值但没回写 tracker，`tracker.snapshot()` 仍是 None → 嵌入 HTML 后显示 "—" | 确认 `run_post_process_pipeline` 调了 `tracker.set_phase_tool_calls(...)`（见 §5.3.1）；运行期实时 dashboard 看不到 B 路径 tools 是设计行为 |
+| evolved 与 baseline 结果几乎一致（improvement ≈ 0） | Warmup 期 agent 的 evolve 产物落进了 bind mount / tmpfs，`docker commit` 没捕获到 → delta 镜像内容 = baseline | 走 §6.5 三层证据 C 检查 delta diff；若 diff 为空则回 §1.7 三点错位排查（引擎读位置 vs LLM 写位置 vs Dockerfile mkdir 位置） |
+| LLM 明说"写了 memory"但 delta 镜像没有 | LLM 走的是相对路径（`memory/xxx`），cwd 又在 bind mount | `install-in-image.sh` patch 上游 system prompt 里的 `[Memory]` 指示为绝对路径；reflection prompt 里显式加"cwd 是 bind mount，只能用 `/opt/<runtime>/memory/`"提示（见 §1.7 历史案例） |
 
 ---
 
-## 8. 集成完成后的一次性产出
+## 8. 未来优化 TODO
+
+集成 GA 过程中沉淀出来的可选增强项，暂未落地；如果后续接入新 runtime 时踩到相关坑，可以顺手把对应条目实现掉。
+
+- [ ] **`Delta preflight diff` 结构化输出到 report.json**：目前 diff 摘要只落在 pipeline 日志（`Delta preflight diff (...): +NA ~NC -ND ...`）。可以把 `+NA ~NC -ND` 加它的 top-paths 数组挂到 `PhaseRun.langfuse` 平级的 `PhaseRun.delta_diff` 字段（或 `SuiteRun.delta_diff`），让后处理 CSV / HTML dashboard 也能一眼看出"这一轮 warmup 有没有真的落东西"，不用翻日志。见 [container/delta.py](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/container/delta.py) `_summarize_diff` 的返回值改成 dict 就行。
+- [ ] **evolve 产物落地契约的静态自检脚本**：把 §1.7 "三点错位" 验证清单（引擎读路径 / system prompt 提示路径 / Dockerfile mkdir 路径）沉淀成 `agent-runtimes/<runtime>/verify_evolve_contract.sh`，接入新 runtime 时 `bash verify_evolve_contract.sh <image>` 一键跑完输出 pass/fail，比每次 grep 手敲更省事。GA 的 3 处 `sed` patch 也可以做成脚本形式复用给下一个 runtime。
+- [ ] **Langfuse SDK v3 → v4 overlay 迁移脚本**：见 §1.3 —— 目前只在文档里描述了 v4 的 `propagate_attributes + start_as_current_observation` 用法，下次遇到只支持 v3 API 的上游 plugin 时，需要手动改。可以固化一个 `overlay_migrate_v3_to_v4.py` codemod（针对 `observation.update_trace(...)` / `client.update_current_trace(...)` 的 AST 替换）加进 skill，让类似 patch 自动化。
+
+---
+
+## 9. 集成完成后的一次性产出
 
 完成集成后，`git status` 应当包含：
 
@@ -444,7 +640,7 @@ M  src/report/langfuse_trace_stitch.py       # AgentSource Literal + dispatch tu
 
 ---
 
-## 9. 参考实现速查
+## 10. 参考实现速查
 
 | 场景 | 看哪个文件 |
 |---|---|
@@ -458,7 +654,7 @@ M  src/report/langfuse_trace_stitch.py       # AgentSource Literal + dispatch tu
 
 ---
 
-## 10. 配套 skill
+## 11. 配套 skill
 
 | skill | 何时调用 |
 |---|---|

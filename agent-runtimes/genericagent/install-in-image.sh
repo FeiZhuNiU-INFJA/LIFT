@@ -82,6 +82,30 @@ patch_file(
     "prompt += f'cwd = {os.path.join(script_dir, \"temp\")} (./)\\n'",
     f"prompt += f'cwd = {LIFT_TASK_CWD} (./)\\n'",
 )
+
+# c) memory 路径全部改为绝对路径 /opt/GenericAgent/memory
+#    背景：GA 引擎读 memory 用 script_dir 拼绝对路径（进 delta 镜像 FS 层），
+#    但系统提示告诉 LLM ``cwd = /workspace/task`` + ``[Memory] (../memory)``；
+#    LLM 会把 ``../memory`` 解释为 ``/workspace/memory``（不在 bind mount 内，
+#    也不在容器 FS 层被 docker commit），或把 ``memory/xxx`` 解释为
+#    ``/workspace/task/memory/xxx``（在 bind mount 内 → 不进 delta）。
+#    三点错位导致进化产物无法持久化。这里把 LLM 侧看到的 memory 路径也统一
+#    锚定到 ``/opt/GenericAgent/memory``，让读、写、docker commit 都指向同一位置。
+patch_file(
+    f"{GA_DIR}/ga.py",
+    "path = './memory/memory_management_sop.md'",
+    f"path = '{GA_DIR}/memory/memory_management_sop.md'",
+)
+patch_file(
+    f"{GA_DIR}/ga.py",
+    'prompt += f"\\n[Memory] (../memory)\\n"',
+    f'prompt += f"\\n[Memory] ({GA_DIR}/memory)\\n"',
+)
+patch_file(
+    f"{GA_DIR}/ga.py",
+    "prompt += structure + '\\n../memory/global_mem_insight.txt:\\n'",
+    f"prompt += structure + '\\n{GA_DIR}/memory/global_mem_insight.txt:\\n'",
+)
 PYEOF
 
 # 4) Install firecrawl plugin + register tools schema

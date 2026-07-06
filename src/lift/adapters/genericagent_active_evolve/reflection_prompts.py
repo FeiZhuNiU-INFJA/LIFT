@@ -15,6 +15,16 @@ from __future__ import annotations
 from src.models import PhaseRun, SuiteTask
 
 
+_MEMORY_PATH_NOTE = (
+    "IMPORTANT — memory location: all memory files live at absolute path "
+    "``/opt/GenericAgent/memory/``. Always read and write via this absolute "
+    "path (e.g. ``/opt/GenericAgent/memory/global_mem_insight.txt``, "
+    "``/opt/GenericAgent/memory/memory_management_sop.md``). Never use "
+    "relative paths like ``memory/...`` or ``../memory/...`` — your cwd is a "
+    "bind mount and writes there will NOT persist into the delta image."
+)
+
+
 def per_task_reflection_prompt(task: SuiteTask, result: PhaseRun) -> str:
     """每题完成后的轻量复盘 prompt（B 粒度）。"""
     verdict = "PASSED" if result.success else "FAILED"
@@ -25,10 +35,13 @@ def per_task_reflection_prompt(task: SuiteTask, result: PhaseRun) -> str:
         f"- judge verdict: {verdict}\n"
         f"- score: {result.content_score:.2f}\n"
         f"- turns used: {result.turns}\n\n"
-        "Follow your own memory/memory_management_sop.md. Do not invent SOPs "
-        "for tasks you did not actually execute. Keep the update minimal: a "
-        "single new fact in global_mem.txt, an index line in "
-        "global_mem_insight.txt, or one new memory/*.md SOP at most. "
+        f"{_MEMORY_PATH_NOTE}\n\n"
+        "Follow your own /opt/GenericAgent/memory/memory_management_sop.md. "
+        "Do not invent SOPs for tasks you did not actually execute. Keep the "
+        "update minimal: a single new fact in "
+        "/opt/GenericAgent/memory/global_mem.txt, an index line in "
+        "/opt/GenericAgent/memory/global_mem_insight.txt, or one new "
+        "/opt/GenericAgent/memory/*.md SOP at most. "
         "If nothing is worth remembering, write nothing and reply with the "
         "single word DONE."
     )
@@ -37,14 +50,17 @@ def per_task_reflection_prompt(task: SuiteTask, result: PhaseRun) -> str:
 SUITE_REFLECTION_PROMPT = (
     "All warmup tasks for this suite are now finished. Run a holistic review "
     "of the entire batch and update your memory.\n\n"
+    f"{_MEMORY_PATH_NOTE}\n\n"
     "Steps:\n"
-    "1. Read the current contents of memory/global_mem_insight.txt, "
-    "memory/global_mem.txt, and any task-level SOP files under memory/.\n"
+    "1. Read the current contents of "
+    "/opt/GenericAgent/memory/global_mem_insight.txt, "
+    "/opt/GenericAgent/memory/global_mem.txt, and any task-level SOP files "
+    "under /opt/GenericAgent/memory/.\n"
     "2. Identify cross-task patterns: recurring failure modes, reusable "
     "skills, environment quirks. Promote them into the right layer per "
-    "memory/memory_management_sop.md.\n"
+    "/opt/GenericAgent/memory/memory_management_sop.md.\n"
     "3. Prune stale or contradictory entries. Keep "
-    "global_mem_insight.txt within ~30 lines.\n"
+    "/opt/GenericAgent/memory/global_mem_insight.txt within ~30 lines.\n"
     "4. Do NOT fabricate experiences for tasks you did not execute "
     "(No Execution, No Memory).\n\n"
     "When the memory files reflect the final consolidated state, reply with "
