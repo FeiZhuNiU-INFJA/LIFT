@@ -22,6 +22,18 @@ if [[ -f "${ROOT}/.env" ]]; then
   set +a
 fi
 
+# 内网自动探测：未显式设 APT_MIRROR / PIP_INDEX_URL 时，如果能解析 mirrors.byted.org
+# 就默认切到字节内网源，避免手动 export。用 LIFT_INTRANET_AUTODETECT=0 关闭。
+if [[ "${LIFT_INTRANET_AUTODETECT:-1}" != "0" ]] \
+   && [[ -z "${APT_MIRROR:-}" || -z "${PIP_INDEX_URL:-}" ]] \
+   && getent hosts mirrors.byted.org >/dev/null 2>&1 \
+   && curl -fsSL --max-time 3 -o /dev/null "https://bytedpypi.byted.org/simple/pip/" 2>/dev/null; then
+  : "${APT_MIRROR:=http://mirrors.byted.org}"
+  : "${PIP_INDEX_URL:=https://bytedpypi.byted.org/simple/}"
+  export APT_MIRROR PIP_INDEX_URL
+  echo "==> Intranet detected; defaulting APT_MIRROR / PIP_INDEX_URL to ByteDance mirrors (LIFT_INTRANET_AUTODETECT=0 to disable)"
+fi
+
 # 是否安装并启用 self-evolving-plugin-pro。默认 false（base 镜像）；传 --with-evolve 构建 with-evolve 镜像
 INSTALL_SELF_EVOLVING="false"
 usage() {
