@@ -2,7 +2,7 @@
 
 ``LIFTPipeline`` 与 ``ContainerSession`` 在关键生命周期点调用本模块的 ``emit_*``
 函数。若没有任何监听器（默认情况），这些调用直接返回，不产生任何开销，也不会
-改变现有运行行为；仅当 ``--status-viz`` 注册了 ``RunStateTracker`` 后才会聚合。
+改变现有运行行为；仅当 ``--tui`` 注册了 ``RunStateTracker`` 后才会聚合。
 
 事件分两类：
 - 编排事件（run/repeat/suite/task/phase 的 start/end）：由 ``LIFTPipeline`` 发出，

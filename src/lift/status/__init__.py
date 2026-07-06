@@ -11,7 +11,7 @@
 - ``http_dashboard``：``HttpDashboard``，零依赖标准库实现，提供浏览器侧的实时仪表盘
   （``GET /``、``GET /snapshot``、``GET /events`` SSE 长连接）。
 
-CLI 在 ``--status-viz`` 时启动终端 TUI，``--status-http [HOST:]PORT`` 时启动
+CLI 在 ``--tui`` 时启动终端 TUI，``--dashboard [HOST:]PORT`` 时启动
 HTTP 仪表盘；两者各自独立，可单开也可同时开。事件总线 ``events.subscribe`` 支持
 任意数量并行订阅者，未来如需再挂 WebSocket / 时间轴甘特图等可视化，只需再注册
 一个监听器。

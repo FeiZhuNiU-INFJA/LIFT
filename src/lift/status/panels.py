@@ -8,7 +8,7 @@
   调用方先 attach 再传入，因为 replay 阶段必须在 panel 之前发事件让 tracker
   订阅到。
 
-``--status-viz`` 启动期间会临时摘掉 console 的 ``StreamHandler``（保留
+``--tui`` 启动期间会临时摘掉 console 的 ``StreamHandler``（保留
 ``FileHandler``），避免日志冲掉 ``rich.Live`` 渲染区。
 """
 
@@ -64,7 +64,7 @@ def optional_status_panels(
     生命周期。``--evaluate-only`` 路径下 tracker 必须先于 panels 启动以便 replay
     阶段事件能被订阅，因此走此函数。
     """
-    # --status-viz: 摘 console 日志 + rich.Live 看板
+    # --tui: 摘 console 日志 + rich.Live 看板
     stream_handlers: list[logging.Handler] = []
     dashboard = None
     if viz_enabled:
@@ -82,7 +82,7 @@ def optional_status_panels(
         dashboard = StatusDashboard(tracker)
         dashboard.start()
 
-    # --status-http: 后台线程 HTTP 服务器
+    # --dashboard: 后台线程 HTTP 服务器
     http_dashboard = None
     if http_endpoint:
         from src.lift.status.http_dashboard import HttpDashboard
@@ -103,7 +103,7 @@ def optional_status_panels(
 
 
 def _parse_http_endpoint(endpoint: str) -> tuple[str, int]:
-    """解析 ``--status-http`` 参数为 ``(host, port)``。
+    """解析 ``--dashboard`` 参数为 ``(host, port)``。
 
     - 纯数字：默认绑定 ``127.0.0.1``（仅本机访问）。
     - ``HOST:PORT``：按 host:port 解析，host 可以是 ``0.0.0.0`` / 域名 / IP。
@@ -118,6 +118,6 @@ def _parse_http_endpoint(endpoint: str) -> tuple[str, int]:
         port = int(port_str)
     except ValueError as exc:
         raise ValueError(
-            f"Invalid --status-http endpoint {endpoint!r}; expected PORT or HOST:PORT"
+            f"Invalid --dashboard endpoint {endpoint!r}; expected PORT or HOST:PORT"
         ) from exc
     return host, port

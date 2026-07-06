@@ -487,8 +487,8 @@ flowchart LR
 | `--max-conversation-turns` | 单 task 内 work→judge 最大对话轮数（默认 `5`，替代旧的 `EVAL_MAX_TURNS` 环境变量） |
 | `--container-memory` | 单容器内存上限，透传 `docker run --memory`（**默认不限制**；设过小会触发 `CONSTRAINT_MEMCG` OOM），见 [§4.6](#46-容器资源约束与运维colima--docker-vm) |
 | `--container-cpus` | 单容器 CPU 上限，透传 `docker run --cpus`（默认不限制），见 [§4.6](#46-容器资源约束与运维colima--docker-vm) |
-| `--status-viz` | 启动终端 TUI 实时状态面板（`rich.Live`），见 [§12.8](#128-运行状态可视化--status-viz----status-http) |
-| `--status-http [HOST:]PORT` | 启动浏览器 HTTP 状态面板（标准库零依赖），见 [§12.8](#128-运行状态可视化--status-viz----status-http) |
+| `--tui` | 启动终端 TUI 实时状态面板（`rich.Live`），见 [§12.8](#128-运行状态可视化--tui----dashboard) |
+| `--dashboard [HOST:]PORT` | 启动浏览器 HTTP 状态面板（标准库零依赖），见 [§12.8](#128-运行状态可视化--tui----dashboard) |
 | `-e` / `--evaluate` | 评测结束后自动后处理（**默认开启**；`--no-evaluate` 关闭） |
 | `--evaluate-only` | 跳执行，仅对已有 report 后处理（需 `--run_id`） |
 
@@ -751,21 +751,21 @@ LIFT 在容器内通过 `agents add --model …` 注册 work / judge agent。Ope
 
 ---
 
-### 12.8 运行状态可视化（`--status-viz` / `--status-http`）
+### 12.8 运行状态可视化（`--tui` / `--dashboard`）
 
 LIFT 内置事件总线 + 状态聚合器，驱动两种可选的实时观察方式（互不干扰，可单开也可同开；未启用时 `emit_*` 是零成本 no-op）：
 
-- `--status-viz`：终端 TUI（基于 `rich.Live`），适合 tmux 内前台观察；启用时 console 日志被静音以保护渲染区，文件日志照常写。
-- `--status-http <[host:]port>`：浏览器仪表盘（标准库 `http.server.ThreadingHTTPServer`，零额外依赖），适合 nohup 离线跑 + 远端浏览器看进度；端口被占用时仅 warning，不影响主流程。
+- `--tui`：终端 TUI（基于 `rich.Live`），适合 tmux 内前台观察；启用时 console 日志被静音以保护渲染区，文件日志照常写。
+- `--dashboard <[host:]port>`：浏览器仪表盘（标准库 `http.server.ThreadingHTTPServer`，零额外依赖），适合 nohup 离线跑 + 远端浏览器看进度；端口被占用时仅 warning，不影响主流程。
 
 ```bash
 # 单开 / 双开
-python -m src.cli.lift_main ... --status-viz
-python -m src.cli.lift_main ... --status-http 0.0.0.0:8765   # 默认仅本机；显式 0.0.0.0 允许远端
-python -m src.cli.lift_main ... --status-viz --status-http 8765
+python -m src.cli.lift_main ... --tui
+python -m src.cli.lift_main ... --dashboard 0.0.0.0:8765   # 默认仅本机；显式 0.0.0.0 允许远端
+python -m src.cli.lift_main ... --tui --dashboard 8765
 ```
 
-⚠️ 不要 `nohup ... --status-viz`：`rich.Live` 依赖 tty，重定向到文件后输出全是 ANSI 转义符。
+⚠️ 不要 `nohup ... --tui`：`rich.Live` 依赖 tty，重定向到文件后输出全是 ANSI 转义符。
 
 **看板布局**（TUI / HTTP 一致）：Header（总进度 + ETA）/ Repeats（按 repeat 一行进度条）/ Suites × Repeats 栅格（每格 `w b e` 三状态符号 `· ◔ ● ✗`，done suite 自动折叠）/ Containers（按启动时长降序）。HTTP Dashboard 额外提供 suite 名 filter、hide done 折叠、连接状态徽标；通过 `GET /snapshot`（断线重连）+ `GET /events`（SSE 长连接）推送事件。
 
