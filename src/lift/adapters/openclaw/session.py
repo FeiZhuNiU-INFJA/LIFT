@@ -23,19 +23,26 @@ _FASTAPI_CONTAINER_PORT = 18090  # 容器内 self-evolving plugin HTTP 端口
 _CONTAINER_PREFIX = "evolve-openclaw"  # docker 容器名前缀
 
 CONTAINER_LANGFUSE_BASE_URL = "http://host.docker.internal:3000"  # 容器内访问宿主机 Langfuse
+CONTAINER_LANGFUSE_HOST = "host.docker.internal"
 CONTAINER_AGENT_WORKSPACE = "/root/.openclaw/workspace"  # 与 agents.fragment.json 对齐
 CONTAINER_TASK_DIR = "/workspace/task"  # host bind mount：任务素材 + 当题产物
 CONTAINER_EXTRA_SKILLS_DIR = f"{CONTAINER_TASK_DIR}/skills"  # task.requirements.extra_skills_dir 挂载点
 
 
 def _normalize_langfuse_base_url(raw: str | None) -> str:
-    """将 localhost Langfuse URL 映射为 ``host.docker.internal``。"""
+    """将宿主机侧 loopback（``localhost`` / ``127.0.0.1``）映射为
+    ``host.docker.internal``，**保留原有端口 / 协议 / 路径**。"""
     if not raw or not raw.strip():
         return CONTAINER_LANGFUSE_BASE_URL
-    lowered = raw.strip().lower()
-    if "127.0.0.1" in lowered or "localhost" in lowered:
-        return CONTAINER_LANGFUSE_BASE_URL
-    return raw.strip()
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(raw.strip())
+    host = (parts.hostname or "").lower()
+    if host not in {"localhost", "127.0.0.1"}:
+        return raw.strip()
+    port = parts.port
+    netloc = CONTAINER_LANGFUSE_HOST if port is None else f"{CONTAINER_LANGFUSE_HOST}:{port}"
+    return urlunsplit((parts.scheme or "http", netloc, parts.path, parts.query, parts.fragment))
 
 
 def _container_runtime_env() -> dict[str, str]:

@@ -34,7 +34,7 @@ for arg in "$@"; do
     esac
 done
 
-# 项目根目录：脚本所在目录的上两级（skill/cleanup-eval-env/cleanup.sh -> 项目根）
+# 项目根目录：脚本所在目录的上两级（skill/cleanup-lift-env/cleanup.sh -> 项目根）
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../.." &> /dev/null && pwd)"
 

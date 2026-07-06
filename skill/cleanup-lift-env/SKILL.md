@@ -1,4 +1,4 @@
-# cleanup-eval-env
+# cleanup-lift-env
 
 清理 LIFT / agent_evolve_evaluation 评测环境产生的残留物——孤儿容器、delta
 镜像、dangling 镜像，以及（可选的）旧 results / logs。
@@ -36,16 +36,16 @@
 
 ```bash
 # 仅打印将要做什么，不动手
-bash <项目根>/skill/cleanup-eval-env/cleanup.sh --dry-run
+bash <项目根>/skill/cleanup-lift-env/cleanup.sh --dry-run
 
 # 默认：清容器 + delta 镜像 + dangling 镜像 + evolve_eval.log
-bash <项目根>/skill/cleanup-eval-env/cleanup.sh
+bash <项目根>/skill/cleanup-lift-env/cleanup.sh
 
 # 同时清 results/ 和 logs/
-bash <项目根>/skill/cleanup-eval-env/cleanup.sh --results --logs
+bash <项目根>/skill/cleanup-lift-env/cleanup.sh --results --logs
 
 # 全清（容器 + 镜像 + 日志 + results + logs）
-bash <项目根>/skill/cleanup-eval-env/cleanup.sh --all
+bash <项目根>/skill/cleanup-lift-env/cleanup.sh --all
 ```
 
 > 把 `<项目根>` 换成自己环境里 `agent_evolve_evaluation` 的实际路径即可；

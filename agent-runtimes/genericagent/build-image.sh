@@ -62,6 +62,26 @@ MODEL_NAME="${GENERICAGENT_MODEL_NAME:-${MODEL_NAME:-}}"
 LANGFUSE_PUBLIC_KEY="${LANGFUSE_PUBLIC_KEY:-}"
 LANGFUSE_SECRET_KEY="${LANGFUSE_SECRET_KEY:-}"
 LANGFUSE_HOST="${LANGFUSE_HOST:-${LANGFUSE_BASE_URL:-http://host.docker.internal:3000}}"
+# 宿主机 .env 通常配 http://localhost:PORT / http://127.0.0.1:PORT；容器内无法解析
+# loopback，必须改写为 host.docker.internal 才能连回宿主机 Langfuse。保留原端口 /
+# 协议 / 路径，与 src/lift/adapters/openclaw/session.py 的 normalize 语义一致。
+LANGFUSE_HOST="$(python3 - <<PY
+from urllib.parse import urlsplit, urlunsplit
+raw = "${LANGFUSE_HOST}".strip()
+if not raw:
+    print("http://host.docker.internal:3000")
+else:
+    parts = urlsplit(raw)
+    host = (parts.hostname or "").lower()
+    if host in {"localhost", "127.0.0.1"}:
+        port = parts.port
+        netloc = "host.docker.internal" if port is None else f"host.docker.internal:{port}"
+        print(urlunsplit((parts.scheme or "http", netloc, parts.path, parts.query, parts.fragment)))
+    else:
+        print(raw)
+PY
+)"
+echo "==> LANGFUSE_HOST baked into mykey.py: ${LANGFUSE_HOST}"
 FIRECRAWL_API_KEY="${FIRECRAWL_API_KEY:-}"
 
 if [[ -z "${ARK_API_KEY}" ]]; then

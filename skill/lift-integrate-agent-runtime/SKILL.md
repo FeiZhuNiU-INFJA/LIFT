@@ -462,7 +462,7 @@ M  src/report/langfuse_trace_stitch.py       # AgentSource Literal + dispatch tu
 
 | skill | 何时调用 |
 |---|---|
-| [`setup-eval-env`](file:///root/workspace/agent_evolve_evaluation/skill/setup-eval-env/SKILL.md) | 还没装 conda / docker / langfuse / 跑过 hello.json 的全新机器 |
-| [`cleanup-eval-env`](file:///root/workspace/agent_evolve_evaluation/skill/cleanup-eval-env/SKILL.md) | 评测中途 Ctrl-C / OOM 后留下 `evolve-<runtime>-*` 容器、`evolve-eval-delta:*` 镜像，重跑前清场用 |
+| [`setup-lift-env`](file:///root/workspace/agent_evolve_evaluation/skill/setup-lift-env/SKILL.md) | 还没装 conda / docker / langfuse / 跑过 hello.json 的全新机器 |
+| [`cleanup-lift-env`](file:///root/workspace/agent_evolve_evaluation/skill/cleanup-lift-env/SKILL.md) | 评测中途 Ctrl-C / OOM 后留下 `evolve-<runtime>-*` 容器、`evolve-eval-delta:*` 镜像，重跑前清场用 |
 
-集成新 runtime 时，先用 `setup-eval-env` 把基础环境备好（如果还没），再按本 skill 走流程；调试中遇到容器残留就用 `cleanup-eval-env` 清场再重试。
+集成新 runtime 时，先用 `setup-lift-env` 把基础环境备好（如果还没），再按本 skill 走流程；调试中遇到容器残留就用 `cleanup-lift-env` 清场再重试。

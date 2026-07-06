@@ -150,7 +150,7 @@ cell 内 warmup tasks、holdout tasks、baseline / evolved 双相也都默认并
 
 需要 Docker + Conda（Python 3.12）+ 本地 Langfuse + 一个 OpenClaw 评测镜像。
 
-**第一次配置环境**：调用 [`setup-eval-env`](./skill/setup-eval-env/SKILL.md) skill —— 它会按 6 步顺序检测并引导：Docker、Conda、Langfuse、`.env`、benchmark 数据、镜像构建，最后用 `hello.json` 冒烟。
+**第一次配置环境**：调用 [`setup-lift-env`](./skill/setup-lift-env/SKILL.md) skill —— 它会按 6 步顺序检测并引导：Docker、Conda、Langfuse、`.env`、benchmark 数据、镜像构建，最后用 `hello.json` 冒烟。
 
 **已经配好环境，想直接跑**：
 
@@ -180,8 +180,8 @@ python -m src.cli.lift_main \
 | LIFT 代码速查 + 测试命令 | [src/lift/README.md](./src/lift/README.md) |
 | Benchmark 收集规范（query / 要求 / 轨迹要求） | [assets/suite_requirement.md](./assets/suite_requirement.md) |
 | OpenClaw 镜像构建细节 | [agent-runtimes/openclaw/README.md](./agent-runtimes/openclaw/README.md) |
-| 从零搭环境 | skill: [setup-eval-env](./skill/setup-eval-env/SKILL.md) |
-| 清理评测残留容器/镜像 | skill: [cleanup-eval-env](./skill/cleanup-eval-env/SKILL.md) |
+| 从零搭环境 | skill: [setup-lift-env](./skill/setup-lift-env/SKILL.md) |
+| 清理评测残留容器/镜像 | skill: [cleanup-lift-env](./skill/cleanup-lift-env/SKILL.md) |
 | 接入新的 agent runtime | skill: [lift-integrate-agent-runtime](./skill/lift-integrate-agent-runtime/SKILL.md) |
 
 ---
@@ -217,7 +217,7 @@ python -m src.cli.lift_main \
 - **TOS**（字节内网，`aml-fde-boe/benchmark_mds.zip`，需 TOS 凭证）
 - **HuggingFace dataset**（公开仓库，默认 [`FeiZhuNiU-INFJA/EALE`](https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE)，读取无需 token；可用 `BENCHMARK_HF_REPO` 覆盖）
 
-切换走哪边：`.env` 的 `BENCHMARK_SOURCE=tos|huggingface`，或 CLI 加 `--source huggingface`。具体命令见 [`setup-eval-env`](./skill/setup-eval-env/SKILL.md) 步骤 4。
+切换走哪边：`.env` 的 `BENCHMARK_SOURCE=tos|huggingface`，或 CLI 加 `--source huggingface`。具体命令见 [`setup-lift-env`](./skill/setup-lift-env/SKILL.md) 步骤 4。
 
 ---
 
