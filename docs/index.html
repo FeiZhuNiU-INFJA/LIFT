@@ -839,68 +839,211 @@
     .stack-tag b { color: var(--mark); font-weight: 700; }
 
     /* ============================================================
-       ADAPTER — 4 hooks
+       ADAPTER — 4 hooks (user-view first, contract below)
        ============================================================ */
-    .hooks { display: grid; grid-template-columns: repeat(2, 1fr); gap: .9rem; margin-top: .7em; }
+    /* hero terminal block: what the user actually says */
+    .invoke-hero {
+      background: var(--ink); color: var(--paper);
+      border-radius: 3px; position: relative;
+      padding: 1rem 1.15rem 1.05rem; margin-top: .8em;
+    }
+    .invoke-hero::before {
+      content: ""; position: absolute; top: 6px; left: 6px; right: 6px; bottom: 6px;
+      border: 1px solid rgba(232,227,214,.16); pointer-events: none;
+    }
+    .invoke-hero .role {
+      font-family: var(--mono); font-size: .58em; letter-spacing: .18em;
+      text-transform: uppercase; color: rgba(232,227,214,.55);
+      margin-bottom: .5em;
+    }
+    .invoke-hero .line {
+      font-family: var(--mono); color: var(--paper);
+      font-size: .95em; line-height: 1.6; letter-spacing: -.005em;
+    }
+    .invoke-hero .prompt { color: rgba(232,227,214,.4); margin-right: .5em; }
+    .invoke-hero .skill { color: var(--mark); font-weight: 600; }
+    .invoke-hero .arg { color: rgba(232,227,214,.85); }
+    .invoke-hero .repo {
+      display: block; margin-top: .3em; padding-left: 1.6em;
+      color: var(--steel); font-size: .82em;
+      border-bottom: 1px solid rgba(54,80,107,.35); width: fit-content;
+    }
+    .invoke-hero .caret {
+      display: inline-block; width: .5em; height: 1em; vertical-align: -2px;
+      background: var(--mark); margin-left: .15em;
+      animation: caret-blink 1s steps(2, end) infinite;
+    }
+    @keyframes caret-blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .invoke-hero .caret { animation: none; } }
+
+    /* reveal seam: skill unpacks into 4 hooks */
+    .invoke-seam {
+      position: relative; margin: 1rem 0 .3rem;
+      display: flex; align-items: center; gap: .8rem;
+    }
+    .invoke-seam::before,
+    .invoke-seam::after {
+      content: ""; flex: 1; height: 1px; background: var(--ink-14);
+    }
+    .invoke-seam .label {
+      font-family: var(--mono); font-size: .6em; letter-spacing: .16em;
+      text-transform: uppercase; color: var(--mark); white-space: nowrap;
+    }
+    .invoke-seam .label b { color: var(--ink); font-weight: 600; }
+
+    /* 4 hooks — kept but visually subordinate */
+    .hooks { display: grid; grid-template-columns: repeat(2, 1fr); gap: .55rem; margin-top: .3em; }
     .hook {
       background: var(--paper-3); border: 1px solid var(--ink-14);
-      border-radius: 3px; padding: 1.15rem 1.3rem;
-      display: flex; align-items: baseline; gap: 1rem; position: relative;
+      border-radius: 3px; padding: .7rem .95rem;
+      display: flex; align-items: baseline; gap: .8rem; position: relative;
     }
-    .hook::before { content: ""; position: absolute; top: -1px; left: -1px; width: 24px; height: 3px; background: var(--mark); }
-    .hook .idx { font-family: var(--mono); color: var(--mark); font-size: 1.4em; font-weight: 700; }
-    .hook .name { font-family: var(--mono); font-size: 1.02em; font-weight: 600; color: var(--ink); }
-    .hook .desc { color: var(--ink-52); font-size: .88em; margin-top: .25em; line-height: 1.5; }
+    .hook::before { content: ""; position: absolute; top: -1px; left: -1px; width: 20px; height: 2px; background: var(--mark); }
+    .hook .idx { font-family: var(--mono); color: var(--mark); font-size: 1em; font-weight: 700; }
+    .hook .plain { font-family: var(--sans); font-size: .92em; font-weight: 600; color: var(--ink); }
+    .hook .api { font-family: var(--mono); font-size: .72em; color: var(--ink-52); margin-top: .15em; letter-spacing: -.005em; }
     .hooks-foot {
-      text-align: center; margin-top: 1em;
-      font-family: var(--mono); font-size: .86em; color: var(--ink-52); letter-spacing: .02em;
+      text-align: center; margin-top: .8em;
+      font-family: var(--mono); font-size: .78em; color: var(--ink-52); letter-spacing: .02em;
     }
     .hooks-foot b { color: var(--ink); font-weight: 700; }
+    .hooks-foot .mono-name { color: var(--steel); }
 
     /* ============================================================
-       PRODUCT-FORM AGNOSTIC
+       PRODUCT-FORM AGNOSTIC — container-as-boundary
        ============================================================ */
     .agnostic {
       display: grid; grid-template-columns: 1fr auto 1fr;
-      gap: 1.4rem; margin-top: 1em; align-items: center;
+      gap: 1.1rem; margin-top: .9em; align-items: stretch;
     }
-    .agnostic-products { display: flex; flex-direction: column; gap: .6rem; }
-    .ap-item {
-      background: var(--paper-3); border: 1px solid var(--ink-14);
-      border-radius: 3px; padding: .7rem .95rem;
-      display: flex; align-items: center; gap: .85rem;
+
+    /* the two "images" — identical shape, tag differentiates */
+    .img-card {
+      position: relative; padding: 1.05rem 1.1rem 1.15rem;
+      background: var(--paper-3);
+      border: 1px solid var(--ink-22); border-radius: 3px;
+      display: flex; flex-direction: column; gap: .7rem;
     }
-    .ap-item .glyph {
-      font-family: var(--mono); font-size: 1.4em; color: var(--steel);
-      width: 1.4em; text-align: center; font-weight: 500;
+    .img-card::before {
+      content: ""; position: absolute; top: 6px; left: 6px; right: 6px; bottom: 6px;
+      border: 1px solid var(--ink-10); pointer-events: none;
     }
-    .ap-item.a2 .glyph { color: var(--mark); }
-    .ap-item.a3 .glyph { color: var(--pass); }
-    .ap-item.a4 .glyph { color: var(--signal); }
-    .ap-item .name { font-family: var(--mono); color: var(--ink); font-weight: 600; font-size: .96em; }
-    .ap-item .form { font-family: var(--mono); color: var(--ink-52); font-size: .78em; }
-    .agnostic-arrow { display: flex; flex-direction: column; align-items: center; gap: .35rem; color: var(--ink-52); }
-    .agnostic-arrow .arrow { font-family: var(--serif); font-size: 2.6em; line-height: 1; color: var(--ink); }
-    .agnostic-arrow .text { font-family: var(--mono); font-size: .62em; letter-spacing: .12em; text-transform: uppercase; }
-    .agnostic-frame {
+    .img-card.delta { border-color: var(--mark); }
+    .img-card.delta::before { border-color: rgba(160,122,34,.22); }
+
+    .img-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      border-bottom: 1px solid var(--ink-14); padding-bottom: .55rem;
+    }
+    .img-role {
+      font-family: var(--mono); font-size: .58em; letter-spacing: .18em;
+      text-transform: uppercase; color: var(--ink-52);
+    }
+    .img-card.delta .img-role { color: var(--mark); }
+    .img-tag {
+      font-family: var(--mono); font-size: .74em; color: var(--ink);
+      letter-spacing: -.005em;
+    }
+    .img-tag .prefix { color: var(--ink-34); }
+    .img-tag .name { color: var(--ink); }
+    .img-tag .sep { color: var(--ink-34); }
+    .img-tag .version { color: var(--steel); }
+    .img-card.delta .img-tag .version { color: var(--mark); font-weight: 600; }
+
+    /* the 4 forms sitting INSIDE the image — a 2×2 grid, visually contained */
+    .img-body {
+      display: grid; grid-template-columns: 1fr 1fr; gap: .4rem;
+    }
+    .form-cell {
+      display: flex; align-items: center; gap: .5rem;
+      padding: .42rem .55rem; background: var(--paper); border-radius: 2px;
+      border: 1px solid var(--ink-10);
+    }
+    .form-cell .g {
+      font-family: var(--mono); font-size: 1em; color: var(--ink-52);
+      width: 1.2em; text-align: center; font-weight: 500;
+    }
+    .form-cell .n {
+      font-family: var(--mono); font-size: .7em; color: var(--ink);
+      font-weight: 600; letter-spacing: -.005em;
+    }
+    .img-card.delta .form-cell { border-color: rgba(160,122,34,.24); }
+    .img-card.delta .form-cell .g { color: var(--mark); }
+
+    .img-foot {
+      font-family: var(--mono); font-size: .58em; letter-spacing: .1em;
+      color: var(--ink-34); text-transform: uppercase; text-align: center;
+      padding-top: .35rem; border-top: 1px dashed var(--ink-14);
+    }
+    .img-card.delta .img-foot { color: rgba(160,122,34,.7); border-top-color: rgba(160,122,34,.24); }
+
+    /* the transformation between the two images */
+    .transform {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: .5rem; min-width: 8.5em; padding: 0 .3rem;
+    }
+    .transform-op {
+      font-family: var(--mono); font-size: .68em; color: var(--ink);
+      background: var(--paper-2); border: 1px solid var(--ink-22);
+      padding: .35em .6em; border-radius: 2px; letter-spacing: -.01em;
+    }
+    .transform-op b { color: var(--mark); font-weight: 600; }
+    .transform-line {
+      position: relative; width: 100%; height: 1px; background: var(--ink-34);
+    }
+    .transform-line::before,
+    .transform-line::after {
+      content: ""; position: absolute; top: 50%; width: 7px; height: 7px;
+      transform: translateY(-50%) rotate(45deg);
+    }
+    .transform-line::before {
+      left: -1px; border-bottom: 1px solid var(--ink); border-left: 1px solid var(--ink);
+    }
+    .transform-line::after {
+      right: -1px; border-top: 1px solid var(--ink); border-right: 1px solid var(--ink);
+    }
+    .transform-note {
+      font-family: var(--mono); font-size: .56em; letter-spacing: .16em;
+      text-transform: uppercase; color: var(--ink-52); text-align: center;
+    }
+
+    /* pipeline conclusion band */
+    .pipeline-band {
+      margin-top: 1.05rem; padding: .75rem 1rem;
       background: var(--ink); color: var(--paper);
-      border-radius: 3px; padding: 1.8rem 1.6rem; text-align: center; position: relative;
+      border-radius: 3px; position: relative;
+      display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 1rem;
     }
-    .agnostic-frame::before {
-      content: ""; position: absolute; top: 10px; left: 10px; right: 10px; bottom: 10px;
-      border: 1px solid rgba(232,227,214,.22); pointer-events: none;
+    .pipeline-band::before {
+      content: ""; position: absolute; top: 6px; left: 6px; right: 6px; bottom: 6px;
+      border: 1px solid rgba(232,227,214,.16); pointer-events: none;
     }
-    .agnostic-frame .head {
-      font-family: var(--mono); font-size: .64em; letter-spacing: .16em;
+    .pipeline-band .who {
+      font-family: var(--mono); font-size: .62em; letter-spacing: .18em;
       text-transform: uppercase; color: rgba(232,227,214,.6);
     }
-    .agnostic-frame .title {
-      font-family: var(--serif); font-style: italic; font-size: 1.95em;
-      color: var(--paper); margin: .35em 0; line-height: 1.15;
+    .pipeline-band .who b {
+      display: block; font-family: var(--serif); font-style: italic; font-weight: 400;
+      font-size: 1.75em; letter-spacing: 0; color: var(--paper); margin-top: .1em;
     }
-    .agnostic-frame .sub {
-      font-family: var(--mono); color: rgba(232,227,214,.62);
-      font-size: .76em; line-height: 1.6;
+    .pipeline-band .op-chain {
+      display: flex; align-items: center; gap: .7rem; justify-content: center;
+      flex-wrap: wrap;
+    }
+    .pipeline-band .op-chain code {
+      font-family: var(--mono); font-size: .78em;
+      background: rgba(232,227,214,.08); border: 1px solid rgba(232,227,214,.16);
+      color: var(--paper); padding: .28em .55em; border-radius: 2px;
+    }
+    .pipeline-band .op-chain .sep {
+      font-family: var(--mono); color: rgba(232,227,214,.4); font-size: .7em;
+    }
+    .pipeline-band .verdict {
+      font-family: var(--serif); font-style: italic; font-size: 1.4em;
+      color: var(--mark); white-space: nowrap;
+    }
+    .pipeline-band .verdict .delta {
+      font-family: var(--mono); font-style: normal; font-weight: 500;
     }
 
     /* ============================================================
@@ -914,38 +1057,105 @@
     .mermaid-rendered svg { max-width: 100%; max-height: 500px; height: auto !important; }
 
     /* ============================================================
-       BENEFITS GRID — 4×2 (bigger cards, bigger type)
+       BENEFITS — pain-vs-relief comparison table
        ============================================================ */
-    .bonus { display: grid; grid-template-columns: repeat(4, 1fr); gap: .7rem; margin-top: .5em; }
-    .bonus + .bonus { margin-top: .55em; }
-    .bonus-group {
-      display: flex; align-items: baseline; gap: .55em;
-      font-family: var(--mono); font-size: .68em; letter-spacing: .12em;
-      text-transform: uppercase; color: var(--mark);
-      margin: .9em 0 .1em;
+    .benefit-block {
+      margin-top: .7em;
+      border-top: 1px solid var(--ink-14);
+      padding-top: .55em;
     }
-    .bonus-group::before { content: ""; flex: 0 0 22px; height: 1px; background: var(--mark); }
-    .bonus-group span.hint { color: var(--ink-52); letter-spacing: .04em; text-transform: none; font-family: var(--serif); font-size: 1.05em; }
-    .bonus-card {
-      background: var(--paper-3); border: 1px solid var(--ink-14);
-      border-radius: 3px; padding: .85rem .95rem; position: relative;
-      display: flex; flex-direction: column; gap: .35rem; min-height: 145px;
+    .benefit-block:first-of-type { border-top: none; padding-top: 0; margin-top: .3em; }
+    .benefit-head {
+      display: flex; align-items: baseline; gap: 1em;
+      margin-bottom: .5em;
     }
-    .bonus-card::before { content: ""; position: absolute; top: -1px; left: -1px; width: 22px; height: 3px; background: var(--steel); }
-    .bonus-card.b2::before { background: var(--pass); }
-    .bonus-card.b3::before { background: var(--mark); }
-    .bonus-card.b4::before { background: var(--ink); }
-    .bonus-card .glyph {
-      font-family: var(--mono); font-size: 1.55em; line-height: 1; color: var(--steel);
+    .benefit-head .label {
+      font-family: var(--serif); font-style: italic; font-weight: 400;
+      font-size: 1.35em; line-height: 1; color: var(--mark);
     }
-    .bonus-card.b2 .glyph { color: var(--pass); }
-    .bonus-card.b3 .glyph { color: var(--mark); }
-    .bonus-card.b4 .glyph { color: var(--ink); }
-    .bonus-card .title { font-family: var(--serif); color: var(--ink); font-size: 1.02em; line-height: 1.15; }
-    .bonus-card .body { color: var(--ink-52); font-size: .74em; line-height: 1.5; }
-    .bonus-card .body strong { color: var(--ink); }
-    .bonus-card .body code { font-family: var(--mono); font-size: .9em; color: var(--ink); background: var(--paper-2); padding: 0 .2em; }
-    .bonus-card .cost { font-family: var(--mono); font-size: .66em; color: var(--ink-52); border-top: 1px dashed var(--ink-14); padding-top: .3em; margin-top: auto; }
+    .benefit-block.trust .benefit-head .label { color: var(--pass); }
+    .benefit-head .sub {
+      font-family: var(--mono); font-size: .72em; letter-spacing: .06em;
+      color: var(--ink-52);
+    }
+    .benefit-columns {
+      display: grid;
+      grid-template-columns: 8.5em 1fr auto 1fr;
+      gap: .15em .95em;
+      align-items: baseline;
+      font-size: .72em;
+      font-family: var(--mono);
+      color: var(--ink-52);
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      padding-bottom: .35em;
+      border-bottom: 1px solid var(--ink-14);
+    }
+    .benefit-columns .arrow-cell { color: var(--ink-34); text-align: center; }
+    .benefit-row {
+      display: grid;
+      grid-template-columns: 8.5em 1fr auto 1fr;
+      gap: .15em .95em;
+      align-items: baseline;
+      padding: .38em 0;
+      border-bottom: 1px dashed var(--ink-10);
+    }
+    .benefit-row:last-child { border-bottom: none; }
+    .benefit-name {
+      font-family: var(--sans); font-weight: 600; color: var(--ink);
+      font-size: .82em;
+    }
+    .benefit-block.ease .benefit-name::before,
+    .benefit-block.trust .benefit-name::before {
+      content: ""; display: inline-block;
+      width: .35em; height: .35em; margin-right: .55em; vertical-align: middle;
+      background: var(--mark); border-radius: 50%;
+    }
+    .benefit-block.trust .benefit-name::before { background: var(--pass); }
+
+    .benefit-pain {
+      font-family: var(--mono); font-size: .72em; line-height: 1.5;
+      color: var(--ink-34);
+    }
+    .benefit-pain .cross {
+      text-decoration: line-through;
+      text-decoration-color: var(--signal);
+      text-decoration-thickness: 1px;
+      color: var(--ink-52);
+    }
+    .benefit-arrow {
+      font-family: var(--mono); color: var(--ink-22); font-size: .82em;
+      text-align: center; user-select: none;
+    }
+    .benefit-lift {
+      font-family: var(--mono); font-size: .74em; line-height: 1.5;
+      color: var(--ink-72);
+    }
+    .benefit-lift b {
+      color: var(--ink); font-weight: 600;
+    }
+    .benefit-block.ease .benefit-lift b { color: var(--ink); }
+    .benefit-lift code {
+      font-family: var(--mono); font-size: .92em;
+      background: var(--paper-2); padding: 0 .28em;
+      color: var(--steel);
+    }
+
+    .benefit-outro {
+      margin-top: 1em; padding: .55em .9em;
+      background: var(--ink); color: var(--paper);
+      border-radius: 3px; position: relative;
+      font-family: var(--mono); font-size: .78em; text-align: center;
+      letter-spacing: .01em;
+    }
+    .benefit-outro::before {
+      content: ""; position: absolute; top: 5px; left: 5px; right: 5px; bottom: 5px;
+      border: 1px solid rgba(232,227,214,.15); pointer-events: none;
+    }
+    .benefit-outro b {
+      font-family: var(--serif); font-style: italic; font-weight: 400;
+      color: var(--mark); font-size: 1.15em;
+    }
 
     /* ============================================================
        HELLO FLOW (multi)
@@ -1456,7 +1666,7 @@
       <div class="label">工程演化 · the build</div>
       <div class="title">为什么是框架，不是脚本？</div>
       <div class="rule"></div>
-      <aside class="notes"><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">其实LIFT做的事已经讲完了，看上去并不复杂，那下一个问题就是</span>为什么要做成框架而不是脚本就够了</aside>
+      <aside class="notes"><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">其实LIFT的思路已经讲完了，看上去并不复杂，接下来回答一个问题：</span>为什么要做成框架而不是脚本就够了</aside>
     </section>
 
     <!-- 9. Script v1 vs v2 -->
@@ -1498,7 +1708,7 @@ other_agent.<span class="v">??</span>()
           <div class="verdict"><strong>每接一个就要重写一遍</strong>，并发 / 日志 / 报告全要复制</div>
         </div>
       </div>
-      <aside class="notes">当我们尝试把整个测试流程应用到第一个agent的时候，我们当时选的openclaw，的确一个简单的脚本就够了。 从 warmup 练习题到触发进化到跑 holdout 到出报告。<br>然后当我们想接入更多agent、做规模化的时候就碰到了各种工程为题，并发怎么搞，任务之间如何做环境隔离等等，工程上自然而然要求对流程进行抽象和复用。再进一步，我们希望未来越来越多的agent可以接入做到有影响力，那么如何丝滑的接入也是一个重要的课题<br>&nbsp;</aside>
+      <aside class="notes">当我们尝试把整个测试流程应用到第一个agent的时候，的确一个简单的脚本就够了。 从 warmup 做练习题到触发进化到做 holdout期末考试到出报告。<br>然后当我们想跑规模化的suite的时候，想接入更多agent的时候就碰到了各种工程问题，明明只是换了agent，所有的脚本要重新写，并发怎么搞，task之间如何做环境隔离等等，工程上自然而然就要求对流程进行抽象和复用。<br>再进一步，我们希望未来越来越多的agent可以接入，做到有影响力，那么如何丝滑的接入新的agent同样是一个重要的课题<br>&nbsp;</aside>
     </section>
 
     <!-- 10. Cascade of duplications — RING -->
@@ -1546,7 +1756,7 @@ other_agent.<span class="v">??</span>()
           <div class="why">CSV / HTML / trace 关联</div>
         </div>
       </div>
-      <aside class="notes">先看下每个Agent在评测的时候都重复造了哪些轮子<br>一共有四个轮子：Agent怎么对话、环境怎么启停；并发调度；多轮对话；轨迹追踪和报告分析<div>其中除了Agent对话启停之外，其他都是共性的部分，<br><br>那么设计的时候这些与具体Agent无关的下沉到框架，一次性做好就行<div><div>Agent个性的部分抽象成了多个接口，不同的agent做好适配就行</div></div></div></aside>
+      <aside class="notes">我们分析了每个Agent在评测的时候都重复造了哪些轮子<br>一共有四个轮子：Agent怎么对话；并发怎么调度；多轮怎么对话；trajectory如何追踪和出报告分析<div>其中除了Agent对话之外，其他都是共性的部分，那么设计的时候这些与具体Agent无关的下沉到框架，一次性做好就行<div><div>Agent个性的部分抽象成了多个接口，不同的agent做好适配就行</div></div></div></aside>
     </section>
 
     <!-- 11. LIFT three-layer arch -->
@@ -1578,7 +1788,7 @@ other_agent.<span class="v">??</span>()
         <div class="stack-arrow">↓</div>
         <div class="stack-box l3">
           <div class="stack-row">
-            <div class="layer">eval</div>
+            <div class="layer">Judge Loop</div>
             <div class="role-main">
               <b>多轮阅卷循环</b>——work ↔ judge 交替、retry、判定 success / fail、落 <em>pre-chat span</em>
               <div class="role-sub">改这里 = 改阅卷规则（重试上限、success 判定）</div>
@@ -1588,7 +1798,7 @@ other_agent.<span class="v">??</span>()
         </div>
       </div>
       <div class="stack-tag">三层各自变化<b>互不牵连</b> · 接新 Agent 只动中间一层</div>
-      <aside class="notes">基于上一页共性和个性的分析；LIFT被设计成了三层结构<br>&nbsp;- 第一层 CLI / Pipeline ：负责CLI交互、完整的评测管线，并发调度、trajectory相关的处理、写 report。与具体的Agent无关<br>&nbsp;- 第二层：AgentRuntimeAdapter，对上暴露统一接口；实现<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">每家 Agent 差异的部分</span><br>&nbsp;- 第三层：eval&nbsp; 他负责work agent和<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">judge agent 的</span>多轮交互。跟具体的 Agent 无关。<br><br>这里补充两个点<br>1. agent必须容器化管理，环境才能隔离，容器的控制由pipeline层完成的<br>2. 实战过程中，dashboard的需求对于我来说太强烈了，所以也是在设计框架的时候把dashboard加了进来<div>---<br>另外 trajectory 追踪拆两块挂在了对应层：<br>&nbsp;- eval 层负责 pre-chat span——每次跟 work / judge agent 对话前后落一条 Langfuse span，带 session_id 和任务元数据；<br>&nbsp;- Adapter 层只负责把 session_id 透传进容器，让 runtime 内部的 langfuse 插件（openclaw-plugin / genericagent-plugin 等）自己上报 trace；<br>&nbsp;- 最后由 Pipeline 的后处理把两侧按同一 session_id 关联、字段回灌到 EvalReport。这样"接新 Agent 只动 Adapter 一层"的承诺才不会被 trace 打破。</div></aside>
+      <aside class="notes">基于上一页共性和个性的分析；LIFT被设计成了三层结构<br>&nbsp;- 第一层 CLI / Pipeline ：负责CLI交互、完整的评测管线，并发调度、trajectory相关的处理、写 report。与具体的Agent无关<br>&nbsp;- 第二层：AgentRuntimeAdapter，对上暴露统一接口；实现<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">每家 Agent 差异的部分</span><br>&nbsp;- 第三层：Judge Loop&nbsp; 他负责work agent和<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">judge agent 的</span>多轮交互。具体阅卷的过程，跟具体的 Agent 无关。<br><br>这里补充两个点<br>1. agent必须容器化管理，环境才能做到隔离，容器的控制由pipeline层完成<br>2. 实战过程中，<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">对于我来说</span>dashboard的需求太强烈了，所以也是在设计框架的过程中把dashboard加了进来</aside>
     </section>
 
     <!-- 14. Product-form agnostic -->
@@ -1596,161 +1806,230 @@ other_agent.<span class="v">??</span>()
       <div class="slide-eyebrow">关键性质 · 从 Pipeline 视角</div>
       <h2>Pipeline完全不关心你的"进化产物"是什么</h2>
       <div class="agnostic">
-        <div class="agnostic-products">
-          <div class="ap-item a1"><span class="glyph">Δ</span><div><div class="name">LoRA</div><div class="form">权重 diff</div></div></div>
-          <div class="ap-item a2"><span class="glyph">{ }</span><div><div class="name">Prompt Pool</div><div class="form">JSON / JSONL</div></div></div>
-          <div class="ap-item a3"><span class="glyph">§</span><div><div class="name">技能文件</div><div class="form">SOUL / MEMORY</div></div></div>
-          <div class="ap-item a4"><span class="glyph">❖</span><div><div class="name">向量库</div><div class="form">embeddings DB</div></div></div>
+        <!-- Left: base image -->
+        <div class="img-card base">
+          <div class="img-head">
+            <div class="img-role">Base 镜像</div>
+            <div class="img-tag">
+              <span class="prefix">#</span><span class="name">evolve-eval-openclaw</span><span class="sep">:</span><span class="version">base</span>
+            </div>
+          </div>
+          <div class="img-body">
+            <div class="form-cell"><span class="g">Δ</span><span class="n">LoRA 权重</span></div>
+            <div class="form-cell"><span class="g">{ }</span><span class="n">Prompt Pool</span></div>
+            <div class="form-cell"><span class="g">§</span><span class="n">技能 / 记忆</span></div>
+            <div class="form-cell"><span class="g">❖</span><span class="n">向量库</span></div>
+          </div>
+          <div class="img-foot">seed 状态 · warmup 前</div>
         </div>
-        <div class="agnostic-arrow">
-          <div class="arrow">→</div>
-          <div class="text">Adapter 自己负责</div>
+
+        <!-- Middle: transformation -->
+        <div class="transform">
+          <div class="transform-note">warmup 后</div>
+          <div class="transform-line"></div>
+          <div class="transform-op"><b>docker</b> commit</div>
         </div>
-        <div class="agnostic-frame">
-          <div class="head">LIFT 只看一件事</div>
-          <div class="title">同一道题<br/>分数差</div>
-          <div class="sub">至于"加载进化产物"这一步<br/>是 git checkout、docker commit、还是 cp config<br/>—— 不关心</div>
+
+        <!-- Right: delta image -->
+        <div class="img-card delta">
+          <div class="img-head">
+            <div class="img-role">Delta 镜像</div>
+            <div class="img-tag">
+              <span class="prefix">#</span><span class="name">evolve-eval-delta</span><span class="sep">:</span><span class="version">{run_id}</span>
+            </div>
+          </div>
+          <div class="img-body">
+            <div class="form-cell"><span class="g">Δ</span><span class="n">LoRA 权重′</span></div>
+            <div class="form-cell"><span class="g">{ }</span><span class="n">Prompt Pool′</span></div>
+            <div class="form-cell"><span class="g">§</span><span class="n">技能 / 记忆′</span></div>
+            <div class="form-cell"><span class="g">❖</span><span class="n">向量库′</span></div>
+          </div>
+          <div class="img-foot">进化后 · 变化封装在容器内</div>
         </div>
       </div>
-      <aside class="notes">站在第一层Pipeline 的视角：他不关心agent的进化产物是什么，warmup之后，可能skill memory变了，可能提示词变了，甚至可能模型权重变了。Pipeline 完全不需要感知。
-        这是 LIFT 重要性质之一，与产物形式无关。 <br>背后如何实现的呢？核心是agent容器化了之后，在pipeline的视角，所有的agent都是镜像而已。所有的产物变化都发生在容器内部，通过docker commit的方式把<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">warmup之后的agent临时快照成一个</span>镜像，我们称之为delta镜像。<div>所以进化后的agent状态是可以随时复现的。</div></aside>
+
+      <div class="pipeline-band">
+        <div class="who">Pipeline<b>只做一件事</b></div>
+        <div class="op-chain">
+          <code>docker run base</code>
+          <span class="sep">/</span>
+          <code>docker run delta</code>
+          <span class="sep">→</span>
+          <code>同一道题</code>
+        </div>
+        <div class="verdict"><span class="delta">Δ</span> 分数差</div>
+      </div>
+      <aside class="notes">站在Pipeline 的视角：<br>
+       &nbsp;- 他不关心 agent 的进化产物是什么形态——warmup 之后，可能是 skill / memory 变了，可能是提示词变了，甚至可能是模型权重变了；<br>
+       &nbsp;- Pipeline 完全不需要感知这些差异。<div>&nbsp;-&nbsp;<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">这是 LIFT 的关键性质之一：</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">与产物形态无关</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">。</span><br><br>
+       那背后是怎么做到的呢？看这张图：<br>
+       &nbsp;- <b>左边是 base 镜像</b>，agent 的初始状态，warmup 之前的样子；<br>
+       &nbsp;- warmup 之后，agent 在容器内部产生了各种变化——不管是 LoRA、Prompt Pool、技能文件还是向量库；<br>
+       &nbsp;- 我们用一次 <code>docker commit</code>，把这个变化后的容器<b>快照</b>成一个新的镜像；<br>
+       &nbsp;- <b>右边就是 delta 镜像</b>，产物的所有差异都被"封装"在这一层镜像里。<br><br>
+       这里还要多说一句：<b>为什么必须把进化后的状态落成 delta 镜像，而不是复用同一个容器接着跑 holdout？</b><br>
+       &nbsp;- holdout 有很多道题，每一道题都必须从<b>同一个进化后的起点</b>出发考试，否则前一题的残留会污染后一题；<br>
+       &nbsp;- 本质上，delta 镜像既是"进化后 agent"的一次可复现快照，也是 holdout 之间的<b>环境隔离</b>手段。<br><br>
+       所以对 Pipeline 而言，两次评测就退化成两次 <code>docker run</code>：<br>
+       &nbsp;- 一次跑 base，一次跑 delta，跑<b>同一道题</b>；<br>
+       &nbsp;- 拿两个成绩一减，就是这次进化的<b>Δ 分数</b>。<br><br>
+       容器就是产物形态和评测框架之间的抽象边界——这也是为什么 LIFT 可以接任何形态的自进化 Agent，而不用为每一种产物写一套评测逻辑。</div></aside>
     </section>
 
     <!-- 15. Adapter = 4 hooks -->
     <section>
-      <div class="slide-eyebrow">Adapter 的契约 · 从 Agent 视角</div>
-      <h2>接新 Agent 只填 4 件事</h2>
+      <div class="slide-eyebrow">Adapter 的契约 · 从接入者视角</div>
+      <h2>接一个新 Agent，用户只说一句话</h2>
+
+      <div class="invoke-hero">
+        <div class="role">You · in Trae / Claude Code</div>
+        <div class="line">
+          <span class="prompt">›</span><span class="skill">@lift-integrate-agent-runtime</span> <span class="arg">帮我接入这个 Agent</span><span class="caret"></span>
+          <span class="repo">↳ https://github.com/&lt;org&gt;/&lt;new-agent&gt;.git</span>
+        </div>
+      </div>
+
+      <div class="invoke-seam">
+        <div class="label">Skill 背后 · <b>只需填 4 件事</b></div>
+      </div>
+
       <div class="hooks">
         <div class="hook">
           <div class="idx">01</div>
           <div>
-            <div class="name">resolve_image / runtime</div>
-            <div class="desc">从哪里起这个 Agent</div>
+            <div class="plain">从哪里起这个 Agent</div>
+            <div class="api">resolve_image / runtime</div>
           </div>
         </div>
         <div class="hook">
           <div class="idx">02</div>
           <div>
-            <div class="name">start / stop</div>
-            <div class="desc">怎么把它启动起来、清理掉</div>
+            <div class="plain">怎么启动、怎么清理</div>
+            <div class="api">start / stop</div>
           </div>
         </div>
         <div class="hook">
           <div class="idx">03</div>
           <div>
-            <div class="name">worker_judger_factory</div>
-            <div class="desc">怎么向它发题、收回答</div>
+            <div class="plain">怎么发题、怎么收回答</div>
+            <div class="api">worker_judger_factory</div>
           </div>
         </div>
         <div class="hook">
           <div class="idx">04</div>
           <div>
-            <div class="name">evolve_after_warmup</div>
-            <div class="desc">warmup 跑完之后做什么</div>
+            <div class="plain">warmup 跑完之后做什么</div>
+            <div class="api">evolve_after_warmup</div>
           </div>
         </div>
       </div>
+
       <div class="hooks-foot">
-        OpenClaw adapter 核心 <b>~120 行</b>（4 个钩子的实现），剩下都被框架兜住了
+        参考实现 · <span class="mono-name">OpenClaw adapter</span> 核心 <b>~120 行</b> · 剩下都被框架兜住了
       </div>
-      <aside class="notes">然后站在第二层 AgentRuntimeAdapter的视角：他被抽象成了4个接口<br>包括基础镜像在哪里，如何chat，如何构造work agent和judge agent， 如何进化。<br><br>这部分的细节就不展开了</aside>
+      <aside class="notes">这是 Adapter 层给接入者的承诺：<b>不用懂框架内部，你只要说一句话</b>。<br><br>
+       站在接入方的视角：<br>
+       &nbsp;- 想接入一个新的 Agent，只需要在 Trae / Claude Code 里调用我们提供的 skill <code>@lift-integrate-agent-runtime</code>，把 Agent 的 repo 地址扔给它；<br>
+       &nbsp;- Skill 会自动帮你把接入模板生成好、把 LIFT 的整个环境跑起来。<br><br>这个skill的核心部分是告诉lift，当前这个Agent的base镜像在哪，怎么启动清理他，怎么和他对话，怎么出发他的进化<br><br><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">所以&nbsp;</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">"接一个新 Agent"</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">&nbsp;这件事，在 LIFT 里已经降级成了调用一个 skill&nbsp;<br></span><br>---<br>
+       &nbsp;- <b>01 从哪里起这个 Agent</b>：告诉框架去哪找这个考生的镜像/包（<code>resolve_image / runtime</code>）；<br>
+       &nbsp;- <b>02 怎么启动、怎么清理</b>：考试前把他叫进考场、考完把他送出去（<code>start / stop</code>）；<br>
+       &nbsp;- <b>03 怎么发题、怎么收回答</b>：考试过程中，怎么把题目递给他、怎么收回他的答案（<code>worker_judger_factory</code>）；<br>
+       &nbsp;- <b>04 warmup 跑完之后做什么</b>：练习题做完之后，触发一次进化（<code>evolve_after_warmup</code>）。<br><br>
+       就这 4 件事。<br>
+       &nbsp;- 其他所有的复杂性——并发调度、成绩汇总、trajectory 追踪、dashboard——全部被上下两层兜住了；<br>
+       &nbsp;- 我们已经落地过的 OpenClaw adapter，核心也就 ~120 行代码。<br><br><br></aside>
     </section>
 
-    <!-- 16. Benefits beyond the contract — 8 cards / 2 groups on one page -->
+    <!-- 16. Benefits beyond the contract — pain-vs-relief comparison -->
     <section>
-      <div class="slide-eyebrow">框架红利</div>
-      <h2>接入方"免费拿到"的两组能力</h2>
+      <div class="slide-eyebrow">框架红利 · 免费拿到的两组能力</div>
+      <h2>那些你自己写会痛的地方，LIFT 都替你写了</h2>
 
-      <div class="bonus-group">跑得爽 · 工程效率 <span class="hint">— 手写脚本要复现这些，代码量比核心评测还大</span></div>
-      <div class="bonus">
-        <div class="bonus-card">
-          <div class="glyph">⫶</div>
-          <div class="title">并发调度</div>
-          <div class="body">多 Suite 并行、多题并发、phase 并发都在 Pipeline 兜底；Adapter 只暴露同步接口，<strong>不用懂 asyncio</strong></div>
+      <div class="benefit-block ease">
+        <div class="benefit-head">
+          <div class="label">跑得爽</div>
+          <div class="sub">— 工程效率 · 少写代码就能上线</div>
         </div>
-        <div class="bonus-card b2">
-          <div class="glyph">◧</div>
-          <div class="title">统一 Dashboard</div>
-          <div class="body">所有 Agent 的成绩单都长一样：<code>report.json</code> + CSV 对比表 + HTML 可视化，<strong>横向对比直接做</strong></div>
+        <div class="benefit-columns">
+          <div>能力</div>
+          <div>自己写你会遇到</div>
+          <div class="arrow-cell">→</div>
+          <div>LIFT 里的样子</div>
         </div>
-        <div class="bonus-card b3">
-          <div class="glyph">◎</div>
-          <div class="title">Trace 自动关联</div>
-          <div class="body">框架 <code>pre-chat span</code> 与 runtime 内部 <code>plugin trace</code> 通过<strong>同一 session_id</strong> 串起来，work / judge / agent 内部工具调用 <strong>一条 trace 看到底</strong></div>
+        <div class="benefit-row">
+          <div class="benefit-name">并发调度</div>
+          <div class="benefit-pain">手撸 <span class="cross">asyncio 编排池</span>、连接池、超时兜底</div>
+          <div class="benefit-arrow">→</div>
+          <div class="benefit-lift">Adapter 只暴露<b>同步接口</b>，并发 / 重试 / 隔离全在 Pipeline</div>
         </div>
-        <div class="bonus-card b4">
-          <div class="glyph">⌘</div>
-          <div class="title">接入引导 · Skill</div>
-          <div class="body"><code>setup-lift-env</code> 一键搭环境、<code>lift-integrate-agent-runtime</code> 把 5 个 touchpoint 固化成清单，新 runtime 接入 <strong>跟着走不漏改</strong></div>
+        <div class="benefit-row">
+          <div class="benefit-name">统一 Dashboard</div>
+          <div class="benefit-pain">每接一个 Agent <span class="cross">自造图表 + 对比脚本</span></div>
+          <div class="benefit-arrow">→</div>
+          <div class="benefit-lift"><code>report.json</code> + CSV + HTML 自动生成，<b>横向对比直接出图</b></div>
         </div>
-      </div>
-
-      <div class="bonus-group">跑得对 · 结论可信 <span class="hint">— 手写脚本最常在这里静默出错：数据看着正常，结论其实无效</span></div>
-      <div class="bonus">
-        <div class="bonus-card">
-          <div class="glyph">◇</div>
-          <div class="title">Delta 自动体检</div>
-          <div class="body"><code>docker commit</code> 前先跑一次 <code>docker diff</code>，warmup 有没有真的"改进"到容器里 <strong>一行日志就能看到</strong>——evolve 空转会立刻报警</div>
+        <div class="benefit-row">
+          <div class="benefit-name">Trace 关联</div>
+          <div class="benefit-pain">跨进程 <span class="cross">手动拼 span</span>、猜 trace id</div>
+          <div class="benefit-arrow">→</div>
+          <div class="benefit-lift">同一 <code>session_id</code> 把 pre-chat 与 plugin trace <b>自动串到底</b></div>
         </div>
-        <div class="bonus-card b2">
-          <div class="glyph">◈</div>
-          <div class="title">对照组严格隔离</div>
-          <div class="body">Baseline / Evolved <strong>独立镜像 + 独立容器 + 独立 workspace</strong>；<code>warmup</code> 与 <code>holdout</code> 题库强制分离，防止"记答案"式作弊</div>
-        </div>
-        <div class="bonus-card b3">
-          <div class="glyph">◉</div>
-          <div class="title">抖动可吸收</div>
-          <div class="body"><code>chat×5 · judge×8 · task×1 · phase×1 · cell×1</code> 五层重试，单点 provider 挂了 <strong>不塌全链路</strong>；cell 之间隔离一题崩不连坐</div>
-        </div>
-        <div class="bonus-card b4">
-          <div class="glyph">⌗</div>
-          <div class="title">全程留痕</div>
-          <div class="body">pre-chat span、Langfuse plugin trace、docker diff 三路证据 <strong>自动落盘并互相关联</strong>，任何一条链路出问题，回溯有据可查</div>
+        <div class="benefit-row">
+          <div class="benefit-name">接入 Skill</div>
+          <div class="benefit-pain"><span class="cross">反复读文档</span>，摸索脚手架结构</div>
+          <div class="benefit-arrow">→</div>
+          <div class="benefit-lift"><code>@lift-integrate-agent-runtime</code> 一句话跑通，<b>~1 天接完</b></div>
         </div>
       </div>
 
-      <aside class="notes">这一页把"框架红利"合并成两组八点，站在接入方视角看"我不用自己搞什么"。
+      <div class="benefit-block trust">
+        <div class="benefit-head">
+          <div class="label">跑得对</div>
+          <div class="sub">— 结论可信 · Δ 分数不被静默污染</div>
+        </div>
+        <div class="benefit-columns">
+          <div>能力</div>
+          <div>自己写会踩的坑</div>
+          <div class="arrow-cell">→</div>
+          <div>LIFT 里的样子</div>
+        </div>
+        <div class="benefit-row">
+          <div class="benefit-name">Delta 体检</div>
+          <div class="benefit-pain"><span class="cross">evolve 空转</span>没人发现，improvement 恒为 0</div>
+          <div class="benefit-arrow">→</div>
+          <div class="benefit-lift">commit 前 <code>docker diff</code> 一行日志，<b>空转当场报警</b></div>
+        </div>
+        <div class="benefit-row">
+          <div class="benefit-name">对照组隔离</div>
+          <div class="benefit-pain">warmup / holdout <span class="cross">悄悄串题</span>，"记答案"式作弊</div>
+          <div class="benefit-arrow">→</div>
+          <div class="benefit-lift">题库<b>强制分离</b>、baseline / evolved <b>独立镜像 + 独立容器</b></div>
+        </div>
+        <div class="benefit-row">
+          <div class="benefit-name">抖动吸收</div>
+          <div class="benefit-pain">provider 一挂 <span class="cross">整条链路断</span>、崩题连坐</div>
+          <div class="benefit-arrow">→</div>
+          <div class="benefit-lift">五层重试 <code>chat×5 · judge×8 · task/phase/cell×1</code>，<b>单点不塌全链</b></div>
+        </div>
+        <div class="benefit-row">
+          <div class="benefit-name">全程留痕</div>
+          <div class="benefit-pain">结果反常时 <span class="cross">查不到证据链</span></div>
+          <div class="benefit-arrow">→</div>
+          <div class="benefit-lift">Log / Langfuse / Layer <b>三路证据自动关联</b>，反常时顺链看</div>
+        </div>
+      </div>
 
-—— 第一组：跑得爽（工程效率）——
-① 并发——LIFT 是 asyncio 单进程框架，能并行跑几十个容器。Adapter 写同步接口就行，并发由 Pipeline 兜底。
-② Dashboard——所有 Agent 跑出的 report 结构都一致，CSV 对比表、HTML 报告自动生成。横向对比 Agent A 和 Agent B 谁进化得多，直接出图。
-③ Trace 自动关联——这是一个细节但很重要的红利：
-  - 框架在 run_task 里跟 work / judge agent 对话时，每次首发都会调 emit_pre_chat_state(session_id, tags, chat_role) 落一条 Langfuse span，名字是 work_agent 或 judge_agent，标签里挂着 task_id、phase（baseline/evolved）、suite 等元数据。
-  - Runtime 内部的 Agent（OpenClaw 插件、GenericAgent 插件等）自己也在用 Langfuse 上报 trace，名字在白名单里：openclaw-plugin / Hermes turn / genericagent-plugin。
-  - 关键关联机制：框架在 docker exec 调 agent 时把同一个 session_id 通过 --session-id 透传进去；agent 侧的 plugin 在写 trace 时也带上这个 session_id。
-  - 后处理 langfuse_trace_merge 在同一 session 内按时间排序、用扩展贪心算法把 *_agent span 和它后面的 plugin trace 配对，merge 字段（prompt、response、tokens、tool 调用数、latency）回灌到 EvalReport。
-  - 效果：调一次进化效果，从「work agent 收到什么 prompt」一路看到「插件内部调了什么工具、消耗多少 token、retry 了几次」，全链路有据可查。
-④ 接入引导 · Skill——工程上另一个红利：
-  - setup-lift-env：conda / docker / Langfuse 部署 / .env / preprocess / 镜像构建 / 冒烟，新机器 10 分钟跑通；
-  - lift-integrate-agent-runtime：镜像脚手架、adapter 三件套、CLI 注册、后处理类型同步、Langfuse trace 拼装，5 个 touchpoint 固化 checklist；
-  - cleanup-lift-env：兜底清理。
-  我个人接 GenericAgent 前后花了不到两天，0 代码——这也意味着 LIFT 不光是个框架，还是个能让别人快速上手的产品。
+      <div class="benefit-outro">
+        接入方只写 <b>Adapter</b> · 其它 8 件事 LIFT 全部免费送
+      </div>
 
-—— 第二组：跑得对（结论可信）——
-LIFT 的核心命题是"baseline vs evolved 的差 = agent 自主学到的东西"。这句话要成立，前提是下面四件事都不能翻车。这一组每张卡都是"框架自动帮你做的事"，不是"你要记得去验证的清单"。
-
-⑤ Delta 自动体检——commit 之前先跑一次 docker diff：
-  - 打一行日志 "Delta preflight diff: +NA ~NC -ND across N paths (top: /opt/<runtime>/memory ...)"，能一眼看到 warmup 到底改了容器里的什么。
-  - 如果 upperdir 是空的，直接打 "empty upperdir — evolve produced nothing in container FS"，evolve 空转当场报警。
-  - 背景故事——GA 接入时踩过的坑：引擎读 /opt/GenericAgent/memory，LLM 写相对路径落到 bind mount /workspace/task/memory，docker commit 只捕获容器 FS 层。三点错位，warmup 100% 成功、delta 里空空如也，evolved ≡ baseline，improvement 恒为 0。以后接新 agent，日志一眼判断就好。
-
-⑥ 对照组严格隔离——LIFT 是科学实验，Baseline 和 Evolved 之间只能差"进化"这一个变量：
-  - 每题独立容器（每题起新容器 rm 旧的），保证上题 workspace 不污染下题；
-  - Baseline 从 base 镜像起、Evolved 从 delta 镜像起，绝不共用；
-  - Suite JSON 强制把 warmup_tasks 和 holdout_tasks 分开写，防止 evolved 阶段跑到 warmup 见过的题（那叫"记忆答案"而不是"学到能力"）。
-  - 手写脚本很容易写成"两个 phase 共用容器"或"warmup 拿 holdout 的题跑"，improvement 数字被污染但无从察觉。
-
-⑦ 抖动可吸收——真跑起来才知道有多重要：
-  - chat 层 provider error 重试 5×；judge JSON parse 重试 8×；单题 retry_each 就地重试 1×；phase 层再重试 1×；pipeline 收集第一轮失败 cell 全局兜底重试 1×。
-  - cell 之间隔离——一个 suite 崩了不会拖累其它 suite，也不会污染 report。
-  - 手写脚本要复现这一整套逻辑，代码量比核心评测本身还大。
-
-⑧ 全程留痕——三路证据自动落盘、自动关联，evolve 有问题时能一眼定位是哪一层：
-  - Log：pipeline 日志能看出 work / judge agent 是否真的对话过；
-  - Langfuse：同一 session_id 把 pre-chat span 和 plugin trace 串起来，后处理回灌到 report.json；
-  - Layer：commit 前的 docker diff 摘要落在日志里、commit 后 delta 镜像本身可 docker save 复现。
-  - 这三源本来是 skill 里"手动交叉验证"的清单——框架把关键节点都自动化了，你只需要在结果反常时按这三路顺着看，就能立刻定位故障点。
-      </aside>
+      <aside class="notes">这一页给大家展示了LIFT框架为那些想测试Agent进化能力的人都解决了哪些痛点<br>怎么让你跑的爽跑的对，罗列8项免费福利项，都是工程上的难点，当然最重要的就是有了“接入的skill”，让所有的事情像呼吸一样简单<br>------<br><br>大家自己扫一下就行，我只挑几个真的踩过坑的地方讲一下：<br><br>
+       <b>跑得爽</b>那一组：核心是 <b>Adapter 只写同步接口</b>，并发、Dashboard、Trace、接入 Skill 都不用自己造轮子。GenericAgent 我自己接完前后不到两天。<br><br>
+       <b>跑得对</b>那一组更重要，因为这一组每一条踩过都是"数字看着很漂亮但结论其实是假的"：<br>
+       &nbsp;- <b>Delta 体检</b>——GA 接入时就吃过亏，warmup 100% 成功但 delta 是空的，improvement 恒为 0；<br>
+       &nbsp;- <b>对照组隔离</b>——手写脚本最容易把 warmup 和 holdout 串起来，"记答案"式作弊；<br>
+       &nbsp;- 剩下抖动吸收、全程留痕就是"跑起来才知道有多重要"的东西。<br><br>
+       一句话收：<b>接入方只写 Adapter，其它 8 件事 LIFT 全部免费送。</b></aside>
     </section>
 
     <!-- Timeline mermaid (moved: capstone — full run on a timeline, right before the demo) -->
@@ -1762,7 +2041,7 @@ LIFT 的核心命题是"baseline vs evolved 的差 = agent 自主学到的东西
 sequenceDiagram
     participant P as Pipeline
     participant A as Adapter
-    participant E as eval（阅卷）
+    participant E as Judge Loop（阅卷）
     participant W as Warmup 容器（base 镜像）
     participant Hb as Baseline 容器（base 镜像）
     participant He as Evolved 容器（delta 镜像）
@@ -1788,24 +2067,7 @@ sequenceDiagram
     P->>P: 写 report.json
         </pre>
       </div>
-      <aside class="notes">这里画了一张时间序列图，展示了整个pipeline的big picture. 细节不过多赘述了，感兴趣的同学下来可以仔细看下。我就解释一个点：&nbsp;<br>每个agent都会有个base镜像，这里的delta镜像是<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">agent进化之后生成的。剩下都不难理解了。<br></span>---<br><br><br>把前面讲的三层架构落到时间轴上，看一次完整 LIFT 怎么跑：
-        1. Pipeline 把 warmup 题交给 Adapter；
-        2. Adapter 从 base 镜像 起一个 warmup 容器，让 Agent 连续做题——状态要连续，进化才有意义；
-        3. 跑 evolve 命令（OpenClaw 里是 learn review）；
-        4. Adapter 把当前状态固化成 delta 镜像（OpenClaw 里是 docker commit，别的 Agent 可能是别的）；
-        5. warmup 容器使命完成，销毁；
-        6. 对每道 holdout 题，分别拉起两个全新容器：
-           - Baseline 容器：从 base 镜像 起 → 做题 → 销毁
-           - Evolved 容器：从 delta 镜像 起 → 做题 → 销毁
-           注意——baseline 和 evolved 是两个独立的容器实例，不是同一个容器加不加载产物；
-           对照干净的关键就在这里。
-        7. 最后 Pipeline 写 report.json。
-
-        镜像血缘一句话：base 起两次（warmup + baseline），delta 起一次（evolved）——
-        三个容器实例，两个镜像。
-
-        （"固化进化产物"这一格是 Adapter 负责、和具体形式强相关的——前面 Product-form 那页正是讲 Pipeline 对它完全不关心。）
-        一次完整 LIFT 就这样跑完；下一节用一个最小例子 hello_multi 实际跑一遍，看真实成绩单。</aside>
+      <aside class="notes">最后呢，这里画了一张时间序列图，展示了整个框架在时间序列上的big picture. 感兴趣的同学可以下来仔细看下，帮助消化理解LIFT的运作机制。<br></aside>
     </section>
 
     <!-- 16b. Section 4 divider -->

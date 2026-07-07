@@ -12,6 +12,8 @@ Agents are hosted in Docker containers (OpenClaw and other runtimes); the pipeli
 
 ## Common Commands
 
+> **Python 环境约定**：所有 `python` / `pytest` 命令默认在 `lift` conda 环境执行。非交互调用直接用绝对路径 `/root/miniconda3/envs/lift/bin/python`；交互终端可先 `conda activate lift`。系统 `/usr/bin/python` **未安装项目依赖**（缺 pydantic 等），会立即报错。
+
 ```bash
 # Build the OpenClaw evaluation image (rebuild required after runtime changes)
 # Default builds the base image; pass --with-evolve to include the evolution plugin

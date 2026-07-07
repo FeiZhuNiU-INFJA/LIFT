@@ -434,6 +434,106 @@ grep -E "wait output timeout|Cannot connect to Docker|Judge response is not vali
 
 **红旗**：所有 reflection `reply_head='DONE\\n'` 且证据 C 里 delta diff 也空 → suite 太简单，换一个更复杂的 suite 再验证。
 
+#### 证据 A'：内容审阅 —— 光"发生了"不够,还得"内容合理" ⚠️
+
+计数通过（chat 次数、trace 数量、delta 有文件）**不代表内容对**。新 runtime 首次跑通后**必须**至少肉眼扫一遍下面这几层内容,否则会踩到"流水线全绿但 agent 什么都没做对"的假阳性。
+
+**A'.1 Material 可读性哨兵**（新 runtime bind mount / workspace seed 路径最常见踩坑点）
+
+```bash
+LOG=logs/<run_id>.log
+
+# 文件系统层面报错(work / judge 尝试 open material 失败)
+grep -iE "no such file|permission denied|cannot read|读取失败|open .* failed|q[0-9]+_materials.*not found|材料.*不存在" "$LOG"
+
+# 模型自身"逃避语"(LLM 明说看不到附件 → 通常也是路径挂错,只是没冒 IO 异常)
+grep -iE "cannot access|don't have access|no attachment|I cannot see|I do not see any" "$LOG"
+```
+
+任何一条命中 → `session.py` 的 `task_volume_binds` / `workspace_seed` / 上游 cwd patch 三者有一处错位,回 §1.7 + §2.2 排查。
+
+**A'.2 Work / Judge response 抽样(不看数量,看长度和"味道")**
+
+打开 `results/lift-runid-<run_id>/dashboard.html`,随手点开 1~2 个 phase 的对话弹窗,或直接从 `*_backfilled.json` 抽:
+
+```bash
+JSON=results/lift-runid-<run_id>/lift-runid-<run_id>_backfilled.json
+python -c "
+import json
+r = json.load(open('$JSON'))
+for rp in r['runs']:
+    for s in rp['suites']:
+        for t in s['tasks']:
+            for ph_name in ('baseline','evolved'):
+                ph = t[ph_name]
+                outc = (ph.get('outcome') or {})
+                content = (outc.get('content') or '')[:200]
+                turns = ph.get('turns') or 0
+                score = outc.get('content_score')
+                print(f'  {t[\"name\"]:6} {ph_name:8} turns={turns} score={score}')
+                print(f'    head: {content!r}')
+"
+```
+
+看三件事:
+- `content` 长度 **> 100 chars** 且不含 `Traceback` / `Error:` / `I cannot` / `I do not have` 逃避语
+- turns > 0,且随任务复杂度合理增长(hello 类 1~2 轮,复杂检索 3~10 轮)
+- 至少有一部分题 baseline 与 evolved 的 content 有可见差异(否则 evolve 大概率没生效,回证据 C)
+
+**A'.3 Judge 分数分布**
+
+```bash
+python -c "
+import json,collections
+r = json.load(open('$JSON'))
+buckets = collections.Counter()
+for rp in r['runs']:
+    for s in rp['suites']:
+        for t in s['tasks']:
+            for ph_name in ('baseline','evolved'):
+                sc = (t[ph_name].get('outcome') or {}).get('content_score')
+                if sc is None: buckets['none'] += 1
+                elif sc <= 0.05: buckets['0'] += 1
+                elif sc >= 0.95: buckets['1'] += 1
+                else: buckets['mid'] += 1
+print(dict(buckets))
+"
+```
+
+- **全 0**:通常是 material 都没读到、judge 直接判 fail;或 judge prompt 没渲染任务描述。回 A'.1 / A'.2。
+- **全 1**:通常是 judge prompt 里 rubric 塌了(如任务描述被 truncate),judge 无从判分只能全给通过。开 dashboard 抽 1 条 judge dialogue 看 rubric 有没有正常出现。
+- **healthy**:0 / mid / 1 都有,或者按 baseline 偏低 / evolved 偏高分布。
+
+**A'.4 进化产物**内容**抽样(把 §6.5 证据 C 的 `ls` 升级成 `cat`)**
+
+单看 delta 有文件不够,还得看内容是不是"agent 学到了什么"的自然语言,而不是空文件 / stack trace / 无意义字符:
+
+```bash
+DELTA=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep 'evolve-eval-delta:.*<run_id>' | head -1)
+
+docker run --rm --entrypoint sh "$DELTA" -c '
+  find /opt/<runtime>/memory -type f -size +10c 2>/dev/null | head -5 | while read f; do
+    echo "===== $f ====="; cat "$f"
+  done
+'
+```
+
+要求:
+- 至少一个 memory 文件非空,内容是**自然语言**(经验总结 / 步骤 / 反例),不是纯 JSON dump / Python traceback / 空 markdown 标题
+- 内容与证据 A 里 `reply_head=` 打出的 reflection 摘要在语义上一致(LLM 说要记什么就真记了什么)
+
+**A'.5 综合红旗**
+
+| 现象 | 大概率原因 |
+|---|---|
+| A'.1 命中"逃避语"但没 IO error | LLM 拿到的 material 路径提示错,或 cwd 与 material 挂载点不一致 |
+| A'.2 每题 content 都 < 50 chars | agent 主循环提前退出,`docker exec` timeout 或 provider 报错吞掉了 body |
+| A'.3 全 0 或全 1 | judge rubric 塌了 / material 缺失连锁反应 |
+| A'.4 memory 全空 / 全是 traceback | reflection prompt 未激活 / 上游 memory 写入路径挂错(§1.7) |
+| A'.2 baseline == evolved(字节级一致) | evolve 完全没生效,回证据 C 三点错位 |
+
+> **A' 与 A / B / C 的关系**:A / B / C 是"计数在不在",A' 是"内容对不对"。跑完 A / B / C 全绿 **且** A' 抽样合理,才算"新 runtime 接入完备";否则就算 4 项绿灯,后续 benchmark 数据仍然可能是伪造。
+
 #### 证据 B：Langfuse —— trace 写入 & 后处理拼装
 
 验证容器里的调用确实上报到 Langfuse，且后处理的 backfill 能拿回来做 stitching。
@@ -536,13 +636,16 @@ done
 
 #### 综合判断表
 
-| 证据 A | 证据 B | 证据 C | 结论 |
-|---|---|---|---|
-| ✅ chat / reflection 都触发 | ✅ trace 齐全 | ✅ delta 有内容 | Runtime 接入完备 ✅ |
-| ✅ | ✅ | ❌ delta 与 baseline 一致 | §1.7 三点错位 bug，evolve **无效**，必须修 |
-| ✅ | ❌ trace 缺失 | ✅ delta 有内容 | overlay 或 `LANGFUSE_PLUGIN_TRACE_NAMES` 有问题，evolve 有效但 dashboard / 后处理拿不到分析数据 |
-| ❌ reflection 无 / timeout | — | — | reflection 钩子未生效或 chat 卡死，先修 chat 再验证其他 |
-| ✅ 全 DONE | ✅ | ❌ | suite 太简单不触发写入，换更复杂的 suite 再验 |
+| 证据 A | A' | 证据 B | 证据 C | 结论 |
+|---|---|---|---|---|
+| ✅ chat / reflection 都触发 | ✅ 内容合理 | ✅ trace 齐全 | ✅ delta 有内容 | Runtime 接入完备 ✅ |
+| ✅ | ❌ material 逃避语 / content 极短 | — | — | material / cwd 路径挂错,回 §1.7 + §2.2 |
+| ✅ | ❌ judge score 全 0 或全 1 | — | — | material 缺失连锁反应 / judge prompt rubric 塌了 |
+| ✅ | ❌ memory 全空 / traceback | — | ✅ delta 有文件 | reflection 触发但写入错乱,回 §1.7 |
+| ✅ | ✅ | ✅ | ❌ delta 与 baseline 一致 | §1.7 三点错位 bug,evolve **无效**,必须修 |
+| ✅ | ✅ | ❌ trace 缺失 | ✅ delta 有内容 | overlay 或 `LANGFUSE_PLUGIN_TRACE_NAMES` 有问题,evolve 有效但 dashboard / 后处理拿不到分析数据 |
+| ❌ reflection 无 / timeout | — | — | — | reflection 钩子未生效或 chat 卡死,先修 chat 再验证其他 |
+| ✅ 全 DONE | ✅ | ✅ | ❌ | suite 太简单不触发写入,换更复杂的 suite 再验 |
 
 ### 6.6 衍生 runtime（可选）
 
@@ -573,6 +676,8 @@ done
 | Langfuse trace 上 `Session` / `Tags` 列空 | overlay 还在用 v3 的 `obs.update_trace(...)` / `client.update_current_trace(...)`，4.x SDK 已删除 | overlay 改成 `propagate_attributes(session_id=, tags=)` 上下文管理器 + `start_as_current_observation`（见 §1.3） |
 | 静态 dashboard tools 列空，但 `*_backfilled.json` 里 `tool_calls` 已有数 | B 路径 langfuse 兜底拿到了值但没回写 tracker，`tracker.snapshot()` 仍是 None → 嵌入 HTML 后显示 "—" | 确认 `run_post_process_pipeline` 调了 `tracker.set_phase_tool_calls(...)`（见 §5.3.1）；运行期实时 dashboard 看不到 B 路径 tools 是设计行为 |
 | evolved 与 baseline 结果几乎一致（improvement ≈ 0），或 LLM 明说"写了 memory"但 delta 镜像里没有 | Warmup 期 agent 的 evolve 产物落进了 bind mount / tmpfs（LLM 用 `memory/xxx` 相对路径，cwd 又在 bind mount 之内），`docker commit` 没捕获到 → delta 镜像内容 = baseline | 走 §6.5 证据 C 检查 delta diff；若 diff 为空回 §1.7 三点错位排查（引擎读 / LLM 写 / Dockerfile mkdir）。修法：`install-in-image.sh` patch 上游 system prompt 里 `[Memory]` 指示为绝对路径；reflection prompt 显式加"cwd 是 bind mount，只能用 `/opt/<runtime>/memory/`" |
+| 流水线全绿、report.json `success=true`，但 work agent 回复里出现 "I cannot access" / "no attachment" / `q1_materials.*not found` 等逃避语 | task materials bind mount 路径与 agent 侧 cwd / system prompt 里的路径不一致；LLM 拿到任务描述里的相对路径解析不出真实位置 | 走 §6.5 证据 A'.1 命中项;`docker exec <c> ls -la /workspace/task /root/.openclaw/workspace` 对比宿主 bind mount 目录,核对 `session.py:task_volume_binds` 与上游 cwd patch 是否指向同一目录;必要时在 workspace startup hook 里加 `qN_materials/ → cwd` 的软链 |
+| Judge `content_score` 全 0 或全 1(A'.3 分布异常) | 全 0:material 缺失/LLM 拿不到任务上下文,judge 一律判 fail;全 1:judge prompt 里 rubric 或任务描述被 truncate,judge 无凭无据一律放行 | 打开 dashboard 抽 1 条 judge dialogue,检查 rubric 字段与任务描述是否完整;再回 A'.1 排查 material 挂载 |
 
 ---
 
