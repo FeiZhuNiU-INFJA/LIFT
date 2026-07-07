@@ -33,7 +33,7 @@ bash agent-runtimes/genericagent/build-image.sh
 1. `git clone https://github.com/lsdefine/GenericAgent.git /opt/GenericAgent`
 2. 安装 GA 依赖 + langfuse Python SDK + 评测常用库（pandas / openpyxl / python-docx 等，与
    OpenClaw 镜像保持一致）
-3. 通过 `install-in-image.sh` 把仓库根 `.env` 中的 `ARK_API_KEY` / `MODEL_NAME` /
+3. 通过 `install-in-image.sh` 把仓库根 `.env` 中的 `WORK_OPENAI_API_KEY` / `MODEL_NAME` /
    `LANGFUSE_*` 注入 `mykey.py`
 4. 用 `langfuse_tracing_overlay.py` 覆盖 GA 自带 `plugins/langfuse_tracing.py`，确保
    trace name = `genericagent-plugin`，并把 LIFT session_id / run tag 写入 trace 根
@@ -59,12 +59,12 @@ bash agent-runtimes/genericagent/build-image.sh
 
 镜像要求宿主仓库根 `.env` 提供：
 
-- `ARK_API_KEY` — **build-time required**；通过 sed 烧入 `mykey.py`。运行期不消费。
-- `GENERICAGENT_MODEL_NAME` — **build-time required**；GA 直连 ARK，必须是 ARK 真实
+- `WORK_OPENAI_API_KEY` — **build-time required**；通过 sed 烧入 `mykey.py`。运行期不消费。
+- `GENERICAGENT_MODEL_NAME` — **build-time required**；GA 直连 work LLM，必须是 provider 真实
   endpoint id（如 `ep-20260529115331-9zxpm`），不是 OpenClaw 内部 gateway 的命名空间。
   优先级高于共享的 `MODEL_NAME`，避免污染 OpenClaw 镜像。
 - `MODEL_NAME` — fallback；若没设 `GENERICAGENT_MODEL_NAME` 才生效。
-- `ARK_BASE_URL` — 默认 `https://ark.cn-beijing.volces.com/api/v3`
+- `WORK_OPENAI_BASE_URL` — 默认 `https://ark.cn-beijing.volces.com/api/v3`
 - `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` — build-time 烧入 `mykey.py`
 - `LANGFUSE_HOST` — 容器内默认 `http://host.docker.internal:3000`
 - `LIFT_EVAL_RUN_TAG`, `LIFT_GA_SESSION_ID` — 由 LIFT adapter 在 `docker exec -e ...` 时

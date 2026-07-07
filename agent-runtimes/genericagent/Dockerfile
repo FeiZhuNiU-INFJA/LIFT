@@ -87,15 +87,15 @@ RUN uv pip install --system --no-cache \
         Pillow
 
 # 4) Bake build-time secrets / config into mykey.py via install-in-image.sh
-ARG ARK_API_KEY=
-ARG ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+ARG WORK_OPENAI_API_KEY=
+ARG WORK_OPENAI_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARG MODEL_NAME=
 ARG LANGFUSE_PUBLIC_KEY=
 ARG LANGFUSE_SECRET_KEY=
 ARG LANGFUSE_HOST=http://host.docker.internal:3000
 ARG FIRECRAWL_API_KEY=
-ENV ARK_API_KEY=${ARK_API_KEY} \
-    ARK_BASE_URL=${ARK_BASE_URL} \
+ENV WORK_OPENAI_API_KEY=${WORK_OPENAI_API_KEY} \
+    WORK_OPENAI_BASE_URL=${WORK_OPENAI_BASE_URL} \
     MODEL_NAME=${MODEL_NAME} \
     LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY} \
     LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY} \

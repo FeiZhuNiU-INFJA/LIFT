@@ -12,7 +12,7 @@ from typing import Any, override
 
 from pypinyin import Style, lazy_pinyin
 
-from src.config import LOGGER
+from src.config import CONFIG, LOGGER
 from src.lift.adapters.container.exec import redact_docker_argv
 from src.lift.runtime.disposable import Disposable
 from src.lift.runtime.environment_cleaner import EnvironmentCleaner
@@ -192,6 +192,11 @@ class ContainerSession(Disposable):
             "-v",
             "/tmp:/tmp",  # OpenClaw / 插件临时文件
         ]
+        # 全 runtime 通用的容器网络模式（CONTAINER_NETWORK_MODE）。默认不设=Docker 默认
+        # bridge；在 bridge 容器无法出网的宿主机（如纯 IPv6/NAT64）上设为 host 复用宿主
+        # 网络栈。放在通用 start 里，openclaw/genericagent/hermes 一并生效。
+        if CONFIG.container_network_mode:
+            cmd.extend(["--network", CONFIG.container_network_mode])
         if extra_docker_args:
             cmd.extend(extra_docker_args)
         for host_port, container_port in port_mappings:

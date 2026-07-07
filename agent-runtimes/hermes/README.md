@@ -78,8 +78,8 @@ docker run --rm evolve-eval-hermes:latest sh -lc \
 `docker run` 时由 LIFT 注入；`config.yaml` 在容器启动时由 `patch_hermes_config.py`
 生成，**不在镜像层 bake secret**：
 
-- `MODEL_NAME` — `provider/model_id`；Hermes `config.yaml` 中 `model.default` 取
-  `/` 后缀，`model.provider` 固定 `custom`
+- `MODEL_NAME` — `custom/model_id`（provider 前缀恒为 `custom`）；Hermes `config.yaml`
+  中 `model.default` 取 `/` 后缀，`model.provider` 固定 `custom`
 - `HERMES_MODEL_NAME` —（可选）显式覆盖 `model.default`
 - `WORK_OPENAI_BASE_URL` / `HERMES_API_URL` — work LLM base_url（后者优先）
 - `WORK_OPENAI_API_KEY` — work LLM api_key

@@ -129,8 +129,6 @@ async def start_hermes_container(
         env_vars["API_SERVER_KEY"] = CONFIG.api_server_key
 
     extra_docker_args: list[str] = []
-    if CONFIG.hermes_network_mode:
-        extra_docker_args.extend(["--network", CONFIG.hermes_network_mode])
     if container_memory:
         extra_docker_args.extend(["--memory", container_memory])
     if container_cpus:

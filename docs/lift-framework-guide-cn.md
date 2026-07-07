@@ -205,7 +205,7 @@ Q2 是关键——它能直观验证 Q1 的练习是否让 Agent **更了解自�
 # 1. 构建 OpenClaw 镜像（首次或镜像变更后）
 bash agent-runtimes/openclaw/build-image.sh
 
-# 2. 配置仓库根目录 .env（MODEL_NAME 须与 agent-runtimes/openclaw/config/models.fragment.json 对齐）
+# 2. 配置仓库根目录 .env（MODEL_NAME 须为 custom/model_id 格式，provider 前缀恒为 custom；构建镜像时注入）
 
 # hello.json 直接跑；完整 benchmark 需先 preprocess
 # python -m src.cli.preprocess

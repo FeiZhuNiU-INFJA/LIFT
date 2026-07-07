@@ -42,12 +42,16 @@ class AppConfig:
     """Hermes work LLM base url 覆盖（``HERMES_API_URL``）；未设置时回退 ``work_openai_base_url``。"""
     hermes_base_image_tag: str
     """Hermes 上游基础镜像 tag（``HERMES_BASE_IMAGE_TAG``，默认 ``v2026.5.16``）。"""
-    hermes_network_mode: str | None
-    """Hermes 容器 ``docker run --network`` 模式（``HERMES_NETWORK_MODE``）。
-    默认 None（不覆盖，用 Docker 默认 bridge）
+    container_network_mode: str | None
+    """所有容器 runtime 的 ``docker run --network`` 模式（``CONTAINER_NETWORK_MODE``）。
+
+    默认 None（不覆盖，用 Docker 默认 bridge）。在纯 IPv6/NAT64 等 bridge 容器无法
+    出网的宿主机上，设为 ``host`` 让容器复用宿主机网络栈（继承其 DNS/路由）。
+    对 Hermes / GenericAgent 等 exec-runner、不发布端口的 runtime 无副作用；OpenClaw
+    发布 gateway 端口，host 模式下端口语义变化，需自行确认。
     """
     model: str
-    """agent 使用的模型名（``MODEL_NAME``，形如 provider/model_id）。"""
+    """agent 使用的模型名（``MODEL_NAME``，形如 ``custom/model_id``，provider 前缀恒为 ``custom``）。"""
     max_tokens: int
     """单轮 work/judge chat 的最大输出 token（``MAX_TOKENS``，默认 51200）。"""
     log_file: str
@@ -91,7 +95,12 @@ def load_config() -> AppConfig:
         hermes_model_name=os.getenv("HERMES_MODEL_NAME"),
         hermes_api_url=os.getenv("HERMES_API_URL"),
         hermes_base_image_tag=os.getenv("HERMES_BASE_IMAGE_TAG", "v2026.5.16"),
-        hermes_network_mode=(os.getenv("HERMES_NETWORK_MODE") or "").strip() or None,
+        container_network_mode=(
+            os.getenv("CONTAINER_NETWORK_MODE")
+            or os.getenv("HERMES_NETWORK_MODE")  # 向后兼容旧变量名
+            or ""
+        ).strip()
+        or None,
         model=os.getenv("MODEL_NAME", "unknown"),
         max_tokens=int(os.getenv("MAX_TOKENS", "51200")),
         log_file=os.getenv("EVAL_LOG_FILE", str(_default_log_file())),

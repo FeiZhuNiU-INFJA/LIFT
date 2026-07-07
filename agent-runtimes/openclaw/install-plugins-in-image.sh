@@ -12,6 +12,8 @@ INSTALL_SELF_EVOLVING="${INSTALL_SELF_EVOLVING:-true}"
 CONFIG_DIR="/tmp/config"
 MODELS_FRAGMENT="${CONFIG_DIR}/models.fragment.json"
 MODELS_RESOLVED="/tmp/models.fragment.resolved.json"
+AGENTS_FRAGMENT="${CONFIG_DIR}/agents.fragment.json"
+AGENTS_RESOLVED="/tmp/agents.fragment.resolved.json"
 
 # 1) Langfuse tracer (repo copy)
 cp -r /tmp/langfuse-tracer "${OPENCLAW_STATE_DIR}/extensions/langfuse-tracer"
@@ -49,22 +51,38 @@ if [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
   fi
 fi
 
-# 4) Resolve models fragment (inject ARK_API_KEY at build time)
-if [[ -z "${ARK_API_KEY:-}" ]]; then
-  echo "WARN: ARK_API_KEY is empty; models.provider apiKey will remain placeholder" >&2
-  cp "${MODELS_FRAGMENT}" "${MODELS_RESOLVED}"
-else
-  # Escape sed replacement chars in api key
-  esc_key="$(printf '%s' "${ARK_API_KEY}" | sed -e 's/[\/&]/\\&/g')"
-  sed "s/__ARK_API_KEY__/${esc_key}/g" "${MODELS_FRAGMENT}" > "${MODELS_RESOLVED}"
+# 4) Resolve fragments from build-time env.
+#    - MODEL_NAME 必须是 provider/model_id 格式（provider 约定固定为 custom）。
+#      models.fragment 用斜杠后的 model_id 作为 model.id；agents.fragment 用整串
+#      MODEL_NAME 作为 primary / models key（OpenClaw agents add --model 需 provider/model_id）。
+#    - WORK_OPENAI_API_KEY 注入 models.provider.apiKey。
+MODEL_NAME="${MODEL_NAME:-}"
+if [[ "${MODEL_NAME}" != */* ]]; then
+  echo "ERROR: MODEL_NAME must be 'provider/model_id' (e.g. custom/ep-xxxx); got '${MODEL_NAME}'" >&2
+  exit 1
 fi
+MODEL_ID="${MODEL_NAME#*/}"  # 斜杠后的部分作为 model.id
+
+if [[ -z "${WORK_OPENAI_API_KEY:-}" ]]; then
+  echo "WARN: WORK_OPENAI_API_KEY is empty; models.provider apiKey will remain placeholder" >&2
+fi
+
+esc_key="$(printf '%s' "${WORK_OPENAI_API_KEY:-}" | sed -e 's/[\/&]/\\&/g')"
+esc_model_id="$(printf '%s' "${MODEL_ID}" | sed -e 's/[\/&]/\\&/g')"
+esc_model_name="$(printf '%s' "${MODEL_NAME}" | sed -e 's/[\/&]/\\&/g')"
+
+sed -e "s/__WORK_OPENAI_API_KEY__/${esc_key}/g" \
+    -e "s/__MODEL_ID__/${esc_model_id}/g" \
+    "${MODELS_FRAGMENT}" > "${MODELS_RESOLVED}"
+sed -e "s/__MODEL_NAME__/${esc_model_name}/g" \
+    "${AGENTS_FRAGMENT}" > "${AGENTS_RESOLVED}"
 
 TARGET="${OPENCLAW_STATE_DIR}/openclaw.json"
 
 # 5) Merge LIFT config fragments (plugins → gateway → agents → skills → models)
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/plugins.fragment.json"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/gateway.fragment.json"
-node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/agents.fragment.json"
+node /tmp/merge-openclaw-config.mjs "${TARGET}" "${AGENTS_RESOLVED}"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/skills.fragment.json"
 node /tmp/merge-openclaw-config.mjs "${TARGET}" "${MODELS_RESOLVED}"
 

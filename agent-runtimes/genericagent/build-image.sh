@@ -39,7 +39,7 @@ usage() {
 Usage: $(basename "$0") [-h|--help]
 
 Build evolve-eval-genericagent:latest by cloning lsdefine/GenericAgent and
-baking ARK / Langfuse credentials from repo root .env into the image.
+baking WORK_OPENAI / Langfuse credentials from repo root .env into the image.
 
 Override via env:
   GENERICAGENT_IMAGE       默认 evolve-eval-genericagent:latest
@@ -66,10 +66,10 @@ done
 TAG="${GENERICAGENT_IMAGE:-evolve-eval-genericagent:latest}"
 GIT_URL="${GENERICAGENT_GIT_URL:-https://ghfast.top/https://github.com/lsdefine/GenericAgent.git}"
 GIT_REF="${GENERICAGENT_GIT_REF:-main}"
-ARK_API_KEY="${ARK_API_KEY:-}"
-ARK_BASE_URL="${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}"
-# GA 直连 ARK，模型名必须是 ARK 真实 endpoint id（如 ep-2025xxxx-xxxxx），不是 OpenClaw
-# 内部 gateway 命名空间。``GENERICAGENT_MODEL_NAME`` 优先于共享的 ``MODEL_NAME``，
+WORK_OPENAI_API_KEY="${WORK_OPENAI_API_KEY:-}"
+WORK_OPENAI_BASE_URL="${WORK_OPENAI_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}"
+# GA 直连 work LLM，模型名必须是 provider 真实 endpoint id（如 ep-2025xxxx-xxxxx），不是
+# OpenClaw 内部 gateway 命名空间。``GENERICAGENT_MODEL_NAME`` 优先于共享的 ``MODEL_NAME``，
 # 避免污染 OpenClaw 镜像构建期的 MODEL_NAME。
 MODEL_NAME="${GENERICAGENT_MODEL_NAME:-${MODEL_NAME:-}}"
 LANGFUSE_PUBLIC_KEY="${LANGFUSE_PUBLIC_KEY:-}"
@@ -97,9 +97,9 @@ PY
 echo "==> LANGFUSE_HOST baked into mykey.py: ${LANGFUSE_HOST}"
 FIRECRAWL_API_KEY="${FIRECRAWL_API_KEY:-}"
 
-if [[ -z "${ARK_API_KEY}" ]]; then
-  echo "WARN: ARK_API_KEY is not set; image will bake mykey.py with empty apikey." >&2
-  echo "      Set ARK_API_KEY in repo root .env before build." >&2
+if [[ -z "${WORK_OPENAI_API_KEY}" ]]; then
+  echo "WARN: WORK_OPENAI_API_KEY is not set; image will bake mykey.py with empty apikey." >&2
+  echo "      Set WORK_OPENAI_API_KEY in repo root .env before build." >&2
 fi
 if [[ -z "${MODEL_NAME}" ]]; then
   echo "WARN: MODEL_NAME is not set; mykey.py model field will be empty." >&2
@@ -108,8 +108,8 @@ fi
 BUILD_ARGS=(
   --build-arg "GENERICAGENT_GIT_URL=${GIT_URL}"
   --build-arg "GENERICAGENT_GIT_REF=${GIT_REF}"
-  --build-arg "ARK_API_KEY=${ARK_API_KEY}"
-  --build-arg "ARK_BASE_URL=${ARK_BASE_URL}"
+  --build-arg "WORK_OPENAI_API_KEY=${WORK_OPENAI_API_KEY}"
+  --build-arg "WORK_OPENAI_BASE_URL=${WORK_OPENAI_BASE_URL}"
   --build-arg "MODEL_NAME=${MODEL_NAME}"
   --build-arg "LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}"
   --build-arg "LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}"

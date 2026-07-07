@@ -138,8 +138,8 @@ def summary_table_html(summary_row: pd.Series, agent_source: AgentSource) -> str
     """Render an HTML table of mean improvement and mean diff per metric for one summary row."""
     lines = [
         "<table class='summary-table'>",
-        "<thead><tr><th>Metric</th><th>Mean Improvement</th>"
-        "<th>Mean Diff (evolved - baseline)</th></tr></thead>",
+        "<thead><tr><th>Metric</th><th>Improvement rate</th>"
+        "<th>Mean diff (evolved - baseline)</th></tr></thead>",
         "<tbody>",
     ]
     for metric in _html_summary_metrics(agent_source):
@@ -772,7 +772,7 @@ def success_badges_html(summary_row: pd.Series) -> str:
         "<span class='chip chip-success'>"
         f"Evolved Success Rate: {format_number(summary_row['evolved_success_rate'])}</span>",
         "<span class='chip chip-info'>"
-        f"Task Count: {format_number(summary_row['task_count'])}</span>",
+        f"Data Count: {format_number(summary_row['task_count'])}</span>",
     ]
     excluded = summary_row.get("task_count_excluded", 0)
     try:

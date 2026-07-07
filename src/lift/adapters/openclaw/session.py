@@ -48,7 +48,7 @@ def _normalize_langfuse_base_url(raw: str | None) -> str:
 def _container_runtime_env() -> dict[str, str]:
     """``docker run`` 时需要相对宿主机 ``.env`` **改写**的环境变量。
 
-    其它 secret（``ARK_API_KEY`` / ``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY`` /
+    其它 secret（``WORK_OPENAI_API_KEY`` / ``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY`` /
     ``FIRECRAWL_API_KEY`` 等）一律走 ``--env-file``，不在这里返回——避免 secret 重复
     出现在 ``docker run -e ...`` 命令行与日志里；这些值已经写入容器 ``Config.Env``，
     后续 ``docker exec`` 会自动继承，无需再次注入。

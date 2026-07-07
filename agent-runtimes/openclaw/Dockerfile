@@ -53,8 +53,13 @@ COPY merge-openclaw-config.mjs /tmp/merge-openclaw-config.mjs
 COPY install-plugins-in-image.sh /tmp/install-plugins-in-image.sh
 COPY workspace_seed /root/.openclaw/workspace
 
-ARG ARK_API_KEY=
-ENV ARK_API_KEY=${ARK_API_KEY}
+ARG WORK_OPENAI_API_KEY=
+ENV WORK_OPENAI_API_KEY=${WORK_OPENAI_API_KEY}
+
+# 运行模型选用（provider/model_id 格式，provider 约定固定为 custom）。install-plugins-in-image.sh
+# 据此渲染 models.fragment（斜杠后作 model.id）与 agents.fragment（整串作 primary/models key）。
+ARG MODEL_NAME=
+ENV MODEL_NAME=${MODEL_NAME}
 
 # 是否安装并启用 self-evolving-plugin-pro 进化插件。默认 true（带进化插件的标准镜像）；
 # 设为 false 构建不带进化插件的 raw 镜像（仍保留 langfuse-tracer / firecrawl）。

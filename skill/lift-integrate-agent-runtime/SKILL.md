@@ -36,9 +36,9 @@ description: "把一个新的 agent runtime（如 OpenClaw / GenericAgent）接�
 | 文件 | 必要性 | 作用 |
 |---|---|---|
 | `Dockerfile` | 必须 | 多阶段构建 agent 镜像；ENTRYPOINT 一般是 `tini` + `tail -f /dev/null`（容器空转等 docker exec） |
-| `build-image.sh` | 必须 | 读 `.env` 获取 ARK / Langfuse / 第三方 secret，`--build-arg` 透传 |
+| `build-image.sh` | 必须 | 读 `.env` 获取 WORK_OPENAI / Langfuse / 第三方 secret，`--build-arg` 透传 |
 | `install-in-image.sh` | 必须 | 镜像内执行：`sed` 渲染 `mykey.py.template` → `mykey.py`、覆盖 `langfuse_tracing_overlay.py`、patch 上游硬编码 |
-| `mykey.py.template` | 必须 | 凭据模板，占位符 `__ARK_API_KEY__` 等由 `install-in-image.sh` 用 sed 渲染 |
+| `mykey.py.template` | 必须 | 凭据模板，占位符 `__WORK_OPENAI_API_KEY__` 等由 `install-in-image.sh` 用 sed 渲染 |
 | `langfuse_tracing_overlay.py` | 必须 | LIFT 自有 tracing overlay：强制 root span name = `<runtime>-plugin`、注入 `session_id` / tags |
 | `workspace_seed/` | 可选 | 容器内 `/workspace/task` 初始内容（如 README、人设文件）；GA baseline 仅一个 README |
 | `.dockerignore` | 推荐 | 屏蔽 `.git` / `temp/` 减小 build context |
@@ -46,7 +46,7 @@ description: "把一个新的 agent runtime（如 OpenClaw / GenericAgent）接�
 ### 1.1 `mykey.py.template` 占位符规范
 
 ```python
-native_oai_config = {"name": "doubao", "apikey": "__ARK_API_KEY__", "apibase": "__ARK_BASE_URL__", "model": "__MODEL_NAME__", "api_mode": "openai-completions"}
+native_oai_config = {"name": "doubao", "apikey": "__WORK_OPENAI_API_KEY__", "apibase": "__WORK_OPENAI_BASE_URL__", "model": "__MODEL_NAME__", "api_mode": "openai-completions"}
 langfuse_config = {"public_key": "__LANGFUSE_PUBLIC_KEY__", "secret_key": "__LANGFUSE_SECRET_KEY__", "host": "__LANGFUSE_HOST__"}
 ```
 
@@ -55,7 +55,7 @@ langfuse_config = {"public_key": "__LANGFUSE_PUBLIC_KEY__", "secret_key": "__LAN
 2. 一条 `sed -e ... -e ...` 替换全部占位符。
 3. 严禁把空字符串当成 valid secret 写进镜像 — 上层 `build-image.sh` 应预先 `${VAR:-}` fallback 成空，由 plugin 自身在运行期再做 "未配置" 校验（参考 [`firecrawl_plugin.py`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/firecrawl_plugin.py)）。
 
-> **`MODEL_NAME` 必须是 provider-native 标识**：GA / 任意直连 ARK 的 runtime，`MODEL_NAME` 要是 ARK 真实 endpoint id（形如 `ep-2025xxxx-xxxxx`），不是 OpenClaw gateway 的命名空间值。如果同一个 `.env` 同时给 OpenClaw / GA 用，建议在 `build-image.sh` 里走专属变量名（参考 GA 用 `GENERICAGENT_MODEL_NAME` 优先于共享 `MODEL_NAME`，见 [`build-image.sh:61`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/build-image.sh#L61)），避免一改就同时污染另一个 runtime 的镜像。
+> **`MODEL_NAME` 必须是 provider-native 标识**：GA / 任意直连 work LLM 的 runtime，`MODEL_NAME` 要是 provider 真实 endpoint id（形如 `ep-2025xxxx-xxxxx`），不是 OpenClaw gateway 的命名空间值。如果同一个 `.env` 同时给 OpenClaw / GA 用，建议在 `build-image.sh` 里走专属变量名（参考 GA 用 `GENERICAGENT_MODEL_NAME` 优先于共享 `MODEL_NAME`，见 [`build-image.sh:61`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/build-image.sh#L61)），避免一改就同时污染另一个 runtime 的镜像。
 
 ### 1.2 三方同步：Dockerfile ARG/ENV ↔ build-image.sh `--build-arg` ↔ install-in-image.sh sed
 

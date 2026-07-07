@@ -3,12 +3,10 @@
     "defaults": {
       "workspace": "/root/.openclaw/workspace",
       "model": {
-        "primary": "custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215"
+        "primary": "__MODEL_NAME__"
       },
       "models": {
-        "custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215": {
-          "alias": "doubao-seed2-pro"
-        }
+        "__MODEL_NAME__": {}
       }
     }
   }

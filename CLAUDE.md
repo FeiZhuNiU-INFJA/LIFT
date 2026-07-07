@@ -109,7 +109,7 @@ EvalReport
 
 ## Key Constraints
 
-- **Model contract**: `MODEL_NAME` in `.env` must be `provider/model_id` form, and that provider/model must be registered in `agent-runtimes/openclaw/config/models.fragment.json` baked into the image. Adding a new provider/model requires updating the fragment and rebuilding
+- **Model configuration**: `MODEL_NAME` in `.env` is `provider/model_id` with the provider fixed to `custom` by convention (e.g. `custom/ep-...`). At OpenClaw image build, `models.fragment.json` registers the `custom` provider and derives `model.id` from the part after `/`; `agents.fragment.json` uses the full `MODEL_NAME` as the primary model key.ked into the image. Adding a new provider/model requires updating the fragment and rebuilding
 - **Delta naming**: `evolve-eval-delta:{run_id}-r{repeat}-{suite_name}`; suite cleanup via `SuiteRunResources.cleanup()` runs `docker rmi` (not for `owned=False`, so base images aren't accidentally deleted)
 - **Workspace layout (OpenClaw)**:
   - The agent's default workspace inside the container is fixed at `/root/.openclaw/workspace` (container FS) so warmup-produced memory / skills are captured by `docker commit`
@@ -124,13 +124,22 @@ EvalReport
 - **Concurrency & resources**: `--max-parallel-suites` (default 3) caps cells; `--max-concurrent-tasks` caps per-phase task containers; `--container-memory` / `--container-cpus` pass through to `docker run` — **no per-container cap by default** (OpenClaw peaks can exceed 3g; hard cgroup limits tend to trigger OOM-kill, so overall memory is left to VM kernel + swap)
 - **Failure isolation + auto-retry**: cells are isolated so failures don't cascade; the pipeline collects first-pass failed cells and **retries them once globally**; phases / tasks each retry once at their own layer; the chat layer retries provider errors 5×, judge JSON parse 8×
 - **Port allocation**: containers use `-p 0:N` so Docker picks an ephemeral port; the actual port is recovered via `docker inspect` after startup, avoiding collisions under concurrency
+- **Delta naming**: `evolve-eval-delta:{run_id}-r{repeat}-{suite_name}` (auto-cleaned after suite)
+- **Workspace isolation**: Each holdout task gets isolated workspace; warmup tasks share state
+- **Container policies**: 
+  - Warmup: `parallel_single` (default), `serial_single`, `parallel_multi`
+  - Holdout: `parallel_multi` (default), `serial_multi`
+  - Phase: `parallel` (baseline+evolved concurrent) or `serial`
 
 ## Environment Variables (`.env` required)
 
 ```env
-# Agent model (must match a provider/model registered in the image)
-MODEL_NAME=custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215
-ARK_API_KEY=your_ark_api_key
+# Agent model (provider fixed to "custom"; suffix after "/" is the model id)
+MODEL_NAME=custom/ep-20260529115331-9zxpm
+
+# Work LLM (the agent under evaluation; OpenAI-compatible)
+WORK_OPENAI_API_KEY=your_work_api_key
+WORK_OPENAI_BASE_URL=https://your-openai-compatible-endpoint
 
 # Langfuse observability (required for trace_backfill)
 LANGFUSE_PUBLIC_KEY=pk-lf-...
@@ -139,7 +148,8 @@ LANGFUSE_BASE_URL=http://localhost:3000
 
 # Post-process trajectory judge (optional)
 DO_TRAJECTORY_JUDGE=false
-OPENAI_API_KEY=your_api_key
+TRAJECTORY_JUDGE_OPENAI_API_KEY=your_judge_api_key
+TRAJECTORY_JUDGE_OPENAI_BASE_URL=https://your-openai-compatible-endpoint
 TRAJECTORY_JUDGE_MODEL=gpt-4o-mini
 
 # Benchmark source (TOS or HuggingFace)

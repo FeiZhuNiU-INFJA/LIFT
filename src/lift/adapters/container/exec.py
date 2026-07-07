@@ -8,7 +8,7 @@ import subprocess
 from src.config import LOGGER
 
 # ``docker run -e KEY=VAL`` / ``docker exec -e KEY=VAL`` 写日志时需要脱敏的 key 子串
-# （大小写不敏感，子串匹配——例如 ``ARK_API_KEY`` 命中 ``API_KEY``）。
+# （大小写不敏感，子串匹配——例如 ``WORK_OPENAI_API_KEY`` 命中 ``API_KEY``）。
 _REDACT_KEY_SUBSTRINGS = (
     "TOKEN",
     "SECRET",

@@ -11,8 +11,8 @@ escape_sed() {
   printf '%s' "${1:-}" | sed -e 's/[\/&]/\\&/g' -e ':a;N;$!ba;s/\n/\\n/g'
 }
 
-ARK_API_KEY_ESC="$(escape_sed "${ARK_API_KEY:-}")"
-ARK_BASE_URL_ESC="$(escape_sed "${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}")"
+WORK_OPENAI_API_KEY_ESC="$(escape_sed "${WORK_OPENAI_API_KEY:-}")"
+WORK_OPENAI_BASE_URL_ESC="$(escape_sed "${WORK_OPENAI_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}")"
 MODEL_NAME_ESC="$(escape_sed "${MODEL_NAME:-}")"
 LANGFUSE_PUBLIC_KEY_ESC="$(escape_sed "${LANGFUSE_PUBLIC_KEY:-}")"
 LANGFUSE_SECRET_KEY_ESC="$(escape_sed "${LANGFUSE_SECRET_KEY:-}")"
@@ -20,8 +20,8 @@ LANGFUSE_HOST_ESC="$(escape_sed "${LANGFUSE_HOST:-http://host.docker.internal:30
 FIRECRAWL_API_KEY_ESC="$(escape_sed "${FIRECRAWL_API_KEY:-}")"
 
 sed \
-  -e "s/__ARK_API_KEY__/${ARK_API_KEY_ESC}/g" \
-  -e "s/__ARK_BASE_URL__/${ARK_BASE_URL_ESC}/g" \
+  -e "s/__WORK_OPENAI_API_KEY__/${WORK_OPENAI_API_KEY_ESC}/g" \
+  -e "s/__WORK_OPENAI_BASE_URL__/${WORK_OPENAI_BASE_URL_ESC}/g" \
   -e "s/__MODEL_NAME__/${MODEL_NAME_ESC}/g" \
   -e "s/__LANGFUSE_PUBLIC_KEY__/${LANGFUSE_PUBLIC_KEY_ESC}/g" \
   -e "s/__LANGFUSE_SECRET_KEY__/${LANGFUSE_SECRET_KEY_ESC}/g" \
