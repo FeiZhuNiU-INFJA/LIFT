@@ -501,9 +501,13 @@
   /* ---- dialogue modal (holdout work↔judge 对话) ---- */
   .dlg-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75);
     z-index: 1000; display: flex; align-items: center; justify-content: center; }
-  .dlg-modal { width: min(96vw, 1100px); max-height: 88vh; display: flex; flex-direction: column; }
-  .dlg-modal .panel-body { max-height: 88vh; overflow: auto; }
-  .dlg-phase { margin-bottom: 14px; }
+  .dlg-modal { width: min(98vw, 1600px); max-height: 92vh; display: flex; flex-direction: column; }
+  .dlg-modal .panel-body { max-height: 92vh; overflow: auto; }
+  /* 双栏并排：baseline 在左、evolved 在右，方便逐轮对比 */
+  .dlg-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  .dlg-cols.single { grid-template-columns: 1fr; }
+  @media (max-width: 900px) { .dlg-cols { grid-template-columns: 1fr; } }
+  .dlg-phase { margin-bottom: 14px; min-width: 0; }
   .dlg-phase-head { font: 600 13px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.16em;
     text-transform: uppercase; color: var(--amber); margin-bottom: 10px;
     border-bottom: 1px solid var(--line-strong); padding-bottom: 6px; }
@@ -1824,10 +1828,23 @@ async function applyEvent(env) {
 
 let _snapshotInflight = null;
 let _lastSnapshotAt = 0;
+let _snapshotTrailingTimer = null;
 async function refreshSnapshot(force = false) {
   const now = Date.now();
   if (!force && _snapshotInflight) return _snapshotInflight;
-  if (!force && (now - _lastSnapshotAt) < 800) return;
+  if (!force && (now - _lastSnapshotAt) < 800) {
+    // 被 800ms 节流窗口拦下时,补一个 trailing 刷新;否则收尾阶段几十毫秒内
+    // 密集下发的事件(phase→task→suite→repeat done)只有第一条会拉 snapshot,
+    // 剩下的全被 skip 且没有兜底,前端进度会永久停留在 leading fetch 的旧状态。
+    if (!_snapshotTrailingTimer) {
+      const delay = Math.max(0, 800 - (now - _lastSnapshotAt));
+      _snapshotTrailingTimer = setTimeout(() => {
+        _snapshotTrailingTimer = null;
+        refreshSnapshot(true);
+      }, delay);
+    }
+    return;
+  }
   _snapshotInflight = fetch('/snapshot').then(r => r.json()).then(s => {
     snapshot = s;
     _lastSnapshotAt = Date.now();
@@ -1948,7 +1965,11 @@ function renderDialogue(d) {
     return `<div class="dlg-phase"><div class="dlg-phase-head">${label}<span class="dlg-src">${src} · ${turns.length} turns</span></div>${rows}</div>`;
   };
   const scrollTop = body.scrollTop;  // 保留滚动位置（实时刷新新 turn 不丢位置）
-  body.innerHTML = phaseBlock('baseline', baseTurns, basePh) + phaseBlock('evolved', evoTurns, evoPh);
+  const baseHtml = phaseBlock('baseline', baseTurns, basePh);
+  const evoHtml = phaseBlock('evolved', evoTurns, evoPh);
+  // 双栏：baseline 左、evolved 右；只有一侧有对话时切回单栏，避免大片留白
+  const single = !(baseTurns.length && evoTurns.length);
+  body.innerHTML = `<div class="dlg-cols${single ? ' single' : ''}">${baseHtml}${evoHtml}</div>`;
   body.scrollTop = scrollTop;
 }
 // 点击 log 打开；点击 close / 遮罩关闭（事件委托，不依赖每次 render 重绑）。
