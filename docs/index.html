@@ -429,21 +429,21 @@
       flex: 1 1 auto;
     }
     .pain-item {
-      display: grid; grid-template-columns: 6.5em 1fr;
-      gap: .85rem; padding: .55rem 0 .6rem;
+      display: grid; grid-template-columns: 7.6em 1fr;
+      gap: .95rem; padding: .6rem 0 .65rem;
       border-top: 1px solid var(--ink-14);
     }
     .pain-item:first-of-type { border-top: none; padding-top: .5rem; }
     .pain-item .stat {
       font-family: var(--mono); color: var(--signal);
-      font-size: 1.02em; font-weight: 500; line-height: 1.15;
-      letter-spacing: -.01em; padding-top: .15em;
+      font-size: 1.42em; font-weight: 500; line-height: 1.05;
+      letter-spacing: -.015em; padding-top: .05em;
       white-space: nowrap;
     }
     .pain-item .stat .unit {
-      display: block; font-family: var(--mono); font-size: .58em;
-      color: var(--ink-52); font-weight: 400; letter-spacing: .04em;
-      line-height: 1.35; margin-top: .3em;
+      display: block; font-family: var(--mono); font-size: .42em;
+      color: var(--ink-52); font-weight: 400; letter-spacing: .05em;
+      line-height: 1.35; margin-top: .45em;
       text-transform: none; white-space: normal;
     }
     .pain-item .body { display: flex; flex-direction: column; gap: .22rem; min-width: 0; }
@@ -683,9 +683,14 @@
     }
     .judge-chat .why-list li:last-child { border-bottom: none; padding-bottom: 0; }
     .judge-chat .why-list .icon {
-      flex: 0 0 auto; font-family: var(--mono); font-weight: 700;
-      color: var(--mark); font-size: .92em; padding-top: .05em;
+      flex: 0 0 auto; font-family: var(--serif);
+      color: var(--ink-52); font-size: 1.35em; line-height: 1;
+      padding-top: .12em; width: 1.25em; text-align: center;
     }
+    .judge-chat .why-list li:nth-child(1) .icon { color: var(--signal); }
+    .judge-chat .why-list li:nth-child(2) .icon { color: var(--signal); }
+    .judge-chat .why-list li:nth-child(3) .icon { color: var(--pass); }
+    .judge-chat .why-list li:nth-child(4) .icon { color: var(--steel); }
     .judge-chat .why-list strong { color: var(--ink); }
     .judge-chat .why-list em { color: var(--signal); font-style: normal; font-weight: 500; }
 
@@ -771,8 +776,9 @@
     .cascade-ring .cnode.s { transform: translate(-50%, calc(-50% + 175px)); }
     .cascade-ring .cnode.w { transform: translate(calc(-50% - 265px), -50%); }
     .cascade-ring .cnode .num {
-      font-family: var(--mono); color: var(--signal); font-size: .72em;
-      letter-spacing: .14em; font-weight: 700;
+      font-family: var(--serif); color: var(--signal); font-size: 1.5em;
+      line-height: 1; font-weight: 400;
+      display: inline-block; padding: .05em .15em .05em 0;
     }
     .cascade-ring .cnode .what {
       font-family: var(--serif); color: var(--ink); font-size: 1.4em;
@@ -820,16 +826,20 @@
       margin-top: .25em; letter-spacing: .01em;
     }
     .stack-box .agent-tag {
-      font-family: var(--mono); font-size: .68em; padding: .25em .55em;
-      border: 1px solid var(--ink-14); border-radius: 2px;
-      color: var(--ink-52); white-space: nowrap; letter-spacing: .04em;
+      font-family: var(--mono); font-size: .62em; padding: .3em .6em .28em;
+      border: 1px solid var(--ink-22); border-radius: 999px;
+      color: var(--ink-52); white-space: nowrap;
+      letter-spacing: .12em; text-transform: uppercase;
+      display: inline-flex; align-items: center; gap: .45em;
     }
-    .stack-box.l2 .agent-tag {
-      color: var(--mark); border-color: var(--mark);
+    .stack-box .agent-tag::before {
+      content: ""; display: inline-block;
+      width: 5px; height: 5px; border-radius: 50%;
+      background: currentColor;
     }
-    .stack-box.l1 .agent-tag, .stack-box.l3 .agent-tag {
-      color: var(--pass); border-color: var(--pass);
-    }
+    /* two-value semantic: agnostic vs specific — decoupled from layer color */
+    .stack-box .agent-tag.agnostic { color: var(--pass); border-color: rgba(44,106,78,.42); }
+    .stack-box .agent-tag.specific { color: var(--mark); border-color: rgba(160,122,34,.5); }
     .stack-box.l2 { border-color: var(--mark); }
     .stack-arrow { font-family: var(--mono); color: var(--ink-34); font-size: 1.15em; line-height: 1; }
     .stack-tag {
@@ -864,9 +874,9 @@
     .invoke-hero .skill { color: var(--mark); font-weight: 600; }
     .invoke-hero .arg { color: rgba(232,227,214,.85); }
     .invoke-hero .repo {
-      display: block; margin-top: .3em; padding-left: 1.6em;
-      color: var(--steel); font-size: .82em;
-      border-bottom: 1px solid rgba(54,80,107,.35); width: fit-content;
+      color: var(--steel); font-size: .88em;
+      margin-left: .55em;
+      border-bottom: 1px solid rgba(54,80,107,.35);
     }
     .invoke-hero .caret {
       display: inline-block; width: .5em; height: 1em; vertical-align: -2px;
@@ -958,6 +968,7 @@
       display: flex; align-items: center; gap: .5rem;
       padding: .42rem .55rem; background: var(--paper); border-radius: 2px;
       border: 1px solid var(--ink-10);
+      position: relative;
     }
     .form-cell .g {
       font-family: var(--mono); font-size: 1em; color: var(--ink-52);
@@ -967,8 +978,19 @@
       font-family: var(--mono); font-size: .7em; color: var(--ink);
       font-weight: 600; letter-spacing: -.005em;
     }
-    .img-card.delta .form-cell { border-color: rgba(160,122,34,.24); }
+    .img-card.delta .form-cell {
+      border-color: rgba(160,122,34,.32);
+      background: rgba(160,122,34,.06);
+    }
     .img-card.delta .form-cell .g { color: var(--mark); }
+    /* the tiny "changed" marker — a corner tick that only lives on delta */
+    .img-card.delta .form-cell::after {
+      content: "▲";
+      position: absolute; top: 2px; right: 4px;
+      font-family: var(--mono); font-size: .48em;
+      color: var(--mark); opacity: .78; letter-spacing: 0;
+      line-height: 1;
+    }
 
     .img-foot {
       font-family: var(--mono); font-size: .58em; letter-spacing: .1em;
@@ -1270,6 +1292,46 @@
       padding-bottom: .55em; border-bottom: 1px solid var(--ink-14);
     }
     .recap .v em { color: var(--ink-52); font-style: normal; font-size: .82em; display: block; margin-top: .15em; font-family: var(--mono); letter-spacing: .01em; }
+
+    /* hard numbers strip on the recap page */
+    .recap-numbers {
+      margin-top: 1.1em;
+      background: var(--ink); color: var(--paper);
+      border-radius: 3px; position: relative;
+      padding: .95rem 1.15rem;
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.1rem;
+    }
+    .recap-numbers::before {
+      content: ""; position: absolute; top: 6px; left: 6px; right: 6px; bottom: 6px;
+      border: 1px solid rgba(232,227,214,.16); pointer-events: none;
+    }
+    .recap-numbers .cell {
+      display: flex; flex-direction: column; gap: .28em;
+      padding-left: 1rem; position: relative;
+    }
+    .recap-numbers .cell + .cell::before {
+      content: ""; position: absolute; left: -.5rem; top: .15em; bottom: .15em;
+      width: 1px; background: rgba(232,227,214,.18);
+    }
+    .recap-numbers .num {
+      font-family: var(--serif); font-style: italic; font-weight: 400;
+      color: var(--mark); font-size: 2.05em; line-height: 1;
+      letter-spacing: -.01em;
+    }
+    .recap-numbers .num .unit {
+      font-family: var(--mono); font-style: normal;
+      color: rgba(232,227,214,.7); font-size: .48em;
+      letter-spacing: .06em; margin-left: .35em; vertical-align: .35em;
+    }
+    .recap-numbers .cap {
+      font-family: var(--mono); font-size: .68em; letter-spacing: .04em;
+      color: rgba(232,227,214,.55); text-transform: uppercase;
+    }
+    .recap-numbers .desc {
+      font-family: var(--sans); color: var(--paper);
+      font-size: .78em; line-height: 1.45;
+    }
+    .recap-numbers .desc b { color: var(--mark); font-weight: 600; }
 
     /* ============================================================
        reduced motion / responsive guard
@@ -1621,7 +1683,6 @@
             <div class="who">用户 · turn 2</div>
             "差不多了，金额我想要<strong>保留 2 位小数</strong>。"
           </div>
-          <div class="turn-sep">▼</div>
           <div class="bubble work">
             <div class="who">Work Agent · turn 3</div>
             "已调整。"
@@ -1638,19 +1699,19 @@
           </div>
           <ul class="why-list">
             <li>
-              <span class="icon">01</span>
+              <span class="icon" aria-hidden="true">✕</span>
               <span><strong>真人 reviewer 跑不起</strong> — 每道题 baseline+evolved 各 5–10 轮，几百题 × 几个 Agent，<em>纯人工不可能自动化跑</em>。</span>
             </li>
             <li>
-              <span class="icon">02</span>
+              <span class="icon" aria-hidden="true">✕</span>
               <span><strong>固定 rubric 打分太死</strong> — 给 LLM 一份验收清单让它打 0–100 分？agent 看不到清单，不知道哪儿错了，<em>多轮迭代就退化成乱猜</em>。</span>
             </li>
             <li>
-              <span class="icon">03</span>
+              <span class="icon" aria-hidden="true">✓</span>
               <span><strong>LIFT 的方案：再起一个 LLM agent，让它<em>扮成用户</em></strong> — 验收清单<em>只在它脑子里</em>，每轮挑一条没满足的、用口语化反馈丢给 work agent。</span>
             </li>
             <li>
-              <span class="icon">04</span>
+              <span class="icon" aria-hidden="true">↗</span>
               <span><strong>业界少有人这么干</strong> — 多数 benchmark 是单轮+脚本，只有 <code>tau-bench</code> 同类思路（评策略合规）。LIFT 把它用在<em>进化产物对照评测</em>上。</span>
             </li>
           </ul>
@@ -1736,22 +1797,22 @@ other_agent.<span class="v">??</span>()
           <div class="h-bot">重造轮子</div>
         </div>
         <div class="cnode n">
-          <div class="num">▸ 01</div>
+          <div class="num" aria-hidden="true">⇌</div>
           <div class="what">Agent 对话 / 启停</div>
           <div class="why">HTTP / 本地库 / CLI + 启停，每家不同</div>
         </div>
         <div class="cnode e">
-          <div class="num">▸ 02</div>
+          <div class="num" aria-hidden="true">⊞</div>
           <div class="what">并发调度</div>
           <div class="why">多题并行、资源上限、错误隔离</div>
         </div>
         <div class="cnode s">
-          <div class="num">▸ 03</div>
+          <div class="num" aria-hidden="true">⇄</div>
           <div class="what">work-judge 多轮对话</div>
           <div class="why">work / judge 交替、retry 逻辑</div>
         </div>
         <div class="cnode w">
-          <div class="num">▸ 04</div>
+          <div class="num" aria-hidden="true">∿</div>
           <div class="what">trajectory 追踪 / 报告</div>
           <div class="why">CSV / HTML / trace 关联</div>
         </div>
@@ -1771,7 +1832,7 @@ other_agent.<span class="v">??</span>()
               <b>顶层编排</b>——切题、跑 warmup / holdout、并发调度、写 report、后处理 <em>trace 关联 &amp; 回灌</em>
               <div class="role-sub">改这里 = 改"考几门 / 怎么排考"</div>
             </div>
-            <div class="agent-tag">Agent 无关</div>
+            <div class="agent-tag agnostic">Agent 无关</div>
           </div>
         </div>
         <div class="stack-arrow">↓</div>
@@ -1782,7 +1843,7 @@ other_agent.<span class="v">??</span>()
               <b>Agent 接入层</b>——起 / 停容器、向 Agent 喂题、收回答、warmup 后触发进化、透传 <em>runtime 内部 trace</em>
               <div class="role-sub">改这里 = 接一种新 Agent（Hermes / GenericAgent…）</div>
             </div>
-            <div class="agent-tag">每家不同</div>
+            <div class="agent-tag specific">每家不同</div>
           </div>
         </div>
         <div class="stack-arrow">↓</div>
@@ -1793,7 +1854,7 @@ other_agent.<span class="v">??</span>()
               <b>多轮阅卷循环</b>——work ↔ judge 交替、retry、判定 success / fail、落 <em>pre-chat span</em>
               <div class="role-sub">改这里 = 改阅卷规则（重试上限、success 判定）</div>
             </div>
-            <div class="agent-tag">Agent 无关</div>
+            <div class="agent-tag agnostic">Agent 无关</div>
           </div>
         </div>
       </div>
@@ -1884,8 +1945,7 @@ other_agent.<span class="v">??</span>()
       <div class="invoke-hero">
         <div class="role">You · in Trae / Claude Code</div>
         <div class="line">
-          <span class="prompt">›</span><span class="skill">@lift-integrate-agent-runtime</span> <span class="arg">帮我接入这个 Agent</span><span class="caret"></span>
-          <span class="repo">↳ https://github.com/&lt;org&gt;/&lt;new-agent&gt;.git</span>
+          <span class="prompt">›</span><span class="skill">@lift-integrate-agent-runtime</span> <span class="arg">帮我接入这个 Agent</span> <span class="repo">https://github.com/&lt;org&gt;/&lt;new-agent&gt;.git</span><span class="caret"></span>
         </div>
       </div>
 
@@ -1930,7 +1990,7 @@ other_agent.<span class="v">??</span>()
       <aside class="notes">这是 Adapter 层给接入者的承诺：<b>不用懂框架内部，你只要说一句话</b>。<br><br>
        站在接入方的视角：<br>
        &nbsp;- 想接入一个新的 Agent，只需要在 Trae / Claude Code 里调用我们提供的 skill <code>@lift-integrate-agent-runtime</code>，把 Agent 的 repo 地址扔给它；<br>
-       &nbsp;- Skill 会自动帮你把接入模板生成好、把 LIFT 的整个环境跑起来。<br><br>这个skill的核心部分是告诉lift，当前这个Agent的base镜像在哪，怎么启动清理他，怎么和他对话，怎么出发他的进化<br><br><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">所以&nbsp;</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">"接一个新 Agent"</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">&nbsp;这件事，在 LIFT 里已经降级成了调用一个 skill&nbsp;<br></span><br>---<br>
+       &nbsp;- Skill 会自动帮你把接入模板生成好、把 LIFT 的整个环境跑起来。<br><br>这个skill的核心部分是告诉lift，当前这个Agent的base镜像怎么构建，怎么启动清理他，怎么和他对话，怎么触发他的进化<br><br><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">所以&nbsp;</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">"接一个新 Agent"</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">&nbsp;这件事，在 LIFT 里已经简化成了调用一个 skill&nbsp;<br></span><br>---<br>
        &nbsp;- <b>01 从哪里起这个 Agent</b>：告诉框架去哪找这个考生的镜像/包（<code>resolve_image / runtime</code>）；<br>
        &nbsp;- <b>02 怎么启动、怎么清理</b>：考试前把他叫进考场、考完把他送出去（<code>start / stop</code>）；<br>
        &nbsp;- <b>03 怎么发题、怎么收回答</b>：考试过程中，怎么把题目递给他、怎么收回他的答案（<code>worker_judger_factory</code>）；<br>
@@ -2088,7 +2148,7 @@ sequenceDiagram
   <span class="f">--suite</span> <span class="v">hello_multi.json</span> <span class="f">--run_id</span> <span class="v">presentation_demo</span> <span class="f">--repeat</span> <span class="v">2</span> \
   <span class="f">--dashboard</span> <span class="v">0.0.0.0:8764</span></div>
       <div class="delegate-hint">suite 定义：<a href="assets/benchmarks_demo/hello_multi.json" target="_blank" rel="noopener">hello_multi.json ↗</a></div>
-      <aside class="notes"><br></aside>
+      <aside class="notes">跑一个openclaw的评测 最简单的 hello_multi,，重复3遍，能并发的地方都并发，端口用8999， 运行之前把你使用的CLI打印出来</aside>
     </section>
 
     <!-- 19. Recap -->
@@ -2100,18 +2160,51 @@ sequenceDiagram
         <div class="v">自进化常是假阳性、评测本身也不可信 <em>SkillsBench 自生成 Skill 无效有害；安全 benchmark 排名 W=0.10</em></div>
 
         <div class="k">标准</div>
-        <div class="v">每个 Suite 显式分 warmup / holdout <em>train 进化 → test 对照</em></div>
+        <div class="v">每个 Suite 显式分 warmup / holdout <em>train 进化 → test 对照，delta 镜像保证起点一致</em></div>
 
         <div class="k">怎么打分</div>
         <div class="v">Judge 扮成"用户"跟 Agent 多轮对话 <em>验收清单只在 judge 脑里，逼 agent 听反馈改</em></div>
 
-        <div class="k">为什么是框架</div>
-        <div class="v">脚本路线每接一个 Agent 都重抄一遍 <em>并发、报告、judge 都得复制</em></div>
+        <div class="k">三层结构</div>
+        <div class="v">CLI / Pipeline · AgentRuntimeAdapter · Judge Loop <em>runtime-agnostic：Adapter 抹平产物形态差异</em></div>
 
-        <div class="k">红利</div>
-        <div class="v">并发 / Dashboard / Trace 关联 / Skill 接入引导，框架全兜底 <em>新 Agent 跟着 skill 走，丝滑接入</em></div>
+        <div class="k">接入承诺</div>
+        <div class="v">一句 skill 调用，Adapter 只填 4 件事 <em>OpenClaw adapter 核心 ~120 行 · 跑得爽 + 跑得对 全兜底</em></div>
+
+        <div class="k">Benchmark 中立</div>
+        <div class="v">任何 benchmark，只要能转成 Suite JSON 就能接入 <em>SWE-Bench / TAU-Bench / GAIA 都能挂进来，本质是 benchmark 侧的 ETL</em></div>
       </div>
-      <aside class="notes"><br></aside>
+
+      <div class="recap-numbers">
+        <div class="cell">
+          <div class="cap">接入速度</div>
+          <div class="num">~1<span class="unit">天</span></div>
+          <div class="desc">从 0 到接完<b>一个新 Agent</b>（GenericAgent 亲测）</div>
+        </div>
+        <div class="cell">
+          <div class="cap">吞吐峰值</div>
+          <div class="num">1500<span class="unit">万 TPM</span></div>
+          <div class="desc">48c / 150G EC2 上<b>轻松跑到</b></div>
+        </div>
+        <div class="cell">
+          <div class="cap">Adapter 体量</div>
+          <div class="num">~120<span class="unit">行</span></div>
+          <div class="desc">OpenClaw adapter <b>核心代码</b>·剩下全被兜住</div>
+        </div>
+      </div>
+
+      <aside class="notes">这一页就是全场的"考点表"，一句话一行：<br><br>
+       &nbsp;- <b>痛点</b>：假阳性 + 排名 W=0.10，评测本身站不住；<br>
+       &nbsp;- <b>标准</b>：warmup / holdout 硬分开，delta 镜像保证起点一致；<br>
+       &nbsp;- <b>怎么打分</b>：judge 多轮阅卷，逼 agent 听反馈改；<br>
+       &nbsp;- <b>三层结构</b>：CLI / Adapter / Judge Loop，产物形态无关；<br>
+       &nbsp;- <b>接入承诺</b>：一句 skill 调用，Adapter 只填 4 件事；<br>
+       &nbsp;- <b>Benchmark 中立</b>：任何 benchmark 只要能转成 Suite JSON 就能挂进来。<br><br>
+       <b>最后的硬数据条：</b><br>
+       &nbsp;- <b>~1 天</b> 接入一个新 Agent（GA 亲测）；<br>
+       &nbsp;- <b>1500w TPM</b>，48c / 150G EC2 上轻松跑到；<br>
+       &nbsp;- OpenClaw Adapter 核心 <b>~120 行</b>——剩下 8 件事全被框架兜住。<br><br>
+       一句话收：LIFT 想解决的问题是"自进化能不能被证伪"，从<b>科学诚意</b>到<b>工程可用</b>再到<b>接入面开放</b>，三件事都到位了。</aside>
     </section>
 
     <!-- 18. Q&A -->
