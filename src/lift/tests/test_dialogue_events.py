@@ -181,6 +181,31 @@ def test_build_dialogue_bundle_from_report() -> None:
     assert q1[1].judge_reason == ""  # B 路径 trace_chain 仅 work 侧，无 judge
 
 
+def test_build_dialogue_bundle_skips_phase_with_all_none_outputs() -> None:
+    """plugin trace 全缺失（trace_chain 每轮 output 均为 None）时整个 phase 跳过。
+
+    此时 ``_dialogue_io`` 把 ``input`` 兜底成 CustomTags 元 JSON，``output`` 留空——
+    B 路径信息量不如 A 路径 runtime dialogue，不进 bundle 从而保留运行期版本。
+    """
+    fake = {
+        "runs": [
+            {"suites": [
+                {"tasks": [
+                    {"task_name": "Q1", "baseline": {"langfuse": {"work_analytics": {"trace_chain": [
+                        {"turn_index": 0, "input": {"task_query": "hi"}, "output": None},
+                    ]}}},
+                     "evolved": {"langfuse": {"work_analytics": {"trace_chain": [
+                        {"turn_index": 0, "input": "real prompt", "output": "real answer"},
+                     ]}}}},
+                ]}
+            ]}
+        ]
+    }
+    bundle = build_dialogue_bundle_from_report(fake)
+    assert (0, 0, "Q1", "baseline") not in bundle  # 全 None output → 跳过
+    assert (0, 0, "Q1", "evolved") in bundle       # 有 output → 保留
+
+
 async def test_run_task_invokes_on_turn_per_turn() -> None:
     """on_turn 在每轮 work↔judge 完成后被调用，参数含 work prompt/result + judge_result。"""
     fail_json = json.dumps({"success": False, "reason": "missing greeting", "score": 0.0})

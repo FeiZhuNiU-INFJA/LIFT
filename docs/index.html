@@ -381,6 +381,123 @@
     }
 
     /* ============================================================
+       PAIN · dual-diagnosis (痛点 ① + ②)
+       Two columns of findings under giant italic diagnosis numbers,
+       separated by a calibrated hairline axis.
+       Signature = the two red serif ① ② heads.
+       ============================================================ */
+    .pain-split {
+      display: grid;
+      grid-template-columns: 1fr 24px 1fr;
+      gap: 1.35rem;
+      margin: .35em 0 0;
+      align-items: stretch;
+    }
+    .pain-col { display: flex; flex-direction: column; min-width: 0; }
+    .pain-col-head {
+      display: grid; grid-template-columns: auto 1fr;
+      grid-template-rows: auto auto;
+      column-gap: .9rem; row-gap: .15rem;
+      align-items: baseline;
+      padding-bottom: .55rem;
+      border-bottom: 1px solid var(--ink-22);
+    }
+    .pain-col-head .num {
+      grid-column: 1; grid-row: 1 / span 2;
+      font-family: var(--serif); font-style: italic; font-weight: 400;
+      font-size: 5.4em; line-height: .78; color: var(--signal);
+      letter-spacing: -.02em;
+      align-self: end;
+    }
+    .pain-col-head .kicker {
+      grid-column: 2; grid-row: 1;
+      font-family: var(--mono); font-size: .58em; letter-spacing: .18em;
+      text-transform: uppercase; color: var(--ink-52);
+      display: flex; align-items: center; gap: .5em;
+    }
+    .pain-col-head .kicker::before {
+      content: ""; display: inline-block; width: 14px; height: 1px;
+      background: var(--signal);
+    }
+    .pain-col-head .title {
+      grid-column: 2; grid-row: 2;
+      font-family: var(--serif); font-size: 1.4em; color: var(--ink);
+      line-height: 1.2; margin-top: .1em;
+    }
+    .pain-list {
+      display: flex; flex-direction: column;
+      flex: 1 1 auto;
+    }
+    .pain-item {
+      display: grid; grid-template-columns: 6.5em 1fr;
+      gap: .85rem; padding: .55rem 0 .6rem;
+      border-top: 1px solid var(--ink-14);
+    }
+    .pain-item:first-of-type { border-top: none; padding-top: .5rem; }
+    .pain-item .stat {
+      font-family: var(--mono); color: var(--signal);
+      font-size: 1.02em; font-weight: 500; line-height: 1.15;
+      letter-spacing: -.01em; padding-top: .15em;
+      white-space: nowrap;
+    }
+    .pain-item .stat .unit {
+      display: block; font-family: var(--mono); font-size: .58em;
+      color: var(--ink-52); font-weight: 400; letter-spacing: .04em;
+      line-height: 1.35; margin-top: .3em;
+      text-transform: none; white-space: normal;
+    }
+    .pain-item .body { display: flex; flex-direction: column; gap: .22rem; min-width: 0; }
+    .pain-item .body .src {
+      display: flex; justify-content: space-between; align-items: baseline;
+      gap: .6em;
+    }
+    .pain-item .body .src .name {
+      font-family: var(--mono); font-size: .68em; font-weight: 700;
+      letter-spacing: .1em; text-transform: uppercase; color: var(--ink);
+    }
+    .pain-item .body .src .ref {
+      font-family: var(--mono); font-size: .56em; color: var(--ink-52);
+      letter-spacing: .02em; white-space: nowrap;
+    }
+    .pain-item .body .punch {
+      color: var(--ink-72); font-size: .78em; line-height: 1.45;
+    }
+    .pain-item .body .punch strong { color: var(--signal); font-weight: 600; }
+    .pain-item .body .punch em { color: var(--mark); font-style: normal; }
+
+    /* the calibrated axis between the two columns — signature element */
+    .pain-axis {
+      position: relative;
+      align-self: stretch;
+    }
+    .pain-axis::before {
+      content: ""; position: absolute;
+      top: 0; bottom: 0; left: 50%;
+      width: 1px; background: var(--ink-22);
+    }
+    .pain-axis .cal {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      width: 9px; height: 1px; background: var(--ink-52);
+    }
+    .pain-axis .cal.c1 { top: 32%; }
+    .pain-axis .cal.c2 { top: 50%; }
+    .pain-axis .cal.c3 { top: 68%; }
+    .pain-axis .cal.c4 { top: 86%; }
+
+    .pain-conclusion {
+      margin-top: 1em;
+      display: flex; align-items: center; justify-content: center; gap: .6em;
+      font-family: var(--mono); font-size: .76em; letter-spacing: .04em;
+      color: var(--ink-52);
+    }
+    .pain-conclusion .rule { width: 32px; height: 1px; background: var(--ink-22); }
+    .pain-conclusion .pin {
+      color: var(--ink); font-weight: 700; letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    .pain-conclusion b { color: var(--signal); font-weight: 700; }
+
+    /* ============================================================
        SUITE STANDARD — train/test split
        ============================================================ */
     .suite-flow {
@@ -797,28 +914,38 @@
     .mermaid-rendered svg { max-width: 100%; max-height: 500px; height: auto !important; }
 
     /* ============================================================
-       BENEFITS GRID — 2×2 (bigger cards, bigger type)
+       BENEFITS GRID — 4×2 (bigger cards, bigger type)
        ============================================================ */
-    .bonus { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-top: .7em; }
+    .bonus { display: grid; grid-template-columns: repeat(4, 1fr); gap: .7rem; margin-top: .5em; }
+    .bonus + .bonus { margin-top: .55em; }
+    .bonus-group {
+      display: flex; align-items: baseline; gap: .55em;
+      font-family: var(--mono); font-size: .68em; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--mark);
+      margin: .9em 0 .1em;
+    }
+    .bonus-group::before { content: ""; flex: 0 0 22px; height: 1px; background: var(--mark); }
+    .bonus-group span.hint { color: var(--ink-52); letter-spacing: .04em; text-transform: none; font-family: var(--serif); font-size: 1.05em; }
     .bonus-card {
       background: var(--paper-3); border: 1px solid var(--ink-14);
-      border-radius: 3px; padding: 1.4rem 1.4rem; position: relative;
-      display: flex; flex-direction: column; gap: .5rem; min-height: 175px;
+      border-radius: 3px; padding: .85rem .95rem; position: relative;
+      display: flex; flex-direction: column; gap: .35rem; min-height: 145px;
     }
-    .bonus-card::before { content: ""; position: absolute; top: -1px; left: -1px; width: 26px; height: 3px; background: var(--steel); }
+    .bonus-card::before { content: ""; position: absolute; top: -1px; left: -1px; width: 22px; height: 3px; background: var(--steel); }
     .bonus-card.b2::before { background: var(--pass); }
     .bonus-card.b3::before { background: var(--mark); }
     .bonus-card.b4::before { background: var(--ink); }
     .bonus-card .glyph {
-      font-family: var(--mono); font-size: 2.4em; line-height: 1; color: var(--steel);
+      font-family: var(--mono); font-size: 1.55em; line-height: 1; color: var(--steel);
     }
     .bonus-card.b2 .glyph { color: var(--pass); }
     .bonus-card.b3 .glyph { color: var(--mark); }
     .bonus-card.b4 .glyph { color: var(--ink); }
-    .bonus-card .title { font-family: var(--serif); color: var(--ink); font-size: 1.4em; line-height: 1.15; }
-    .bonus-card .body { color: var(--ink-52); font-size: .92em; line-height: 1.55; }
+    .bonus-card .title { font-family: var(--serif); color: var(--ink); font-size: 1.02em; line-height: 1.15; }
+    .bonus-card .body { color: var(--ink-52); font-size: .74em; line-height: 1.5; }
     .bonus-card .body strong { color: var(--ink); }
     .bonus-card .body code { font-family: var(--mono); font-size: .9em; color: var(--ink); background: var(--paper-2); padding: 0 .2em; }
+    .bonus-card .cost { font-family: var(--mono); font-size: .66em; color: var(--ink-52); border-top: 1px dashed var(--ink-14); padding-top: .3em; margin-top: auto; }
 
     /* ============================================================
        HELLO FLOW (multi)
@@ -1067,98 +1194,103 @@
       <aside class="notes">首先是痛点</aside>
     </section>
 
-    <!-- 3. Pain 1: 自进化「变好」其实站不住脚 -->
+    <!-- 3. Pain ① + ② — dual-diagnosis split -->
     <section>
-      <div class="slide-eyebrow">痛点 ①</div>
-      <h2>"Agent 进化变好了"——证据其实站不住</h2>
-      <div class="evidence">
-        <div class="ev">
-          <div class="src">
-            <span class="name">SkillsBench</span>
-            <span class="ref">arXiv:2602.12670</span>
-          </div>
-          <div class="stat">≈ 0<span class="unit">self-gen skill · 86 tasks</span></div>
-          <div class="punch">Agent <strong>自生成 Skill</strong> 加载后，对原任务的提升<em>接近零甚至为负</em>。精选 Skill +16.2pp，自生成 ≈ 0。</div>
-        </div>
-        <div class="ev">
-          <div class="src">
-            <span class="name">LifeLongAgentBench</span>
-            <span class="ref">#16 · NeurIPS 2025</span>
-          </div>
-          <div class="stat">BWT &lt; 0<span class="unit">大部分自进化 Agent</span></div>
-          <div class="punch">学新任务的同时<strong>忘了旧任务</strong>——只看新任务就报"进化成功"，回头测旧任务发现灾难性遗忘。</div>
-        </div>
-        <div class="ev">
-          <div class="src">
-            <span class="name">MLR-bench</span>
-            <span class="ref">arXiv:2505.19955</span>
-          </div>
-          <div class="stat">80%<span class="unit">coding agent 产出</span></div>
-          <div class="punch">声称跑通了实验、给出了 metric，但<strong>伪造或无法验证</strong>。"我自己测了，挺好"——80% 的情况是这样。</div>
-        </div>
-        <div class="ev">
-          <div class="src">
-            <span class="name">SEA-Eval</span>
-            <span class="ref">arXiv:2604.08988</span>
-          </div>
-          <div class="stat">大部分<span class="unit">"自进化" Agent</span></div>
-          <div class="punch">所谓"自进化" 其实只是<strong>任务内执行 · 任务间清零</strong>——
-          下一题不知道之前发生过什么，谈不上跨任务沉淀。<em>"自进化"很多时候只是个标签</em></div>
-        </div>
-      </div>
-      <div class="evidence-footer">
-        <span class="pin">共同点</span>靠的不是数字 · 是定义模糊 + 协议漏洞 + 自说自话
-      </div>
-      <aside class="notes">第一个痛点：其实大部分agent的自进化并没有变得更好：<br>① A论文发现人类精选 Skill 可以提点 16.2个pp，而自生成的 Skill 平均无效甚至有害。<br>② B论文发现大部分自进化Agent存在<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">灾难性遗忘的问题，学了新的忘了旧的，which就是这个BWT&lt;0的含义</span><br>③ C论文发现80%的Coding Agent<font color="#0b2400">在实验阶段</font>伪造或无法验证的。 伪造的意思是，agent会在没有实验成功的情况下编造实验结果。<div>④ D论文发现大部分自进化的 Agent，实际上只是在一个任务内可以反思、改方案、跨任务根本没有任何东西被沉淀、积累、复用。&nbsp;<br><br>&nbsp;所以第一个痛点是Agent 自进化这件事本身就特别容易是假阳性&nbsp; False Positive。</div></aside>
-    </section>
+      <div class="slide-eyebrow">痛点 ① &amp; ②</div>
+      <h2>自进化站不住，评测也不可信</h2>
 
-    <!-- 4. Pain 2: 评测协议本身不可信 -->
-    <section>
-      <div class="slide-eyebrow">痛点 ②</div>
-      <h2>退一步说——评测这件事本身就不可信</h2>
-      <div class="evidence">
-        <div class="ev">
-          <div class="src">
-            <span class="name">Safety Benchmarks</span>
-            <span class="ref">arXiv:2605.16282</span>
+      <div class="pain-split">
+        <div class="pain-col">
+          <div class="pain-col-head">
+            <div class="num">①</div>
+            <div class="kicker">Symptom · 进化侧</div>
+            <div class="title">"变好了"——证据其实站不住</div>
           </div>
-          <div class="stat">W = 0.10<span class="unit">Kendall's W · p = 0.94</span></div>
-          <div class="punch">12 个模型 × 4 个安全 benchmark：<strong>排名完全不一致</strong>。在 A benchmark 上第一名，在 B 上可能垫底。结论无法迁移。</div>
+          <div class="pain-list">
+            <div class="pain-item">
+              <div class="stat">≈ 0<span class="unit">self-gen skill<br/>86 tasks</span></div>
+              <div class="body">
+                <div class="src"><span class="name">SkillsBench</span><span class="ref">arXiv:2602.12670</span></div>
+                <div class="punch">Agent <strong>自生成 Skill</strong> 加载后，对原任务的提升<em>接近零甚至为负</em>。精选 Skill +16.2pp，自生成 ≈ 0。</div>
+              </div>
+            </div>
+            <div class="pain-item">
+              <div class="stat">BWT &lt; 0<span class="unit">大部分<br/>自进化 Agent</span></div>
+              <div class="body">
+                <div class="src"><span class="name">LifeLongAgentBench</span><span class="ref">#16 · NeurIPS 2025</span></div>
+                <div class="punch">学新任务的同时<strong>忘了旧任务</strong>——只看新任务就报"进化成功"，回头测旧任务发现灾难性遗忘。</div>
+              </div>
+            </div>
+            <div class="pain-item">
+              <div class="stat">80%<span class="unit">coding agent<br/>产出</span></div>
+              <div class="body">
+                <div class="src"><span class="name">MLR-bench</span><span class="ref">arXiv:2505.19955</span></div>
+                <div class="punch">声称跑通了实验、给出了 metric，但<strong>伪造或无法验证</strong>——"我自己测了，挺好"。</div>
+              </div>
+            </div>
+            <div class="pain-item">
+              <div class="stat">仅标签<span class="unit">"自进化"<br/>Agent</span></div>
+              <div class="body">
+                <div class="src"><span class="name">SEA-Eval</span><span class="ref">arXiv:2604.08988</span></div>
+                <div class="punch">所谓"自进化"其实只是<strong>任务内执行 · 任务间清零</strong>——<em>只是个标签</em>。</div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="ev">
-          <div class="src">
-            <span class="name">ABC Checklist</span>
-            <span class="ref">arXiv:2507.02825</span>
-          </div>
-          <div class="stat">±100%<span class="unit">性能误判幅度</span></div>
-          <div class="punch">SWE-bench 测试用例不足、TAU-bench 把空回复算成功……评测设计 bug <strong>最多让性能误判 100%</strong>。</div>
+
+        <div class="pain-axis" aria-hidden="true">
+          <span class="cal c1"></span>
+          <span class="cal c2"></span>
+          <span class="cal c3"></span>
+          <span class="cal c4"></span>
         </div>
-        <div class="ev">
-          <div class="src">
-            <span class="name">WildClawBench</span>
-            <span class="ref">InternLM · #28</span>
+
+        <div class="pain-col">
+          <div class="pain-col-head">
+            <div class="num">②</div>
+            <div class="kicker">Symptom · 评测侧</div>
+            <div class="title">退一步说——评测本身就不可信</div>
           </div>
-          <div class="stat">8.4 pp<span class="unit">同模型 · 不同框架</span></div>
-          <div class="punch">同一个底层模型，<strong>挂在不同 Agent 框架</strong>下分差好几个点（Codex 56.8% vs Claude Code 48.4%）。比的是模型还是框架？</div>
-        </div>
-        <div class="ev">
-          <div class="src">
-            <span class="name">环境保真度</span>
-            <span class="ref">arXiv:2605.16282 · 同篇</span>
+          <div class="pain-list">
+            <div class="pain-item">
+              <div class="stat">W = 0.10<span class="unit">Kendall's W<br/>p = 0.94</span></div>
+              <div class="body">
+                <div class="src"><span class="name">Safety Benchmarks</span><span class="ref">arXiv:2605.16282</span></div>
+                <div class="punch">12 模型 × 4 安全 benchmark：<strong>排名完全不一致</strong>。A 上第一，B 上可能垫底。</div>
+              </div>
+            </div>
+            <div class="pain-item">
+              <div class="stat">± 100%<span class="unit">性能<br/>误判幅度</span></div>
+              <div class="body">
+                <div class="src"><span class="name">ABC Checklist</span><span class="ref">arXiv:2507.02825</span></div>
+                <div class="punch">SWE-bench 测试用例不足、TAU-bench 把空回复算成功——评测设计 bug <strong>最多让性能误判 100%</strong>。</div>
+              </div>
+            </div>
+            <div class="pain-item">
+              <div class="stat">8.4 pp<span class="unit">同模型<br/>不同框架</span></div>
+              <div class="body">
+                <div class="src"><span class="name">WildClawBench</span><span class="ref">InternLM · #28</span></div>
+                <div class="punch">同底层模型<strong>挂不同 Agent 框架</strong>下差几个点（Codex 56.8% vs Claude Code 48.4%）。</div>
+              </div>
+            </div>
+            <div class="pain-item">
+              <div class="stat">沙箱 ≠ 真实<span class="unit">系统性<br/>偏差</span></div>
+              <div class="body">
+                <div class="src"><span class="name">环境保真度</span><span class="ref">arXiv:2605.16282 · 同篇</span></div>
+                <div class="punch">沙箱里的安全表现<strong>无法外推到真实环境</strong>——报告数字漂亮，落到客户场景就翻车。</div>
+              </div>
+            </div>
           </div>
-          <div class="stat">沙箱 ≠ 真实<span class="unit">系统性偏差</span></div>
-          <div class="punch">同一篇综述还发现：沙箱里的安全表现<strong>无法外推到真实环境</strong>。漂亮的报告数字到了客户场景就翻车。</div>
         </div>
       </div>
-      <div class="evidence-footer">
-        <span class="pin">含义</span>没有标准化、对照清晰的评测协议，谁也说不清谁更强
+
+      <div class="pain-conclusion">
+        <span class="rule"></span>
+        <span class="pin">合起来</span>
+        自进化容易 <b>假阳性</b> · 评测本身也说不清 —— 必须建立标准化的对照协议
+        <span class="rule"></span>
       </div>
-      <aside class="notes">第二个痛点是评测，评测现在也很混乱。<br>① A论文发现，在安全领域的众多benchmark中，不同的agent的排名接近随机——一个 benchmark 上排第一的agent，换一个 benchmark 可能倒数。 也就是这个W=0.1的含义 （一致性=0.1）<br>② B论文发现主流 benchmark中存在严重的的设计 bug，包括测试用例不足，包括把"空回复"也算成功；
-           这些 bug甚至可以让结果完全颠倒。&nbsp;<br>③ C论文中指出，同一个基座模型，用不同的agent，效果差距巨大。所以提出了一个灵魂拷问，我们到底在比模型、比提示词、还是比 Agent 框架？
-<br>④ D论文中还提到一个问题：沙箱环境中跑的测试和用户真实场景中的效果大相径庭。
-<br><br>&nbsp;总结一下两个痛点：自进化是个特别容易出false positive的事，而评测本身说服力也很差。
-        所以如果我们要严肃地回答「 Agent真的进化了吗」——
-        必须要建立一套博采众长的数据集标准和评测模式。</aside>
+      <aside class="notes">这一页把两个痛点合并展示，左右分栏：<br><br>—— 痛点 ①（左栏 · 进化侧）：其实大部分 agent 的自进化并没有变得更好 ——<br>① SkillsBench：人类精选 Skill 可以提点 16.2pp，而自生成的 Skill 平均无效甚至有害。<br>② LifeLongAgentBench：大部分自进化 Agent 存在灾难性遗忘的问题，学了新的忘了旧的，which 就是这个 BWT&lt;0 的含义。<br>③ MLR-bench：80% 的 Coding Agent 在实验阶段是伪造或无法验证的。<br>④ SEA-Eval：大部分自进化的 Agent，实际上只是在一个任务内可以反思、改方案、跨任务根本没有任何东西被沉淀、积累、复用。<br><br>所以 Agent 自进化这件事本身就特别容易是假阳性 False Positive。<br><br>—— 痛点 ②（右栏 · 评测侧）：评测本身也很混乱 ——<br>① Safety Benchmarks：不同 agent 的排名接近随机，W=0.1 就是一致性=0.1 的含义。<br>② ABC Checklist：主流 benchmark 中存在严重的设计 bug，这些 bug 甚至可以让结果完全颠倒。<br>③ WildClawBench：同一个基座模型，用不同的 agent，效果差距巨大——我们到底在比模型、比提示词、还是比 Agent 框架？<br>④ 环境保真度：沙箱环境中跑的测试和用户真实场景中的效果大相径庭。<br><br>合起来两个痛点：自进化是个特别容易出 false positive 的事，而评测本身说服力也很差。所以如果我们要严肃地回答"Agent 真的进化了吗"——必须要建立一套博采众长的数据集标准和评测模式。</aside>
     </section>
 
     <!-- 5. Section 2 divider -->
@@ -1524,10 +1656,12 @@ other_agent.<span class="v">??</span>()
       <aside class="notes">然后站在第二层 AgentRuntimeAdapter的视角：他被抽象成了4个接口<br>包括基础镜像在哪里，如何chat，如何构造work agent和judge agent， 如何进化。<br><br>这部分的细节就不展开了</aside>
     </section>
 
-    <!-- 16. Benefits beyond the contract -->
+    <!-- 16. Benefits beyond the contract — 8 cards / 2 groups on one page -->
     <section>
       <div class="slide-eyebrow">框架红利</div>
-      <h2>Agent 接入方完全不用操心的事</h2>
+      <h2>接入方"免费拿到"的两组能力</h2>
+
+      <div class="bonus-group">跑得爽 · 工程效率 <span class="hint">— 手写脚本要复现这些，代码量比核心评测还大</span></div>
       <div class="bonus">
         <div class="bonus-card">
           <div class="glyph">⫶</div>
@@ -1550,36 +1684,73 @@ other_agent.<span class="v">??</span>()
           <div class="body"><code>setup-lift-env</code> 一键搭环境、<code>lift-integrate-agent-runtime</code> 把 5 个 touchpoint 固化成清单，新 runtime 接入 <strong>跟着走不漏改</strong></div>
         </div>
       </div>
-      <aside class="notes">还是站在第二层agent的视角，这四件事是接入方"免费拿到"的，完全不用操心。 特别是有了<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">接入引导 · Skill之后。我个人在接一个新的GenericAgent的时候前后花了不到两天的时间，0代码。随着skill的完善，接入的过程会越来越丝滑。</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">这也意味着——LIFT 不光是个框架，还是个能让别人快速上手的产品</span><br>--<br>&nbsp; &nbsp; &nbsp; &nbsp; ① 并发——LIFT 是 asyncio 单进程框架，能并行跑几十个容器。Adapter 写同步接口就行，并发由 Pipeline 兜底。
 
-        ② Dashboard——所有 Agent 跑出的 report 结构都一致，CSV 对比表、HTML 报告自动生成。
-        横向对比 Agent A 和 Agent B 谁进化得多，直接出图。
+      <div class="bonus-group">跑得对 · 结论可信 <span class="hint">— 手写脚本最常在这里静默出错：数据看着正常，结论其实无效</span></div>
+      <div class="bonus">
+        <div class="bonus-card">
+          <div class="glyph">◇</div>
+          <div class="title">Delta 自动体检</div>
+          <div class="body"><code>docker commit</code> 前先跑一次 <code>docker diff</code>，warmup 有没有真的"改进"到容器里 <strong>一行日志就能看到</strong>——evolve 空转会立刻报警</div>
+        </div>
+        <div class="bonus-card b2">
+          <div class="glyph">◈</div>
+          <div class="title">对照组严格隔离</div>
+          <div class="body">Baseline / Evolved <strong>独立镜像 + 独立容器 + 独立 workspace</strong>；<code>warmup</code> 与 <code>holdout</code> 题库强制分离，防止"记答案"式作弊</div>
+        </div>
+        <div class="bonus-card b3">
+          <div class="glyph">◉</div>
+          <div class="title">抖动可吸收</div>
+          <div class="body"><code>chat×5 · judge×8 · task×1 · phase×1 · cell×1</code> 五层重试，单点 provider 挂了 <strong>不塌全链路</strong>；cell 之间隔离一题崩不连坐</div>
+        </div>
+        <div class="bonus-card b4">
+          <div class="glyph">⌗</div>
+          <div class="title">全程留痕</div>
+          <div class="body">pre-chat span、Langfuse plugin trace、docker diff 三路证据 <strong>自动落盘并互相关联</strong>，任何一条链路出问题，回溯有据可查</div>
+        </div>
+      </div>
 
-        ③ Trace 自动关联——这是一个细节但很重要的红利，展开讲一下机制：
-        - 框架在 run_task 里跟 work / judge agent 对话时，每次首发都会调
-          emit_pre_chat_state(session_id, tags, chat_role) 落一条 Langfuse span，
-          名字是 work_agent 或 judge_agent，标签里挂着 task_id、phase（baseline/evolved）、suite 等元数据。
-        - Runtime 内部的 Agent（OpenClaw 插件、Hermes turn、GenericAgent 插件等）
-          自己也在用 Langfuse 上报 trace，名字在白名单里：openclaw-plugin / Hermes turn / genericagent-plugin。
-        - 关键关联机制：框架在 docker exec 调 agent 时，把同一个 session_id 通过
-          --session-id <sid> 透传进去；agent 侧的 plugin 在写 trace 时也带上这个 session_id。
-          这样在 Langfuse 上一搜这个 session_id，框架侧的 *_agent span 和 runtime 侧的
-          plugin trace 就出现在同一个会话里。
-        - 后处理 langfuse_trace_merge 在同一 session 内按时间排序、用扩展贪心算法
-          把 *_agent span 和它后面的 plugin trace（可能多条，因为 provider error 会原地重试）
-          配对，merge 字段（prompt、response、tokens、tool 调用数、latency）回灌到 EvalReport。
-        - 效果：调一次进化效果，能从「work agent 收到什么 prompt」一路看到
-          「插件内部调了什么工具、消耗多少 token、retry 了几次」，全链路有据可查。
+      <aside class="notes">这一页把"框架红利"合并成两组八点，站在接入方视角看"我不用自己搞什么"。
 
-        这种关联完全由框架完成——接入方只需要在 runtime 侧把 session_id 透传进去、
-        给 plugin trace 起个白名单里的名字，剩下全是框架的事。
+—— 第一组：跑得爽（工程效率）——
+① 并发——LIFT 是 asyncio 单进程框架，能并行跑几十个容器。Adapter 写同步接口就行，并发由 Pipeline 兜底。
+② Dashboard——所有 Agent 跑出的 report 结构都一致，CSV 对比表、HTML 报告自动生成。横向对比 Agent A 和 Agent B 谁进化得多，直接出图。
+③ Trace 自动关联——这是一个细节但很重要的红利：
+  - 框架在 run_task 里跟 work / judge agent 对话时，每次首发都会调 emit_pre_chat_state(session_id, tags, chat_role) 落一条 Langfuse span，名字是 work_agent 或 judge_agent，标签里挂着 task_id、phase（baseline/evolved）、suite 等元数据。
+  - Runtime 内部的 Agent（OpenClaw 插件、GenericAgent 插件等）自己也在用 Langfuse 上报 trace，名字在白名单里：openclaw-plugin / Hermes turn / genericagent-plugin。
+  - 关键关联机制：框架在 docker exec 调 agent 时把同一个 session_id 通过 --session-id 透传进去；agent 侧的 plugin 在写 trace 时也带上这个 session_id。
+  - 后处理 langfuse_trace_merge 在同一 session 内按时间排序、用扩展贪心算法把 *_agent span 和它后面的 plugin trace 配对，merge 字段（prompt、response、tokens、tool 调用数、latency）回灌到 EvalReport。
+  - 效果：调一次进化效果，从「work agent 收到什么 prompt」一路看到「插件内部调了什么工具、消耗多少 token、retry 了几次」，全链路有据可查。
+④ 接入引导 · Skill——工程上另一个红利：
+  - setup-lift-env：conda / docker / Langfuse 部署 / .env / preprocess / 镜像构建 / 冒烟，新机器 10 分钟跑通；
+  - lift-integrate-agent-runtime：镜像脚手架、adapter 三件套、CLI 注册、后处理类型同步、Langfuse trace 拼装，5 个 touchpoint 固化 checklist；
+  - cleanup-lift-env：兜底清理。
+  我个人接 GenericAgent 前后花了不到两天，0 代码——这也意味着 LIFT 不光是个框架，还是个能让别人快速上手的产品。
 
-        ④ 接入引导 · Skill——这是工程上另一个红利。
-        - setup-lift-env：从零起跑一遍要做的事（conda、docker、Langfuse 部署、.env、preprocess、镜像构建、冒烟）都固化成 skill，新机器 10 分钟跑通；
-        - lift-integrate-agent-runtime：接入新 runtime 需要同步的 5 个层面（镜像脚手架、adapter 三件套、CLI 注册、后处理类型同步、Langfuse trace 拼装）都固化成 checklist，跟着走不会漏改；
-        - cleanup-lift-env：兜底清理。
-        - 这意味着——LIFT 不光是个框架，还是个能让别人快速上手的产品。
-      </sid></aside>
+—— 第二组：跑得对（结论可信）——
+LIFT 的核心命题是"baseline vs evolved 的差 = agent 自主学到的东西"。这句话要成立，前提是下面四件事都不能翻车。这一组每张卡都是"框架自动帮你做的事"，不是"你要记得去验证的清单"。
+
+⑤ Delta 自动体检——commit 之前先跑一次 docker diff：
+  - 打一行日志 "Delta preflight diff: +NA ~NC -ND across N paths (top: /opt/<runtime>/memory ...)"，能一眼看到 warmup 到底改了容器里的什么。
+  - 如果 upperdir 是空的，直接打 "empty upperdir — evolve produced nothing in container FS"，evolve 空转当场报警。
+  - 背景故事——GA 接入时踩过的坑：引擎读 /opt/GenericAgent/memory，LLM 写相对路径落到 bind mount /workspace/task/memory，docker commit 只捕获容器 FS 层。三点错位，warmup 100% 成功、delta 里空空如也，evolved ≡ baseline，improvement 恒为 0。以后接新 agent，日志一眼判断就好。
+
+⑥ 对照组严格隔离——LIFT 是科学实验，Baseline 和 Evolved 之间只能差"进化"这一个变量：
+  - 每题独立容器（每题起新容器 rm 旧的），保证上题 workspace 不污染下题；
+  - Baseline 从 base 镜像起、Evolved 从 delta 镜像起，绝不共用；
+  - Suite JSON 强制把 warmup_tasks 和 holdout_tasks 分开写，防止 evolved 阶段跑到 warmup 见过的题（那叫"记忆答案"而不是"学到能力"）。
+  - 手写脚本很容易写成"两个 phase 共用容器"或"warmup 拿 holdout 的题跑"，improvement 数字被污染但无从察觉。
+
+⑦ 抖动可吸收——真跑起来才知道有多重要：
+  - chat 层 provider error 重试 5×；judge JSON parse 重试 8×；单题 retry_each 就地重试 1×；phase 层再重试 1×；pipeline 收集第一轮失败 cell 全局兜底重试 1×。
+  - cell 之间隔离——一个 suite 崩了不会拖累其它 suite，也不会污染 report。
+  - 手写脚本要复现这一整套逻辑，代码量比核心评测本身还大。
+
+⑧ 全程留痕——三路证据自动落盘、自动关联，evolve 有问题时能一眼定位是哪一层：
+  - Log：pipeline 日志能看出 work / judge agent 是否真的对话过；
+  - Langfuse：同一 session_id 把 pre-chat span 和 plugin trace 串起来，后处理回灌到 report.json；
+  - Layer：commit 前的 docker diff 摘要落在日志里、commit 后 delta 镜像本身可 docker save 复现。
+  - 这三源本来是 skill 里"手动交叉验证"的清单——框架把关键节点都自动化了，你只需要在结果反常时按这三路顺着看，就能立刻定位故障点。
+      </aside>
     </section>
 
     <!-- Timeline mermaid (moved: capstone — full run on a timeline, right before the demo) -->

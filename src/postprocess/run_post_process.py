@@ -223,6 +223,11 @@ def build_dialogue_bundle_from_report(data: dict):
     与 pipeline ``repeat_run.suites[suite_index]`` 占位回填一致），task 用 ``task["task_name"]``。
     ``trace_chain`` 仅 work 侧，``judge_*`` 留空；无 ``trace_chain`` 的 phase 不进 bundle
     （保留运行期 dialogue）。返回 ``{(repeat_index, suite_index, task_name, phase): [DialogueTurn]}``。
+
+    plugin trace 缺失（如 GA 容器 langfuse overlay 未推送 root trace）时，
+    ``langfuse_work_analytics._dialogue_io`` 会把 ``input`` 兜底成 ``agent_input.model_dump()``
+    的 CustomTags 元 JSON，``output`` 留空；此时 B 路径信息量反而不如 A 路径运行期 dialogue，
+    整个 phase 跳过、不覆盖运行期版本。
     """
     from src.lift.status.state import DialogueTurn
 
@@ -238,6 +243,11 @@ def build_dialogue_bundle_from_report(data: dict):
                     wa = (pr.get("langfuse") or {}).get("work_analytics") or {}
                     trace_chain = wa.get("trace_chain") or []
                     if not trace_chain:
+                        continue
+                    # trace_chain 的每一轮 output 都是 None 时，说明这条 phase 的
+                    # plugin trace 全部缺失（GA overlay 未推）——保留 A 路径的
+                    # runtime dialogue，不用兜底的 CustomTags JSON 覆盖。
+                    if all(tc.get("output") is None for tc in trace_chain):
                         continue
                     turns: list[DialogueTurn] = []
                     for i, tc in enumerate(trace_chain):
