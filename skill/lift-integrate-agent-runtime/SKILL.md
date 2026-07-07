@@ -9,9 +9,9 @@ description: "把一个新的 agent runtime（如 OpenClaw / GenericAgent）接�
 
 > **原则**：先把 baseline 跑通（hello.json sanity → test_search.json benchmark），再考虑 `_with_evolve` / `_active_evolve` 之类衍生 runtime。衍生只是在 baseline adapter 上叠 `evolve_after_warmup` 钩子或镜像 tag。
 
-> **两个反例警示**（在集成过程中主动去验证，别只信"跑通了 hello.json"）：
-> 1. **进化产物不进 delta 镜像**（§1.7）—— warmup 阶段 agent 写下的 memory / skills 如果落进 bind mount，`docker commit` 不会捕获，evolved 与 baseline 完全一致，improvement 恒为 0，整个 LIFT 数据无意义。核心症状：hello.json 100% 成功也一样中招。
-> 2. **hello.json 走通 ≠ evolve 生效**（§6.5）—— hello.json 只测流水线连通性；必须跑一个会让 agent 有话可记的复杂 suite 并做三层证据交叉验证（Log × Langfuse × Layer）才能证明 evolve 真的成立。
+> **两个反例警示**（在集成过程中主动验证，别只信"跑通了 hello.json"）：
+> 1. **进化产物不进 delta 镜像**（§1.7）—— warmup 阶段 agent 写的 memory / skills 如果落进 bind mount，`docker commit` 不会捕获，evolved 与 baseline 完全一致，improvement 恒为 0。
+> 2. **hello.json 走通 ≠ evolve 生效**（§6.5）—— 必须跑一个会让 agent 有话可记的复杂 suite 并做 Log × Langfuse × Layer 三层证据交叉验证。
 
 ---
 
@@ -118,17 +118,11 @@ PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \
 
 `build-image.sh -h` 必须把这三个变量列在 `Override via env:` 区域（参考 [GA build-image.sh:25-38](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/build-image.sh#L25-L38)），方便后续接手者 `--help` 直接看到。
 
-> **内网自动探测**（可选优化）：如果 runtime 主要在内网机器上构建，可以在 `build-image.sh` 里加一段"探测到 `mirrors.byted.org` 就自动默认 APT_MIRROR / PIP_INDEX_URL"逻辑（参考 [GA build-image.sh:25-35](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/build-image.sh#L25-L35)），既支持公网构建的默认行为，又免掉每次手动 `APT_MIRROR=... PIP_INDEX_URL=... bash build-image.sh`。留一个 `LIFT_INTRANET_AUTODETECT=0` 兜底开关方便验证公网路径。
+> **可选**：在 `build-image.sh` 里加"探测到 `mirrors.byted.org` 就自动默认 APT_MIRROR / PIP_INDEX_URL"逻辑（参考 [GA build-image.sh:25-35](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/build-image.sh#L25-L35)），免掉每次手敲 env；留一个 `LIFT_INTRANET_AUTODETECT=0` 兜底开关。
 
 ### 1.7 进化产物落地契约（Docker commit 陷阱） ⚠️
 
-**LIFT 的核心命题是"baseline 镜像 vs evolved 镜像的差异，就是 warmup 阶段 agent 自主学到的所有东西"**。要让这个命题成立，你必须保证 agent 在 warmup 期写下的所有 evolve 产物（memory / skills / SOP / learned tools）都进入 **`docker commit` 能捕获的容器 FS 层**。
-
-**Docker commit 的边界**：仅捕获**容器根 FS 层**内的变更（例如 `/opt/**`、`/root/**`、`/etc/**`）。**以下路径都不进 commit**：
-- Bind mount 目录（例如 LIFT 的 `/workspace/task` = 宿主 `results/<run_id>/outcome/.../workspace/`）
-- Named volume
-- tmpfs
-- `--mount type=...` 的所有非本地 FS 挂载
+LIFT 的核心命题：**baseline 镜像 vs evolved 镜像的差异 = warmup 阶段 agent 学到的东西**。要成立必须让 evolve 产物（memory / skills / SOP）都落在 `docker commit` 能捕获的**容器根 FS 层**（`/opt/**`、`/root/**`、`/etc/**`）。**bind mount / named volume / tmpfs / 任何非本地 FS 挂载都不进 commit**。
 
 **三点错位** —— 新 runtime 接入时**必须**同时保证下面三个位置一致，任何一处错位都会让 evolve 无声无息地失效：
 
@@ -197,6 +191,7 @@ src/lift/adapters/<runtime>/
 3. `default_volume_binds` + `task_volume_binds` 是标准 bind（`/workspace/outcome`、`/workspace/task`、`/workspace/benchmarks`），照抄即可。
 4. `seed_eval_workspace`：宿主机端把 `workspace_seed/` 拷进 `workspace_dir`，留 `.lift-workspace-ready` marker。
 5. `_reclaim_volume_ownership`：cleanup 前把 bind mount 目录 `chown` 回宿主用户，避免 root-owned 文件污染 `results/`。
+6. **`env_vars` 覆写 `LANGFUSE_BASE_URL` / `LANGFUSE_HOST`**：宿主 `.env` 里通常写的是 `LANGFUSE_BASE_URL=http://localhost:3888`（宿主视角），通过 `env_file=Path.cwd()/".env"` 全量注入容器后，容器内 `localhost` 指向自己不通宿主 Langfuse。**Langfuse SDK v4 的 OTel span exporter 会读 `LANGFUSE_BASE_URL` env 覆盖 `Langfuse(host=...)` 显式构造参数**，即使 overlay 里 `mykey.py` host 写对了也会 0 plugin trace。修法：在 `env_vars` 层（`-e` flag，优先级高于 `env_file`）把 loopback host 段改写为 `host.docker.internal`。参考 GA [`session.py:38-53,179-184`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/genericagent/session.py#L38-L53) 的 `_rewrite_langfuse_host_for_container` 辅助函数。
 
 > **gateway-less runtime**（GA 这种）：`port_mappings=[]`、`readiness_check=None`，`docker exec` 直接调起进程；
 > **gateway-ful runtime**（OpenClaw 这种）：`port_mappings=[(host_port, 80, "tcp")]`、`readiness_check=ReadinessCheck(...)` + token / cookie 透传。
@@ -383,13 +378,7 @@ docker images | grep evolve-eval-<runtime>
 
 ### 6.2 hello.json sanity（基本流水线）
 
-```bash
-nohup python -m src.cli.lift_main \
-  -r <runtime> --benchmark_dir assets/benchmarks_demo \
-  --suite hello.json --run_id <run_id> --dashboard 0.0.0.0:<port> \
-  > logs/<run_id>.log 2>&1 &
-tail -f logs/<run_id>.log
-```
+按 §6.0 模板跑，`--suite hello.json`。
 
 验证点:
 - 容器拉起、warmup 单题跑完、`docker commit` 成功、holdout 跑完
@@ -416,21 +405,11 @@ python -m src.cli.lift_main -r <runtime> --evaluate-only --run_id <run_id>
 
 ### 6.4 test_search.json 联网能力 sanity（可选）
 
-```bash
-nohup python -m src.cli.lift_main \
-  -r <runtime> --benchmark_dir assets/benchmarks_demo \
-  --suite test_search.json --run_id <run_id> --dashboard 0.0.0.0:<port> \
-  > logs/<run_id>.log 2>&1 &
-tail -f logs/<run_id>.log | grep -E 'firecrawl|search|scrape|Action'
-```
-
-如果 runtime 配了联网工具（如 firecrawl），应当看到 W1 / H1 调用搜索工具拿到当日数据；没接联网工具的 runtime 这步可以跳过。
+按 §6.0 模板跑，`--suite test_search.json`；日志开 `grep -E 'firecrawl|search|scrape|Action'`。如果 runtime 配了联网工具（如 firecrawl），应当看到 W1 / H1 调用搜索工具拿到当日数据；没接联网工具的 runtime 这步可以跳过。
 
 ### 6.5 三层证据交叉验证（必跑；hello.json 只能证连通，不能证 evolve）
 
-hello.json 太简单，LLM 通常直接回 "DONE"、不会真的写 memory —— 走完 hello 只能证明流水线**没崩**，不能证明 evolve 的**核心命题**（warmup 学到的东西真的进入 delta）成立。
-
-要真正证明 evolve 有效，必须做**三层交叉验证**（Log → Langfuse → Layer）：三个证据缺一不可，因为它们证明的不是同一件事。选择一个**会让 agent 有话可记**的 suite（比如 `test_search.json`，或自己拼一个含明确 memory 写入指令的 warmup 题）。
+要证明 evolve 有效必须做 **Log × Langfuse × Layer** 三层交叉验证——三个证据缺一不可,证明的不是同一件事。选一个**会让 agent 有话可记**的 suite（`test_search.json` 或自己拼含明确 memory 写入指令的 warmup 题）。
 
 #### 证据 A：Log —— agent 真的对话了吗？
 
@@ -494,6 +473,8 @@ grep -E "trace not found|Failed to fetch trace|trace_backfill" "$LOG"
 - Langfuse UI 上 trace 的 Session / Tags 列非空（说明 overlay 用的是 v4 上下文管理器，见 §1.3）
 
 **红旗**：`work=0` / `judge=0` 且日志无 timeout → overlay 没生效或 trace name 没进 `LANGFUSE_PLUGIN_TRACE_NAMES`（见 §5.1）。
+
+**另一红旗**：`work` / `judge` 齐全但 `plugin=0`，容器日志出现 `Failed to export span batch due to timeout` → 容器内 exporter 端点不通宿主 Langfuse。`docker exec <c> env | grep LANGFUSE` 看 `LANGFUSE_BASE_URL` 是否被 `.env` 里的 `localhost` / `127.0.0.1` 污染；修法见 §2.2 第 6 点（`env_vars` 覆写）。
 
 #### 证据 C：Layer —— delta 镜像真的包含进化内容吗？
 
@@ -577,7 +558,7 @@ done
 | 现象 | 原因 | 排查 |
 |---|---|---|
 | `docker exec` 起不来 agent 进程 | 上游硬编码 cwd 没 patch | `docker exec <c> grep -n script_dir /opt/<runtime>/agentmain.py` |
-| Langfuse 报告 0 trace | overlay 没生效 / `LANGFUSE_PLUGIN_TRACE_NAMES` 漏加 | `docker exec <c> head /opt/<runtime>/plugins/langfuse_tracing.py` 看是不是 LIFT overlay 版本 |
+| Langfuse 全无 plugin trace（`plugin=0`） | ① overlay 没生效；② trace name 没在 `LANGFUSE_PLUGIN_TRACE_NAMES`；③ 端点被 `.env` 里的 `localhost` 污染（见下一行） | `docker exec <c> head /opt/<runtime>/plugins/langfuse_tracing.py` 看是否 LIFT overlay 版本；容器日志有 `Failed to export span batch due to timeout` → 走端点排查 |
 | trace 拼装 work / judge 不对应 | session_id 前缀错；不是 `user-*` / `judge-*` | grep `WorkerJudgerPair` 调用处的 sid 拼接逻辑 |
 | 镜像构建"诡异地快" / 改了 plugin 没生效 | docker layer cache 全命中，COPY 没触发重打 | 改完 plugin 强制 `docker build --no-cache` 重打；或 `touch agent-runtimes/<runtime>/<file>` 让 mtime 变 |
 | build 期 git clone 卡死 | GitHub 直连失败 | `<RUNTIME>_GIT_URL` 用 `https://ghfast.top/<github URL>` 反代 |
@@ -585,14 +566,13 @@ done
 | build-image 静默成功但凭据没注入 | `.env` 没被 source / Dockerfile ARG / build-image.sh `--build-arg` / install-in-image.sh sed 三方没同步 | `docker run --rm <image> grep __ /opt/<runtime>/mykey.py` 应 0 行；非 0 行说明三方有缺口（见 §1.2） |
 | GA 模型回复 "I cannot find this tool" | 只 append 了英文 schema，中文模型加载的是 `tools_schema_cn.json` | `docker run --rm <image> python -c 'import json; print([t["function"]["name"] for t in json.load(open("/opt/GenericAgent/assets/tools_schema_cn.json"))])'` |
 | `MODEL_NAME` 在两个 runtime 间互相污染 | `.env` 共享 `MODEL_NAME`，但 OpenClaw / GA 期望值不同 | 各 runtime 用专属变量名（`GENERICAGENT_MODEL_NAME` / `OPENCLAW_MODEL_NAME`），fallback 到 `MODEL_NAME` |
-| 容器内 Langfuse 连不上宿主 | `LANGFUSE_HOST` 写了 `localhost` / `127.0.0.1` | 镜像里固定写 `http://host.docker.internal:3000`（`Dockerfile` ARG default 已这样）；Linux 下 docker run 加 `--add-host host.docker.internal:host-gateway`（LIFT `start_*_container` 已处理） |
+| 容器内 Langfuse 连不上宿主 | `LANGFUSE_HOST` 写了 `localhost` / `127.0.0.1`（**镜像里**或**宿主 `.env` 通过 `env_file` 注入**——SDK v4 的 OTel span exporter 会读 env 覆盖 `Langfuse(host=...)` 显式参数，即使 overlay 完全正确也 0 plugin trace） | ① 镜像里固定写 `http://host.docker.internal:3000`（`Dockerfile` ARG default 已这样）；② LIFT `start_*_container` 的 `env_vars` 覆写 `LANGFUSE_BASE_URL` / `LANGFUSE_HOST`（参考 GA `_rewrite_langfuse_host_for_container`，见 §2.2 第 6 点）；③ Linux 下 docker run 加 `--add-host host.docker.internal:host-gateway`（LIFT `start_*_container` 已处理） |
 | Type checker 报 `AgentSource` 不一致 | 5 处 Literal 漏改 | `grep -rn "AgentSource\s*=\s*Literal" src/` 五处都要 |
 | `Judge response is not valid JSON` 重试日志 | 这是 prompt sanity 设计行为，不是 bug | 偶发可忽略；高频出现说明 judge prompt 没渲染干净 |
 | `logs/<run_id>.log` 看到 `wait output timeout` | GA 主循环 600s 内没产出 / 死循环 / LLM 卡 | `docker exec <c> tail -50 /opt/GenericAgent/temp/<iodir>/ga.stderr.log` 看 GA 自己日志 |
 | Langfuse trace 上 `Session` / `Tags` 列空 | overlay 还在用 v3 的 `obs.update_trace(...)` / `client.update_current_trace(...)`，4.x SDK 已删除 | overlay 改成 `propagate_attributes(session_id=, tags=)` 上下文管理器 + `start_as_current_observation`（见 §1.3） |
 | 静态 dashboard tools 列空，但 `*_backfilled.json` 里 `tool_calls` 已有数 | B 路径 langfuse 兜底拿到了值但没回写 tracker，`tracker.snapshot()` 仍是 None → 嵌入 HTML 后显示 "—" | 确认 `run_post_process_pipeline` 调了 `tracker.set_phase_tool_calls(...)`（见 §5.3.1）；运行期实时 dashboard 看不到 B 路径 tools 是设计行为 |
-| evolved 与 baseline 结果几乎一致（improvement ≈ 0） | Warmup 期 agent 的 evolve 产物落进了 bind mount / tmpfs，`docker commit` 没捕获到 → delta 镜像内容 = baseline | 走 §6.5 三层证据 C 检查 delta diff；若 diff 为空则回 §1.7 三点错位排查（引擎读位置 vs LLM 写位置 vs Dockerfile mkdir 位置） |
-| LLM 明说"写了 memory"但 delta 镜像没有 | LLM 走的是相对路径（`memory/xxx`），cwd 又在 bind mount | `install-in-image.sh` patch 上游 system prompt 里的 `[Memory]` 指示为绝对路径；reflection prompt 里显式加"cwd 是 bind mount，只能用 `/opt/<runtime>/memory/`"提示（见 §1.7 历史案例） |
+| evolved 与 baseline 结果几乎一致（improvement ≈ 0），或 LLM 明说"写了 memory"但 delta 镜像里没有 | Warmup 期 agent 的 evolve 产物落进了 bind mount / tmpfs（LLM 用 `memory/xxx` 相对路径，cwd 又在 bind mount 之内），`docker commit` 没捕获到 → delta 镜像内容 = baseline | 走 §6.5 证据 C 检查 delta diff；若 diff 为空回 §1.7 三点错位排查（引擎读 / LLM 写 / Dockerfile mkdir）。修法：`install-in-image.sh` patch 上游 system prompt 里 `[Memory]` 指示为绝对路径；reflection prompt 显式加"cwd 是 bind mount，只能用 `/opt/<runtime>/memory/`" |
 
 ---
 
@@ -660,5 +640,3 @@ M  src/report/langfuse_trace_stitch.py       # AgentSource Literal + dispatch tu
 |---|---|
 | [`setup-lift-env`](file:///root/workspace/agent_evolve_evaluation/skill/setup-lift-env/SKILL.md) | 还没装 conda / docker / langfuse / 跑过 hello.json 的全新机器 |
 | [`cleanup-lift-env`](file:///root/workspace/agent_evolve_evaluation/skill/cleanup-lift-env/SKILL.md) | 评测中途 Ctrl-C / OOM 后留下 `evolve-<runtime>-*` 容器、`evolve-eval-delta:*` 镜像，重跑前清场用 |
-
-集成新 runtime 时，先用 `setup-lift-env` 把基础环境备好（如果还没），再按本 skill 走流程；调试中遇到容器残留就用 `cleanup-lift-env` 清场再重试。

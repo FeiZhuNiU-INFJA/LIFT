@@ -35,6 +35,24 @@ CONTAINER_WORKSPACE_SEED_DIR = "/opt/evolve-eval/workspace_seed"
 WORKSPACE_READY_MARKER = ".lift-workspace-ready"
 
 
+def _rewrite_langfuse_host_for_container(host_value: str | None) -> str | None:
+    """把宿主 ``.env`` 中的 Langfuse URL 里的 ``localhost`` / ``127.0.0.1``
+    替换为 ``host.docker.internal``，供容器内进程访问宿主 Langfuse。
+    其余字段（scheme / port / path）保留原值。空值返回 None。
+    """
+    if not host_value or not host_value.strip():
+        return None
+    value = host_value.strip()
+    # 简单字符串替换足够——LANGFUSE_BASE_URL 里 host 段唯一出现，且我们只关心
+    # 将两个 loopback 主机名换掉。避免引入 urllib.parse 处理不带 scheme 的情况。
+    for loopback in ("localhost", "127.0.0.1"):
+        value = value.replace(f"//{loopback}:", "//host.docker.internal:")
+        value = value.replace(f"//{loopback}/", "//host.docker.internal/")
+        if value.endswith(f"//{loopback}"):
+            value = value[: -len(f"//{loopback}")] + "//host.docker.internal"
+    return value
+
+
 def _container_reclaim_ownership_script(uid: int, gid: int) -> str:
     """在容器内以 root 执行，将 volume 目录 chown 回宿主机用户。"""
     return f"""
@@ -150,6 +168,20 @@ async def start_genericagent_container(
         # 容器全局 env。session_id 则在每轮 chat 通过 docker exec -e 注入（每轮不同）
         "LIFT_EVAL_RUN_TAG": ctx.run_id,
     }
+    # 宿主 ``.env`` 中的 ``LANGFUSE_BASE_URL=http://localhost:3888`` 会通过
+    # ``env_file`` 被注入容器，但容器内 ``localhost`` 不通宿主 Langfuse。
+    # Langfuse SDK v4 的 OTel span exporter 会读 ``LANGFUSE_BASE_URL`` env
+    # 覆盖 ``Langfuse(host=...)`` 显式参数，导致 GA overlay 推的 span 全部
+    # 打到 localhost 失败 → dashboard 缺 ``genericagent-plugin`` trace。
+    # 这里在 ``env_vars`` 层把 host 段改写为容器内可达的 ``host.docker.internal``
+    # （scheme / port / path 从 ``.env`` 原值继承），优先级高于 ``env_file``。
+    # 同名 ``LANGFUSE_HOST`` 同步覆写（部分 SDK 走它）。
+    ga_langfuse_host = _rewrite_langfuse_host_for_container(
+        os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST"),
+    )
+    if ga_langfuse_host:
+        env_vars["LANGFUSE_BASE_URL"] = ga_langfuse_host
+        env_vars["LANGFUSE_HOST"] = ga_langfuse_host
 
     extra_docker_args: list[str] = []
     if container_memory:
