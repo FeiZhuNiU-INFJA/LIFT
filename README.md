@@ -171,7 +171,7 @@ python -m src.cli.lift_main \
 `docker exec` 拉起 `hermes_runner.py`，warmup 期 work session 结束触发 review 演化）。
 Hermes 镜像构建见 [agent-runtimes/hermes/README.md](./agent-runtimes/hermes/README.md)；
 推荐 WSL/Linux 服务器跑完整评测，本机只做最小 smoke test。Hermes warmup 建议加
-`--warmup-container-policy serial_single`（避免每题 review 并发写共享 `/opt/data` 的竞态）。
+`--warmup-container-policy serial_single`（避免每题 review 并发写共享 `/opt/hermes-state` 的竞态）。
 
 ```bash
 bash agent-runtimes/hermes/build-image.sh   # 默认基于 nousresearch/hermes-agent:v2026.5.16

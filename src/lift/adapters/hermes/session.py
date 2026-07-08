@@ -4,11 +4,13 @@
 
 - 不发布端口、不做 readiness check（Hermes 不跑 gateway）。
 - 只挂载评测 IO（outcome / benchmarks / task workspace / extra skills）。
-- **不挂 Hermes 数据目录**：``/opt/data`` 留在容器镜像 FS 内，warmup 期 review
-  写入的 memory / skills / sessions 随 ``docker commit`` 进入 delta 镜像，且天然
-  隔离多容器并发（对齐官方"不共享数据目录"约束）。
-- 容器 ENTRYPOINT（``hermes-entrypoint.sh``）会从 env patch ``/opt/data/config.yaml``
-  的 model 块，再 ``tail -f /dev/null`` 空转。
+- **不挂 Hermes 数据目录**：状态根 ``/opt/hermes-state`` 留在容器镜像 FS 内（上游
+  基镜像把 ``/opt/data`` 声明为 VOLUME，运行期写入会被 ``docker commit`` 丢弃，故
+  LIFT 把状态根迁到非 VOLUME 的 ``/opt/hermes-state``）。warmup 期 review 写入的
+  memory / skills / sessions 随 ``docker commit`` 进入 delta 镜像，且天然隔离多容器
+  并发（对齐官方"不共享数据目录"约束）。
+- 容器 ENTRYPOINT（``hermes-entrypoint.sh``）会从 env patch
+  ``/opt/hermes-state/config.yaml`` 的 model 块，再 ``tail -f /dev/null`` 空转。
 """
 
 from __future__ import annotations
@@ -108,7 +110,6 @@ async def start_hermes_container(
         env_vars["HERMES_API_URL"] = CONFIG.hermes_api_url
     # Langfuse：容器内访问宿主机需要 host.docker.internal（ContainerSession 已加 --add-host）。
     # 同时以 HERMES_ 前缀注入（Hermes langfuse 插件要求）；入口脚本还会把这些 append 进
-    # /opt/data/.env。非前缀版一并保留，作为插件的兜底 fallback。
     if CONFIG.langfuse_public_key:
         env_vars["LANGFUSE_PUBLIC_KEY"] = CONFIG.langfuse_public_key
         env_vars["HERMES_LANGFUSE_PUBLIC_KEY"] = CONFIG.langfuse_public_key
@@ -123,7 +124,6 @@ async def start_hermes_container(
     if CONFIG.firecrawl_api_key:
         env_vars["FIRECRAWL_API_KEY"] = CONFIG.firecrawl_api_key
     # Hermes API server 鉴权字段（legacy 会写入 Hermes .env）；容器入口 append 进
-    # /opt/data/.env。enabled 始终注入布尔串，key 仅非空时注入。
     env_vars["API_SERVER_ENABLED"] = "true" if CONFIG.api_server_enabled else "false"
     if CONFIG.api_server_key:
         env_vars["API_SERVER_KEY"] = CONFIG.api_server_key

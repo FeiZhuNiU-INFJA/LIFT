@@ -6,7 +6,7 @@
 # §A). No host-path coupling: all paths (--hermes-agent-dir, --profile-home,
 # --workspace, --model, --base-url, --api-key, --session-id, --max-tokens) come
 # via args. Inside the LIFT image it is launched by docker exec with the
-# discovered Hermes venv python; HERMES_HOME defaults to /opt/data.
+# discovered Hermes venv python; HERMES_HOME defaults to /opt/hermes-state.
 from __future__ import annotations
 
 import argparse

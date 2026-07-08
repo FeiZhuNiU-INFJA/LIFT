@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # LIFT Hermes container entrypoint.
 #
-# Runs on every `docker run` (and thus once per LIFT container). It:
-#   1. Patches /opt/data/config.yaml model block from env (secrets never baked).
-#   2. Best-effort enables the observability/langfuse plugin.
-#   3. Execs CMD (default: `tail -f /dev/null`) so the container idles and LIFT
+# Runs on every `docker run` (and thus once per LIFT container). The Hermes state
+# root ($HERMES_HOME) is initialized ONCE at image build (see hermes-bootstrap.sh
+# invoked from the Dockerfile), NOT here — so a holdout container restarted from a
+# committed delta image never re-seeds and can never clobber the evolved
+# memory/skills we are measuring. This entrypoint only does per-run injection:
+#   1. Patches $HERMES_HOME/config.yaml model block from env (secrets never baked).
+#   2. Maps LIFT LANGFUSE_* / API server creds into env + $HERMES_HOME/.env.
+#   3. Best-effort enables the observability/langfuse plugin.
+#   4. Execs CMD (default: `tail -f /dev/null`) so the container idles and LIFT
 #      can drive Hermes via `docker exec ... hermes_runner.py`.
 set -euo pipefail
 
@@ -14,7 +19,7 @@ if [[ -f "$PATHS_ENV" ]]; then
   source "$PATHS_ENV"
 fi
 
-export HERMES_HOME="${HERMES_HOME:-/opt/data}"
+export HERMES_HOME="${HERMES_HOME:-/opt/hermes-state}"
 mkdir -p "$HERMES_HOME"
 
 # Patch config.yaml with the Hermes venv python. That venv is where

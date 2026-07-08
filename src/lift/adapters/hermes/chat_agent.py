@@ -8,7 +8,7 @@
 - runner 通过 stdin/stdout sentinel 协议驱动：
   发送 ``msg + "\n" + __evo_msg_end__``，读到 ``__evo_resp_end__`` 为止；
 - **review 时机**：work session 在 warmup 阶段结束时发 ``__evo_task_end__`` 触发
-  background review（写入 ``/opt/data`` memory/skills），再由 ``docker commit`` 带入
+  background review（写入 ``/opt/hermes-state`` memory/skills），再由 ``docker commit`` 带入
   delta；judge session 与 holdout work session 不 review；
 - **Langfuse tag 桥接**：runner 以 ``-e SESSION_ID=<lift session>`` /
   ``-e EVOBENCH_RUN_ID=<run_id>`` 启动，容器内 langfuse 插件据此把 LIFT 的
@@ -213,7 +213,7 @@ class HermesContainerAgent(ChatAgent):
         这里没有 ``review`` 参数。
 
         本类的 review 契约由构造参数 ``enable_review`` 在 spawn 时锁定：
-          - work agent（warmup）→ ``enable_review=True`` → 结束时跑 review 写 ``/opt/data``；
+          - work agent（warmup）→ ``enable_review=True`` → 结束时跑 review 写 ``/opt/hermes-state``；
           - judge agent / holdout work → ``enable_review=False`` → 结束时直接退出。
 
         work runner 的 review 可能耗时，故这里的 ``await proc.wait()`` 会阻塞到 review
@@ -279,7 +279,7 @@ class HermesWorkerJudgerPairFactory:
     not is_evolve_turn`` 规则：
 
     - **work agent runner**：``enable_review=self._warmup``——warmup 阶段一定带
-      ``--enable-review``（每题结束跑 review 写 ``/opt/data``）；holdout（测量阶段，
+      ``--enable-review``（每题结束跑 review 写 ``/opt/hermes-state``）；holdout（测量阶段，
       对应 legacy 的 evolve/baseline turn）一定不带。
     - **judge agent runner**：``enable_review=False``——judge **永远**不 review。
 

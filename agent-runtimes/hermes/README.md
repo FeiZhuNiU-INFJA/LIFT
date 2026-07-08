@@ -105,11 +105,14 @@ model:
 
 | 容器内路径 | 后端 | 是否被 `docker commit` 持久化 | 用途 |
 |---|---|---|---|
-| `/opt/data/` | 镜像 FS | ✅ 是 | Hermes 状态根（config / sessions / memories / skills）。warmup 期 review 写入的记忆随 delta 镜像带走。 |
+| `/opt/hermes-state/` | 镜像 FS（非 VOLUME） | ✅ 是 | Hermes 状态根（config / sessions / memories / skills）。warmup 期 review 写入的记忆随 delta 镜像带走。 |
+| `/opt/data/` | 上游继承 VOLUME | ❌ 否 | 上游默认状态根；因是 VOLUME，写入不进 `docker commit`，故 LIFT 弃用改挂 `/opt/hermes-state`。 |
 | `/workspace/task/` | 宿主机 bind mount | ❌ 否 | 每题 IO：materials 进、`result/` 出，供宿主机判分。 |
 
 > 与官方文档一致：**绝不**让两个运行中的 Hermes 容器共享同一宿主机数据目录。
-> 本 runtime 不挂 Hermes 数据 volume，`/opt/data` 留在各容器镜像 FS 内，天然隔离。
+> 本 runtime 不挂 Hermes 数据 volume，状态根 `/opt/hermes-state` 留在各容器镜像 FS 内，天然隔离。
+> 状态根在镜像 build 期由 `hermes-bootstrap.sh` 一次性初始化（含 bundled skills 同步），
+> 运行期 entrypoint 不再 seeding，保证 commit 后的 delta 镜像重启时不被覆盖。
 
 ## 与 LIFT 集成（`src`）
 
@@ -125,7 +128,7 @@ python -m src.cli.lift_main -r hermes --benchmark_dir assets/benchmarks_demo \
 ### warmup 并发策略（重要）
 
 Hermes 的演化是"每题 work session 结束触发 background review，写入共享
-`/opt/data`"。框架默认 `--warmup-container-policy parallel_single`（单容器内多题
+`/opt/hermes-state`"。框架默认 `--warmup-container-policy parallel_single`（单容器内多题
 并发），此时多个 review 进程会**并发写同一 memory 存储，存在竞态**。
 
 **推荐 Hermes warmup 显式用 `serial_single`**（单容器逐题串行，review 也串行），
@@ -145,7 +148,7 @@ python -m src.cli.lift_main -r hermes --benchmark_dir assets/benchmarks_demo \
 ## 本机 smoke/debug 注意
 
 推荐在 WSL/Linux 服务器运行完整评测；本机只做最小 smoke。若为调试直接在宿主机跑
-Hermes（非容器主路径），会改动 `~/.hermes/config.yaml`，与容器内 `/opt/data/config.yaml`
+Hermes（非容器主路径），会改动 `~/.hermes/config.yaml`，与容器内 `/opt/hermes-state/config.yaml`
 互不影响，但要注意别把宿主机凭据混入评测。
 
 ## Langfuse 关联

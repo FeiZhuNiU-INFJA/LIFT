@@ -36,7 +36,7 @@ HERMES_DOCKER_IMAGE = "evolve-eval-hermes:latest"
 默认基于上游 ``nousresearch/hermes-agent:v2026.5.16``）。"""
 
 HERMES_WORKSPACE_SEED_DIR = HERMES_AGENT_DIR / "workspace_seed"
-"""宿主机 Hermes eval workspace seed 源目录（可选；默认 Hermes 状态 baked 在镜像内 /opt/data）。"""
+"""宿主机 Hermes eval workspace seed 源目录（可选；默认 Hermes 状态 baked 在镜像内 /opt/hermes-state）。""" 
 
 RESULTS_DIR = "results"
 """单次 eval run 产物根目录名（相对 cwd）：report、outcome、后处理指标。"""

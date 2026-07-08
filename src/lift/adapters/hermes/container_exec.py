@@ -22,7 +22,9 @@ from src.lift.adapters.container.exec import docker_exec_async
 # 镜像内固定路径（见 agent-runtimes/hermes/Dockerfile / install-in-image.sh）。
 HERMES_PATHS_ENV_FILE = "/opt/evolve-eval/hermes-paths.env"
 HERMES_RUNNER_PATH = "/opt/evolve-eval/hermes_runner.py"
-HERMES_HOME_DIR = "/opt/data"
+# 状态根用 /opt/hermes-state（非 VOLUME）而非上游继承 VOLUME 的 /opt/data，
+# 使 warmup 期 review 写入的 memory/skills 能被 docker commit 捕获进 delta 镜像。
+HERMES_HOME_DIR = "/opt/hermes-state"
 HERMES_TASK_CWD = "/workspace/task"
 
 

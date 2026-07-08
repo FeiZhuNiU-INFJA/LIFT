@@ -165,7 +165,7 @@ fi
 # 6) Best-effort enable the plugin (may require HOME/profile; entrypoint retries)
 # ---------------------------------------------------------------------------
 if command -v hermes >/dev/null 2>&1; then
-  HERMES_HOME=/opt/data hermes plugins enable observability/langfuse >/dev/null 2>&1 \
+  HERMES_HOME=/opt/hermes-state hermes plugins enable observability/langfuse >/dev/null 2>&1 \
     && log "Enabled observability/langfuse" \
     || log "NOTE: 'hermes plugins enable' deferred to entrypoint (needs runtime HOME)."
 fi

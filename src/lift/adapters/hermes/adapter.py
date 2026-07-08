@@ -5,7 +5,7 @@
 - 基础镜像 ``HERMES_DOCKER_IMAGE``（基于上游 ``nousresearch/hermes-agent``，默认 tag
   ``v2026.5.16``）；容器空转，chat 由 ``docker exec`` 起 ``hermes_runner.py`` 驱动。
 - 演化语义沿用 legacy：warmup 阶段每题 work session 结束时触发 background review，
-  把学到的 memory/skills 写入容器内 ``/opt/data``；``evolve_after_warmup`` 不额外执行
+  把学到的 memory/skills 写入容器内 ``/opt/hermes-state``；``evolve_after_warmup`` 不额外执行
   显式命令，delta 由 ``ContainerAgentRuntimeAdapter.materialize_delta`` 的
   ``docker commit`` 自然携带。
 - ``count_tool_calls`` 默认 None：Hermes 工具调用数走 Langfuse ``Hermes turn`` 兜底
@@ -43,7 +43,7 @@ class HermesAdapter(ContainerAgentRuntimeAdapter):
         """初始化并对 warmup 并发策略做竞态提示。
 
         Hermes 的演化是"每题 work session 结束触发 background review 写共享
-        ``/opt/data``"。在 ``parallel_single`` 下多题几乎同时结束，多个 review 进程
+        ``/opt/hermes-state``"。在 ``parallel_single`` 下多题几乎同时结束，多个 review 进程
         会并发写同一 memory 存储，存在竞态。推荐 warmup 用 ``serial_single``
         （``--warmup-container-policy serial_single``），与 legacy"suite 内串行"语义
         一致；跨 suite/repeat 的并发仍由 ``--max-parallel-suites`` 提供。
@@ -52,7 +52,7 @@ class HermesAdapter(ContainerAgentRuntimeAdapter):
         if self._options.warmup_container_policy is WarmupContainerPolicy.PARALLEL_SINGLE:
             LOGGER.warning(
                 "Hermes warmup uses parallel_single: per-task reviews write shared "
-                "/opt/data concurrently and may race. Recommend "
+                "/opt/hermes-state concurrently and may race. Recommend "
                 "'--warmup-container-policy serial_single' for Hermes."
             )
 
@@ -75,7 +75,7 @@ class HermesAdapter(ContainerAgentRuntimeAdapter):
         load_state: HoldoutLoadState | None = None,
     ) -> ContainerSession:
         """启动 Hermes 容器；启动后读回构建期发现的 venv/源码路径写入 metadata。"""
-        _ = (seed_workspace, load_state)  # Hermes 状态 baked 在 /opt/data，不区分 seed
+        _ = (seed_workspace, load_state)  # Hermes 状态 baked 在 /opt/hermes-state，不区分 seed
         session = await start_hermes_container(
             instance_id=instance_id,
             image=image,
@@ -127,7 +127,7 @@ class HermesAdapter(ContainerAgentRuntimeAdapter):
         result: PhaseRun,
         ctx: SuiteRunContext,
     ) -> None:
-        """每道 warmup 题完成后收尾其 runner：work session 触发 review 写入 /opt/data。
+        """每道 warmup 题完成后收尾其 runner：work session 触发 review 写入 /opt/hermes-state。
 
         **holdout 前的硬保证**：delta 是在这里所有 warmup 题 review 完成后、经
         ``materialize_delta`` 的 docker commit 固化的（时序见 ``base.py::produce_delta``

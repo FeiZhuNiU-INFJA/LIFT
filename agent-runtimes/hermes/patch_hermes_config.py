@@ -25,7 +25,7 @@ import os
 import re
 from pathlib import Path
 
-CONFIG_PATH = Path(os.environ.get("HERMES_CONFIG_PATH", "/opt/data/config.yaml"))
+CONFIG_PATH = Path(os.environ.get("HERMES_CONFIG_PATH", "/opt/hermes-state/config.yaml"))
 
 
 def _model_default() -> str:
