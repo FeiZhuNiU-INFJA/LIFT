@@ -39,6 +39,24 @@
       --sans:  "Spline Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
       --mono:  "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
+      /* --- tracking scale — 3 rungs, everything snaps to these --- */
+      --tr-tight:   -.018em;   /* large serif display                  */
+      --tr-body:    0;         /* running text                         */
+      --tr-label:   .08em;     /* small caps · mono labels             */
+      --tr-eyebrow: .18em;     /* uppercase eyebrows · kickers         */
+
+      /* --- spacing scale (base 4px) — snap to these --- */
+      --s-1: .25rem; --s-2: .5rem; --s-3: .75rem;
+      --s-4: 1rem;   --s-5: 1.5rem; --s-6: 2rem;
+
+      /* --- warm-tinted shadow tokens (match vellum, never pure black) --- */
+      --shadow-1: 0 1px 0 rgba(64,52,18,.06);
+      --shadow-2: 0 4px 14px rgba(64,52,18,.10), 0 1px 0 rgba(64,52,18,.06);
+      --shadow-3: 0 12px 32px rgba(64,52,18,.14), 0 1px 0 rgba(64,52,18,.06);
+
+      /* --- easing token (spring-ish out) --- */
+      --ease-out: cubic-bezier(.22,.61,.36,1);
+
       /* reveal.js theme variables (we ship our own theme, but pin these) */
       --r-background-color: var(--paper);
       --r-main-color: var(--ink);
@@ -61,7 +79,7 @@
       background-size: 28px 28px;
       background-position: center center;
     }
-    /* drafting-sheet double hairline border */
+    /* subtle warm grain — breaks flatness without shouting */
     .reveal::before {
       content: ""; position: absolute; inset: 16px;
       border: 1px solid var(--ink-22); pointer-events: none; z-index: 3;
@@ -69,6 +87,14 @@
     .reveal::after {
       content: ""; position: absolute; inset: 21px;
       border: 1px solid var(--ink-10); pointer-events: none; z-index: 3;
+    }
+    /* fine warm grain layer — pointer-events off, sits above ground, below content */
+    .grain-overlay {
+      position: absolute; inset: 0; z-index: 1; pointer-events: none;
+      opacity: .62;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.78' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .10  0 0 0 0 .09  0 0 0 0 .06  0 0 0 .70 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+      background-size: 180px 180px;
+      mix-blend-mode: multiply;
     }
     /* corner registration ticks — instrument detail */
     .corner-tick { position: absolute; width: 11px; height: 11px; z-index: 4; pointer-events: none; }
@@ -96,34 +122,121 @@
     .reveal section { text-align: left; }
     .reveal h1, .reveal h2, .reveal h3 {
       font-family: var(--serif); font-weight: 400;
-      text-transform: none; letter-spacing: 0;
-      color: var(--ink); margin: 0 0 .3em; line-height: 1.1;
+      text-transform: none; color: var(--ink);
+      margin: 0 0 .3em; line-height: 1.06;
     }
-    .reveal h2 { font-size: 2.2em; }
-    .reveal h3 { font-size: .9em; color: var(--ink-52); font-family: var(--sans); font-weight: 500; margin-bottom: 1em; letter-spacing: .01em; }
-    .reveal p, .reveal li { color: var(--ink-72); line-height: 1.55; }
+    .reveal h2 {
+      font-size: 2.55em; letter-spacing: -.024em;
+      line-height: 1.08;
+    }
+    /* slide-entry cascade: h2 + eyebrow rise as slide becomes present */
+    .reveal .slides section h2,
+    .reveal .slides section .slide-eyebrow {
+      opacity: 0; transform: translateY(6px);
+      transition: opacity .5s var(--ease-out), transform .5s var(--ease-out);
+    }
+    .reveal .slides section.present h2,
+    .reveal .slides section.present .slide-eyebrow {
+      opacity: 1; transform: none;
+    }
+    .reveal .slides section.present h2 { transition-delay: 60ms; }
+    @media (prefers-reduced-motion: reduce) {
+      .reveal .slides section h2,
+      .reveal .slides section .slide-eyebrow,
+      .reveal .slides section.present h2,
+      .reveal .slides section.present .slide-eyebrow {
+        opacity: 1; transform: none; transition: none;
+      }
+      /* also kill card-hover and grain motion for reduced-motion users */
+      .hook, .evidence .ev, .qcard, .cascade-ring .cnode,
+      .stack-box, .img-card, .suite-col, .eq-box:not(.lift),
+      .script-side, .dashboard-shot, .outline-station,
+      .story-step {
+        transition: none !important;
+      }
+      .hook:hover, .evidence .ev:hover, .qcard:hover,
+      .cascade-ring .cnode:hover, .stack-box:hover, .img-card:hover,
+      .suite-col:hover, .eq-box:not(.lift):hover, .script-side:hover,
+      .dashboard-shot:hover, .outline-station:hover {
+        transform: none;
+      }
+    }
+    .reveal h3 {
+      font-size: .9em; color: var(--ink-52);
+      font-family: var(--sans); font-weight: 500;
+      margin-bottom: 1em; letter-spacing: var(--tr-body);
+      text-wrap: pretty;
+    }
+    .reveal p, .reveal li {
+      color: var(--ink-72); line-height: 1.55;
+      text-wrap: pretty; max-width: 62ch;
+    }
     .reveal strong { color: var(--ink); font-weight: 600; }
     .reveal em { font-style: italic; }
-    .reveal a { color: var(--steel); text-decoration: none; border-bottom: 1px solid var(--ink-22); }
-    .reveal a:hover { border-bottom-color: var(--steel); }
+    .reveal a {
+      color: var(--steel); text-decoration: none;
+      border-bottom: 1px solid var(--ink-22);
+      transition: border-color .18s var(--ease-out), color .18s var(--ease-out);
+    }
+    .reveal a:hover { border-bottom-color: var(--steel); color: var(--ink); }
     .reveal a:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
     .reveal code {
       font-family: var(--mono); color: var(--steel);
       background: var(--paper-2); padding: .08em .38em;
       border-radius: 2px; font-size: .86em;
+      font-variant-numeric: tabular-nums;
+    }
+    /* tabular figures for every mono block — data-heavy interface */
+    .reveal .mono, .reveal [class*="stat"], .reveal [class*="num"],
+    .reveal .pain-item .stat, .reveal .evidence .ev .stat,
+    .reveal .recap-numbers .num, .reveal .img-tag,
+    .reveal .cmd-line, .reveal .pseudo,
+    .reveal .invoke-hero .line,
+    .reveal .benefit-columns, .reveal .benefit-row,
+    .reveal .benefit-lift, .reveal .benefit-pain {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* shared card motion — spring-out on hover for major card families */
+    .hook, .evidence .ev, .qcard, .cascade-ring .cnode,
+    .stack-box, .img-card, .suite-col, .eq-box:not(.lift),
+    .script-side, .dashboard-shot, .outline-station {
+      transition: transform .28s var(--ease-out),
+                  box-shadow .28s var(--ease-out),
+                  border-color .28s var(--ease-out);
+      will-change: transform;
+    }
+    .hook:hover, .evidence .ev:hover, .qcard:hover,
+    .cascade-ring .cnode:hover, .stack-box:hover, .img-card:hover,
+    .suite-col:hover, .eq-box:not(.lift):hover, .script-side:hover,
+    .dashboard-shot:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-3);
+      border-color: var(--ink-34);
+    }
+    /* outline stations get a subtle left-shift + tinted underline */
+    .outline-station:hover {
+      transform: translateX(5px);
+    }
+    .outline-station:hover .o-title { color: var(--mark); }
+
+    /* focus rings on any keyboard-focusable card */
+    .hook:focus-visible, .evidence .ev:focus-visible,
+    .qcard:focus-visible, .stack-box:focus-visible,
+    .img-card:focus-visible {
+      outline: 2px solid var(--steel); outline-offset: 3px;
     }
 
     /* figure-caption eyebrow — replaces templated "eyebrow" chip */
     .slide-eyebrow {
       display: flex; align-items: center; gap: .55em;
       font-family: var(--mono); font-size: .64em; font-weight: 500;
-      letter-spacing: .16em; text-transform: uppercase;
+      letter-spacing: var(--tr-eyebrow); text-transform: uppercase;
       color: var(--mark); margin-bottom: .8em;
     }
     .slide-eyebrow::before {
       content: ""; width: 16px; height: 1px; background: var(--mark); display: inline-block;
     }
-    .slide-eyebrow span.fig { color: var(--ink-52); margin-right: .2em; }
 
     .reveal .slide-number {
       font-family: var(--mono); color: var(--ink-52); font-size: 11px;
@@ -139,13 +252,13 @@
       align-items: center; justify-content: center; height: 100%;
     }
     .cover .kicker {
-      font-family: var(--mono); font-size: .64em; letter-spacing: .3em;
+      font-family: var(--mono); font-size: .64em; letter-spacing: .28em;
       text-transform: uppercase; color: var(--ink-52); margin-bottom: .3em;
     }
     .cover .brand {
       font-family: var(--serif); font-style: italic;
-      font-size: 8.4em; font-weight: 400; line-height: .92;
-      letter-spacing: .01em; color: var(--ink); margin: 0;
+      font-size: 8.6em; font-weight: 400; line-height: .90;
+      letter-spacing: var(--tr-tight); color: var(--ink); margin: 0;
     }
     .cover .bracket {
       position: relative; width: 11em; height: 14px; margin: .12em auto 0;
@@ -163,10 +276,12 @@
       text-transform: uppercase; color: var(--ink-52); margin: .9em 0 0;
     }
     .cover .tagline {
-      font-family: var(--serif); font-size: 1.6em; line-height: 1.45;
-      color: var(--ink); margin-top: 1.4em; max-width: 18em;
+      font-family: var(--serif); font-size: 1.65em; line-height: 1.4;
+      color: var(--ink); margin-top: 1.4em; max-width: 20em;
+      letter-spacing: -.005em;
+      text-wrap: balance;
     }
-    .cover .tagline em { color: var(--signal); }
+    .cover .tagline em { color: var(--signal); font-style: italic; }
     .cover .meta {
       position: absolute; bottom: 84px; left: 0; right: 0;
       font-family: var(--mono); font-size: .6em; color: var(--ink-52);
@@ -186,15 +301,17 @@
     }
     .divider .num {
       font-family: var(--serif); font-style: italic;
-      font-size: 9em; line-height: .85; color: var(--mark);
+      font-size: 9.5em; line-height: .82; color: var(--mark);
+      letter-spacing: var(--tr-tight);
     }
     .divider .label {
-      font-family: var(--mono); font-size: .68em; letter-spacing: .26em;
+      font-family: var(--mono); font-size: .68em; letter-spacing: .24em;
       text-transform: uppercase; color: var(--ink-52); margin-top: .5em;
     }
     .divider .title {
-      font-family: var(--serif); font-size: 2.7em; color: var(--ink);
-      margin-top: .25em; max-width: 13em; line-height: 1.15;
+      font-family: var(--serif); font-size: 2.8em; color: var(--ink);
+      margin-top: .25em; max-width: 13em; line-height: 1.12;
+      letter-spacing: var(--tr-tight); text-wrap: balance;
     }
     .divider .rule {
       width: 5em; height: 1px; background: var(--ink); margin: 1.1em auto 0;
@@ -215,16 +332,21 @@
     }
     .outline-station:last-child { border-bottom: 1px solid var(--ink-14); }
     .outline-station .o-num {
-      font-family: var(--serif); font-style: italic; font-size: 3.2em;
+      font-family: var(--serif); font-style: italic; font-size: 3.4em;
       line-height: 1; color: var(--mark); text-align: left;
+      letter-spacing: var(--tr-tight);
+      transition: color .24s var(--ease-out);
     }
+    .outline-station:hover .o-num { color: var(--ink); }
     .outline-station .o-body { display: flex; flex-direction: column; gap: .15rem; }
     .outline-station .o-label {
-      font-family: var(--mono); font-size: .68em; letter-spacing: .16em;
+      font-family: var(--mono); font-size: .68em; letter-spacing: var(--tr-label);
       text-transform: uppercase; color: var(--ink-52);
     }
     .outline-station .o-title {
-      font-family: var(--serif); font-size: 1.65em; color: var(--ink); line-height: 1.15;
+      font-family: var(--serif); font-size: 1.7em; color: var(--ink); line-height: 1.14;
+      letter-spacing: var(--tr-tight); text-wrap: balance;
+      transition: color .24s var(--ease-out);
     }
     .outline-station .o-desc {
       color: var(--ink-52); font-size: .96em; line-height: 1.5; margin-top: .15rem;
@@ -240,7 +362,7 @@
     .shot .frame {
       width: 100%; height: 540px; overflow: hidden; position: relative;
       border: 1px solid var(--ink-22); border-radius: 4px;
-      box-shadow: 0 8px 26px rgba(25,24,15,.20), 0 1px 0 rgba(25,24,15,.08);
+      box-shadow: var(--shadow-3);
     }
     .shot .frame img {
       width: 100%; height: 100%; display: block;
@@ -318,10 +440,18 @@
       flex: 1 1 0; min-width: 0; position: relative;
       background: var(--paper-3); border: 1px solid var(--ink-14); border-radius: 3px;
       padding: 1.3rem 1.2rem; display: flex; flex-direction: column; gap: .3rem;
+      transition: transform .28s var(--ease-out),
+                  box-shadow .28s var(--ease-out),
+                  border-color .28s var(--ease-out);
+    }
+    .story-step:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-2);
+      border-color: var(--ink-22);
     }
     .story-step::before { content: ""; position: absolute; top: -1px; left: -1px; width: 24px; height: 3px; background: var(--mark); }
     .story-step .s-glyph { font-family: var(--mono); font-size: 3.6em; line-height: 1; color: var(--steel); }
-    .story-step .s-title { font-family: var(--serif); font-size: 1.7em; color: var(--ink); line-height: 1.1; margin-top: .15rem; }
+    .story-step .s-title { font-family: var(--serif); font-size: 1.7em; color: var(--ink); line-height: 1.1; margin-top: .15rem; letter-spacing: var(--tr-tight); }
     .story-step .s-desc { font-family: var(--sans); color: var(--ink-72); font-size: 1.02em; line-height: 1.5; margin-top: .35rem; }
     .story-arrow { align-self: center; font-family: var(--serif); font-size: 1.8em; color: var(--ink-34); flex: 0 0 auto; }
     .story-foot { text-align: center; margin-top: 1em; font-family: var(--mono); font-size: .82em; color: var(--ink-52); letter-spacing: .02em; }
@@ -583,18 +713,7 @@
     .eq-box.lift::before { background: var(--paper); }
     .eq-box.lift .top { color: rgba(232,227,214,.55); }
     .eq-box.lift .mid { color: var(--paper); }
-    /* measurement bracket beneath the comparison */
-    .eq-bracket-wrap { max-width: 940px; margin: .2em auto 0; }
-    .eq-bracket {
-      position: relative; height: 16px;
-      border-left: 1px solid var(--ink); border-right: 1px solid var(--ink);
-      border-bottom: 1px solid var(--ink);
-    }
-    .eq-bracket::before, .eq-bracket::after {
-      content: ""; position: absolute; bottom: -1px; width: 1px; height: 5px; background: var(--ink);
-    }
-    .eq-bracket::before { left: 28%; }
-    .eq-bracket::after  { left: 72%; }
+    /* measurement caption directly under the equation */
     .eq-caption {
       text-align: center; margin-top: .7em;
       font-family: var(--mono); font-size: .8em; letter-spacing: .06em; color: var(--ink-52);
@@ -797,8 +916,8 @@
        THREE-LAYER STACK
        ============================================================ */
     .stack {
-      display: flex; flex-direction: column; gap: .4rem;
-      align-items: center; margin: .8em auto .6em; max-width: 820px;
+      display: flex; flex-direction: column; gap: .55rem;
+      align-items: center; margin: .8em auto .6em; max-width: 940px;
     }
     .stack-box {
       width: 100%; background: var(--paper-3); border: 1px solid var(--ink-14);
@@ -1344,6 +1463,8 @@
 <body>
 
 <div class="reveal">
+  <!-- warm grain overlay: pointer-events off, sits above ground grid -->
+  <div class="grain-overlay" aria-hidden="true"></div>
   <!-- drafting registration ticks -->
   <span class="corner-tick ct-tl"></span>
   <span class="corner-tick ct-tr"></span>
@@ -1353,7 +1474,7 @@
   <!-- drawing title block -->
   <div class="titleblock">
     <b>LIFT</b> &nbsp; Loaded Impact on Final Task<br/>
-    internal share &nbsp;·&nbsp; <em>measurement instrument</em> for self-evolving agents
+    a measurement instrument for self-evolving agents
   </div>
 
   <div class="slides">
@@ -1365,13 +1486,13 @@
       <div class="bracket" aria-hidden="true"></div>
       <div class="full">Loaded Impact on Final Task</div>
       <p class="tagline">让「Agent 进化」从感觉，<br/>变成可测的 <em>数字</em>。</p>
-      <div class="meta"><a href="https://github.com/FeiZhuNiU-INFJA/LIFT" target="_blank" rel="noopener"><svg class="gh-mark" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path fill="currentColor" fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> github.com/FeiZhuNiU-INFJA/LIFT ↗</a> · cover · 2026.06</div>
-      <aside class="notes"><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">Agent 自进化现在经常被提及。 那么Agent自进化了之后——真的变厉害了吗？变厉害了多少？这就引出了今天要给大家介绍的，由我们提出的 LIFT 。首先它是个框架，专门用于评估Agent进化能力的</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">框架，是</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">&nbsp;Loaded impact on final task的缩写。什么意思呢？Agent进化之后不是会有各种形式的产物嘛，比如大家熟悉的memory和skill，那这些产物在加载前后，</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">Agent</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">在final task上的效果变化了多少。这就是我们评估最核心的方法。这里的Final Task是啥，听到后面大家就知道了。</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;"><br></span></aside>
+      <div class="meta"><a href="https://github.com/FeiZhuNiU-INFJA/LIFT" target="_blank" rel="noopener"><svg class="gh-mark" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path fill="currentColor" fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> github.com/FeiZhuNiU-INFJA/LIFT ↗</a></div>
+      <aside class="notes"><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">Agent 自进化现在经常被提及。 那么Agent自进化了之后——真的变厉害了吗？变厉害了多少呢？这就引出了今天要给大家介绍的，由我们提出的 LIFT 。首先它是个框架，专门用于评估Agent进化能力的</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">框架，是</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">&nbsp;Loaded impact on final task的缩写。什么意思呢？Agent进化之后不是会有各种形式的产物嘛，比如大家熟悉的memory和skill，那这些产物在被加载前后，会对</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">Agent</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">在final task上的表现有多少影响？这就是我们评估最核心的思路。这里的Final Task是啥，听到后面大家就知道了。</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;"><br></span></aside>
     </section>
 
     <!-- 1. Dashboard snapshot — a live run in progress -->
     <section>
-      <div class="slide-eyebrow"><span class="fig">live ·</span> 实时看板</div>
+      <div class="slide-eyebrow">实时看板</div>
       <h2>这是它跑到一半的样子</h2>
       <figure class="shot">
         <div class="frame">
@@ -1379,12 +1500,12 @@
         </div>
         <figcaption>跑分进行中 · <b>baseline 与 evolved 两路在并行跑</b>，状态、分数实时回灌。</figcaption>
       </figure>
-      <aside class="notes">先给大家一下可视化的例子，这是LIFT的dashboard<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">。</span>让我们来看看能看到哪些信息。<br>1. 这是一个对openclaw的评测。目前的进度是7%， 预计还要12小时完成。<br>2. 这一行是核心的任务指标，任务长什么样后面再说，先来看指标。当前整体的success rate进化前后都是100% ；turns是对话轮数，对话轮数从进化前的11轮涨到了进化后的12.2轮，变差了1.2轮，其中变好的任务是4个，变差的是11个； TOOLS是工具调用次数，从23次涨到了25.5次，差了2.5次。 其中变好了的3个，变差了11个。score是任务的得分，0-1之间的数，是最终任务完成完整度的考量。只要不是1分，就认为是失败。这里的1.00和前面的100%是对应的。<br>3. 这一块是把上面的核心指标细分到每个任务集。关于任务集的概念后面会展开，像“PPT制作” “销售的每周数据分析” “初创公司融资路演的材料整理” 等等都是一个个的任务集<br>4. 再下面是一个表格，这是一个细粒度的进度监控，表格中每一行代表一个任务集，我们把任务集称作suite，每列表示这个任务集重复跑多次（我们称之为repeat）。所以整个表格是一个suite x repeat的矩阵。表格的每个cell，也就是每个suite的每个repeat，被分成三个阶段，w,b,e ，分别代表warmup，baseline和evolved。对应任务运行的三个阶段。warmup是Agent热身在做题，在做题过程中完成进化。baseline和evolved是agent在进化前后分别进入考试状态，得到两个考试结果之后，就能作对比了。绿色表示完成，黄色闪烁表示进行中，数字表示考试结果。所以通过这个表格可以非常直观看到整体的<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">进度和</span>状态。<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;"><br></span></aside>
+      <aside class="notes">先给大家一下可视化的例子，这是LIFT的dashboard<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">。看下都有些啥信息。</span><br>1. 这是一个对openclaw的评测。目前的进度是7%， 预计还要12小时完成。<br>2. 这一行是核心的任务指标，任务长什么样后面再说，先来看指标。当前整体的success rate进化前后都是100% ；turns是对话轮数，对话轮数从进化前的11轮涨到了进化后的12.2轮，变差了1.2轮，其中变好的任务是4个，变差的是11个； TOOLS是工具调用次数，从23次涨到了25.5次，差了2.5次。 其中变好了的3个，变差了11个。score是任务的得分，0-1之间的数，是任务完成度的考量。只要不是1分，就认为是失败。这里的1.00和前面的100%是对应的。<br>3. 这一块是把上面的核心指标细分到每个任务集。关于任务集的概念后面会展开，像“PPT制作” “销售的每周数据分析” “初创公司融资路演的材料整理” 等等都是一个个的任务集，后面显示的是他们的核心指标<br>4. 再下面是一个表格，这是一个细粒度的进度监控，表格中每一行代表一个任务集，我们把任务集称作suite，每列表示每个suite重复跑多次（我们称之为repeat）。所以整个表格是一个suite x repeat的矩阵。表格的每个cell，被分成三个阶段，w,b,e 。对应任务运行的三个阶段,&nbsp;<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">分别是warmup，baseline和evolved</span>。Agent在warmup阶段热身做题，在热身过程中完成进化。baseline和evolved是agent在进化前后分别进入考试状态，得到两个考试结果之后，就能作对比了。绿色表示完成，黄色表示进行中，数字表示考试结果。所以通过这个表格可以非常直观看到整体的<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">进度和</span>状态。<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;"><br></span></aside>
     </section>
 
     <!-- 1a. Value story — what LIFT does, as a 4-step user journey -->
     <section>
-      <div class="slide-eyebrow"><span class="fig">the value ·</span> 用户故事</div>
+      <div class="slide-eyebrow">用户故事</div>
       <h2>想知道你的 Agent 进化能力到底有多强？</h2>
       <div class="story">
         <div class="story-step">
@@ -1412,12 +1533,12 @@
         </div>
       </div>
       <div class="story-foot">全程框架兜底 —— <b>你只管接 Agent</b>。</div>
-      <aside class="notes">接下来我来描述一下使用LIFT完整的user story：<br>假设现在手上有一个新的 Agent，或者是新版本的Agent，想知道它进化能力有多强。走这四步：<br>&nbsp;① 第一步，用我们预制的 skill，生成新的agent runtime。所谓的runtime，就是你得告诉LIFT这个agent如何启动，如何构建对话。<br>&nbsp;② 第二步，一行CLI，跑benchmark任务集<br>&nbsp;③ 第三步，通过 dashboard 实时监控运行状态，也就是大家前一页看到的<br>&nbsp;④最后，获得进化能力评估报告<br><br>全程我们真正动手的就是使用skill生成新的 Agent runtime，其他事情全部由框架来兜底了。随着这个skill的迭代优化，接入会越来越丝滑。我自己在接入新的agent的时候已经是0代码了。<br><br>这里说明一下，关于benchmark的设计细节和最终报告的解读稍后会由另外一位同学韩通来介绍。我这边会把重心放在LIFT框架本身</aside>
+      <aside class="notes">接下来我来描述一下使用LIFT完整的user story：<br>假设现在手上有一个新的 Agent，或者是新版本的Agent，想知道它进化能力有多强。走这四步：<br>&nbsp;① 第一步，用我们预制的 skill，生成新的agent runtime。所谓的runtime，就是告诉LIFT这个agent如何启动，如何构建对话等等非常个性化的信息。<br>&nbsp;② 第二步，使唤你的Agent跑benchmark任务集<br>&nbsp;③ 第三步，通过 dashboard 实时监控运行状态，也就是前一页展示的<br>&nbsp;④最后，获得进化能力评估报告<br><br>全程我们真正动手的就是使用skill生成新的 Agent runtime，其他事情全部由框架来兜底了。<br><br>这里说明一下，关于benchmark的设计细节和最终报告的解读稍后会由另外一位同学韩通来介绍。我这边会把重心放在LIFT框架本身</aside>
     </section>
 
     <!-- 1b. Outline / roadmap -->
     <section>
-      <div class="slide-eyebrow"><span class="fig">roadmap ·</span> 四段</div>
+      <div class="slide-eyebrow">四段路线图</div>
       <h2>从问题，到落地</h2>
       <div class="outline">
         <div class="outline-station">
@@ -1453,8 +1574,8 @@
           </div>
         </div>
       </div>
-      <aside class="notes">好的，讲完user story之后。接下来正式进入主题。今天的presentation分为四个部分：
-<br>首先介绍<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">agent进化评测领域前沿研究的痛点</span>；<br>然后基于基于以上的痛点，我们如何建立了一套评测进化能力的数据集标准；<br>第三介绍工程上为什么要做成框架<br>最后是个hello world级别的快速演示</aside>
+      <aside class="notes">讲完user story之后。接下来正式进入主题。今天的presentation分为四个部分：
+<br>首先介绍<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">agent自进化评测的痛点</span>；<br>然后基于以上的痛点，我们建立了一套什么样的数据集标准；<br>第三介绍工程上为什么要做成框架；<br>最后是个hello world级别的快速演示</aside>
     </section>
 
     <!-- 2. Section 1 divider -->
@@ -1562,7 +1683,7 @@
         自进化容易 <b>假阳性</b> · 评测本身也说不清 —— 必须建立标准化的对照协议
         <span class="rule"></span>
       </div>
-      <aside class="notes">这一页把两个痛点合并展示，左右分栏：<br><br>—— 痛点 ①（左栏 · 进化侧）：其实大部分 agent 的自进化并没有变得更好 ——<br>① SkillsBench：人类精选 Skill 可以提点 16.2pp，而自生成的 Skill 平均无效甚至有害。<br>② LifeLongAgentBench：大部分自进化 Agent 存在灾难性遗忘的问题，学了新的忘了旧的，which 就是这个 BWT&lt;0 的含义。<br>③ MLR-bench：80% 的 Coding Agent 在实验阶段是伪造或无法验证的。<br>④ SEA-Eval：大部分自进化的 Agent，实际上只是在一个任务内可以反思、改方案、跨任务根本没有任何东西被沉淀、积累、复用。<br><br>所以 Agent 自进化这件事本身就特别容易是假阳性 False Positive。<br><br>—— 痛点 ②（右栏 · 评测侧）：评测本身也很混乱 ——<br>① Safety Benchmarks：不同 agent 的排名接近随机，W=0.1 就是一致性=0.1 的含义。<br>② ABC Checklist：主流 benchmark 中存在严重的设计 bug，这些 bug 甚至可以让结果完全颠倒。<br>③ WildClawBench：同一个基座模型，用不同的 agent，效果差距巨大——我们到底在比模型、比提示词、还是比 Agent 框架？<br>④ 环境保真度：沙箱环境中跑的测试和用户真实场景中的效果大相径庭。<br><br>合起来两个痛点：自进化是个特别容易出 false positive 的事，而评测本身说服力也很差。所以如果我们要严肃地回答"Agent 真的进化了吗"——必须要建立一套博采众长的数据集标准和评测模式。</aside>
+      <aside class="notes">—— 痛点 ① 先看左边：其实大部分 agent 的自进化并没有变得更好&nbsp;<br>① 论文A发现：人类精选 Skill 可以提点 16.2pp，而自生成的 Skill 平均无效甚至有害。<br>② 论文B发现：大部分自进化 Agent 存在灾难性遗忘的问题，学了新的忘了旧的，也就是这个 BWT&lt;0 的含义。<br>③ 论文C发现：80% 的 Coding Agent 在实验阶段是伪造或无法验证的。伪造的意思是运行阶段可能报错，但是最终编造了看似正确的实验结果<br>④ 论文D发现：大部分自进化的 Agent，实际上只是在一个任务内可以反思、跨任务根本没有任何东西被沉淀和复用。<br><br>—— 再看右边，第二个痛点 ：评测本身也很混乱 ——<br>① 论文A发现：不同 agent 在不同benchmark上的排名接近随机，W=0.1 就是一致性非常低的含义。<br>② 论文B发现：主流 benchmark 中存在严重的设计 bug，有些 bug 甚至可以让结果完全颠倒。<br>③ 论文C发现：同一个基座模型，用不同的 agent，效果差距巨大，所以我们到底在比模型、还是比 Agent 框架？<br>④ 论文D发现：沙箱环境中跑的测试和用户真实场景中的效果大相径庭。<br><br>总结一下：自进化是个特别容易出 false positive 的事，而评测本身说服力也很差。所以如果我们要严肃地回答"Agent 真的进化了吗"——必须要建立一套博采众长的数据集标准和评测模式。</aside>
     </section>
 
     <!-- 5. Section 2 divider -->
@@ -1571,7 +1692,7 @@
       <div class="label">我们的回答 · the standard</div>
       <div class="title">先立一套数据集标准</div>
       <div class="rule"></div>
-      <aside class="notes">首先来聊一下数据集标准，这部分的细节后面会由韩通来介绍，我这一趴主要介绍一些基本概念。</aside>
+      <aside class="notes">接下来介绍一下数据集标准，我这一趴主要介绍基本概念。详细的设计思想<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">后面会由韩通来介绍</span></aside>
     </section>
 
     <!-- 6. Suite standard: train/test split -->
@@ -1603,8 +1724,8 @@
         </div>
       </div>
       <div class="delegate-hint">真实案例 <a href="assets/benchmarks/股票投资决策.json" target="_blank" rel="noopener">股票投资决策.json ↗</a></div>
-      <aside class="notes">首先我们用任务集suite来定义一组任务，一个suite会包含若干task，比如这里的q1-q4， q5-q6，<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">任务的复杂度是一个递进的关系</span><br>这些任务会被显式分成 warmup和holdout两组。或者叫train set和test set.&nbsp; Holdout是统计学中的一个概念，表示不参与训练的一批数据。<br>我们把warmup理解成练习题——拿来给 Agent 学，触发自进化；
-<br>holdout是期末考，期末考才是真正用来打分的。&nbsp;<br>每个holdout题目，进化前跑一遍、进化后跑一遍，就能看出是不是变厉害了。给大家看一个suite的例子<br><br>这是结构化过的一个suite，名字叫股票投资决策，有四个warmup task，2个holdout task。我们就看一个任务包含哪些内容<br>首先是query，这个是题面， balabala<br>然后是expected_result, 可以看到有12个点，这些点大部分没有出现在题面中，可以理解成是存在用户脑子里的终极目标。真实场景中，用户一般只有一个大致的方向，通过多轮对话才能把自己的需求讲清楚</aside>
+      <aside class="notes">我们用任务集suite来定义一组任务，一个suite会包含若干task，比如这里的q1-q4， q5和q6，<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">task的复杂度是一个递进的关系，越来越难</span><br>这些task会被显式分成 warmup和holdout两组。Holdout是统计学中的一个概念，表示不参与训练的一批数据。<br>我们把warmup理解成练习题——拿来给 Agent 热身，触发自进化；
+<br>holdout是期末考，期末考的结果会拿来打分。&nbsp;<br>每个holdout题目，进化前跑一遍、进化后跑一遍，就能看出是不是变厉害了。给大家看一个suite的真实例子<br><br>这是一个结构化的suite，名字叫股票投资决策，有四个warmup task，2个holdout task。我们就看一个任务包含哪些内容<br>首先是query，这个是题面， balabala<div>然后是meterial dir, 这个是题目的附件</div><div>最后是expected_result, 可以看到有12个点，这些点都没有出现在题面中，可以理解成是存在用户脑子里的终极目标。真实场景中，用户一般一上来只有一个大致的方向，通过多轮对话才能把自己的需求讲清楚</div></aside>
     </section>
 
     <!-- 7. The measurement -->
@@ -1627,7 +1748,6 @@
           <div class="mid">LIFT</div>
         </div>
       </div>
-      <div class="eq-bracket-wrap"><div class="eq-bracket" aria-hidden="true"></div></div>
       <div class="eq-caption">经典 <b>A/B 实验</b> —— 同一题、两条件、看 Δscore</div>
 
       <div class="lift-letters">
@@ -1653,7 +1773,7 @@
         </div>
       </div>
 
-      <aside class="notes">我们的打分方式非常朴素—— A/B test。<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">终极目标完成的越完整，分数越高。</span>&nbsp; <br>一个 holdout 题，跑两遍：一遍进化前，不加载进化产物，一遍进化后，加载产物。 分差就是进化的效果了，这个 LIFT 正好一语双关，看看agent能不能通过自进化把自己举起来。<br>这里再重温一下LIFT的全称：&nbsp; Loaded Impact on Final Task。相信现在大家会有更好的理解了。<br></aside>
+      <aside class="notes">打分的方式非常朴素—— A/B test。<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">expected result 完成的越完整，分数越高。</span>&nbsp; <br>一个 holdout 题，跑两遍：一遍进化前，不加载进化产物baseline，一遍进化后，加载进化产物 evolved。 指标一减，差值就是进化的效果了，这个 LIFT 正好一语双关，看看agent能不能通过自进化把自己举起来。<br>这里再重温一下LIFT的全称：&nbsp; Loaded Impact on Final Task。讲到这相信大家对LIFT有更好的理解了。<br></aside>
     </section>
 
     <!-- 7b. Judge as user -->
@@ -1674,7 +1794,6 @@
             <div class="who">用户 · turn 1</div>
             "你这把结构不太对啊——我想要"<strong>业绩概览 / 异常拆解 / 后续动作</strong>"三个二级标题，开头先写一下汇报日期。"
           </div>
-          <div class="turn-sep">▼  agent 看到反馈，继续干</div>
           <div class="bubble work">
             <div class="who">Work Agent · turn 2</div>
             "好的，已经加了三个二级标题和日期。"
@@ -1717,8 +1836,8 @@
           </ul>
         </div>
       </div>
-      <aside class="notes">既然任务需要通过多轮对话引导agent去完成终极目标，那多轮对话里这个"用户反馈"谁来给？<div><br>我们的方案是创建一个 Judge Agent，让它扮成用户： 终极目标只有他能看到&nbsp; 而干活的那个work agent一开始只会看到题面；
-<br><br>目前为止，"测什么、怎么测"就闭环了。</div></aside>
+      <aside class="notes">既然task需要通过多轮对话才能完成expected result，like右边显示的，那多轮对话里这个"用户反馈"谁来给？<div><br>我们的方案是创建一个 Judge Agent，让它扮演用户： expected result 只有他能看到 , 而干活的那个work agent 一开始只会看到题面；
+<br><br>好了目前为止，"测什么、怎么测"就闭环了。</div></aside>
     </section>
 
     <!-- 8. Section 3 divider -->
@@ -1769,7 +1888,7 @@ other_agent.<span class="v">??</span>()
           <div class="verdict"><strong>每接一个就要重写一遍</strong>，并发 / 日志 / 报告全要复制</div>
         </div>
       </div>
-      <aside class="notes">当我们尝试把整个测试流程应用到第一个agent的时候，的确一个简单的脚本就够了。 从 warmup 做练习题到触发进化到做 holdout期末考试到出报告。<br>然后当我们想跑规模化的suite的时候，想接入更多agent的时候就碰到了各种工程问题，明明只是换了agent，所有的脚本要重新写，并发怎么搞，task之间如何做环境隔离等等，工程上自然而然就要求对流程进行抽象和复用。<br>再进一步，我们希望未来越来越多的agent可以接入，做到有影响力，那么如何丝滑的接入新的agent同样是一个重要的课题<br>&nbsp;</aside>
+      <aside class="notes">的确，当我们尝试把整个测试流程应用到第一个agent的时候，的确一个简单的脚本就够了。 从 warmup 做练习题到触发进化到做 holdout期末考试到出报告。<br>然后当我们想接入更多agent的时候，想<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">跑大量suite的时候</span>就碰到了各种工程问题，明明只是换了agent，所有的脚本要重新写，并发怎么搞，task之间如何做环境隔离等等，工程上自然而然就要求对流程进行抽象和复用。<br>再进一步，我们希望未来越来越多的agent可以接入，做到有影响力，那么如何把接入新的agent做到轻量化同样是一个重要的课题<br>&nbsp;</aside>
     </section>
 
     <!-- 10. Cascade of duplications — RING -->
@@ -1817,7 +1936,7 @@ other_agent.<span class="v">??</span>()
           <div class="why">CSV / HTML / trace 关联</div>
         </div>
       </div>
-      <aside class="notes">我们分析了每个Agent在评测的时候都重复造了哪些轮子<br>一共有四个轮子：Agent怎么对话；并发怎么调度；多轮怎么对话；trajectory如何追踪和出报告分析<div>其中除了Agent对话之外，其他都是共性的部分，那么设计的时候这些与具体Agent无关的下沉到框架，一次性做好就行<div><div>Agent个性的部分抽象成了多个接口，不同的agent做好适配就行</div></div></div></aside>
+      <aside class="notes">我们分析了每个Agent在评测的时候都重复造了哪些轮子<br>一共有四个轮子：Agent怎么对话；并发怎么调度；怎么多轮对话；trajectory怎么追踪，怎么出分析报告<div><br>其中除了Agent对话之外，其他都是共性的部分，那么设计的时候这些与具体Agent无关的都可以下沉到框架，一次性做好就行<div><div>Agent个性的部分抽象成多个接口，不同的agent做好适配就行</div></div></div></aside>
     </section>
 
     <!-- 11. LIFT three-layer arch -->
@@ -1859,7 +1978,7 @@ other_agent.<span class="v">??</span>()
         </div>
       </div>
       <div class="stack-tag">三层各自变化<b>互不牵连</b> · 接新 Agent 只动中间一层</div>
-      <aside class="notes">基于上一页共性和个性的分析；LIFT被设计成了三层结构<br>&nbsp;- 第一层 CLI / Pipeline ：负责CLI交互、完整的评测管线，并发调度、trajectory相关的处理、写 report。与具体的Agent无关<br>&nbsp;- 第二层：AgentRuntimeAdapter，对上暴露统一接口；实现<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">每家 Agent 差异的部分</span><br>&nbsp;- 第三层：Judge Loop&nbsp; 他负责work agent和<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">judge agent 的</span>多轮交互。具体阅卷的过程，跟具体的 Agent 无关。<br><br>这里补充两个点<br>1. agent必须容器化管理，环境才能做到隔离，容器的控制由pipeline层完成<br>2. 实战过程中，<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">对于我来说</span>dashboard的需求太强烈了，所以也是在设计框架的过程中把dashboard加了进来</aside>
+      <aside class="notes">基于共性和个性的分析；LIFT被设计成了三层结构<br>&nbsp;- 第一层 CLI / Pipeline ：负责CLI交互、完整的评测pipeline，并发调度、trajectory相关的处理、写 report。这一层与具体的Agent无关<br>&nbsp;- 第二层：AgentRuntimeAdapter，<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">每个 Agent 实现各自差异的部分，</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">对上暴露统一接口；</span><br>&nbsp;- 第三层：Judge Loop&nbsp; &nbsp;负责work agent和<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">judge agent 的</span>多轮交互，与具体的 Agent 无关。<br><br>这里补充两个点<br>1. agent必须容器化管理，环境才能做到隔离，容器的控制由pipeline层完成<br>2. 实战过程中，我对监控运行状态有非常强烈的需求，所以也是在设计框架的过程中把dashboard加了进来</aside>
     </section>
 
     <!-- 14. Product-form agnostic -->
@@ -1920,20 +2039,14 @@ other_agent.<span class="v">??</span>()
         </div>
         <div class="verdict"><span class="delta">Δ</span> 分数差</div>
       </div>
-      <aside class="notes">站在Pipeline 的视角：<br>
-       &nbsp;- 他不关心 agent 的进化产物是什么形态——warmup 之后，可能是 skill / memory 变了，可能是提示词变了，甚至可能是模型权重变了；<br>
-       &nbsp;- Pipeline 完全不需要感知这些差异。<div>&nbsp;-&nbsp;<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">这是 LIFT 的关键性质之一：</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">与产物形态无关</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">。</span><br><br>
-       那背后是怎么做到的呢？看这张图：<br>
-       &nbsp;- <b>左边是 base 镜像</b>，agent 的初始状态，warmup 之前的样子；<br>
-       &nbsp;- warmup 之后，agent 在容器内部产生了各种变化——不管是 LoRA、Prompt Pool、技能文件还是向量库；<br>
-       &nbsp;- 我们用一次 <code>docker commit</code>，把这个变化后的容器<b>快照</b>成一个新的镜像；<br>
-       &nbsp;- <b>右边就是 delta 镜像</b>，产物的所有差异都被"封装"在这一层镜像里。<br><br>
-       这里还要多说一句：<b>为什么必须把进化后的状态落成 delta 镜像，而不是复用同一个容器接着跑 holdout？</b><br>
-       &nbsp;- holdout 有很多道题，每一道题都必须从<b>同一个进化后的起点</b>出发考试，否则前一题的残留会污染后一题；<br>
-       &nbsp;- 本质上，delta 镜像既是"进化后 agent"的一次可复现快照，也是 holdout 之间的<b>环境隔离</b>手段。<br><br>
-       所以对 Pipeline 而言，两次评测就退化成两次 <code>docker run</code>：<br>
-       &nbsp;- 一次跑 base，一次跑 delta，跑<b>同一道题</b>；<br>
-       &nbsp;- 拿两个成绩一减，就是这次进化的<b>Δ 分数</b>。<br><br>
+      <aside class="notes">站在第一层Pipeline 的视角：<br>
+       &nbsp;- 他不关心 agent 的进化产物是什么形态。<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">这是 LIFT 的关键性质之一：</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal;">与产物形态无关</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">。</span><div><br>看这张图：<br>
+       &nbsp;- <b>左边是 baseline 镜像</b>，agent 的初始状态，warmup 之前的样子；<br>
+       &nbsp;- warmup 之后，agent 在容器内部产生了各种变化——可能是 skill memory, vecdb , 甚至是模型权重<br>
+       &nbsp;- 我们把这个变化后的容器&nbsp;<b>snapshot</b>成一个新的delta镜像，把所有的进化产物封装在里面；对外相当于黑盒</div><div>- 最后基于这个delta镜像去跑holdout<br>- 这种方式很好的保证了每个holdout task运行前的环境是一致的，是<span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">holdout task 之间</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">环境隔离的</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">手段。</span><br><br>
+       所以对 Pipeline 而言，两次评测就退化成：<br>
+       &nbsp;- 让holdout task 在base 镜像和delta镜像上分别跑一边，得到两个成绩<br>
+       &nbsp;- 两个成绩一减，就是这次进化的<b>分数了</b>。<br>-----<br>
        容器就是产物形态和评测框架之间的抽象边界——这也是为什么 LIFT 可以接任何形态的自进化 Agent，而不用为每一种产物写一套评测逻辑。</div></aside>
     </section>
 
@@ -1987,10 +2100,7 @@ other_agent.<span class="v">??</span>()
       <div class="hooks-foot">
         参考实现 · <span class="mono-name">OpenClaw adapter</span> 核心 <b>~120 行</b> · 剩下都被框架兜住了
       </div>
-      <aside class="notes">这是 Adapter 层给接入者的承诺：<b>不用懂框架内部，你只要说一句话</b>。<br><br>
-       站在接入方的视角：<br>
-       &nbsp;- 想接入一个新的 Agent，只需要在 Trae / Claude Code 里调用我们提供的 skill <code>@lift-integrate-agent-runtime</code>，把 Agent 的 repo 地址扔给它；<br>
-       &nbsp;- Skill 会自动帮你把接入模板生成好、把 LIFT 的整个环境跑起来。<br><br>这个skill的核心部分是告诉lift，当前这个Agent的base镜像怎么构建，怎么启动清理他，怎么和他对话，怎么触发他的进化<br><br><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">所以&nbsp;</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">"接一个新 Agent"</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">&nbsp;这件事，在 LIFT 里已经简化成了调用一个 skill&nbsp;<br></span><br>---<br>
+      <aside class="notes">站在第二层 AgentRuntimeAdapter 的视角&nbsp;<br><br>作为接入方，只需要在 Trae / Claude Code 里@我们提供的 skill <code>@lift-integrate-agent-runtime</code>，告诉他，帮我接入这个agent，然后把 Agent 的 repo 地址扔给它；<br><br>Trae 和cc 会帮你搞定一切。拆开来说，这个skill会把构建一个适配LIFT的base镜像，告诉LIFT怎么启动清理他，怎么和他对话，怎么触发自进化<br><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">所以&nbsp;</span><span style="font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-size: 14px; font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;">"接一个新 Agent"</span><span style="font-family: &quot;Spline Sans&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400;">&nbsp;这件事，在 LIFT 里已经简化成了调用一个 skill&nbsp;<br></span><br>---<br>
        &nbsp;- <b>01 从哪里起这个 Agent</b>：告诉框架去哪找这个考生的镜像/包（<code>resolve_image / runtime</code>）；<br>
        &nbsp;- <b>02 怎么启动、怎么清理</b>：考试前把他叫进考场、考完把他送出去（<code>start / stop</code>）；<br>
        &nbsp;- <b>03 怎么发题、怎么收回答</b>：考试过程中，怎么把题目递给他、怎么收回他的答案（<code>worker_judger_factory</code>）；<br>
@@ -2083,12 +2193,7 @@ other_agent.<span class="v">??</span>()
         接入方只写 <b>Adapter</b> · 其它 8 件事 LIFT 全部免费送
       </div>
 
-      <aside class="notes">这一页给大家展示了LIFT框架为那些想测试Agent进化能力的人都解决了哪些痛点<br>怎么让你跑的爽跑的对，罗列8项免费福利项，都是工程上的难点，当然最重要的就是有了“接入的skill”，让所有的事情像呼吸一样简单<br>------<br><br>大家自己扫一下就行，我只挑几个真的踩过坑的地方讲一下：<br><br>
-       <b>跑得爽</b>那一组：核心是 <b>Adapter 只写同步接口</b>，并发、Dashboard、Trace、接入 Skill 都不用自己造轮子。GenericAgent 我自己接完前后不到两天。<br><br>
-       <b>跑得对</b>那一组更重要，因为这一组每一条踩过都是"数字看着很漂亮但结论其实是假的"：<br>
-       &nbsp;- <b>Delta 体检</b>——GA 接入时就吃过亏，warmup 100% 成功但 delta 是空的，improvement 恒为 0；<br>
-       &nbsp;- <b>对照组隔离</b>——手写脚本最容易把 warmup 和 holdout 串起来，"记答案"式作弊；<br>
-       &nbsp;- 剩下抖动吸收、全程留痕就是"跑起来才知道有多重要"的东西。<br><br>
+      <aside class="notes">仍旧是站在接入方的视角，夸一夸LIFT<br>附送了哪些权益<br>1. 并发调度不用管了，repeat维度怎么并发，suite维度怎么并发，task维度怎么并发，baseline和evolved怎么并发？<br>2. dashboard不用管了，<br>3. trace不用管了，其实框架还干了一件很脏的事：怎么把trajectory和task关联起来，最后才能做分析<br>4. 接入的skill就不说了，太舒服了<br>5. delta体检：不用担心进化产物是不是真的落进delta镜像了，产物为空的话日志会原地报警<br>6. 复杂的环境隔离管理：大量并发的时候会同时运行上百个容器 每个容器的端口管理也不用管了<br>7. 抖动吸收：任务报错了怎么办，也不用管了，LIFT在pipeline各个维度做了完善的重试机制<br>8. 所有日志留痕，这也是LIFT可以反复迭代自己的根本依据<br><br>以上都是工程上的难点，也是LIFT提供的免费福利，让所有的事情像呼吸一样简单<br>---------<br>
        一句话收：<b>接入方只写 Adapter，其它 8 件事 LIFT 全部免费送。</b></aside>
     </section>
 
@@ -2136,7 +2241,7 @@ sequenceDiagram
       <div class="label">演示 · the demo</div>
       <div class="title">最小集走一遍，看一眼成绩单</div>
       <div class="rule"></div>
-      <aside class="notes">最后是一个hello world 级别的演示&nbsp; 大概需要两分钟时间</aside>
+      <aside class="notes">最后呢，给大家一个hello world 级别的演示&nbsp; 大概需要四分钟时间&nbsp; 感受一下lift跑benchmark的过程</aside>
     </section>
 
     <!-- 17. hello_multi.json -->
@@ -2148,7 +2253,7 @@ sequenceDiagram
   <span class="f">--suite</span> <span class="v">hello_multi.json</span> <span class="f">--run_id</span> <span class="v">presentation_demo</span> <span class="f">--repeat</span> <span class="v">2</span> \
   <span class="f">--dashboard</span> <span class="v">0.0.0.0:8764</span></div>
       <div class="delegate-hint">suite 定义：<a href="assets/benchmarks_demo/hello_multi.json" target="_blank" rel="noopener">hello_multi.json ↗</a></div>
-      <aside class="notes">跑一个openclaw的评测 最简单的 hello_multi,，重复3遍，能并发的地方都并发，端口用8999， 运行之前把你使用的CLI打印出来</aside>
+      <aside class="notes">跑一个openclaw的评测 最简单的 hello_multi, 重复3遍，端口用8999， 运行之前把你使用的CLI打印出来</aside>
     </section>
 
     <!-- 19. Recap -->

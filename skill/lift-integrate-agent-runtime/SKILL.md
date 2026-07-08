@@ -153,7 +153,12 @@ grep -nE "mkdir.*memory|mkdir.*skill" agent-runtimes/<runtime>/Dockerfile
 - 引擎读的位置**永远拿不到** LLM 写的内容 → warmup 表面成功，delta 镜像里 `/opt/GenericAgent/memory` 空空如也 → evolved 与 baseline 无差异 → LIFT 数据毫无意义
 - 修复：`install-in-image.sh` patch [ga.py:518,590,591](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/install-in-image.sh#L86-L108) 三处相对路径都改成 `/opt/GenericAgent/memory` 绝对路径；reflection prompt 也加 `_MEMORY_PATH_NOTE`。
 
-> **验证方式**：首选看 pipeline 日志里 `Delta preflight diff` 一行（`commit_delta_image` 在 `docker commit` 前自动跑 `docker diff` 打摘要）；如果显示 `no changes` 或 `top` 里没有 `/opt/<runtime>/memory`，就是三点错位。也可以按 §6.5 "证据 C：Layer" 跑一个非 hello 的复杂 suite + `--warmup-only` 手动 diff delta 镜像。
+> **验证方式**：首选看 pipeline 日志里 `Delta preflight diff` 两行（`commit_delta_image` 在 `docker commit` 前自动跑 `docker diff` 打摘要）：
+>
+> - `Delta preflight diff (full) [<container>]: +NA ~NC -ND ...` — upperdir 全集，含 pip / cache / temp 副作用
+> - `Delta preflight diff (evolve-only) [<container>]: +NA ~NC -ND at /opt/<runtime>/memory` — 只统计 adapter `evolve_paths` 白名单目录（见 §2.1），evolve-only 计数为 0 时会直接打 WARNING
+>
+> 如果 `full` 显示 `no changes` 或 `evolve-only` 触发 WARNING 就是三点错位。也可以按 §6.5 "证据 C：Layer" 跑一个非 hello 的复杂 suite + `--warmup-only` 手动 diff delta 镜像。
 
 ---
 
@@ -180,6 +185,14 @@ src/lift/adapters/<runtime>/
 | `start_container` | 委托给 `start_<runtime>_container`（在 `session.py`） | 透传 `instance_id` / `image` / `ctx` / `workspace_dir` 等参数 |
 | `worker_judger_factory` | 把 `ContainerSession` 包成 `WorkerJudgerPairFactory` | `return <Runtime>WorkerJudgerPairFactory(container=..., workspace_dir=...)` |
 | `evolve_after_warmup` | 演化钩子；baseline runtime 是 no-op | `return None` |
+
+另外**强烈建议**声明一个类属性 —— `evolve_paths`（默认继承 `ContainerAgentRuntimeAdapter.evolve_paths = ()`）：
+
+| 类属性 | 作用 | 最简声明 |
+|---|---|---|
+| `evolve_paths: tuple[str, ...]` | 声明本 runtime "真进化产物"落地的**容器内绝对路径**白名单，供 `commit_delta_image` 在 `docker diff` 后单独打一行 `evolve-only` 摘要；计数为 0 时 WARNING（负向信号） | GA: `("/opt/GenericAgent/memory",)`；OpenClaw: `("/root/.openclaw/memory", "/root/.openclaw/skills")` |
+
+漏声明的后果：pipeline 日志只有 `full` 摘要（含 pip / cache / temp 等噪声），无法在无人值守下自动预警"warmup 没写出任何进化产物"。参考 [`GenericAgentAdapter.evolve_paths`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/genericagent/adapter.py#L38-L42)、[`OpenClawAdapter.evolve_paths`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/openclaw/adapter.py#L36-L42) 的定义。声明的路径应与 §1.7 "三点错位"里的**引擎读路径**一致（引擎去哪读，就在哪声明）。
 
 ### 2.2 `session.py`（容器启动）
 
@@ -211,7 +224,7 @@ src/lift/adapters/<runtime>/
 **统一约束**：
 - `WorkerJudgerPairFactory.__call__(task)` 每次 **新建 work / judge 各一个 ChatAgent 实例**，互相隔离。
 - `work_session_id = f"user-{short_id()}"`、`judge_session_id = f"judge-{short_id()}"` — 这俩前缀被 `langfuse_trace_stitch` 当作分类信号，**不要改前缀**。
-- 单轮 wall-clock 上限统一 600s（`CHAT_EXEC_TIMEOUT_SECONDS = 600.0`），超时返回 `CHAT_EXEC_TIMEOUT_MARKER` 前缀字符串走 LIFT 的 provider error 重试通道。
+- 单轮 wall-clock 上限统一 1000s（`CHAT_EXEC_TIMEOUT_SECONDS = 1000.0`），超时返回 `CHAT_EXEC_TIMEOUT_MARKER` 前缀字符串走 LIFT 的 provider error 重试通道。
 
 ---
 
@@ -580,17 +593,19 @@ grep -E "trace not found|Failed to fetch trace|trace_backfill" "$LOG"
 
 这是 LIFT 全流程的**核心命题**。必须在 warmup 结束、`docker commit` 之后、pipeline `docker rmi evolve-eval-delta:*` 之前抢到 delta 镜像做 diff。
 
-**优先看 pipeline 日志的 `Delta preflight diff` 行**（[commit_delta_image](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/container/delta.py) 在 `docker commit` 之前会自动跑 `docker diff` 并打一行摘要）：
+**优先看 pipeline 日志的 `Delta preflight diff` 行**（[commit_delta_image](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/container/delta.py) 在 `docker commit` 之前会自动跑 `docker diff` 并打摘要，见 §2.1 的 `evolve_paths` 说明）：
 
 ```
-INFO Delta preflight diff (evolve-genericagent-xxxxx): +12A ~3C -0D across 4 paths (top: /opt/GenericAgent/memory x9, /root x2, ...)
+INFO Delta preflight diff (full) [evolve-genericagent-xxxxx]: +2038A ~14C -0D across 17 paths (top: /usr/local/lib x1800, /opt/GenericAgent/memory x9, /opt/GenericAgent/temp x120, ...)
+INFO Delta preflight diff (evolve-only) [evolve-genericagent-xxxxx]: +9A ~2C -0D across 1 paths (top: /opt/GenericAgent/memory x11)
 INFO Delta materialized: evolve-eval-delta:<run_id>-r0-<suite>
 ```
 
-- `+NA ~NC -ND` = 新增 / 修改 / 删除 的容器 FS 层文件计数（bind mount 天然不进 diff）
-- `top:` 按前 3 层目录聚合，一眼看出进化产物落到了哪儿
-- **红旗 1**：`no changes (empty upperdir)` —— warmup 没往容器 FS 写任何东西，铁定是 §1.7 三点错位
-- **红旗 2**：`top:` 里根本没出现 `/opt/<runtime>/memory` —— 写去了别的目录（例如 `/tmp` / `/root`），需要核对上游引擎的读路径
+- `full` 行 = upperdir 全集，`+NA ~NC -ND` = 新增 / 修改 / 删除 的容器 FS 层文件计数（bind mount 天然不进 diff）
+- `evolve-only` 行 = 只统计 adapter `evolve_paths` 白名单目录下的变更；未声明白名单则不打此行
+- **红旗 1**：`full` 行显示 `no changes (empty upperdir)` —— warmup 没往容器 FS 写任何东西，铁定是 §1.7 三点错位
+- **红旗 2**：`evolve-only` 行升级为 `WARNING` 且带 `no changes under evolve_paths=...` —— 白名单目录里没落任何东西（可能写去了 `/tmp` / `/root` / bind mount），需要核对上游引擎的读路径
+- **红旗 3**（未声明 `evolve_paths` 时的降级判定）：`full` 行 `top:` 里根本没出现 `/opt/<runtime>/memory` —— 走 §2.1 补上 `evolve_paths` 后就能自动 WARNING
 
 如果日志摘要已经有明确红旗，可以跳过下面的手工 diff；如果想深挖具体新增了什么文件、mtime 情况：
 
