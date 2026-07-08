@@ -33,6 +33,14 @@ from src.paths import OPENCLAW_BASE_DOCKER_IMAGE
 class OpenClawAdapter(ContainerAgentRuntimeAdapter):
     """OpenClaw（不带进化插件）：镜像配置、容器启动、chat factory。"""
 
+    #: OpenClaw 的进化产物集中在容器内 ``/root/.openclaw/memory``（记忆）与
+    #: ``/root/.openclaw/skills``（技能），供 delta preflight diff 的 evolve-only
+    #: 视角单独统计。``/root/.openclaw/workspace`` 属于人设/上下文种子，不计。
+    evolve_paths: tuple[str, ...] = (
+        "/root/.openclaw/memory",
+        "/root/.openclaw/skills",
+    )
+
     @classmethod
     @override
     def resolve_docker_image(cls, *, override: str | None = None) -> str:

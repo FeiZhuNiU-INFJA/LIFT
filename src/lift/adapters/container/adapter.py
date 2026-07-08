@@ -24,6 +24,17 @@ from src.utils import short_id
 class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
     """Docker 容器 agent runtime + 默认 docker commit delta 物化。"""
 
+    #: 该 runtime 中"真正的进化产物"落地路径白名单（容器内绝对路径），供 delta
+    #: preflight diff 单独打印一行 ``evolve-only`` 摘要用。默认 ``()`` 表示未声明——
+    #: 此时 preflight 只输出 full 摘要；子类应显式声明，例如：
+    #: - GenericAgent: ``("/opt/GenericAgent/memory",)``
+    #: - OpenClaw: ``("/root/.openclaw/memory", "/root/.openclaw/skills")``
+    #: 声明后若 evolve-only 计数为 0，会在日志里 WARNING —— 用来"负向判定"
+    #: 本次 warmup 是否真的产出了进化产物（``docker diff`` 全集里其他条目多为 pip /
+    #: cache / temp 副作用，不能作为进化的正向证据）。仅对经 ``docker commit`` 物化
+    #: delta 的 runtime 有意义，因此定义在容器 adapter 层，非容器 runtime 不背这个字段。
+    evolve_paths: tuple[str, ...] = ()
+
     def __init__(self, options: RunOptions) -> None:
         """解析 base 镜像并缓存到 ``_docker_image``。"""
         super().__init__(options)
@@ -150,7 +161,11 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
             repeat_index=ctx.repeat_index,
             suite_name=ctx.suite_name,
         )
-        await commit_delta_image(session.container_name, image_tag)
+        await commit_delta_image(
+            session.container_name,
+            image_tag,
+            evolve_paths=self.evolve_paths,
+        )
         return DeltaRef(
             image_tag=image_tag,
             source_container=session.container_name,

@@ -35,6 +35,12 @@ from src.paths import GENERICAGENT_DOCKER_IMAGE
 class GenericAgentAdapter(ContainerAgentRuntimeAdapter):
     """GenericAgent baseline runtime（无 learn review）。"""
 
+    #: GA 把 warmup 期间学到的记忆写入容器内 ``/opt/GenericAgent/memory/`` 下的
+    #: ``global_mem.txt`` / ``global_mem_insight.txt``；这里作为"真进化产物"目录
+    #: 供 delta preflight diff 单独统计——``/usr/local/lib`` 里的 pip 副作用、
+    #: ``/opt/GenericAgent/temp`` 里的 IO 副作用都不算证据。
+    evolve_paths: tuple[str, ...] = ("/opt/GenericAgent/memory",)
+
     @classmethod
     @override
     def resolve_docker_image(cls, *, override: str | None = None) -> str:

@@ -18,11 +18,11 @@ from src.utils import short_id
 
 # 单次 ``openclaw agent --message`` 在宿主机侧的 wall-clock 上限。
 # 正常一轮 work / judge chat 在 30-90 秒内返回，触达模型 maxTokens 会走另一条
-# truncation marker 通道；这里 600 秒纯粹用于兜底"既不出错也不返回"的情况——
+# truncation marker 通道；这里 1000 秒纯粹用于兜底"既不出错也不返回"的情况——
 # 历史 run 里出现过 8 小时不退的死锁（容器内 openclaw-agent 被卡住），加这个
 # 上限后超时会被当作 provider error 走 5 次重试通道，最坏情况从永远 hang 收敛到
-# ~50 分钟内自愈。
-CHAT_EXEC_TIMEOUT_SECONDS = 600.0
+# ~80 分钟内自愈。
+CHAT_EXEC_TIMEOUT_SECONDS = 1000.0
 CHAT_EXEC_TIMEOUT_MARKER = "chat exec timeout"
 
 # Agent cwd：与 ``agents.fragment.json`` 的 ``agents.defaults.workspace`` 同步。
