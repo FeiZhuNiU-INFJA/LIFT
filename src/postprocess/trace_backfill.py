@@ -8,17 +8,14 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Literal
+from typing import Any
 
 from langfuse import Langfuse, get_client
 
 from src.config import LOGGER
 from src.models import EvalReport, PhaseRun
+from src.postprocess.extract import AgentSource
 from src.report.langfuse_trace_stitch import stitch_phase_langfuse_traces
-
-
-# Agent backend whose traces are stitched during backfill.
-AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent", "genericagent_active_evolve"]
 
 
 # Langfuse SDK 4.x 默认 5s 超时（langfuse/_client/client.py:279 读 LANGFUSE_TIMEOUT

@@ -1,6 +1,6 @@
 ---
 name: "lift-integrate-agent-runtime"
-description: "把一个新的 agent runtime（如 OpenClaw / GenericAgent）接入 LIFT 评测框架的端到端清单：镜像脚手架 + adapter 三件套 + 注册点 + 后处理 Literal 同步 + Langfuse trace 拼装 + 验收 checklist。在用户说\"集成 / 接入 / 添加新 agent runtime\"或\"-r <name>\"想新增可选项时调用。"
+description: "把一个新的 agent runtime（如 OpenClaw / GenericAgent）接入 LIFT 评测框架的端到端清单：镜像脚手架 + adapter 三件套 + 注册点（SUPPORTED_RUNTIMES 唯一事实源）+ Langfuse trace 拼装 + 验收 checklist。在用户说\"集成 / 接入 / 添加新 agent runtime\"或\"-r <name>\"想新增可选项时调用。"
 ---
 
 # LIFT: 集成新 Agent Runtime
@@ -217,8 +217,9 @@ src/lift/adapters/<runtime>/
 
 **核心**：实现 `ChatAgent.chat(message, *, session_id) -> str`。
 
-两种主流 transport：
-- **HTTP gateway**（OpenClaw）：post 到容器内 gateway，response 直接拿 turn 输出。
+三种主流 transport：
+- **HTTP REST gateway**（OpenClaw）：post 到容器内 gateway，response 直接拿 turn 输出。
+- **HTTP JSON-RPC**（OpenHuman）：`POST http://127.0.0.1:{host_port}/rpc`，body 是 `{"jsonrpc":"2.0","id":1,"method":"<runtime>.agent_chat","params":{"message":..., "thread_id":session_id}}`；response 里取 `result.result`。参考 [`src/lift/adapters/openhuman/chat_agent.py`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/openhuman/chat_agent.py)。
 - **文件 I/O**（GA）：写 `input.txt` → `docker exec -d` 启子进程 → 轮询 `output<N>.txt` 直到 `[ROUND END]`。GA 样板见 [`chat_agent.py:39-189`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/genericagent/chat_agent.py#L39-L189)。
 
 **统一约束**：
@@ -253,21 +254,53 @@ src/lift/adapters/<runtime>/
 
 ---
 
-## 4. 后处理类型同步（5 处 `AgentSource` Literal）
+## 4. 后处理类型同步（`AgentSource` 收敛到单点，只改 `SUPPORTED_RUNTIMES`）
 
-**这是最容易漏改的环节**。`AgentSource` Literal 散落在 5 个文件，必须保持一致：
+从 2026-07-09 起，`AgentSource` 已从「5 处 Literal 手动同步」重构成「1 处 `TypeAlias = str` + 4 处 import」，合法值域**唯一事实源**是 [`SUPPORTED_RUNTIMES`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/registry.py#L12)。**新增 runtime 只改 registry 一处即可**。
 
-| 文件 | 行号 | 当前值 |
-|---|---|---|
-| [`src/postprocess/extract.py`](file:///root/workspace/agent_evolve_evaluation/src/postprocess/extract.py#L15) | 15 | `Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent", "genericagent_active_evolve"]` |
-| [`src/postprocess/run_post_process.py`](file:///root/workspace/agent_evolve_evaluation/src/postprocess/run_post_process.py#L36) | 36 | 同上 |
-| [`src/postprocess/trace_backfill.py`](file:///root/workspace/agent_evolve_evaluation/src/postprocess/trace_backfill.py#L18) | 18 | 同上 |
-| [`src/postprocess/report_html.py`](file:///root/workspace/agent_evolve_evaluation/src/postprocess/report_html.py#L19) | 19 | 同上 |
-| [`src/report/langfuse_trace_stitch.py`](file:///root/workspace/agent_evolve_evaluation/src/report/langfuse_trace_stitch.py#L24) | 24 | `Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent"]` ⚠️ **历史漏同步** |
+| 文件 | 作用 |
+|---|---|
+| [`src/lift/adapters/registry.py`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/registry.py#L12) | `SUPPORTED_RUNTIMES` tuple —— **唯一事实源**，CLI `--agent-runtime` choices / argparse / dispatch tuple 全部引它 |
+| [`src/postprocess/extract.py`](file:///root/workspace/agent_evolve_evaluation/src/postprocess/extract.py#L17) | `AgentSource: TypeAlias = str` —— 语义标记，被下游 4 处 import |
+| `src/postprocess/{trace_backfill,run_post_process,report_html}.py` + `src/report/langfuse_trace_stitch.py` | 都改成 `from src.postprocess.extract import AgentSource`（stitch 内部再 alias 一次也可） |
 
-**操作**：用 `Grep "AgentSource\s*=\s*Literal"` 在 `src/` 下扫一遍，每处都把新 runtime 名加进去。
+**为什么不用 `Literal[...]`**：本仓库未接入 mypy/Pyright，Literal 的静态 narrowing 收益为 0；反倒是"5 处漂移"曾造成 `multi_user_openclaw` 后处理直接 `raise ValueError`（历史漏同步）。改成 `TypeAlias = str` + 单点 tuple 后，argparse choices / dispatch 都从 `SUPPORTED_RUNTIMES` 派生，天然一致。
 
-> **已知 hazard**：`langfuse_trace_stitch.py:24` 的 Literal 落了 `genericagent_active_evolve`，但 dispatch tuple [第 222 行](file:///root/workspace/agent_evolve_evaluation/src/report/langfuse_trace_stitch.py#L222) 又包含了。这是历史遗留 — 新加 runtime 时务必 5 处都同步，避免静态类型检查告警。
+### 4.0 新增 runtime 的后处理 checklist
+
+1. `registry.py` 的 `SUPPORTED_RUNTIMES` tuple 加名字 → CLI `--agent-runtime` / `--agent-source` choices 自动包含
+2. `langfuse_trace_stitch.stitch_phase_langfuse_traces` 的 dispatch 已经用 `agent_source in SUPPORTED_RUNTIMES` 兜底走 OpenClaw layout；如果新 runtime **不复用** sid-only 布局（例如 hermes 那种要 tag 才能配对），需要在这里新开一条 `if agent_source == "<runtime>"` 分支，参考 `_stitch_hermes`
+3. 是否需要 `_make_row_<runtime>`：见 §4.1
+
+### 4.1 usage schema 分支（`_make_row_<runtime>`） ⚠️
+
+后处理 CSV 里 `total_tokens` / `cached_token` / `tool_use_num` 这些列由 [`src/postprocess/extract.py`](file:///root/workspace/agent_evolve_evaluation/src/postprocess/extract.py) 里的 `_make_row_openclaw` / `_make_row_hermes` / `_make_row_<runtime>` 组装，dispatch 在 `_make_row_side` 里按 `agent_source` 选。
+
+**默认走 `_make_row_openclaw`**，它按 **OpenClaw transcript 的 usage schema** 累加：从 `work_analytics.all_messages[*].usage.totalTokens` 求和。
+
+**新 runtime 何时必须新增 `_make_row_<runtime>` 分支**：
+
+| runtime transcript 里 usage 的 key 集合 | 处理方式 |
+|---|---|
+| 含 `totalTokens`（OpenClaw、Hermes、GA — 因为 overlay 是 LIFT 自己写的，会强制拉齐 schema） | 复用 `_make_row_openclaw`，无需新增 |
+| 不含 `totalTokens`（例：OpenHuman `{input, output, cached_input}`；上游用 OpenAI SDK 原生 usage schema `{prompt_tokens, completion_tokens, total_tokens}`） | 必须新增 `_make_row_<runtime>`，从 `global_stats.total_tokens` 取（由 Langfuse GENERATION observation `usage_details` 累加得到），不能依赖 messages 里的字段 |
+
+**症状**：CSV / dashboard 里所有 phase `total_tokens=0`，但 `*_backfilled.json` 里 `work_analytics.global_stats.total_tokens` 有值。
+
+**修法参考 OpenHuman**：[`extract.py::_make_row_openhuman`](file:///root/workspace/agent_evolve_evaluation/src/postprocess/extract.py) —
+
+```python
+def _make_row_openhuman(side, work_analytics):
+    global_stats = work_analytics.get("global_stats") or {}
+    total_tokens = int_value(global_stats.get("total_tokens"))
+    # cached_input 也不在 OpenClaw schema，从 assistant messages usage.cached_input 累加
+    cached_tokens = _aggregate_openhuman_cached_tokens(work_analytics.get("all_messages") or [])
+    ...
+```
+
+同时在 `_make_row_side` 里加一个 `elif agent_source == "<runtime>": metric_row = _make_row_<runtime>(...)` 分支即可。
+
+> **验证**：跑完 pipeline 后 `head -2 results/lift-runid-<run_id>/*_comparison_metrics.csv`，`baseline_total_tokens` / `evolved_total_tokens` 应非 0；若仍为 0，回 `*_backfilled.json` 里看 `global_stats.total_tokens` 有没有值 —— 有则新增分支，没有则查 langfuse GENERATION observation 的 `usage_details` 是否正确挂了 `{input, output, total}`（overlay/push 侧的锅）。
 
 ---
 
@@ -344,6 +377,111 @@ dashboard 实际有**两种形态**，两个都吃同一棵 `RunStateTracker.sna
 - GA / Hermes / 任何走兜底的 runtime：回写让静态 dashboard 第一次看到数
 
 > **对运行期实时 dashboard 的影响**：B 路径 runtime 的 tools 列在 run 进行中**注定显示空**——langfuse 是 async upload，trace 还没完整 flush，count 不出来；要看 tools 必须等后处理跑完打开静态 dashboard。如果新 runtime 想要实时 tools，得自己 override `count_tool_calls`（容器内累加 counter / 读日志文件）。
+
+### 5.4 上游无 Python plugin 系统时：宿主侧 transcript → push 反哺路径 ⚠️
+
+前面 §1.3 / §5.1 / §5.2 都假设 runtime 上游有一个 **Python plugin loader**，能把 `langfuse_tracing_overlay.py` bake 进容器，让 LLM 引擎在每次 chat / tool 调用时自动 emit Langfuse span。**但如果 runtime 上游是 Rust / Go 二进制 / 闭源实现，或者它的 Langfuse 集成走的是自家私有 HTTP 反代路径（LIFT 拦不到）**，overlay 这条路走不通。
+
+**OpenHuman 就是典型案例**：`openhuman-core` 是 Rust 二进制，没有 Python plugin 接口，自家 Langfuse 通过 `/telemetry/langfuse/ingestion` proxy 走上游账号（跟 LIFT 用的 Langfuse project 不是同一个）。这种情况下走"宿主侧 transcript 后处理 → push"路径反哺 Langfuse。
+
+**核心思路**：
+
+1. **runtime 侧只需要落 transcript**：warmup / holdout 阶段 agent 把每一轮 chat 的完整对话（system / user / assistant / tool）以 JSONL 形式写到容器内某处（OpenHuman 是 `/root/.openhuman/users/local/workspace/session_raw/<ts>_<agent>.jsonl`）。这是绝大多数 agent 上游都自带的能力，不用改上游。
+2. **LIFT adapter 在 `chat()` 返回前 hook**：`docker exec cat` transcript → 宿主端解析 → 用 Langfuse Python SDK v4 直接 push 一条 `<runtime>-plugin` root trace，把 iteration / tool call 挂成 GENERATION / TOOL observation。
+3. **push 的 metadata schema 必须与 `LangfusePluginTraceMetadata` 完全对齐**（见 [`src/models.py:122-171`](file:///root/workspace/agent_evolve_evaluation/src/models.py#L122-L171)），否则 backfill 时 `is_plugin_trace` 拿不到值。
+
+参考实现：[`src/lift/adapters/openhuman/transcript_langfuse.py`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/openhuman/transcript_langfuse.py)（约 470 行，含 transcript 解析 + summarize + Langfuse SDK v4 push）。
+
+#### 5.4.1 数据流骨架
+
+```
+runtime 容器
+    └── /path/to/session_raw/*.jsonl        # 上游天然落盘的 transcript
+          │  首行: {"_meta": {agent, thread_id, model, turn_count, ...}}
+          │  之后: {"role": "system"|"user"|"assistant"|"tool", "content": ..., "extra_metadata": {...}}
+          ▼
+LIFT adapter chat() (宿主进程)
+    ├── docker exec ls + cat 拉 transcript
+    ├── 按 _meta.thread_id == session_id 过滤
+    ├── summarize: message_count / tool_roundtrips / tool_call_blocks / tool_names_distinct
+    ├── 每个 assistant 消息 → 一次 LLM iteration → GENERATION observation (usage_details 从 extra_metadata 取)
+    ├── 每个 tool 消息 → TOOL observation (result 通过 tool_call_id 回填到最近同名 tool entry)
+    └── Langfuse SDK v4:
+          propagate_attributes(session_id=..., tags=[run_tag, session_id])
+            └── start_as_current_observation(name='<runtime>-plugin', as_type='agent', input=..., metadata=LangfusePluginTraceMetadata)
+                  ├── start_observation(name='llm.chat', as_type='generation').update(usage_details={input, output, total, cache_read_input_tokens}).end()
+                  ├── start_observation(name=tool_name, as_type='tool', input=args).update(output=tool_result).end()
+                  └── ...
+          client.flush()                    # 结束时强制 push
+```
+
+#### 5.4.2 关键约束（少一个就丢配对）
+
+| 约束 | 具体要求 |
+|---|---|
+| **trace name** | 必须 `"<runtime>-plugin"`（进 `LANGFUSE_PLUGIN_TRACE_NAMES` 白名单，与 overlay 路线一致，见 §5.1） |
+| **session_id** | 必须等于 LIFT `chat()` 传进来的 `session_id`（`user-*` / `judge-*`），走 `propagate_attributes(session_id=...)` 设置 |
+| **tags** | 必须 ⊇ `{run_tag (ctx.run_id), session_id}`；`run_tag` 从 adapter `worker_judger_factory` 里把 `ctx.run_id` 透传给 chat agent |
+| **metadata schema** | 必须能被 `LangfusePluginTraceMetadata.from_langfuse_dict` 反序列化 —— 字段名走 camelCase (`messageCount / toolRoundtrips / toolCallBlocks / toolNamesDistinct`) 或 snake_case 都可，两种都读 |
+| **GENERATION observation usage_details** | 必须 `{input, output, total, cache_read_input_tokens}` —— 别照抄 runtime 原始 usage schema，Langfuse SDK v4 只认这四个 key |
+| **tool observation** | 每次工具调用挂 `as_type='tool'`（不是 `'default'`），`langfuse_trace_fetch.count_tool_observations` 才能数进 tool_observation_count（dashboard tools 列兜底，见 §5.3） |
+| **异常隔离** | push 失败不能影响 chat 主流程 —— 用 `push_<runtime>_plugin_trace_safe` 薄封装 swallow 所有异常，只 `LOGGER.warning`，chat 该返回什么返回什么 |
+
+#### 5.4.3 hook 位点
+
+**adapter.py**：`worker_judger_factory` 把 `ctx.run_id` 透传给 factory：
+
+```python
+return <Runtime>WorkerJudgerPairFactory(
+    container=<runtime>_context(session),
+    workspace_dir=workspace_dir,
+    run_tag=ctx.run_id,   # ← 新增
+)
+```
+
+**chat_agent.py**：factory 与 chat agent 都新增 `run_tag: str = ""` 参数；`chat()` 在 `return reply_text` 之前挂：
+
+```python
+try:
+    await asyncio.to_thread(
+        push_<runtime>_plugin_trace_safe,
+        container_name=self._container.container_name,
+        session_id=session_id,
+        user_message=message,
+        reply_text=reply_text,
+        run_tag=self._run_tag,
+    )
+except Exception:
+    LOGGER.exception("push <runtime>-plugin trace failed (non-fatal)")
+return reply_text
+```
+
+**注意用 `asyncio.to_thread`**：Langfuse SDK v4 同步 `client.flush()` 会阻塞 event loop；`docker exec` 也是同步 subprocess。放到 thread 里执行避免拖慢下一轮 chat。
+
+#### 5.4.4 验收
+
+跑完一遍完整 pipeline (`hello.json` 就够)，检查：
+
+```bash
+# 1. backfilled json 里每个 phase 都拼上了 openhuman-plugin trace
+python -c "
+import json
+r = json.load(open('results/lift-runid-<run_id>/*_backfilled.json'))
+for rp in r['runs']:
+    for s in rp['suites']:
+        for t in s['tasks']:
+            for phn in ('baseline','evolved'):
+                lf = t[phn].get('langfuse') or {}
+                for wt in lf.get('work_agent_traces') or []:
+                    print(wt.get('plugin_trace_name'), wt.get('tokens'))
+"
+# 期望每行都是 <runtime>-plugin + 非零 tokens
+```
+
+- Langfuse UI 上按 `session_id=user-*` 搜，看得到 `<runtime>-plugin` root trace，Session / Tags 列非空，展开有 GENERATION + TOOL observation
+- CSV `total_tokens` / `cached_token` / `tool_use_num` 非零（见 §4.1，若 0 说明 `_make_row_<runtime>` 还没加）
+
+> **成本**：这条路径比 overlay 慢一点（宿主 `docker exec` + push 都是 chat 主路径同步阻塞），但完全不用改上游。对绝大多数评测规模（并发几十容器）没瓶颈。
 
 ---
 
@@ -667,7 +805,7 @@ done
 如果还要做 `<runtime>_with_evolve` / `<runtime>_active_evolve`：
 1. 镜像 tag 多加一条 `<RUNTIME>_WITH_EVOLVE_DOCKER_IMAGE`（或复用基础镜像）。
 2. 新建 `src/lift/adapters/<runtime>_<variant>/adapter.py` **继承** baseline adapter，只 override `evolve_after_warmup`。
-3. registry / Literal 五处 / `LANGFUSE_PLUGIN_TRACE_NAMES`（如果 trace name 不同）也要加。
+3. `registry.py` 的 `SUPPORTED_RUNTIMES` 加名字（`AgentSource` 已收敛到 str，无需再改 Literal）；`LANGFUSE_PLUGIN_TRACE_NAMES` 若 trace name 变了也要加。
 
 ---
 
@@ -685,7 +823,7 @@ done
 | GA 模型回复 "I cannot find this tool" | 只 append 了英文 schema，中文模型加载的是 `tools_schema_cn.json` | `docker run --rm <image> python -c 'import json; print([t["function"]["name"] for t in json.load(open("/opt/GenericAgent/assets/tools_schema_cn.json"))])'` |
 | `MODEL_NAME` 在两个 runtime 间互相污染 | `.env` 共享 `MODEL_NAME`，但 OpenClaw / GA 期望值不同 | 各 runtime 用专属变量名（`GENERICAGENT_MODEL_NAME` / `OPENCLAW_MODEL_NAME`），fallback 到 `MODEL_NAME` |
 | 容器内 Langfuse 连不上宿主 | `LANGFUSE_HOST` 写了 `localhost` / `127.0.0.1`（**镜像里**或**宿主 `.env` 通过 `env_file` 注入**——SDK v4 的 OTel span exporter 会读 env 覆盖 `Langfuse(host=...)` 显式参数，即使 overlay 完全正确也 0 plugin trace） | ① 镜像里固定写 `http://host.docker.internal:3000`（`Dockerfile` ARG default 已这样）；② LIFT `start_*_container` 的 `env_vars` 覆写 `LANGFUSE_BASE_URL` / `LANGFUSE_HOST`（参考 GA `_rewrite_langfuse_host_for_container`，见 §2.2 第 6 点）；③ Linux 下 docker run 加 `--add-host host.docker.internal:host-gateway`（LIFT `start_*_container` 已处理） |
-| Type checker 报 `AgentSource` 不一致 | 5 处 Literal 漏改 | `grep -rn "AgentSource\s*=\s*Literal" src/` 五处都要 |
+| `agent_source` 未被后处理识别 | `SUPPORTED_RUNTIMES` 忘了加新 runtime，argparse choices / dispatch 都从这里派生 | 在 [`registry.py`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/registry.py#L12) 的 tuple 补一行即可；`grep -rn "AgentSource\s*=\s*Literal" src/` 应为 0 行（历史 Literal 已下线） |
 | `Judge response is not valid JSON` 重试日志 | 这是 prompt sanity 设计行为，不是 bug | 偶发可忽略；高频出现说明 judge prompt 没渲染干净 |
 | `logs/<run_id>.log` 看到 `wait output timeout` | GA 主循环 600s 内没产出 / 死循环 / LLM 卡 | `docker exec <c> tail -50 /opt/GenericAgent/temp/<iodir>/ga.stderr.log` 看 GA 自己日志 |
 | Langfuse trace 上 `Session` / `Tags` 列空 | overlay 还在用 v3 的 `obs.update_trace(...)` / `client.update_current_trace(...)`，4.x SDK 已删除 | overlay 改成 `propagate_attributes(session_id=, tags=)` 上下文管理器 + `start_as_current_observation`（见 §1.3） |
@@ -693,6 +831,9 @@ done
 | evolved 与 baseline 结果几乎一致（improvement ≈ 0），或 LLM 明说"写了 memory"但 delta 镜像里没有 | Warmup 期 agent 的 evolve 产物落进了 bind mount / tmpfs（LLM 用 `memory/xxx` 相对路径，cwd 又在 bind mount 之内），`docker commit` 没捕获到 → delta 镜像内容 = baseline | 走 §6.5 证据 C 检查 delta diff；若 diff 为空回 §1.7 三点错位排查（引擎读 / LLM 写 / Dockerfile mkdir）。修法：`install-in-image.sh` patch 上游 system prompt 里 `[Memory]` 指示为绝对路径；reflection prompt 显式加"cwd 是 bind mount，只能用 `/opt/<runtime>/memory/`" |
 | 流水线全绿、report.json `success=true`，但 work agent 回复里出现 "I cannot access" / "no attachment" / `q1_materials.*not found` 等逃避语 | task materials bind mount 路径与 agent 侧 cwd / system prompt 里的路径不一致；LLM 拿到任务描述里的相对路径解析不出真实位置 | 走 §6.5 证据 A'.1 命中项;`docker exec <c> ls -la /workspace/task /root/.openclaw/workspace` 对比宿主 bind mount 目录,核对 `session.py:task_volume_binds` 与上游 cwd patch 是否指向同一目录;必要时在 workspace startup hook 里加 `qN_materials/ → cwd` 的软链 |
 | Judge `content_score` 全 0 或全 1(A'.3 分布异常) | 全 0:material 缺失/LLM 拿不到任务上下文,judge 一律判 fail;全 1:judge prompt 里 rubric 或任务描述被 truncate,judge 无凭无据一律放行 | 打开 dashboard 抽 1 条 judge dialogue,检查 rubric 字段与任务描述是否完整;再回 A'.1 排查 material 挂载 |
+| 首次 chat 直接返回 `SESSION_EXPIRED` / `backend session not active` / 强制走 OAuth 登录 | 上游 runtime（尤其闭源 Rust / Go 二进制）没有 Python plugin 系统，headless 模式下缺少显式 CLI 开关 → 默认走 backend `app-session` JWT 校验 | 先 `docker run --rm --entrypoint sh <image> -c 'strings /usr/local/bin/<binary> \| grep -iE "session\|agentbox\|bypass\|headless\|maas" '  \| head -50` 反查隐藏 env 开关；OpenHuman 案例：找到 `OPENHUMAN_AGENTBOX_MODE=1` + `GMI_MAAS_BASE_URL/API_KEY/MODELS` 三件套，`chat-factory` 会走 "AgentBox mode ... bypassing app-session gate" 分支直连 OpenAI 兼容端点（见 [Dockerfile:81-95](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openhuman/Dockerfile#L81-L95)）；能通过 env 绕过就**别**上 sed 二进制补丁 |
+| CSV / dashboard `total_tokens=0`，但 `*_backfilled.json` 里 `global_stats.total_tokens` 明显有值 | `_make_row_openclaw`（default）只识别 `usage.totalTokens`（camelCase）；OpenHuman / OpenAI SDK 原生 schema 是 `{prompt_tokens, completion_tokens, total_tokens}` / `{input, output, cached_input}`，匹配不上被静默丢弃 | 新增 `_make_row_<runtime>` 分支从 `global_stats.total_tokens` 累加（详见 §4.1）；`cached_token` 同理从 assistant messages `usage.cached_input` 累加。验证：`head -2 results/<run>/*_comparison_metrics.csv` 应看到 `total_tokens` 列非零 |
+| Agent 回复 "搜索权限没开 / 无法联网 / 我没有工具" 但工具明明已配 | LLM 幻觉话术；工具 schema 未主动暴露给 LLM 或 prompt 没触发 tool 触发链，模型选择保守拒答，而不是真实的系统权限报错 | 双管齐下：① suite JSON 的 `query` 与 `expected_result.trajectory_reqs` 明确要求 "至少调用一次 `web_search_tool` 或 `web_fetch`"；② `workspace_seed/AGENTS.md` 列出可用工具清单并显式禁止 "权限没开/无法联网" 类逃避语。参考 [hello_multi.json](file:///root/workspace/agent_evolve_evaluation/assets/benchmarks_demo/hello_multi.json) 和 [openhuman/workspace_seed/AGENTS.md](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openhuman/workspace_seed/AGENTS.md) |
 
 ---
 
@@ -711,14 +852,12 @@ done
 完成集成后，`git status` 应当包含：
 
 ```
-M  src/lift/adapters/registry.py             # 加新 runtime + lazy import
+M  src/lift/adapters/registry.py             # 加新 runtime + lazy import（SUPPORTED_RUNTIMES 是唯一事实源）
 M  src/paths.py                              # <RUNTIME>_AGENT_DIR / DOCKER_IMAGE / SEED_DIR
 M  src/models.py                             # LANGFUSE_PLUGIN_TRACE_NAMES 加 "<runtime>-plugin"
-M  src/postprocess/extract.py                # AgentSource Literal
-M  src/postprocess/run_post_process.py       # AgentSource Literal
-M  src/postprocess/trace_backfill.py         # AgentSource Literal
-M  src/postprocess/report_html.py            # AgentSource Literal
-M  src/report/langfuse_trace_stitch.py       # AgentSource Literal + dispatch tuple
+# 后处理 AgentSource 已收敛到 str，无需改动 extract / run_post_process /
+# trace_backfill / report_html / langfuse_trace_stitch，除非 trace 布局不复用
+# OpenClaw sid-only 或 transcript usage schema 不含 totalTokens（见 §4）
 
 ?? agent-runtimes/<runtime>/Dockerfile
 ?? agent-runtimes/<runtime>/build-image.sh

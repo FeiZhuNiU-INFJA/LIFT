@@ -6,13 +6,15 @@ evolved rows, applying OpenClaw- or Hermes-specific metric derivation rules.
 
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, TypeAlias
 
 import pandas as pd
 
 
 # Agent backend used when deriving metrics from Langfuse work analytics.
-AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent", "genericagent_active_evolve"]
+# 值域 = ``src.lift.adapters.registry.SUPPORTED_RUNTIMES``；此处只做语义标记，
+# 具体合法值由 CLI/registry 单点定义，避免 Literal 与 tuple 双份漂移。
+AgentSource: TypeAlias = str
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -107,6 +109,55 @@ def _make_row_openclaw(
     }
 
 
+def _aggregate_openhuman_cached_tokens(all_messages: list[dict[str, Any]]) -> int:
+    """OpenHuman：assistant 消息的 ``usage.cached_input`` 累加。
+
+    OpenHuman transcript usage schema 是 ``{input, output, cached_input, ...}``，
+    没有 ``totalTokens``；``total_tokens`` 走 ``global_stats``（由 Langfuse GENERATION
+    observation usage_details 累加，见 ``langfuse_trace_fetch._usage_triplet``），
+    本函数只补 cache_read_input 缺失的一块。
+    """
+    cached = 0
+    for message in all_messages or []:
+        usage = message.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        cached += int_value(usage.get("cached_input", usage.get("cache_read_input_tokens")))
+    return cached
+
+
+def _make_row_openhuman(
+    side: dict[str, Any],
+    work_analytics: dict[str, Any],
+) -> dict[str, Any]:
+    """OpenHuman 模式：``usage`` schema 与 OpenClaw 不同，走 ``global_stats``。
+
+    - ``total_tokens``：``global_stats.total_tokens``（Langfuse GENERATION usage 累加，权威）。
+    - ``cached_token``：从 assistant messages 的 ``usage.cached_input`` 累加，``global_stats``
+      不含该字段所以只能走 messages 通路。
+    - ``tool_use_num``：``global_stats.tool_call_blocks``（transcript_langfuse 已按
+      assistant 消息 tool_calls 计数）。
+    - ``trials``：``chat_turns`` 长度（与 OpenClaw 保持一致语义）。
+    """
+    global_stats = work_analytics.get("global_stats") or {}
+    all_messages = work_analytics.get("all_messages") or []
+    chat_turns = work_analytics.get("chat_turns") or []
+    total_tokens = int_value(global_stats.get("total_tokens"))
+    cached_tokens = _aggregate_openhuman_cached_tokens(all_messages)
+    total_tool_calls = int_value(global_stats.get("tool_call_blocks"))
+    cached_token_ratio = cached_tokens / total_tokens if total_tokens > 0 else 0.0
+    trials = len(chat_turns)
+    return {
+        "trials": trials,
+        "tool_use_num": total_tool_calls,
+        "total_tokens": total_tokens,
+        "cached_token": cached_tokens,
+        "cached_token_ratio": cached_token_ratio,
+        "total_latency_seconds": work_analytics.get("total_latency_seconds"),
+        "all_messages": dumps_json(all_messages),
+    }
+
+
 def _make_row_hermes(
     side: dict[str, Any],
     work_analytics: dict[str, Any],
@@ -165,6 +216,8 @@ def make_row(
 
     if agent_source == "hermes":
         metric_row = _make_row_hermes(side, work_analytics)
+    elif agent_source == "openhuman":
+        metric_row = _make_row_openhuman(side, work_analytics)
     else:
         metric_row = _make_row_openclaw(side, work_analytics)
 

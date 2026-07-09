@@ -10,7 +10,7 @@ import math
 import time
 from pathlib import Path
 import sys
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -19,7 +19,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.postprocess.extract import build_extracted_dataframe, load_json
+from src.lift.adapters.registry import SUPPORTED_RUNTIMES
+from src.postprocess.extract import AgentSource, build_extracted_dataframe, load_json
 from src.postprocess.trace_backfill import backfill_report, get_langfuse_client
 from src.postprocess.judge import attach_trajectory_scores
 from src.postprocess.metrics import build_comparison_dataframe, build_summary_dataframe, print_summary_to_console, validate_pairs
@@ -30,10 +31,6 @@ from src.paths import results_run_dir
 
 if TYPE_CHECKING:
     from src.lift.status.state import RunStateTracker
-
-
-# Agent backend for trace stitching and metric derivation.
-AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent", "genericagent_active_evolve"]
 
 
 def default_output_paths(output_dir: Path, output_prefix: str) -> tuple[Path, Path, Path, Path]:
@@ -384,7 +381,7 @@ def main() -> None:
     parser.add_argument("--report-html", help="Optional override for HTML report output path.")
     parser.add_argument(
         "--agent-source",
-        choices=["openclaw", "openclaw_with_evolve", "hermes", "genericagent", "genericagent_active_evolve"],
+        choices=list(SUPPORTED_RUNTIMES),
         default="openclaw",
         help="Agent source for trace stitching (default: openclaw).",
     )
