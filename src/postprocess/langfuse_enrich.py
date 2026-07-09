@@ -1,4 +1,4 @@
-"""Legacy import path for trace backfill (``trace_backfill`` is canonical).
+"""Backward-compatible import path for trace backfill (``trace_backfill`` is canonical).
 
 Re-exports backfill helpers and historical ``enrich_*`` aliases for code that
 has not yet migrated to the ``trace_backfill`` module name.

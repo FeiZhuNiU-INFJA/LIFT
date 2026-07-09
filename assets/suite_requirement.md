@@ -36,7 +36,7 @@ preprocess 生成的 `assets/benchmarks/*.json`（不纳入 git）使用 [src/mo
 
 - 每个 **final** 题在 report 中各一条 `TaskRun`（`baseline` / `evolved`）。
 
-官方评测入口：[src/lift/README.md](../src/lift/README.md)（`python -m src.cli.lift_main -r openclaw`）；legacy 见 [legacy/README.md](../legacy/README.md)。
+官方评测入口：[src/lift/README.md](../src/lift/README.md)（`python -m src.cli.lift_main -r openclaw`）。
 
 ### 任务.md 示例
 

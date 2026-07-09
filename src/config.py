@@ -52,12 +52,6 @@ def _read_model_name() -> str:
 class AppConfig:
     """从环境变量加载的不可变应用配置。"""
 
-    hermes_model_name: str | None
-    """Hermes runner ``--model`` 显式模型 id（``HERMES_MODEL_NAME``）；未设置时由 ``model`` 派生后缀。"""
-    hermes_api_url: str | None
-    """Hermes work LLM base url 覆盖（``HERMES_API_URL``）；未设置时回退 ``work_openai_base_url``。"""
-    hermes_base_image_tag: str
-    """Hermes 上游基础镜像 tag（``HERMES_BASE_IMAGE_TAG``，默认 ``v2026.5.16``）。"""
     container_network_mode: str | None
     """所有容器 runtime 的 ``docker run --network`` 模式（``CONTAINER_NETWORK_MODE``）。
 
@@ -81,7 +75,7 @@ class AppConfig:
     langfuse_base_url: str | None
     """Langfuse API base URL（``LANGFUSE_BASE_URL``）。"""
     work_openai_api_key: str | None
-    """Work agent 的 OpenAI 兼容 API 密钥（``WORK_OPENAI_API_KEY``，替代 legacy ARK_API_KEY）。"""
+    """Work agent 的 OpenAI 兼容 API 密钥（``WORK_OPENAI_API_KEY``）。"""
     work_openai_base_url: str | None
     """Work agent 的 OpenAI 兼容 base URL（``WORK_OPENAI_BASE_URL``）。"""
     trajectory_judge_openai_api_key: str | None
@@ -108,9 +102,6 @@ class AppConfig:
 def load_config() -> AppConfig:
     """从当前环境变量加载 ``AppConfig``。"""
     return AppConfig(
-        hermes_model_name=os.getenv("HERMES_MODEL_NAME"),
-        hermes_api_url=os.getenv("HERMES_API_URL"),
-        hermes_base_image_tag=os.getenv("HERMES_BASE_IMAGE_TAG", "v2026.5.16"),
         container_network_mode=(os.getenv("CONTAINER_NETWORK_MODE") or "").strip()
         or None,
         model=_read_model_name(),

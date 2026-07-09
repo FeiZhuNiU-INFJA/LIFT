@@ -100,14 +100,10 @@ async def start_hermes_container(
         # config.yaml patch 依赖（容器入口读取）：
         "MODEL_NAME": CONFIG.model,
     }
-    if CONFIG.hermes_model_name:
-        env_vars["HERMES_MODEL_NAME"] = CONFIG.hermes_model_name
     if CONFIG.work_openai_api_key:
         env_vars["WORK_OPENAI_API_KEY"] = CONFIG.work_openai_api_key
     if CONFIG.work_openai_base_url:
         env_vars["WORK_OPENAI_BASE_URL"] = CONFIG.work_openai_base_url
-    if CONFIG.hermes_api_url:
-        env_vars["HERMES_API_URL"] = CONFIG.hermes_api_url
     # Langfuse：容器内访问宿主机需要 host.docker.internal（ContainerSession 已加 --add-host）。
     # 同时以 HERMES_ 前缀注入（Hermes langfuse 插件要求）；入口脚本还会把这些 append 进
     if CONFIG.langfuse_public_key:
@@ -123,7 +119,7 @@ async def start_hermes_container(
     # Firecrawl：镜像 build 期已按非空 key init；运行期同样注入，供 Hermes agent 使用。
     if CONFIG.firecrawl_api_key:
         env_vars["FIRECRAWL_API_KEY"] = CONFIG.firecrawl_api_key
-    # Hermes API server 鉴权字段（legacy 会写入 Hermes .env）；容器入口 append 进
+    # Hermes API server 鉴权字段；容器入口 append 进
     env_vars["API_SERVER_ENABLED"] = "true" if CONFIG.api_server_enabled else "false"
     if CONFIG.api_server_key:
         env_vars["API_SERVER_KEY"] = CONFIG.api_server_key

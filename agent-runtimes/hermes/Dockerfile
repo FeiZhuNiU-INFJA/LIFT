@@ -38,7 +38,7 @@ ENV UV_INDEX_URL=${PIP_INDEX_URL} \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Copy the self-contained build context (legacy assets copied in-tree; see plan §A).
+# Copy the self-contained build context (runner/plugin assets maintained in-tree).
 COPY langfuse-hermes /tmp/langfuse-hermes
 COPY hermes-helper/hermes_runner.py /opt/evolve-eval/hermes_runner.py
 COPY install-in-image.sh /tmp/install-in-image.sh

@@ -4,7 +4,7 @@
 
 - 基础镜像 ``HERMES_DOCKER_IMAGE``（基于上游 ``nousresearch/hermes-agent``，默认 tag
   ``v2026.5.16``）；容器空转，chat 由 ``docker exec`` 起 ``hermes_runner.py`` 驱动。
-- 演化语义沿用 legacy：warmup 阶段每题 work session 结束时触发 background review，
+- 演化语义沿用 Hermes runner 协议：warmup 阶段每题 work session 结束时触发 background review，
   把学到的 memory/skills 写入容器内 ``/opt/hermes-state``；``evolve_after_warmup`` 不额外执行
   显式命令，delta 由 ``ContainerAgentRuntimeAdapter.materialize_delta`` 的
   ``docker commit`` 自然携带。
@@ -45,7 +45,7 @@ class HermesAdapter(ContainerAgentRuntimeAdapter):
         Hermes 的演化是"每题 work session 结束触发 background review 写共享
         ``/opt/hermes-state``"。在 ``parallel_single`` 下多题几乎同时结束，多个 review 进程
         会并发写同一 memory 存储，存在竞态。推荐 warmup 用 ``serial_single``
-        （``--warmup-container-policy serial_single``），与 legacy"suite 内串行"语义
+        （``--warmup-container-policy serial_single``），与 Hermes suite 内串行评测语义
         一致；跨 suite/repeat 的并发仍由 ``--max-parallel-suites`` 提供。
         """
         super().__init__(options)

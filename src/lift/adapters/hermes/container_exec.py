@@ -54,10 +54,7 @@ class HermesRunnerParams:
 
 
 def _model_default() -> str:
-    """Hermes ``--model``：优先 ``HERMES_MODEL_NAME``，否则取 ``MODEL_NAME`` 的 / 后缀。"""
-    explicit = (CONFIG.hermes_model_name or "").strip()
-    if explicit:
-        return explicit
+    """Hermes ``--model`` 取共享 ``MODEL_NAME`` 的 / 后缀。"""
     model_name = (CONFIG.model or "").strip()
     if not model_name or model_name == "unknown":
         return ""
@@ -72,7 +69,7 @@ def _model_default() -> str:
 
 def hermes_runner_params() -> HermesRunnerParams:
     """从 ``CONFIG`` 解析 runner 的 work LLM 参数。"""
-    base_url = (CONFIG.hermes_api_url or "").strip() or (CONFIG.work_openai_base_url or "").strip()
+    base_url = (CONFIG.work_openai_base_url or "").strip()
     return HermesRunnerParams(
         model=_model_default(),
         base_url=base_url,

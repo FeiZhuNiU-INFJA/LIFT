@@ -170,14 +170,6 @@ sequenceDiagram
 | `openclaw/json_output.py`        | 解析`--json` stdout                                                             |
 | `agent-runtimes/openclaw/`       | 镜像构建：self-evolving 插件、langfuse-tracer、gateway 配置、baked workspace 种子 |
 
-### 和 legacy 的区别（一句话）
-
-|      | **LIFT（src）**     | **legacy**            |
-| ---- | ------------------------- | --------------------------- |
-| 执行 | 容器内                    | 宿主机直跑                  |
-| 产物 | delta 镜像 + 每题独立容器 | 宿主机 toggle 加载          |
-| 入口 | `lift_main -r openclaw` | `legacy/openclaw_main.py` |
-
 **新开发只走 src 这条线**。
 
 ### 接新 runtime 要做什么？
@@ -292,7 +284,7 @@ EvalReport
 A：Warmup 要状态连续才能进化；holdout 要干净对照，每相位必须新容器。本质是两种相反的需求。
 
 **Q：Warmup / Holdout 串行还是并行？**
-A：默认都是**多题并行**：warmup `parallel_single`（同容器并发）、holdout `parallel_multi`（每题独立容器）。同题内部 baseline → evolved 顺序执行。所有并发开关与已知限制集中在 [eval-flow.md §4.5](./eval-flow.md#45-并发模型与限制)；策略枚举详情见 [§4.3](./eval-flow.md#43-warmup-容器策略warmupcontainerpolicy) / [§4.4](./eval-flow.md#44-holdout-容器策略holdoutcontainerpolicy)。
+A：默认都是**多题并行**：warmup `parallel_single`（同容器并发）、holdout `parallel_multi`（每题独立容器）。同题内部 baseline → evolved 顺序执行。所有并发开关与已知限制集中在 [eval-flow.md §4.4](./eval-flow.md#44-并发模型与限制)；策略枚举详情见 [§4.2](./eval-flow.md#42-warmup-容器策略warmupcontainerpolicy) / [§4.3](./eval-flow.md#43-holdout-容器策略holdoutcontainerpolicy)。
 
 **Q：轨迹分在哪？**
 A：执行期 `PhaseRun` 记 success / score；轨迹相关指标在后处理结合 Langfuse trace 算（默认 `--evaluate` 开启）。

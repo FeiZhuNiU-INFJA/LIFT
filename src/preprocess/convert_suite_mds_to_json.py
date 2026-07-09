@@ -123,9 +123,9 @@ def find_materials_dir(task_dir: Path, task_index: int) -> Path | None:
     if preferred_dir.exists():
         return preferred_dir
 
-    legacy_dir = task_dir / "materials"
-    if legacy_dir.exists():
-        return legacy_dir
+    fallback_dir = task_dir / "materials"
+    if fallback_dir.exists():
+        return fallback_dir
 
     return None
 

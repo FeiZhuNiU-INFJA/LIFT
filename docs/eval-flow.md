@@ -2,7 +2,7 @@
 
 本文描述 evolve_eval 的**抽象评测流程**：从数据准备、执行编排、结果落盘到后处理指标，不区分具体 agent 运行时实现。
 
-主实现入口为 [`src/cli/lift_main.py`](../src/cli/lift_main.py)（LIFT 容器协议）。宿主机直跑旧栈见 [legacy/README.md](../legacy/README.md)。
+主实现入口为 [`src/cli/lift_main.py`](../src/cli/lift_main.py)（LIFT 容器协议）。
 
 ---
 
@@ -115,18 +115,7 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 
 容器 Agent 的**模型配置契约**（镜像内注册 provider/model，运行时 `.env` `MODEL_NAME` 选用）见 [§12.6](./eval-flow.md#126-agent-模型配置契约lift--容器运行时)。
 
-### 4.2 Legacy 宿主机模式（非主入口）
-
-旧栈 `legacy/openclaw_main.py` 使用 `--mode exam`（语义等同 LIFT）或 `--mode replay`（全 suite 双遍，**遗留**）。新开发与复现应使用 `src/cli/lift_main.py`。
-
-| | **LIFT（`src`，目标）** | **replay（`legacy`，遗留）** |
-|---|------------------------|------------------------------|
-| 评测焦点 | 仅 holdout **final** 的加载对照 | **全部** task 进化前后各跑一遍 |
-| 产物阶段 | warmup 产 Δ 镜像 | 全 suite baseline 后一次 evolve |
-| report | 通常每 suite 若干 holdout `TaskRun` | 每题一条 `TaskRun` |
-| 科学问题 | 产物对 final 是否有效 | 每题进化幅度（诊断用） |
-
-### 4.3 Warmup 容器策略（`WarmupContainerPolicy`）
+### 4.2 Warmup 容器策略（`WarmupContainerPolicy`）
 
 `§4.1` 给出的是 warmup 默认策略（`parallel_single`），LIFT 在 [`src/lift/policies/container.py`](../src/lift/policies/container.py) 中以枚举显式表达 warmup **容器编排维度**的三种策略。CLI 通过 `--warmup-container-policy` 选择；该枚举仅决定容器数量与是否并发，**evolve 产物的去向（commit 镜像 vs 写外部系统）由 adapter 类型决定**。
 
@@ -155,7 +144,7 @@ GroupMemoryAdapterMixin（必须 parallel_multi）：
 - runtime 的 evolve 产物**在容器外**（如群体记忆服务、远端向量库）→ 选用 `GroupMemoryAdapterMixin` 系列 adapter（如 `multi_user_openclaw`），并使用 `parallel_multi`（adapter 默认会自动覆盖到此值）
 - 需要"模拟多用户"语义 → `parallel_multi` + 群体记忆 adapter（`serial_single` 多题共享 agent 状态，会污染"独立用户"假设）
 
-### 4.4 Holdout 容器策略（`HoldoutContainerPolicy`）
+### 4.3 Holdout 容器策略（`HoldoutContainerPolicy`）
 
 holdout 与 warmup 的容器维度不同：每道 holdout 题必须用独立容器（baseline 与 evolved 镜像分裂、避免状态污染），所以本枚举不提供"单容器"形态，只决定**多题之间是否并发**。
 
@@ -172,15 +161,15 @@ holdout 与 warmup 的容器维度不同：每道 holdout 题必须用独立容�
 
 **实现位置**：[`LIFTPipeline._run_holdout_tasks`](../src/lift/pipeline/lift_pipeline.py)。
 
-### 4.5 并发模型与限制
+### 4.4 并发模型与限制
 
 LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与已知限制**，完整的代码索引见 [`lift_pipeline.py`](../src/lift/pipeline/lift_pipeline.py) 与 [`task_exec.py`](../src/lift/eval/task_exec.py)。
 
 | 维度 | 默认 | 控制方式 | 备注 |
 |------|------|----------|------|
 | suites × repeats 矩阵 cell | **并行（默认上限 3）** | `--max-parallel-suites`（默认 `3`；`1` 串行；`<=0` 无上限） | 一个 cell = 一个 `(repeat_index, suite_index)` 对，对应一次 warmup+holdout；repeat × suite 笛卡尔积铺平后用单一 limit 限流。每个 cell 独立 `SuiteRunResources`（容器 + delta 镜像），互不干扰；失败隔离见下文 |
-| warmup 题 | 并行（同容器） | `--warmup-container-policy`（见 §4.3）；`--max-concurrent-tasks` | 容器形态由 policy 决定 |
-| holdout 多题之间 | 并行（多容器） | `--holdout-container-policy serial_multi` 串行（见 §4.4）；`--max-concurrent-tasks` | 每题独立容器强制 |
+| warmup 题 | 并行（同容器） | `--warmup-container-policy`（见 §4.2）；`--max-concurrent-tasks` | 容器形态由 policy 决定 |
+| holdout 多题之间 | 并行（多容器） | `--holdout-container-policy serial_multi` 串行（见 §4.3）；`--max-concurrent-tasks` | 每题独立容器强制 |
 | 单 holdout task 内 baseline ↔ evolved | **并行（默认）** | `--holdout-phase-policy serial` 退回串行 | 两 phase 镜像/workspace 子目录互不依赖；并行后单 task 内同时存活 2 容器 |
 | 同 task 内 work agent ↔ judge agent | 看 runtime | — | 由 `worker_judger_factory` 实现细节决定 |
 
@@ -195,7 +184,7 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 
 1. **`--max-concurrent-tasks` 仅在 phase 级生效**：默认 `--holdout-phase-policy parallel` 下，单 task 内会同时启 baseline + evolved 两容器，但 Semaphore 只在 task 维度计数；`max_concurrent_tasks=4` 时 holdout 容器数最高可达 8，需要硬上限请配合 `--holdout-phase-policy serial` 或下调 `--max-concurrent-tasks`。
 2. **warmup → holdout 之间被 `evolve_after_warmup` 阻塞**：holdout 必须等 evolve 完成才能起容器，期间宿主机资源闲置。
-3. **跨 cell 没有容器级全局上限**：`--max-parallel-suites` 限的是 cell 协程数，不是容器数；总峰值容器数 ≈ `并发 cell 数 × max_concurrent_tasks × (phase 并行?2:1)`。例如 `repeat=4 × suites=3` 共 12 个 cell，`--max-parallel-suites=12 × max_concurrent_tasks=4 × holdout-phase-policy=parallel` 同时跑，宿主机可见容器数会非常大，需结合 §4.6 资源约束与并发上限一起设。
+3. **跨 cell 没有容器级全局上限**：`--max-parallel-suites` 限的是 cell 协程数，不是容器数；总峰值容器数 ≈ `并发 cell 数 × max_concurrent_tasks × (phase 并行?2:1)`。例如 `repeat=4 × suites=3` 共 12 个 cell，`--max-parallel-suites=12 × max_concurrent_tasks=4 × holdout-phase-policy=parallel` 同时跑，宿主机可见容器数会非常大，需结合 §4.5 资源约束与并发上限一起设。
 4. **OpenClaw 容器宿主机端口**：现已改为 `docker run -p <container_port>` 由 docker 在临时端口段自动分配，启动后通过 `docker inspect` 把真实端口回填到 `ContainerSession.published_ports`；旧的 instance_id hash slot 方案已废弃，避免并行容器端口碰撞。
 
 **cell 级失败隔离与重跑**（[`_run_cells`](../src/lift/pipeline/lift_pipeline.py)）：
@@ -204,7 +193,7 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 - 首轮失败的 cell 会被全局收集起来**统一重跑一次**（仍受 `--max-parallel-suites` 限流）；重跑仍失败则记录 `cell failed after retry` 并在报告里保留 `None` 占位（该 cell 缺最终结果，其余 cell 正常落盘）。
 - 报告顺序稳定：每个 `repeat_run.suites` 先按输入顺序占位，再由各 cell 协程按 `(repeat_index, suite_index)` 回填，不随完成时间错乱。
 
-### 4.6 容器资源约束与运维（Colima / Docker VM）
+### 4.5 容器资源约束与运维（Colima / Docker VM）
 
 并发会按上一节公式放大**同时存活的容器数**。在资源受限的本地 Docker VM（macOS 上的 Colima / Docker Desktop）上，峰值容器一旦超过 VM 内存会触发 **OOM kill 或整机卡死**，典型症状：holdout 报 `container ... is not running` / `Failed to list agents in container`、`docker ps -a` 显示 `Exited (137)`。`colima ssh -- sudo dmesg | grep -i oom` 区分 `global_oom`（VM 总内存耗尽）/ `Memory cgroup out of memory`（撞 `--memory` 上限）。
 
@@ -219,7 +208,7 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 
 **调参建议**：先用默认（不限单容器内存）+ `--max-parallel-suites` 控制并发；若 `Exited (137)` 出现，优先**下调 `--max-parallel-suites` / `--max-concurrent-tasks`**，再考虑扩 VM 内存 / swap。
 
-### 4.7 异常处理与重试矩阵
+### 4.6 异常处理与重试矩阵
 
 LIFT 框架在不同层级对异常采取**就地重试一次 + 同级隔离**的组合策略：让"瞬时抖动 / provider 抖动 / 容器抖动"在最近的层级吸收掉，同时保证一颗节点失败不会拖垮整个 run。下表汇总各层级当前的重试与隔离行为（自底向上）。
 
@@ -236,7 +225,7 @@ LIFT 框架在不同层级对异常采取**就地重试一次 + 同级隔离**�
 | **suite** | 单 suite 抛异常（warmup / holdout / produce_delta 任一阶段未捕获的失败） | **首轮失败队尾重跑 1 次** | 同 repeat 内并发 suite 用 `bounded_gather(return_exceptions=True)`，单 suite 失败不取消其它 suite | 二次仍失败 → 报告里该 suite 对应位置保留 `None` 占位（其它 suite 完整落盘） | `_attempt` + 队尾重跑（[lift_pipeline.py L167-L220](../src/lift/pipeline/lift_pipeline.py#L167-L220)） |
 | **repeat** | 单 repeat 抛异常 | — | repeat 之间默认并行（`bounded_gather` 默认 `return_exceptions=False`，**未启用隔离**） | 当前会 fail-fast 取消其他 repeat | `LIFTPipeline.run`（[lift_pipeline.py L99-L114](../src/lift/pipeline/lift_pipeline.py#L99-L114)） |
 
-#### 4.7.1 状态事件契约（对应 dashboard / TUI）
+#### 4.6.1 状态事件契约（对应 dashboard / TUI）
 
 每一层重试 / 失败都会通过 `status_events.emit_stage(detail=...)` 把异常摘要透出来，便于 dashboard hover / TUI 红框面板观察。摘要由 [`exc_summary`](../src/lift/eval/task_exec.py#L19-L31) 把 `Exception` 压成 `"<ClassName>: <first line>"` 单行；`asyncio.CancelledError` 单独标记为 `"CancelledError: cancelled by sibling failure"`，区分"自身失败"和"被兄弟节点 fail-fast 牵连"。
 
@@ -249,7 +238,7 @@ LIFT 框架在不同层级对异常采取**就地重试一次 + 同级隔离**�
 
 适用维度：`kind=warmup_task` / `phase` / `task` / `suite`。
 
-#### 4.7.2 设计取舍说明
+#### 4.6.2 设计取舍说明
 
 - **`judge.success=False` 不视为失败**：judge 是"模拟用户反馈"，跑满 turns 后返回 `success=False` 是正常评测信号，不应触发重试浪费 LLM 配额；phase 仍 emit `done`，detail 携带 score。
 - **重试只在最近一层 + 每层一次**：让"瞬时错误"被吸收，"持续性错误"快速暴露；chat 层 provider 重试 5 次因 LLM 抖动样本量更大。
@@ -257,13 +246,13 @@ LIFT 框架在不同层级对异常采取**就地重试一次 + 同级隔离**�
 - **provider 重试不 emit pre-chat span**：见 [§12.5.6](#1256-provider-错误重试--扩展贪心配对跨-runtime-通用)，与配对算法相耦合。
 - **repeat 层暂未隔离**：repeat 之间不共享 delta，单 repeat 异常通常是环境级问题（docker / Langfuse 整体不可用），fail-fast 更易暴露根因；如需更强容错可在 [`LIFTPipeline.run`](../src/lift/pipeline/lift_pipeline.py#L99-L114) 切到 `return_exceptions=True`。
 
-#### 4.7.3 不进入框架重试的失败模式
+#### 4.6.3 不进入框架重试的失败模式
 
 下列情况框架**不会**自动重试，依赖运维 / 调用方处理：
 
 | 失败模式 | 现状 | 建议处理 |
 |---------|------|----------|
-| docker daemon 不可用 / VM OOM | 容器启动直接抛 `docker: ... is not running`，task / phase 重试也起不来 | §4.6 调 VM 内存 / `--max-parallel-suites` |
+| docker daemon 不可用 / VM OOM | 容器启动直接抛 `docker: ... is not running`，task / phase 重试也起不来 | §4.5 调 VM 内存 / `--max-parallel-suites` |
 | Langfuse 不可达 | `emit_pre_chat_state` warning 不阻塞主流程；trace 后处理时拉不到数据 | 检查 `.env` / 网络；后处理可单独 retry |
 | benchmark JSON 格式错 / 缺字段 | `load_lift_suite` 启动时直接抛 | 修正 suite JSON |
 | `MODEL_NAME` 与镜像 bake 的不一致 / 格式非 `custom/model_id` | `agents add --model` 报错 | §12.6：改 `.env` 后 `build-image.sh` 重建镜像 |
@@ -479,14 +468,14 @@ flowchart LR
 | `--run_id` | 自定义 eval run 后缀 |
 | `--warmup-only` | 只跑 warmup + evolve + Δ，跳过 holdout |
 | `--repeat` | 完整 LIFT 重复 N 次，写入 `EvalReport.runs[]` |
-| `--warmup-container-policy` | warmup 容器编排策略（`serial_single` / `parallel_single` / `parallel_multi`，默认 `parallel_single`），见 [§4.3](#43-warmup-容器策略warmupcontainerpolicy) |
-| `--holdout-container-policy` | holdout 容器编排策略（`serial_multi` / `parallel_multi`，默认 `parallel_multi`），见 [§4.4](#44-holdout-容器策略holdoutcontainerpolicy) |
-| `--holdout-phase-policy` | 单 task 内 baseline / evolved 顺序（`parallel` / `serial`，默认 `parallel`），见 [§4.5](#45-并发模型与限制) |
-| `--max-parallel-suites` | suites × repeats 矩阵 cell 级并发上限（默认 `3`；`1` 串行；`<=0` 无上限），见 [§4.5](#45-并发模型与限制) |
-| `--max-concurrent-tasks` | 单 phase 内题级并发容器数上限（默认无上限），见 [§4.5](#45-并发模型与限制) |
+| `--warmup-container-policy` | warmup 容器编排策略（`serial_single` / `parallel_single` / `parallel_multi`，默认 `parallel_single`），见 [§4.2](#42-warmup-容器策略warmupcontainerpolicy) |
+| `--holdout-container-policy` | holdout 容器编排策略（`serial_multi` / `parallel_multi`，默认 `parallel_multi`），见 [§4.3](#43-holdout-容器策略holdoutcontainerpolicy) |
+| `--holdout-phase-policy` | 单 task 内 baseline / evolved 顺序（`parallel` / `serial`，默认 `parallel`），见 [§4.4](#44-并发模型与限制) |
+| `--max-parallel-suites` | suites × repeats 矩阵 cell 级并发上限（默认 `3`；`1` 串行；`<=0` 无上限），见 [§4.4](#44-并发模型与限制) |
+| `--max-concurrent-tasks` | 单 phase 内题级并发容器数上限（默认无上限），见 [§4.4](#44-并发模型与限制) |
 | `--max-conversation-turns` | 单 task 内 work→judge 最大对话轮数（默认 `5`，替代旧的 `EVAL_MAX_TURNS` 环境变量） |
-| `--container-memory` | 单容器内存上限，透传 `docker run --memory`（**默认不限制**；设过小会触发 `CONSTRAINT_MEMCG` OOM），见 [§4.6](#46-容器资源约束与运维colima--docker-vm) |
-| `--container-cpus` | 单容器 CPU 上限，透传 `docker run --cpus`（默认不限制），见 [§4.6](#46-容器资源约束与运维colima--docker-vm) |
+| `--container-memory` | 单容器内存上限，透传 `docker run --memory`（**默认不限制**；设过小会触发 `CONSTRAINT_MEMCG` OOM），见 [§4.5](#45-容器资源约束与运维colima--docker-vm) |
+| `--container-cpus` | 单容器 CPU 上限，透传 `docker run --cpus`（默认不限制），见 [§4.5](#45-容器资源约束与运维colima--docker-vm) |
 | `--tui` | 启动终端 TUI 实时状态面板（`rich.Live`），见 [§12.8](#128-运行状态可视化--tui----dashboard) |
 | `--dashboard [HOST:]PORT` | 启动浏览器 HTTP 状态面板（标准库零依赖），见 [§12.8](#128-运行状态可视化--tui----dashboard) |
 | `-e` / `--evaluate` | 评测结束后自动后处理（**默认开启**；`--no-evaluate` 关闭） |
@@ -494,7 +483,7 @@ flowchart LR
 
 等价入口：`python -m src.cli`（转发到 `lift_main`）。
 
-冒烟建议：`--warmup-only`（非 legacy 的 `--test`）。
+冒烟建议：`--warmup-only`。
 
 ---
 
@@ -511,7 +500,6 @@ flowchart LR
 | Markdown → JSON | `src/preprocess/convert_suite_mds_to_json.py`；CLI：`src/cli/preprocess.py` |
 | Langfuse stitch | `src/report/langfuse_trace_stitch.py` |
 | 后处理 | `src/postprocess/` |
-| Legacy 宿主机栈 | `legacy/openclaw_main.py`、`legacy/hermes_main.py` |
 
 ---
 
@@ -689,7 +677,7 @@ class GroupMemoryAdapterMixin:
 
 #### 12.5.3 Provider 错误重试 × 扩展贪心配对（跨 runtime 通用）
 
-worker / judge 对 LLM provider 错误（超时 / 限流）原地用同一 prompt 重试 3 次（见 §4.7）。OpenClaw 的 `langfuse-tracer` 在 `agent_end` 必触发——成功/超时都会写 plugin trace，重试 N 次会产生 N 条同 `session_id`、时间戳依次递增的 plugin trace。若每次重试再 emit 一条新的 `*_agent` pre-chat span，配对算法会把重试当成新轮，吹大 `turn_index` 并重复累加 token / latency。
+worker / judge 对 LLM provider 错误（超时 / 限流）原地用同一 prompt 重试 3 次（见 §4.6）。OpenClaw 的 `langfuse-tracer` 在 `agent_end` 必触发——成功/超时都会写 plugin trace，重试 N 次会产生 N 条同 `session_id`、时间戳依次递增的 plugin trace。若每次重试再 emit 一条新的 `*_agent` pre-chat span，配对算法会把重试当成新轮，吹大 `turn_index` 并重复累加 token / latency。
 
 **eval 侧契约**：重试**不** emit pre-chat span——见 [`run_task.py`](../src/lift/eval/run_task.py) 的 `_agent_chat_no_emit` / `_work_chat_with_provider_retry` / `_judge_with_retry`。多次重试的 plugin trace 都挂在最初那条 `*_agent` 之后。
 
@@ -742,12 +730,12 @@ LIFT 在容器内通过 `agents add --model …` 注册 work / judge agent。Ope
 
 ### 12.7 当前实现映射
 
-| 抽象步骤 | `src/lift`（OpenClaw 容器） | `MultiUserOpenClaw`（群体记忆） | `legacy`（宿主机，遗留） |
-|----------|----------------------------|---------------------------------|-------------------------|
-| 默认 ArtifactPolicy | warmup `tasks[:-holdout]` + `learn review` | warmup 多容器并行（`parallel_multi` 策略 + `GroupMemoryAdapterMixin`） | warmup + `evolve()` |
-| before-load final | `docker run` base 镜像 + 新 workspace | `docker run` base 镜像 + `load_state=BASELINE`（不读群体记忆） | `disable_evolve()` 后跑 final |
-| after-load final | `docker run` delta 镜像 + 新 workspace | `docker run` base 镜像 + `load_state=EVOLVED`（读已学群体记忆） | `enable_evolve()` + evolved workspace |
-| trace_backfill | `agent_source=openclaw` | `agent_source=openclaw`（共享 OpenClaw 链路） | `agent_source=hermes` |
+| 抽象步骤 | `src/lift`（OpenClaw 容器） | `MultiUserOpenClaw`（群体记忆） |
+|----------|----------------------------|---------------------------------|
+| 默认 ArtifactPolicy | warmup `tasks[:-holdout]` + `learn review` | warmup 多容器并行（`parallel_multi` 策略 + `GroupMemoryAdapterMixin`） |
+| before-load final | `docker run` base 镜像 + 新 workspace | `docker run` base 镜像 + `load_state=BASELINE`（不读群体记忆） |
+| after-load final | `docker run` delta 镜像 + 新 workspace | `docker run` base 镜像 + `load_state=EVOLVED`（读已学群体记忆） |
+| trace_backfill | `agent_source=openclaw` | `agent_source=openclaw`（共享 OpenClaw 链路） |
 
 ---
 

@@ -51,7 +51,13 @@ def _dialogue_turn(turn_index: int, ref: LangfuseTraceRef) -> LangfuseDialogueTu
 
 
 def _last_turn_messages(work_turns: list[LangfuseTraceRef]) -> list[Any]:
-    """取最后一轮带 plugin messages 的 transcript（每轮 agent_end 多为全量，只保留末轮）。"""
+    """取最后一轮带 plugin messages 的 transcript（每轮 agent_end 多为全量，只保留末轮）。
+
+    仅作**回退**路径：``work_turns`` 按 timestamp 升序排列，``reversed`` 取到的第一条
+    非空 messages 即“最晚一条” transcript，与 fetch 阶段 ``TranscriptChampion`` 的口径
+    （timestamp 最大）一致。启用流式归约后各 ref 的 ``messages`` 已被剥离，此函数返回空，
+    真正的 transcript 由 ``build_work_analytics`` 的 ``all_messages`` 入参提供。
+    """
     for ref in reversed(work_turns):
         meta = ref.plugin_metadata
         if meta is not None and meta.messages:
@@ -59,10 +65,20 @@ def _last_turn_messages(work_turns: list[LangfuseTraceRef]) -> list[Any]:
     return []
 
 
-def build_work_analytics(work_turns: list[LangfuseTraceRef]) -> LangfuseWorkSessionAnalytics:
-    """仅 work 侧；每轮一条 trace_chain（input/output），与 work_agent_traces 对齐。"""
+def build_work_analytics(
+    work_turns: list[LangfuseTraceRef],
+    *,
+    all_messages: list[Any] | None = None,
+) -> LangfuseWorkSessionAnalytics:
+    """仅 work 侧；每轮一条 trace_chain（input/output），与 work_agent_traces 对齐。
+
+    ``all_messages`` 为“整段会话最终 transcript”。调用方启用流式归约时，直接传入
+    ``TranscriptChampion`` 选出的最晚一条 work transcript（此时 ``work_turns`` 各 ref
+    的 messages 已被剥离）；未传入时回退 ``_last_turn_messages`` 扫描 ``work_turns``，
+    保持无归约路径与历史行为一致。
+    """
     trace_chain = [_dialogue_turn(i, ref) for i, ref in enumerate(work_turns)]
-    all_messages = _last_turn_messages(work_turns)
+    resolved_messages = all_messages if all_messages is not None else _last_turn_messages(work_turns)
     chat_turns: list[LangfuseWorkChatTurn] = []
 
     for i, ref in enumerate(work_turns):
@@ -93,5 +109,5 @@ def build_work_analytics(work_turns: list[LangfuseTraceRef]) -> LangfuseWorkSess
         chat_turns=chat_turns,
         global_stats=g,
         total_latency_seconds=total_latency,
-        all_messages=all_messages,
+        all_messages=resolved_messages,
     )
