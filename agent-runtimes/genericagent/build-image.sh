@@ -68,10 +68,20 @@ GIT_URL="${GENERICAGENT_GIT_URL:-https://ghfast.top/https://github.com/lsdefine/
 GIT_REF="${GENERICAGENT_GIT_REF:-main}"
 WORK_OPENAI_API_KEY="${WORK_OPENAI_API_KEY:-}"
 WORK_OPENAI_BASE_URL="${WORK_OPENAI_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}"
-# GA 直连 work LLM，模型名必须是 provider 真实 endpoint id（如 ep-2025xxxx-xxxxx），不是
-# OpenClaw 内部 gateway 命名空间。``GENERICAGENT_MODEL_NAME`` 优先于共享的 ``MODEL_NAME``，
-# 避免污染 OpenClaw 镜像构建期的 MODEL_NAME。
-MODEL_NAME="${GENERICAGENT_MODEL_NAME:-${MODEL_NAME:-}}"
+# 共享 MODEL_NAME 保持 custom/model_id 契约；GA 直连 work LLM，最终 bake 进
+# mykey.py 的是斜杠后的 provider-native model_id。GENERICAGENT_MODEL_NAME 仍可显式
+# 覆盖为 provider-native id，便于临时绕过共享 MODEL_NAME。
+RAW_MODEL_NAME="${MODEL_NAME:-}"
+if [[ -n "${RAW_MODEL_NAME}" && ( "${RAW_MODEL_NAME}" != custom/* || "${RAW_MODEL_NAME}" == "custom/" ) ]]; then
+  echo "WARN: MODEL_NAME must be 'custom/model_id' (e.g. custom/ep-xxxx); got '${RAW_MODEL_NAME}'." >&2
+fi
+if [[ -n "${GENERICAGENT_MODEL_NAME:-}" ]]; then
+  MODEL_NAME="${GENERICAGENT_MODEL_NAME}"
+elif [[ "${RAW_MODEL_NAME}" == custom/* && "${RAW_MODEL_NAME}" != "custom/" ]]; then
+  MODEL_NAME="${RAW_MODEL_NAME#custom/}"
+else
+  MODEL_NAME="${RAW_MODEL_NAME}"
+fi
 LANGFUSE_PUBLIC_KEY="${LANGFUSE_PUBLIC_KEY:-}"
 LANGFUSE_SECRET_KEY="${LANGFUSE_SECRET_KEY:-}"
 LANGFUSE_HOST="${LANGFUSE_HOST:-${LANGFUSE_BASE_URL:-http://host.docker.internal:3000}}"

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.config import CONFIG
+from src.config import CONFIG, LOGGER
 from src.lift.adapters.container.exec import docker_exec_async
 
 # 镜像内固定路径（见 agent-runtimes/hermes/Dockerfile / install-in-image.sh）。
@@ -61,7 +61,13 @@ def _model_default() -> str:
     model_name = (CONFIG.model or "").strip()
     if not model_name or model_name == "unknown":
         return ""
-    return model_name.split("/", 1)[1] if "/" in model_name else model_name
+    if not (model_name.startswith("custom/") and len(model_name) > len("custom/")):
+        LOGGER.warning(
+            "MODEL_NAME must be 'custom/model_id' (e.g. custom/ep-xxxx); got %r.",
+            model_name,
+        )
+        return model_name
+    return model_name.split("/", 1)[1]
 
 
 def hermes_runner_params() -> HermesRunnerParams:

@@ -57,11 +57,11 @@ fi
 #      MODEL_NAME 作为 primary / models key（OpenClaw agents add --model 需 provider/model_id）。
 #    - WORK_OPENAI_API_KEY 注入 models.provider.apiKey。
 MODEL_NAME="${MODEL_NAME:-}"
-if [[ "${MODEL_NAME}" != */* ]]; then
-  echo "ERROR: MODEL_NAME must be 'provider/model_id' (e.g. custom/ep-xxxx); got '${MODEL_NAME}'" >&2
+if [[ "${MODEL_NAME}" != custom/* || "${MODEL_NAME}" == "custom/" ]]; then
+  echo "ERROR: MODEL_NAME must be 'custom/model_id' (e.g. custom/ep-xxxx); got '${MODEL_NAME}'" >&2
   exit 1
 fi
-MODEL_ID="${MODEL_NAME#*/}"  # 斜杠后的部分作为 model.id
+MODEL_ID="${MODEL_NAME#custom/}"  # custom/ 后的部分作为 model.id
 
 if [[ -z "${WORK_OPENAI_API_KEY:-}" ]]; then
   echo "WARN: WORK_OPENAI_API_KEY is empty; models.provider apiKey will remain placeholder" >&2

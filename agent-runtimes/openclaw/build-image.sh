@@ -77,8 +77,8 @@ if [[ -z "${WORK_OPENAI_API_KEY}" ]]; then
   echo "WARN: WORK_OPENAI_API_KEY is not set; image will bake models fragment without a real apiKey." >&2
   echo "      Set WORK_OPENAI_API_KEY in repo root .env before build." >&2
 fi
-if [[ "${MODEL_NAME}" != */* ]]; then
-  echo "ERROR: MODEL_NAME must be 'provider/model_id' (e.g. custom/ep-xxxx); got '${MODEL_NAME}'." >&2
+if [[ "${MODEL_NAME}" != custom/* || "${MODEL_NAME}" == "custom/" ]]; then
+  echo "ERROR: MODEL_NAME must be 'custom/model_id' (e.g. custom/ep-xxxx); got '${MODEL_NAME}'." >&2
   echo "       Set MODEL_NAME in repo root .env before build." >&2
   exit 1
 fi

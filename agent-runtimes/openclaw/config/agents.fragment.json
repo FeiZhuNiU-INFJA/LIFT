@@ -1,13 +1,7 @@
 {
   "agents": {
     "defaults": {
-      "workspace": "/root/.openclaw/workspace",
-      "model": {
-        "primary": "__MODEL_NAME__"
-      },
-      "models": {
-        "__MODEL_NAME__": {}
-      }
+      "workspace": "/root/.openclaw/workspace"
     }
   }
 }

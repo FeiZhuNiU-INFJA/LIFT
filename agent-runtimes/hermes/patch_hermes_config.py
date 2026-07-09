@@ -35,8 +35,13 @@ def _model_default() -> str:
     model_name = os.environ.get("MODEL_NAME", "").strip()
     if not model_name:
         return ""
-    # provider/model_id -> model_id (suffix after last "/")
-    return model_name.split("/", 1)[1] if "/" in model_name else model_name
+    if not (model_name.startswith("custom/") and len(model_name) > len("custom/")):
+        print(
+            "[patch-hermes-config] WARN: MODEL_NAME must be 'custom/model_id' "
+            f"(e.g. custom/ep-xxxx); got {model_name!r}."
+        )
+        return model_name
+    return model_name.split("/", 1)[1]
 
 
 def _base_url() -> str:

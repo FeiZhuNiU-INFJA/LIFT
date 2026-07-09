@@ -10,8 +10,8 @@
           {
             "id": "__MODEL_ID__",
             "name": "LLM",
-            "contextWindow": 200000,
-            "maxTokens": 50000,
+            "contextWindow": 256000,
+            "maxTokens": 51200,
             "input": ["text"],
             "cost": {
               "input": 0,

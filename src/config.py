@@ -11,6 +11,9 @@ from src.paths import PROJECT_ROOT
 
 load_dotenv()
 
+LOGGER = logging.getLogger(__name__)
+"""本模块 logger（``src.config``）。"""
+
 RESET = "\033[0m"
 """ANSI 重置色码。"""
 
@@ -32,6 +35,19 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _read_model_name() -> str:
+    """读取共享 ``MODEL_NAME``，并尽早提示格式契约。"""
+    model = os.getenv("MODEL_NAME", "unknown")
+    if model not in {"", "unknown"} and not (
+        model.startswith("custom/") and len(model) > len("custom/")
+    ):
+        LOGGER.warning(
+            "MODEL_NAME must be 'custom/model_id' (e.g. custom/ep-xxxx); got %r.",
+            model,
+        )
+    return model
+
+
 @dataclass(frozen=True)
 class AppConfig:
     """从环境变量加载的不可变应用配置。"""
@@ -47,8 +63,8 @@ class AppConfig:
 
     默认 None（不覆盖，用 Docker 默认 bridge）。在纯 IPv6/NAT64 等 bridge 容器无法
     出网的宿主机上，设为 ``host`` 让容器复用宿主机网络栈（继承其 DNS/路由）。
-    对 Hermes / GenericAgent 等 exec-runner、不发布端口的 runtime 无副作用；OpenClaw
-    发布 gateway 端口，host 模式下端口语义变化，需自行确认。
+    OpenClaw 依赖 Docker 端口发布回填 gateway / FastAPI 端口，host 模式会让 Docker
+    忽略 ``-p`` 并导致 ``docker inspect`` 没有 HostPort；只在明确确认风险后使用。
     """
     model: str
     """agent 使用的模型名（``MODEL_NAME``，形如 ``custom/model_id``，provider 前缀恒为 ``custom``）。"""
@@ -95,13 +111,9 @@ def load_config() -> AppConfig:
         hermes_model_name=os.getenv("HERMES_MODEL_NAME"),
         hermes_api_url=os.getenv("HERMES_API_URL"),
         hermes_base_image_tag=os.getenv("HERMES_BASE_IMAGE_TAG", "v2026.5.16"),
-        container_network_mode=(
-            os.getenv("CONTAINER_NETWORK_MODE")
-            or os.getenv("HERMES_NETWORK_MODE")  # 向后兼容旧变量名
-            or ""
-        ).strip()
+        container_network_mode=(os.getenv("CONTAINER_NETWORK_MODE") or "").strip()
         or None,
-        model=os.getenv("MODEL_NAME", "unknown"),
+        model=_read_model_name(),
         max_tokens=int(os.getenv("MAX_TOKENS", "51200")),
         log_file=os.getenv("EVAL_LOG_FILE", str(_default_log_file())),
         langfuse_pre_chat=_env_flag("EVAL_LANGFUSE_PRE_CHAT", default=True),
@@ -156,7 +168,7 @@ def setup_logging() -> None:
         level = logging.INFO
     root_logger.setLevel(level)
 
-    log_path = Path(CONFIG.log_file).expanduser()
+    log_path = Path(os.getenv("EVAL_LOG_FILE", str(_default_log_file()))).expanduser()
     if not log_path.is_absolute():
         log_path = (PROJECT_ROOT / log_path).resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -203,10 +215,7 @@ def setup_logging() -> None:
     root_logger.addHandler(file_handler)
 
 
-CONFIG = load_config()
-"""模块加载时初始化的全局配置实例。"""
-
 setup_logging()
 
-LOGGER = logging.getLogger(__name__)
-"""本模块 logger（``src.config``）。"""
+CONFIG = load_config()
+"""模块加载时初始化的全局配置实例。"""
