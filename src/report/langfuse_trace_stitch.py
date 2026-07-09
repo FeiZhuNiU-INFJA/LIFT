@@ -10,8 +10,9 @@ Collect Langfuse traces for one ``openclaw_run_task`` phase (single pipeline).
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Literal
+from typing import Any
 
+from src.lift.adapters.registry import SUPPORTED_RUNTIMES
 from src.report.langfuse_trace_fetch import fetch_trace_details, trace_ref_from_detail
 from src.report.langfuse_trace_merge import (
     pair_hermes_traces_to_agent_turns,
@@ -22,13 +23,8 @@ from src.models import LangfuseTraceRef, PhaseLangfuseBundle
 
 
 # Agent backend whose trace pairing rules are applied during stitching.
-AgentSource = Literal[
-    "openclaw",
-    "openclaw_with_evolve",
-    "hermes",
-    "genericagent",
-    "genericagent_active_evolve",
-]
+# 值域 = ``SUPPORTED_RUNTIMES``；见 ``src.postprocess.extract.AgentSource`` 说明。
+AgentSource = str
 
 
 # 单 phase 内 4 路 ``trace.list`` 互相独立（work_sid / judge_sid / work_tag /
@@ -245,7 +241,10 @@ def stitch_phase_langfuse_traces(
             judge_session_id=judge_session_id,
             page_limit=page_limit,
         )
-    if agent_source in ("openclaw", "openclaw_with_evolve", "genericagent", "genericagent_active_evolve"):
+    # 其余 runtime 都复用 OpenClaw 的 sid-only trace layout（``*_agent`` + plugin
+    # trace 按 session_id 配对）。合法 runtime 名以 ``SUPPORTED_RUNTIMES`` 为唯一
+    # 事实源，新增 runtime 只要落到该 tuple 里就自动纳入这条分支。
+    if agent_source in SUPPORTED_RUNTIMES:
         return _stitch_openclaw(
             client,
             eval_run_tag=eval_run_tag,

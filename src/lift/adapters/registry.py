@@ -16,6 +16,7 @@ SUPPORTED_RUNTIMES = (
     "genericagent",
     "genericagent_active_evolve",
     "hermes",
+    "openhuman",
 )  # CLI 可选的运行时标识
 
 
@@ -54,5 +55,10 @@ def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
         from src.lift.adapters.hermes.adapter import HermesAdapter
 
         return HermesAdapter(options)
+    if normalized == "openhuman":
+        # OpenHuman baseline：Rust core serve 暴露 JSON-RPC，chat 走 HTTP agent.chat
+        from src.lift.adapters.openhuman.adapter import OpenHumanAdapter
+
+        return OpenHumanAdapter(options)
     supported = ", ".join(SUPPORTED_RUNTIMES)
     raise ValueError(f"Unknown runtime {runtime!r}; supported: {supported}")

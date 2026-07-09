@@ -1,0 +1,9 @@
+.git
+target
+**/__pycache__
+**/.pytest_cache
+node_modules
+*.pyc
+*.rs.bk
+.env
+*.log

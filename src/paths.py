@@ -38,6 +38,16 @@ HERMES_DOCKER_IMAGE = "evolve-eval-hermes:latest"
 HERMES_WORKSPACE_SEED_DIR = HERMES_AGENT_DIR / "workspace_seed"
 """宿主机 Hermes eval workspace seed 源目录（可选；默认 Hermes 状态 baked 在镜像内 /opt/hermes-state）。""" 
 
+OPENHUMAN_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "openhuman"
+"""OpenHuman 镜像与容器配置目录（``agent-runtimes/openhuman/``）。"""
+
+OPENHUMAN_DOCKER_IMAGE = "evolve-eval-openhuman:latest"
+"""OpenHuman baseline 镜像（``OpenHumanAdapter`` 使用；
+``agent-runtimes/openhuman/build-image.sh`` 构建）。"""
+
+OPENHUMAN_WORKSPACE_SEED_DIR = OPENHUMAN_AGENT_DIR / "workspace_seed"
+"""宿主机 OpenHuman eval workspace seed 源目录。"""
+
 RESULTS_DIR = "results"
 """单次 eval run 产物根目录名（相对 cwd）：report、outcome、后处理指标。"""
 

@@ -9,15 +9,12 @@ trajectory maps (snake-layout SVG with click-to-inspect nodes).
 
 import json
 from html import escape
-from typing import Any, Callable, Literal
+from typing import Any, Callable
 
 import pandas as pd
 
-from src.postprocess.extract import _should_ignore_tool_call_block
+from src.postprocess.extract import AgentSource, _should_ignore_tool_call_block
 from src.postprocess.metrics import METRIC_COLUMNS, _outlier_mask
-
-# Agent backend that produced the traces; controls which metrics appear in HTML.
-AgentSource = Literal["openclaw", "openclaw_with_evolve", "hermes", "genericagent", "genericagent_active_evolve"]
 
 # Metrics hidden from HTML for all agent sources.
 _HTML_HIDDEN_METRICS_BASE = {"cached_token"}

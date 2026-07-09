@@ -1,0 +1,15 @@
+# OpenHuman configuration (rendered by install-in-image.sh).
+#
+# ``inference_url`` + ``api_key`` + ``default_model`` 三字段配套配置时，OpenHuman
+# 会绕开自家 backend，直连一个 OpenAI-兼容端点做推理（源见
+# ``openhuman-core::openhuman::config::Config.inference_url`` 的字段注释）。
+# 我们用它把 seed 模型 (火山方舟 ARK doubao-seed-2-0-pro-260215) 接进来，和其他
+# runtime 保持一致。
+#
+# 占位符 __X__ 由 install-in-image.sh 在 build 期 sed 渲染，未提供的字段留空。
+
+api_url = "__API_URL__"
+api_key = "__API_KEY__"
+inference_url = "__INFERENCE_URL__"
+default_model = "__DEFAULT_MODEL__"
+default_temperature = 0.2
