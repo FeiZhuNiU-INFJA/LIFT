@@ -33,7 +33,7 @@ async def exec_openclaw_async(
 ) -> str:
     """异步 ``docker exec openclaw ...``，失败抛 ``RuntimeError``。
 
-    OpenClaw CLI 所需的 ``OPENCLAW_GATEWAY_TOKEN`` / ``LANGFUSE_*`` / ``ARK_API_KEY``
+    OpenClaw CLI 所需的 ``OPENCLAW_GATEWAY_TOKEN`` / ``LANGFUSE_*`` / ``WORK_OPENAI_API_KEY``
     等环境变量在 ``docker run`` 阶段已经写入 ``Config.Env``，``docker exec`` 默认
     继承——因此这里不再传 ``-e``，避免 secret 在命令行/日志中重复出现。
     ``extra_env`` 仅用于偶发的运行时附加变量。

@@ -167,6 +167,19 @@ python -m src.cli.lift_main \
 
 跑完看 [results/lift-runid-my-first-run/](./results) 下的报告与自动生成的 `dashboard.html` 离线快照。
 
+**其它 runtime**：`-r genericagent` 跑 GenericAgent；`-r hermes` 跑 Hermes（容器空转 +
+`docker exec` 拉起 `hermes_runner.py`，warmup 期 work session 结束触发 review 演化）。
+Hermes 镜像构建见 [agent-runtimes/hermes/README.md](./agent-runtimes/hermes/README.md)；
+推荐 WSL/Linux 服务器跑完整评测，本机只做最小 smoke test。Hermes warmup 建议加
+`--warmup-container-policy serial_single`（避免每题 review 并发写共享 `/opt/hermes-state` 的竞态）。
+
+```bash
+bash agent-runtimes/hermes/build-image.sh   # 默认基于 nousresearch/hermes-agent:v2026.5.16
+python -m src.cli.lift_main -r hermes \
+  --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id hermes-smoke \
+  --warmup-container-policy serial_single
+```
+
 ---
 
 ## 想看更细的
@@ -180,8 +193,9 @@ python -m src.cli.lift_main \
 | LIFT 代码速查 + 测试命令 | [src/lift/README.md](./src/lift/README.md) |
 | Benchmark 收集规范（query / 要求 / 轨迹要求） | [assets/suite_requirement.md](./assets/suite_requirement.md) |
 | OpenClaw 镜像构建细节 | [agent-runtimes/openclaw/README.md](./agent-runtimes/openclaw/README.md) |
-| 从零搭环境 | skill: [setup-lift-env](./skill/setup-lift-env/SKILL.md) |
-| 清理评测残留容器/镜像 | skill: [cleanup-lift-env](./skill/cleanup-lift-env/SKILL.md) |
+| Hermes 镜像构建细节 | [agent-runtimes/hermes/README.md](./agent-runtimes/hermes/README.md) |
+| 从零搭环境 | skill: [setup-eval-env](./skill/setup-eval-env/SKILL.md) |
+| 清理评测残留容器/镜像 | skill: [cleanup-eval-env](./skill/cleanup-eval-env/SKILL.md) |
 | 接入新的 agent runtime | skill: [lift-integrate-agent-runtime](./skill/lift-integrate-agent-runtime/SKILL.md) |
 
 ---
@@ -197,7 +211,8 @@ python -m src.cli.lift_main \
 │   └── postprocess/        # 跑完后的指标计算与 trace 回填
 ├── agent-runtimes/         # 各 runtime 的 Docker 镜像与插件
 │   ├── openclaw/
-│   └── genericagent/
+│   ├── genericagent/
+│   └── hermes/
 ├── assets/
 │   ├── benchmark_mds/      # 人类可读任务源（preprocess 从 TOS / HF 下载，gitignore）
 │   ├── benchmarks_demo/    # 冒烟 demo suite（hello.json，随仓库提供）

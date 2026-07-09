@@ -70,11 +70,17 @@ if [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
 else
   TAG="${OPENCLAW_IMAGE:-evolve-eval-openclaw-base:latest}"
 fi
-ARK_API_KEY="${ARK_API_KEY:-}"
+WORK_OPENAI_API_KEY="${WORK_OPENAI_API_KEY:-}"
+MODEL_NAME="${MODEL_NAME:-}"
 
-if [[ -z "${ARK_API_KEY}" ]]; then
-  echo "WARN: ARK_API_KEY is not set; image will bake models fragment without a real apiKey." >&2
-  echo "      Set ARK_API_KEY in repo root .env before build." >&2
+if [[ -z "${WORK_OPENAI_API_KEY}" ]]; then
+  echo "WARN: WORK_OPENAI_API_KEY is not set; image will bake models fragment without a real apiKey." >&2
+  echo "      Set WORK_OPENAI_API_KEY in repo root .env before build." >&2
+fi
+if [[ "${MODEL_NAME}" != custom/* || "${MODEL_NAME}" == "custom/" ]]; then
+  echo "ERROR: MODEL_NAME must be 'custom/model_id' (e.g. custom/ep-xxxx); got '${MODEL_NAME}'." >&2
+  echo "       Set MODEL_NAME in repo root .env before build." >&2
+  exit 1
 fi
 
 echo "==> Pulling base image (if needed): ${BASE_IMAGE}"
@@ -82,9 +88,10 @@ docker pull "${BASE_IMAGE}" || echo "WARN: docker pull failed; using local image
 
 BUILD_ARGS=(--build-arg "OPENCLAW_BASE_IMAGE=${BASE_IMAGE}")
 BUILD_ARGS+=(--build-arg "INSTALL_SELF_EVOLVING=${INSTALL_SELF_EVOLVING}")
-if [[ -n "${ARK_API_KEY}" ]]; then
-  BUILD_ARGS+=(--build-arg "ARK_API_KEY=${ARK_API_KEY}")
-  echo "==> Baking Ark provider (apiKey from ARK_API_KEY) into image"
+BUILD_ARGS+=(--build-arg "MODEL_NAME=${MODEL_NAME}")
+if [[ -n "${WORK_OPENAI_API_KEY}" ]]; then
+  BUILD_ARGS+=(--build-arg "WORK_OPENAI_API_KEY=${WORK_OPENAI_API_KEY}")
+  echo "==> Baking model provider (apiKey from WORK_OPENAI_API_KEY) into image"
 fi
 # APT_MIRROR / PIP_INDEX_URL 默认走公网；内网构建时通过环境变量传入即可（详见 README）。
 if [[ -n "${APT_MIRROR:-}" ]]; then

@@ -1,7 +1,7 @@
 """Baseline vs evolved metric comparison and summary aggregation.
 
 Pairs task rows, computes improvement ratios and absolute diffs, and builds
-category/global summary statistics with outlier exclusion for trials/tool_use.
+suite/global summary statistics with outlier exclusion for trials/tool_use.
 """
 
 from typing import Any
@@ -21,13 +21,13 @@ METRIC_COLUMNS = [
 ]
 
 # Columns that identify a task within a suite.
-KEY_COLUMNS = ["task_name", "category"]
+KEY_COLUMNS = ["task_name", "suite"]
 
 # Columns that uniquely identify a baseline/evolved pair.
-PAIR_KEY_COLUMNS = ["run", "suite_name", "suite_path", "task_name", "category"]
+PAIR_KEY_COLUMNS = ["run", "suite_name", "suite_path", "task_name", "suite"]
 
 # Summary 计算时，``impr_trials`` / ``impr_tool_use_num`` 超过该阈值的样本视为离群（退化过强），
-# 仅在 task 详情表展示，不参与 category / global 的 mean_impr 与 mean_diff 聚合。
+# 仅在 task 详情表展示，不参与 suite / global 的 mean_impr 与 mean_diff 聚合。
 SUMMARY_IMPR_OUTLIER_METRICS = ("trials", "tool_use_num")
 SUMMARY_IMPR_OUTLIER_THRESHOLD = 2.0
 
@@ -130,11 +130,11 @@ def _outlier_mask(comparison_df: pd.DataFrame) -> pd.Series:
 
 def build_summary_row(
     scope: str,
-    category: Any,
+    suite: Any,
     comparison_df: pd.DataFrame,
     original_df: pd.DataFrame,
 ) -> dict[str, Any]:
-    """Build one summary dict for a category or global scope, excluding outlier tasks.
+    """Build one summary dict for a suite or global scope, excluding outlier tasks.
 
     ``mean_impr_{metric}`` 采用聚合口径 ``(Σevolved - Σbaseline) / Σbaseline``（先对原值求和
     再算相对改进），而非逐样本 impr 取平均。``mean_diff_{metric}`` 仍为逐样本绝对差的算术平均。
@@ -146,7 +146,7 @@ def build_summary_row(
 
     row: dict[str, Any] = {
         "scope": scope,
-        "category": category if pd.notna(category) else "UNKNOWN",
+        "suite": suite if pd.notna(suite) else "UNKNOWN",
         "task_count": int(len(comparison_df)),
         "task_count_aggregated": int(len(aggregate_df)),
         "task_count_excluded": excluded_count,
@@ -189,24 +189,24 @@ def build_summary_row(
 
 
 def build_summary_dataframe(comparison_df: pd.DataFrame, original_df: pd.DataFrame) -> pd.DataFrame:
-    """Build per-category and global summary rows from comparison and original DataFrames."""
+    """Build per-suite and global summary rows from comparison and original DataFrames."""
     rows: list[dict[str, Any]] = []
 
-    for category, category_comparison_df in comparison_df.groupby("category", dropna=False):
-        category_original_df = original_df[original_df["category"] == category].copy()
+    for suite, suite_comparison_df in comparison_df.groupby("suite", dropna=False):
+        suite_original_df = original_df[original_df["suite"] == suite].copy()
         rows.append(
             build_summary_row(
-                scope="category",
-                category=category,
-                comparison_df=category_comparison_df,
-                original_df=category_original_df,
+                scope="suite",
+                suite=suite,
+                comparison_df=suite_comparison_df,
+                original_df=suite_original_df,
             )
         )
 
     rows.append(
         build_summary_row(
             scope="global",
-            category="ALL",
+            suite="ALL",
             comparison_df=comparison_df,
             original_df=original_df,
         )
@@ -216,8 +216,8 @@ def build_summary_dataframe(comparison_df: pd.DataFrame, original_df: pd.DataFra
 
 
 def print_summary_to_console(summary_df: pd.DataFrame) -> None:
-    """Print category and global summary metrics to stdout for quick inspection."""
-    category_rows = summary_df[summary_df["scope"] == "category"]
+    """Print suite and global summary metrics to stdout for quick inspection."""
+    suite_rows = summary_df[summary_df["scope"] == "suite"]
     global_rows = summary_df[summary_df["scope"] == "global"]
 
     def _print_block(title: str, row: pd.Series) -> None:
@@ -240,8 +240,8 @@ def print_summary_to_console(summary_df: pd.DataFrame) -> None:
             f"evolved_success_rate={row['evolved_success_rate']:.6f}"
         )
 
-    for _, row in category_rows.iterrows():
-        _print_block(f"Category: {row['category']} Summary", row)
+    for _, row in suite_rows.iterrows():
+        _print_block(f"Suite: {row['suite']} Summary", row)
 
     for _, row in global_rows.iterrows():
         _print_block("Global Summary", row)

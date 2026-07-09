@@ -5,7 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 RESET = "\033[0m"
 LEVEL_COLORS = {
@@ -27,9 +27,13 @@ def _env_flag(name: str, default: bool = False) -> bool:
 class AppConfig:
     hermes_api_key: str | None
     hermes_env_file: str | None
+    hermes_dir: str | None
+    hermes_model_name: str | None
+    hermes_api_url: str | None
+    hermes_max_tokens: int
     openclaw_env_file: str | None
+    openclaw_model_name: str | None
     eval_max_turns: int
-    model: str
     log_file: str
     langfuse_pre_chat: bool
     langfuse_public_key: str | None
@@ -52,9 +56,13 @@ def load_config() -> AppConfig:
     return AppConfig(
         hermes_api_key=os.getenv("HERMES_API_KEY"),
         hermes_env_file=os.getenv("HERMES_ENV_FILE"),
+        hermes_dir=os.getenv("HERMES_DIR"),
+        hermes_model_name=os.getenv("HERMES_MODEL_NAME"),
+        hermes_api_url=os.getenv("HERMES_API_URL"),
+        hermes_max_tokens=int(os.getenv("HERMES_MAX_TOKENS", "102400")),
         openclaw_env_file=os.getenv("OPENCLAW_ENV_FILE"),
+        openclaw_model_name=os.getenv("OPENCLAW_MODEL_NAME"),
         eval_max_turns=int(os.getenv("EVAL_MAX_TURNS", "2")),
-        model=os.getenv("MODEL_NAME", "unknown"),
         log_file=os.getenv("EVAL_LOG_FILE", str(_default_log_file())),
         langfuse_pre_chat=_env_flag("EVAL_LANGFUSE_PRE_CHAT", default=True),
         langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),

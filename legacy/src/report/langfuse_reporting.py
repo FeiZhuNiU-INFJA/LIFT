@@ -78,7 +78,12 @@ def emit_pre_chat_state(
     #     "content_score": _truncate_str(str(tags.content_score)),
     # }
     # trace_name = _truncate_str(f"evolve_eval:{tags.task}")
-
+    LOGGER.info(
+        "starting emit_pre_chat_state: session_id=%s, chat_role=%s, tags=%s",
+        session_id,
+        chat_role,
+        tags,
+    )
     try:
         with propagate_attributes(
             session_id=session_id,
@@ -93,7 +98,9 @@ def emit_pre_chat_state(
                 input=payload,
             ):
                 pass
+            
         client.flush()
+        LOGGER.info("Langfuse pre-chat reporting success (session_id=%s, chat_role=%s)", session_id, chat_role)
     except Exception:
         LOGGER.exception(
             "Langfuse pre-chat reporting failed (session_id=%s, chat_role=%s)",

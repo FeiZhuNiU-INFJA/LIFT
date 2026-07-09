@@ -139,10 +139,10 @@ class ContainerInfo:
 
 @dataclass
 class FinalSummaryRow:
-    """后处理 summary CSV 单行（per-suite / per-category / global）。"""
+    """后处理 summary CSV 单行（per-suite / global）。"""
 
-    scope: str  # suite | category | global
-    label: str  # suite_path / category 名 / "global"
+    scope: str  # suite | global
+    label: str  # suite 名 / "global"
     task_count: int = 0
     task_count_aggregated: int = 0
     task_count_excluded: int = 0

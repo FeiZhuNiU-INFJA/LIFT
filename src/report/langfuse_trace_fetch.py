@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
+import json
 from typing import Any
 
 from src.report.langfuse_trace_parse import structure_trace_payload, is_plugin_trace
@@ -94,52 +95,25 @@ def observation_briefs(observations: list[Any]) -> list[LangfuseObservationBrief
     return briefs
 
 
-def _obs_start_ts(od: dict[str, Any]) -> str:
-    """observations 排序键：以 start_time 为准；缺失置空串以便排在最前。"""
-    ts = od.get("start_time") or od.get("startTime")
-    if ts is None:
-        return ""
-    if hasattr(ts, "isoformat"):
-        return ts.isoformat()
-    return str(ts)
+def _hermes_tool_call_count_from_output(raw_output: Any) -> int | None:
+    """Hermes ``Hermes turn`` chain 的 output 形如 ``{content, reasoning, tool_calls: [...]}``。
 
-
-def _hermes_messages_from_observations(obs_raw: list[Any]) -> list[Any] | None:
-    """Hermes：trace 顶层 ``metadata.messages`` 通常缺失；改从每个 ``GENERATION`` observation 的
-    ``metadata.messages`` 取（hermes 上报侧默认仅保留最近 11 条以控制数据量）。
-
-    每条 ``GENERATION`` 的 ``metadata.messages`` 是该次 LLM 调用的 input（累计历史窗口），
-    其 ``output`` 为本次 assistant 回复。取**最后一条 GENERATION**（按 ``start_time`` 排序）
-    的 messages 作为基础，并追加其 output 作为最末 assistant message，整体即"该 turn 截止时的
-    transcript（最多保留最近 11 条 + 最末一条 assistant）"，与 OpenClaw 模式语义对齐。
+    ``tool_calls`` 由插件在 ``_finish_trace`` 时通过 ``_merge_trace_output`` 注入，
+    覆盖整轮累计的工具调用（包括被上下文压缩遮蔽的早期调用），是 Hermes 工具调用数
+    的权威来源。返回 ``None`` 表示无法解析（保留旧 fallback 行为）。
     """
-    rows: list[dict[str, Any]] = []
-    for o in obs_raw or []:
-        od = o.model_dump() if hasattr(o, "model_dump") else (o if isinstance(o, dict) else {})
-        rows.append(od)
-    rows.sort(key=_obs_start_ts)
-
-    last_msgs: list[Any] | None = None
-    last_output: Any = None
-    for od in rows:
-        if str(od.get("type") or "").upper() != "GENERATION":
-            continue
-        om = od.get("metadata") or {}
-        msgs = om.get("messages") if isinstance(om, dict) else None
-        if isinstance(msgs, list) and msgs:
-            last_msgs = msgs
-            last_output = od.get("output")
-    if last_msgs is None:
+    data: Any = raw_output
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(data, dict):
         return None
-    merged: list[Any] = list(last_msgs)
-    if isinstance(last_output, dict):
-        last_msg: dict[str, Any] = {"role": "assistant"}
-        last_msg.update(last_output)
-        last_msg["role"] = "assistant"
-        merged.append(last_msg)
-    elif isinstance(last_output, str) and last_output.strip():
-        merged.append({"role": "assistant", "content": last_output})
-    return merged
+    tool_calls = data.get("tool_calls")
+    if not isinstance(tool_calls, list):
+        return None
+    return len(tool_calls)
 
 
 def trace_detail_from_api(full: Any) -> LangfuseTraceDetailRecord:
@@ -153,18 +127,20 @@ def trace_detail_from_api(full: Any) -> LangfuseTraceDetailRecord:
         d.get("output"),
         d.get("metadata") if isinstance(d.get("metadata"), dict) else {},
     )
-    # Hermes turn：从 GENERATION observations 反推 messages，使下游 work_analytics.all_messages 可用。
-    if (
-        name == "Hermes turn"
-        and structured.plugin_metadata is not None
-        and not structured.plugin_metadata.messages
-    ):
-        injected = _hermes_messages_from_observations(obs_raw)
-        if injected:
+    # Hermes 现行链路：
+    # - trace 顶层 metadata.messages 包含全量 transcript（由插件
+    #   `_publish_messages_to_root` 写入）。当前插件已经不再在 GENERATION 子节点
+    #   metadata 中保存 messages，所以这里没有回退路径——顶层缺失就是真的缺失。
+    # - tool_call_blocks 权威来源：trace 顶层 output.tool_calls 的长度。插件在
+    #   `_finish_trace` 中把整轮累计 tool_calls 写入 root output，不受上下文压缩影响；
+    #   下游 `_make_row_hermes` 通过 `global_stats.tool_call_blocks` 读取。
+    if name == "Hermes turn" and structured.plugin_metadata is not None:
+        tc_count = _hermes_tool_call_count_from_output(d.get("output"))
+        if tc_count is not None:
             structured = structured.model_copy(
                 update={
                     "plugin_metadata": structured.plugin_metadata.model_copy(
-                        update={"messages": injected, "message_count": len(injected)}
+                        update={"tool_call_blocks": tc_count}
                     )
                 }
             )

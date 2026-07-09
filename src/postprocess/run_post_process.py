@@ -175,8 +175,8 @@ def build_final_summary_from_df(
     rows: list[FinalSummaryRow] = []
     for _, raw in summary_df.iterrows():
         scope = str(raw.get("scope") or "")
-        # category 行用 "category" 字段，global 用固定 "ALL"
-        label = str(raw.get("category") or raw.get("label") or "")
+        # suite 行用 "suite" 字段，global 用固定 "ALL"
+        label = str(raw.get("suite") or raw.get("label") or "")
         metrics: dict[str, float | None] = {}
         for col, val in raw.items():
             if not isinstance(col, str):

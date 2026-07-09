@@ -148,22 +148,22 @@ cp .env.example .env
 
 | 变量 | 必填 | 说明 |
 |------|------|------|
-| `MODEL_NAME` | 是 | `provider/model_id`，须与镜像内注册的 provider/model 一致，默认值可直接用 |
-| `ARK_API_KEY` | 建议 | 构建镜像前填好，会写入 models fragment；留空则镜像内 apiKey 为空 |
+| `MODEL_NAME` | 是 | `custom/model_id`（provider 前缀恒为 `custom`）；构建镜像时注入，默认值可直接用 |
+| `WORK_OPENAI_API_KEY` | 建议 | 构建镜像前填好，会写入 models fragment 的 `custom` provider apiKey；留空则镜像内 apiKey 为空 |
 | `LANGFUSE_PUBLIC_KEY` | 是 | 步骤 2 拿到的 `pk-lf-...` |
 | `LANGFUSE_SECRET_KEY` | 是 | 步骤 2 拿到的 `sk-lf-...` |
 | `LANGFUSE_BASE_URL` | 是 | 本地填 `http://localhost:3000`（容器内 src 自动改 host.docker.internal） |
 | `TOS_ACCESS_KEY` / `TOS_SECRET_KEY` | 仅步骤 4 方式 A 需要 | preprocess 从 TOS 拉 benchmark_mds 用；只跑 hello.json 可暂不填 |
 | `BENCHMARK_HF_REPO` | 否 | HuggingFace dataset 仓库 id；默认 `FeiZhuNiU-INFJA/EALE`（公开），自建镜像才需要覆盖 |
 | `HF_TOKEN` | 仅上传到 HF 需要 | 维护者推 benchmark_mds.zip 到 HF 时的写权限 token |
-| `DO_TRAJECTORY_JUDGE` / `OPENAI_*` | 否 | 轨迹评判可选，默认 false |
+| `DO_TRAJECTORY_JUDGE` / `TRAJECTORY_JUDGE_OPENAI_*` | 否 | 轨迹评判可选，默认 false |
 | `FIRECRAWL_API_KEY` | 否 | 部分 benchmark 联网搜索可选 |
 
-> 跑 `hello.json` 冒烟只强依赖：`MODEL_NAME` + `ARK_API_KEY` + `LANGFUSE_*`。
+> 跑 `hello.json` 冒烟只强依赖：`MODEL_NAME` + `WORK_OPENAI_API_KEY` + `LANGFUSE_*`。
 
 校验：
 ```bash
-grep -E '^(MODEL_NAME|ARK_API_KEY|LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFUSE_BASE_URL)=' .env
+grep -E '^(MODEL_NAME|WORK_OPENAI_API_KEY|LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFUSE_BASE_URL)=' .env
 ```
 
 ---
@@ -228,7 +228,7 @@ docker images | grep evolve-eval-openclaw
 docker run --rm evolve-eval-openclaw-with-evolve:latest openclaw plugins list
 ```
 
-> 构建前确保 `.env` 已填 `ARK_API_KEY`，否则镜像内模型 apiKey 为空。
+> 构建前确保 `.env` 已填 `WORK_OPENAI_API_KEY`，否则镜像内模型 apiKey 为空。
 
 ---
 

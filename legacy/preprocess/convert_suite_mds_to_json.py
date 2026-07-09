@@ -19,6 +19,8 @@ from src.models import SuiteSpec  # noqa: E402
 TASK_DIR_RE = re.compile(r"^q(?P<index>\d+)(?:[_-].+)?$", re.IGNORECASE)
 SECTION_NAMES = ("query", "要求", "轨迹要求")
 IGNORED_DIR_NAMES = {"__MACOSX"}
+DEFAULT_INPUT_ROOT = PROJECT_ROOT / "assets" / "benchmark_mds"
+DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "assets" / "benchmarks"
 
 
 def to_project_relative(path: Path) -> str:
@@ -71,7 +73,7 @@ def find_task_markdown(task_dir: Path) -> Path:
 
 
 def resolve_scene_dir(scene_dir: Path) -> Path:
-    if iter_task_dirs(scene_dir):
+    if (scene_dir / "train").is_dir() or (scene_dir / "test").is_dir():
         return scene_dir
 
     nested_candidates = [
@@ -82,10 +84,10 @@ def resolve_scene_dir(scene_dir: Path) -> Path:
 
     preferred_nested = [path for path in nested_candidates if path.name == scene_dir.name]
     for candidate in preferred_nested + nested_candidates:
-        if iter_task_dirs(candidate):
+        if (candidate / "train").is_dir() or (candidate / "test").is_dir():
             return candidate
 
-    raise ValueError(f"No task directories found in benchmark scene: {scene_dir}")
+    raise ValueError(f"No train/test split directories found in suite scene: {scene_dir}")
 
 
 def find_materials_dir(task_dir: Path, task_index: int) -> Path | None:
@@ -100,7 +102,7 @@ def find_materials_dir(task_dir: Path, task_index: int) -> Path | None:
     return None
 
 
-def build_task_entry(scene_dir: Path, task_dir: Path) -> dict[str, object]:
+def build_task_entry(scene_dir: Path, task_dir: Path, split_dir: Path | None = None) -> dict[str, object]:
     match = TASK_DIR_RE.match(task_dir.name)
     if match is None:
         raise ValueError(f"Invalid task directory name: {task_dir.name}")
@@ -109,14 +111,18 @@ def build_task_entry(scene_dir: Path, task_dir: Path) -> dict[str, object]:
     md_path = find_task_markdown(task_dir)
     sections = parse_markdown_sections(md_path.read_text(encoding="utf-8"), md_path)
     materials_dir = find_materials_dir(task_dir, task_index)
-    skills_dir = scene_dir / "skills"
+    skills_dir = split_dir / "skills" if split_dir is not None else None
 
     return {
         "name": f"Q{task_index}",
         "query": sections["query"],
         "requirements": {
             "default_skills": [],
-            "extra_skills_dir": to_project_relative(skills_dir) if skills_dir.exists() else "",
+            "extra_skills_dir": (
+                to_project_relative(skills_dir)
+                if skills_dir is not None and skills_dir.exists()
+                else ""
+            ),
             "material_dir": to_project_relative(materials_dir) if materials_dir is not None else "",
         },
         "expected_result": {
@@ -135,14 +141,24 @@ def iter_task_dirs(scene_dir: Path) -> list[Path]:
     return sorted(task_dirs, key=lambda path: int(TASK_DIR_RE.match(path.name).group("index")))
 
 
-def build_benchmark_spec(scene_dir: Path) -> dict[str, object]:
+def build_split_tasks(scene_dir: Path, split_name: str) -> list[dict[str, object]]:
+    split_dir = scene_dir / split_name
+    if not split_dir.is_dir():
+        return []
+    task_dirs = iter_task_dirs(split_dir)
+    return [build_task_entry(scene_dir, task_dir, split_dir) for task_dir in task_dirs]
+
+
+def build_suite_spec(scene_dir: Path) -> dict[str, object]:
     resolved_scene_dir = resolve_scene_dir(scene_dir)
-    task_dirs = iter_task_dirs(resolved_scene_dir)
+    train_tasks = build_split_tasks(resolved_scene_dir, "train")
+    test_tasks = build_split_tasks(resolved_scene_dir, "test")
 
     return {
         "name": resolved_scene_dir.name,
         "category": resolved_scene_dir.name,
-        "tasks": [build_task_entry(resolved_scene_dir, task_dir) for task_dir in task_dirs],
+        "train": train_tasks,
+        "test": test_tasks,
     }
 
 
@@ -158,12 +174,12 @@ def convert_all(input_root: Path, output_root: Path) -> list[Path]:
     progress = tqdm(scene_dirs, unit="suite")
     for scene_dir in progress:
         progress.set_description(scene_dir.name)
-        benchmark_data = build_benchmark_spec(scene_dir)
-        SuiteSpec.model_validate(benchmark_data)
+        suite_data = build_suite_spec(scene_dir)
+        SuiteSpec.model_validate(suite_data)
 
         output_path = output_root / f"{scene_dir.name}.json"
         output_path.write_text(
-            json.dumps(benchmark_data, ensure_ascii=False, indent=2) + "\n",
+            json.dumps(suite_data, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
         written_files.append(output_path)
@@ -175,24 +191,24 @@ def preprocess_suite_mds(
     input_root: Path | None = None,
     output_root: Path | None = None,
 ) -> list[Path]:
-    resolved_input_root = (input_root or (PROJECT_ROOT / "assets" / "benchmark_mds")).resolve()
-    resolved_output_root = (output_root or (PROJECT_ROOT / "assets" / "benchmarks")).resolve()
+    resolved_input_root = (input_root or DEFAULT_INPUT_ROOT).resolve()
+    resolved_output_root = (output_root or DEFAULT_OUTPUT_ROOT).resolve()
     return convert_all(resolved_input_root, resolved_output_root)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert markdown benchmarks into JSON benchmark specs.")
+    parser = argparse.ArgumentParser(description="Convert markdown suite folders into JSON suite specs.")
     parser.add_argument(
         "--input-root",
         type=Path,
-        default=PROJECT_ROOT / "assets" / "benchmark_mds",
-        help="Directory containing markdown benchmark scene folders.",
+        default=DEFAULT_INPUT_ROOT,
+        help="Directory containing markdown suite scene folders.",
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=PROJECT_ROOT / "assets" / "benchmarks",
-        help="Directory to write generated benchmark JSON files into.",
+        default=DEFAULT_OUTPUT_ROOT,
+        help="Directory to write generated suite JSON files into.",
     )
     args = parser.parse_args()
 

@@ -8,8 +8,8 @@
 
 native_oai_config = {
     "name": "doubao",
-    "apikey": "__ARK_API_KEY__",
-    "apibase": "__ARK_BASE_URL__",
+    "apikey": "__WORK_OPENAI_API_KEY__",
+    "apibase": "__WORK_OPENAI_BASE_URL__",
     "model": "__MODEL_NAME__",
     "api_mode": "openai-completions",
 }

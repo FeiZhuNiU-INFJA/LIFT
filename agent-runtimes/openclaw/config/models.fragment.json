@@ -2,16 +2,16 @@
   "models": {
     "mode": "merge",
     "providers": {
-      "custom-ark-cn-beijing-volces-com": {
+      "custom": {
         "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
         "api": "openai-completions",
-        "apiKey": "__ARK_API_KEY__",
+        "apiKey": "__WORK_OPENAI_API_KEY__",
         "models": [
           {
-            "id": "ep-20260529115331-9zxpm",
-            "name": "doubao-seed-2-0-pro-260215 (Custom Provider)",
-            "contextWindow": 200000,
-            "maxTokens": 50000,
+            "id": "__MODEL_ID__",
+            "name": "LLM",
+            "contextWindow": 256000,
+            "maxTokens": 51200,
             "input": ["text"],
             "cost": {
               "input": 0,

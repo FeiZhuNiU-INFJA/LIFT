@@ -15,6 +15,7 @@ SUPPORTED_RUNTIMES = (
     "multi_user_openclaw",
     "genericagent",
     "genericagent_active_evolve",
+    "hermes",
 )  # CLI 可选的运行时标识
 
 
@@ -48,5 +49,10 @@ def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
         )
 
         return GenericAgentActiveEvolveAdapter(options)
+    if normalized == "hermes":
+        # Hermes：容器空转 + docker exec 拉起 hermes_runner；review 驱动的隐式演化
+        from src.lift.adapters.hermes.adapter import HermesAdapter
+
+        return HermesAdapter(options)
     supported = ", ".join(SUPPORTED_RUNTIMES)
     raise ValueError(f"Unknown runtime {runtime!r}; supported: {supported}")

@@ -1441,7 +1441,7 @@ function renderFinalSummary(fs) {
   theadHtml += '</tr>';
   thead.innerHTML = theadHtml;
 
-  // 排序：global 行置底，category 按 label 字母序
+  // 排序：global 行置底，suite 按 label 字母序
   const rows = [...fs.rows];
   rows.sort((a, b) => {
     if (a.scope === 'global' && b.scope !== 'global') return 1;

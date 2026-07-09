@@ -28,6 +28,16 @@ GENERICAGENT_DOCKER_IMAGE = "evolve-eval-genericagent:latest"
 GENERICAGENT_WORKSPACE_SEED_DIR = GENERICAGENT_AGENT_DIR / "workspace_seed"
 """宿主机 GenericAgent eval workspace seed 源目录。"""
 
+HERMES_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "hermes"
+"""Hermes 镜像与容器配置目录（``agent-runtimes/hermes/``）。"""
+
+HERMES_DOCKER_IMAGE = "evolve-eval-hermes:latest"
+"""Hermes 评测镜像（``HermesAdapter`` 使用；``agent-runtimes/hermes/build-image.sh`` 构建，
+默认基于上游 ``nousresearch/hermes-agent:v2026.5.16``）。"""
+
+HERMES_WORKSPACE_SEED_DIR = HERMES_AGENT_DIR / "workspace_seed"
+"""宿主机 Hermes eval workspace seed 源目录（可选；默认 Hermes 状态 baked 在镜像内 /opt/hermes-state）。""" 
+
 RESULTS_DIR = "results"
 """单次 eval run 产物根目录名（相对 cwd）：report、outcome、后处理指标。"""
 

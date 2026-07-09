@@ -153,7 +153,7 @@ cmd_create() {
     -p "${OPENCLAW_FASTAPI_HOST_PORT}:18090" \
     -v /tmp:/tmp \
     -e "OPENCLAW_GATEWAY_TOKEN=${token}" \
-    -e "ARK_API_KEY=${ARK_API_KEY:-}" \
+    -e "WORK_OPENAI_API_KEY=${WORK_OPENAI_API_KEY:-}" \
     -e "LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}" \
     -e "LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}" \
     -e "LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-http://host.docker.internal:3000}" \
@@ -297,7 +297,7 @@ Commands:
 Environment:
   OPENCLAW_IMAGE              (default: evolve-eval-openclaw-with-evolve:latest)
   OPENCLAW_INSTANCE_REGISTRY  (default: /tmp/evolve-eval-openclaw-instances)
-  Repo .env supplies ARK_API_KEY, LANGFUSE_*, etc.
+  Repo .env supplies WORK_OPENAI_API_KEY, LANGFUSE_*, etc.
 
 Build image first:
   bash agent-runtimes/openclaw/build-image.sh

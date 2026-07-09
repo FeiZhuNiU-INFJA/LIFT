@@ -1,38 +1,458 @@
-# Legacy evaluation stack
+# evolve\_eval
 
-宿主机直跑时代的 OpenClaw / Hermes 评测入口，已被正式 [`src/`](../src/) LIFT 路径取代。
+一个用于运行 benchmark task 并做循环评测的 Python 项目，当前支持 `hermes` 和 `openclaw` 两种 agent framework。目前Openclaw链路已完善
 
-**不要**与新版同时使用 `PYTHONPATH=legacy:.`，否则 `import src` 会歧义。
+当前稳定主链路是：
 
-## 运行方式
+1. 用 [openclaw_main.py](./openclaw_main.py) 或 [hermes_main.py](./hermes_main.py) 跑 benchmark，产出轻量 report JSON
+2. 用 [postprocess/run_post_process.py](./postprocess/run_post_process.py) 统一完成 enrich、抽取、打分、指标统计和 HTML 展示
+3. 或者直接在 `openclaw_main.py --evaluate` / `hermes_main.py --evaluate` 中一键完成整条流水线
 
-在仓库根目录：
+## 1. 环境准备
+
+- Conda（Miniconda/Anaconda 任一）
+- 可用的 `hermes` CLI（项目会以 `<profile_name> gateway run` 启动每个 HermesAgent 的网关进程，并隔离端口）
+- 可用的 `openclaw` CLI（使用 `openclaw` framework 时需要）
+- 可访问的 Hermes OpenAI 兼容服务（每个 HermesAgent 默认监听 `50000 + agent_id`，对应 base_url `http://localhost:<port>/v1`）
+- Langfuse 观测插件：本项目的 trace stitching 强依赖 langfuse 插件，OpenClaw / Hermes 各有一份本地实现需要安装到对应 framework 的 plugins 目录，详见下文「2.1 插件配置」
+
+## 2. 安装依赖
+
+创建并激活 conda 环境：
 
 ```bash
-# OpenClaw 宿主机模式
-PYTHONPATH=legacy python legacy/openclaw_main.py --mode exam --suite hello.json
-
-# Hermes 宿主机模式
-PYTHONPATH=legacy python legacy/hermes_main.py --suite hello.json
-
-# 仅后处理
-PYTHONPATH=legacy python legacy/postprocess/run_post_process.py --run_id <id>
+conda create -n evolve_eval python=3.12
+conda activate evolve_eval
 ```
 
-## 目录
+在项目根目录安装依赖：
 
-| 路径 | 说明 |
+```bash
+pip install -r requirements.txt
+```
+
+### 2.1 插件配置（Langfuse Tracer）
+
+仓库根目录提供了两份 langfuse 插件源码：
+
+- [langfuse-tracer/](./langfuse-tracer/)：OpenClaw 用的 Node.js 插件
+- [langfuse-hermes/](./langfuse-hermes/)：Hermes 用的 Python 插件
+
+#### OpenClaw
+
+```bash
+# 1. 把插件源码放到 OpenClaw 扩展目录
+cp -r langfuse-tracer/ ~/.openclaw/extensions/
+
+# 2. 在 ~/.openclaw/openclaw.json 的 plugins 字段中加入：
+#       "langfuse-tracer": {
+#         "enabled": true,
+#         "hooks": {
+#           "allowConversationAccess": true
+#         }
+#       }
+#    并按 langfuse-tracer/index.js 文件头注释配置 LANGFUSE_* 等环境变量
+
+# 3. 重启网关让插件生效
+openclaw gateway restart
+```
+
+注：`OpenClawAgent.initialize_environment` 会自动执行 `openclaw plugins enable langfuse-tracer`，所以只要扩展目录与 `openclaw.json` 配置就位即可。
+
+#### Hermes
+
+Hermes 的 langfuse 插件走的是 hermes 自带的 venv，需要先在该 venv 内安装 `langfuse` Python SDK，再启用并覆盖插件源码：
+
+```bash
+# 1. 在 Hermes 自己的 venv 里安装 langfuse SDK（CLI 用的也是这个 venv）
+~/.hermes/hermes-agent/venv/bin/pip install langfuse
+
+# 2. 启用 observability/langfuse 插件
+hermes plugins enable observability/langfuse
+
+# 3. 用本仓库的实现覆盖 Hermes 自带的 langfuse 插件目录
+cp -r langfuse-hermes/* ~/.hermes/hermes-agent/plugins/observability/langfuse
+```
+
+完成后 HermesAgent 启动 gateway 时即可上报 langfuse trace。
+
+## 3. 配置环境变量
+
+项目通过 `src/config.py` 使用 `python-dotenv` 读取根目录 `.env`。仓库提供了 [.env.example](./.env.example) 作为模板，可复制为 `.env` 后按需修改。
+
+```env
+# Hermes 调用相关
+HERMES_API_KEY=your_api_key
+HERMES_ENV_FILE=~/.hermes/.env
+OPENCLAW_ENV_FILE=~/.openclaw/.env
+MODEL_NAME=provider/model_name
+EVAL_MAX_TURNS=10
+
+# Hermes API Server（HermesAgent gateway 自身需要的鉴权）
+API_SERVER_ENABLED=true
+API_SERVER_KEY=your_api_server_key
+
+# Judge（可选，启用后用 OpenAI 兼容接口跑 judge agent）
+DO_TRAJECTORY_JUDGE=false
+OPENAI_API_KEY=your_api_key_here
+OPENAI_BASE_URL=https://your-openai-compatible-endpoint
+TRAJECTORY_JUDGE_MODEL=gpt-4o-mini
+
+# Langfuse（pre-chat 上报与 trace stitching，见第 7 节）
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=http://your-langfuse-host:3000
+
+# 搜索工具（可选）：本项目原本使用 firecrawl 作为搜索工具，
+# 部分 benchmark / skill 在跑联网检索时会读取该 key；不需要联网搜索可留空。
+FIRECRAWL_API_KEY=your_firecrawl_api_key
+```
+
+说明：
+
+- `HERMES_API_KEY`：调用 Hermes OpenAI 接口所需
+- `HERMES_ENV_FILE`：Hermes 的 env 文件路径
+- `OPENCLAW_ENV_FILE`：OpenClaw 的 env 文件路径
+- `MODEL_NAME`：`openclaw agents add --model` 使用的模型名，必须填写为 `provider/model_name` 格式，例如 `anthropic/claude-sonnet-4-20250514`
+- `EVAL_MAX_TURNS`：`run_task` 最大尝试轮次（默认 2，参见 `src/config.py`）
+- `API_SERVER_ENABLED` / `API_SERVER_KEY`：HermesAgent 启动 gateway 时写入到 `HERMES_ENV_FILE` 的 API Server 鉴权字段
+- `DO_TRAJECTORY_JUDGE` / `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `TRAJECTORY_JUDGE_MODEL`：当 `DO_TRAJECTORY_JUDGE=true` 时，judge agent 走该 OpenAI 兼容接口
+- `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL`：Langfuse 拉取 / 上报 trace 所需；缺一个就视为没配
+- `FIRECRAWL_API_KEY`：本项目原本使用 firecrawl 作为搜索工具，HermesAgent gateway 启动时会把它写入到 `HERMES_ENV_FILE` 的 `HERMES_FIRECRAWL_API_KEY`；如果不依赖联网搜索，可留空
+
+> 注意：路径中的 `~` 在代码里会自动展开。
+
+## 4. benchmark 数据格式
+
+### 术语
+
+本项目里评测相关概念分层如下：
+
+| 术语 | 含义 | 示例 | CLI / 代码 |
+|------|------|------|------------|
+| **eval / benchmark run** | 一次完整评测 invocation（一个 `run_id`、一份 report） | `evobench-runid-20260529-abc` | `EvalReport`；`--run_id` |
+| **repeat** | `--repeat` 的一轮完整执行 | 第 2 次 `--repeat 3` | `EvalReport.runs[]` → `EvalRepeat` |
+| **suite** | 一份规格 JSON | `Team_Building_Planning.json` | `--suite`；`SuiteSpec`；report 里 `EvalRepeat.suites[]` → `SuiteRun` |
+| **task** | suite 内 `train[]` / `test[]` 的一条 | `Q1`、`Q2` | `SuiteRun.tasks[]` → `TaskRun` |
+| **phase** | 单个 task 的 baseline 或 evolved 执行 | baseline / evolved | `TaskRun.baseline` / `.evolved` → `PhaseRun` |
+| **benchmark_dir** | 存放多个 suite JSON 的目录 | `assets/benchmarks` | `--benchmark_dir` |
+
+层级关系：
+
+```
+EvalReport（一次 eval run，一份 report JSON）
+  └── runs[]（EvalRepeat，--repeat 的一轮）
+        └── suites[]（SuiteRun，一个 suite JSON 的结果）
+              └── tasks[]（TaskRun，来自 suite 的 train/test task 运行结果）
+                    ├── baseline（PhaseRun）
+                    └── evolved（PhaseRun）
+```
+
+suite 源文件目录：
+
+```
+--benchmark_dir（目录）
+  └── suite（一个 *.json，SuiteSpec）
+        ├── train[]（训练任务）
+        └── test[]（测试任务）
+```
+
+### 文件结构
+
+运行入口默认读取：
+
+- `assets/benchmarks/**/*.json`
+
+每个 suite JSON 由 [preprocess/convert_suite_mds_to_json.py](./preprocess/convert_suite_mds_to_json.py) 从 `assets/benchmark_mds/` 生成，核心结构包含：
+
+其中至少需要：
+
+- 顶层 `name / category / train / test`（对应 [src/models.py](./src/models.py) 的 `SuiteSpec`）
+- `train[]` / `test[]` 中的每个 task 都包含 `name / query / requirements / expected_result`
+- `requirements.extra_skills_dir` 按 split 读取：train task 指向 `train/skills`，test task 指向 `test/skills`；若该目录不存在则为空字符串
+- `requirements.material_dir` 指向对应 task 目录下的 `qN_materials`
+
+当前源目录结构约定如下：
+
+```text
+assets/benchmark_mds/
+  └── <场景名称>/
+        ├── train/
+        │     ├── q1_<任务短名>/
+        │     │     ├── q1_<任务短名>.md
+        │     │     └── q1_materials/
+        │     ├── q2_<任务短名>/
+        │     │     ├── q2_<任务短名>.md
+        │     │     └── q2_materials/
+        │     └── skills/               # 可选，train 侧初始 skills
+        └── test/
+              ├── q5_<任务短名>/
+              │     ├── q5_<任务短名>.md
+              │     └── q5_materials/
+              ├── q6_<任务短名>/
+              │     ├── q6_<任务短名>.md
+              │     └── q6_materials/
+              └── skills/               # 可选，test 侧初始 skills
+```
+
+
+## 5. 运行
+
+在项目根目录执行：
+
+### Openclaw
+```bash
+python openclaw_main.py
+```
+
+常用参数：
+
+- `--mode`：执行模式，`replay`（默认）按 `train + test` 顺序跑完整 suite；`exam` 先跑全部 `train` warmup，再在干净工作区跑全部 `test` baseline，最后回到 benchmark 工作区跑全部 `test` evolved
+- `--benchmark_dir`：suite JSON 所在目录，默认 `assets/benchmarks`（若传 `assets` 则解析为 `assets/benchmarks`）
+- `--suite`：逗号分隔的 suite 文件名（可带或不带 `.json`），或 `all` 跑目录下全部 suite，默认 `all`
+- `--run_id`：自定义 run_id 后缀，会拼接成 `evobench-runid-{run_id}`；不传则按时间 + short_id 自动生成
+- `--test`：仅用于 `replay` 模式，只跑每个 suite 的第一条 baseline task
+- `--repeat`：完整执行所选 suite N 次，每次完整执行写入 `report.runs[i]`
+- `-p` / `--parallel`：在 OpenClaw 链路下并行执行同一 suite 内的多个 task（serial 创建 agent 后再并发跑 chat）；Hermes 链路下则改为并行执行多个 suite 之间，suite 内的 task 仍串行
+- `-e` / `--evaluate`：benchmark 结束后自动执行后处理流水线
+- `--evaluate-only`：跳过 benchmark 执行，仅对已存在的 report JSON 跑后处理；需要 `--run_id` 定位 `evobench-reports/evobench-runid-{run_id}.json`
+
+> Langfuse 插件的安装方式见上文「2.1 插件配置」，本节不再重复。
+
+### run_task 流程图
+
+```mermaid
+flowchart TD
+    A((开始：进入 run_task)) --> A1[先初始化运行上下文：tags、user_session_id、current_prompt 初始为 task.query]
+    A1 --> B{还没超过 max_turns 吗？}
+    B -->|是| C[第 1 次 chat：用 current_prompt 向 Agent 发起任务对话，拿到 agent_result]
+    C --> D[把 用户原始问题 + 任务期望 + 本轮回复 组装成 judge_prompt]
+    D --> E[第 2 次 chat：让评测器基于 judge_prompt 给出 JSON 评测结果]
+    E --> F[解析评测结果 judge_result，并更新 tags.content_score]
+    F --> H{评测器是否判定任务已完成？}
+    H -->|是| K[结束 run_task，返回 True]
+    H -->|否| L[把失败原因 reason 作为下一轮 current_prompt]
+    L --> B
+    B -->|否| O[达到最大尝试次数，结束 run_task，返回 False]
+```
+
+### run_task 自然语言说明（chat 表示一轮对话）
+
+`run_task` 会先初始化 `tags`、`user_session_id` 和 `current_prompt`（初始为 `task.query`），然后最多循环 `max_turns` 次。
+
+每次循环里会发生两次 `chat`：
+
+1. 第一次 `chat`（任务对话）：用 `current_prompt` 向 agent 提问，得到本轮回复 `agent_result`
+2. 第二次 `chat`（评测对话）：把用户原始问题、任务期望结果、本轮回复拼成评测提示词，让评测器返回 JSON 结果
+
+拿到评测结果后会更新 `tags.content_score`：
+
+- 如果 `success=True`：函数直接返回 `True`
+- 如果 `success=False`：把 `reason` 作为下一轮 `current_prompt`，继续循环
+
+如果达到 `max_turns` 仍未成功，函数返回 `False`（不再发送额外的"任务失败"终结提示）。
+
+
+
+### Hermes
+
+如果只想跑 Hermes，可直接使用：
+
+```bash
+python hermes_main.py
+```
+
+`hermes_main.py` 与 `openclaw_main.py` 共享上面所有命令行参数（`--mode` / `--benchmark_dir` / `--suite` / `--run_id` / `--test` / `--repeat` / `--parallel` / `--evaluate` / `--evaluate-only`）。区别：
+
+- Hermes 没有 OpenClaw 的 `langfuse-tracer` / `self-evolving-plugin-pro` 插件初始化步骤
+- `--parallel` 在 Hermes 模式下作用于多个 suite 之间（每个 suite 内的 task 串行）
+- `HermesAgent.evolve(...)` 走的是 hermes profile 的 evolve 流程
+
+`exam` 模式下两条入口的工作区语义现在保持一致：
+
+- `benchmark_workspace`：先执行全部 `train`，再回到这里执行全部 `test` 的 evolved
+- `test_baseline_workspace`：在干净工作区中执行全部 `test` 的 baseline
+- 因此 `exam` 模式下每个 suite 固定使用 2 个工作区，而不是 3 个
+
+如果某次跑完 benchmark 后只想重新出后处理产物（不再跑 agent），把 `--evaluate-only` 与 `--run_id` 配合使用即可，会自动定位 `evobench-reports/evobench-runid-{run_id}.json` 并把结果写到 `results/evobench-runid-{run_id}/`：
+
+```bash
+# Hermes 链路
+python hermes_main.py --evaluate-only --run_id 20260515-abcd
+
+# OpenClaw 链路
+python openclaw_main.py --evaluate-only --run_id 20260515-abcd
+```
+
+这样不必再手动指定 `--enriched-json` / `--comparison-csv` / `--summary-csv` / `--report-html` 等输出路径。
+
+详细功能待补全
+
+## 6. 数据处理
+
+此处主要为Langfuse方式收集数据时，可以使用的数据处理方法。如果启动时使用了`--evaluate`，则会自动处理数据，直接输出分析报告。
+可选输出参数：
+
+```bash
+python postprocess/run_post_process.py evobench-reports/evobench-runid-xxxx.json ^
+  --output-dir results ^
+  --output-prefix my_run ^
+  --enriched-json results/my_run_enriched.json ^
+  --comparison-csv results/my_run_comparison_metrics.csv ^
+  --summary-csv results/my_run_summary_metrics.csv ^
+  --report-html results/my_run_metrics_report.html
+```
+
+默认输出文件名规则定义在 [postprocess/run_post_process.py](./postprocess/run_post_process.py) 的 `default_output_paths()` 中：
+
+- `<prefix>_enriched.json`
+- `<prefix>_comparison_metrics.csv`
+- `<prefix>_summary_metrics.csv`
+- `<prefix>_metrics_report.html`
+
+### 6.1 Python 函数入口
+
+如果想在代码里直接调用，使用：
+
+`process_report_to_outputs()`，定义在 [postprocess/run_post_process.py](./postprocess/run_post_process.py)
+
+它会一次性完成：
+
+1. 判断输入是否已 enrich
+2. 必要时从 Langfuse 拉 trace 并生成 enriched JSON 数据
+3. 抽取 task 粒度指标
+4. 计算 trajectory score
+5. 生成 comparison CSV
+6. 生成 summary CSV
+7. 生成 HTML 报告
+
+### 6.2. 后处理指标口径
+
+抽取逻辑在 [postprocess/extract.py](./postprocess/extract.py)，对比逻辑在 [postprocess/metrics.py](./postprocess/metrics.py)。
+
+任务级 comparison CSV 当前包含：
+
+- `run`（对应 `--repeat` 的轮次下标）
+- `suite_name`
+- `suite_path`
+- `task_name`
+- `category`
+- `is_final_task`
+- `success`
+- `trials`
+- `tool_use_num`
+- `content_score`
+- `cached_token`
+- `cached_token_ratio`
+- `total_tokens`
+- `total_latency_seconds`
+- `trajectory_score`
+- 每个指标对应的 `impr_*`
+
+其中：
+
+- 原始指标列是 evolved 侧的值
+- `impr_*` 的定义是 `(evolved - baseline) / baseline`（相对改进比例，常用百分比展示；baseline 为 0 时返回 NaN，详见 [postprocess/metrics.py](./postprocess/metrics.py) 的 `compute_improvement_pct`）
+- baseline/evolved 的配对键是 `run + suite_name + suite_path + task_name + category`
+
+当前纳入 improvement 的指标有：
+
+- `trials`
+- `tool_use_num`
+- `content_score`
+- `cached_token`
+- `cached_token_ratio`
+- `total_tokens`
+- `total_latency_seconds`
+- `trajectory_score`
+
+
+## 7. Langfuse 串联逻辑
+
+Langfuse enrich 内核已经收敛到 [postprocess/langfuse_enrich.py](./postprocess/langfuse_enrich.py)。
+
+真正的 trace stitching 入口是：
+
+- `stitch_phase_langfuse_traces()`，位于 [src/report/langfuse_trace_stitch.py](./src/report/langfuse_trace_stitch.py)
+
+处理流程：
+
+1. `trace.list` 按 `run_id` / `work_session_id` / `judge_session_id` 搜索 trace
+2. `trace.get` 拉全量 detail 和 observations
+3. 合并 `*_agent` 与 `openclaw-plugin`
+4. 生成 `work_agent_traces` / `judge_agent_traces`
+5. 仅基于 work 侧生成 `work_analytics`
+
+插件实现见 [langfuse-tracer/](./langfuse-tracer/) 与 [langfuse-hermes/](./langfuse-hermes/)。
+
+## 8. Langfuse拉取trace数据链路
+
+`postprocess/run_post_process.py` 是后处理流水线唯一的命令行入口：
+
+```bash
+# 默认输出位置：results/<run_id>/<run_id>_*.{json,csv,html}
+python postprocess/run_post_process.py evobench-reports/evobench-runid-20260515-xxxx.json
+
+# 自定义输出目录与前缀
+python postprocess/run_post_process.py evobench-reports/....json ^
+  --output-dir results --output-prefix my_run
+
+# 强制使用 hermes 模式做 trace stitching（默认 openclaw）
+python postprocess/run_post_process.py evobench-reports/....json --agent-source hermes
+```
+
+每个 phase 会调用 `stitch_phase_langfuse_traces`，在对应 `baseline` / `evolved` 上填充 `langfuse` 字段。
+
+> 直接想跑全链路也可以执行 `python openclaw_main.py --evaluate-only --run_id <id>` 或 `python hermes_main.py --evaluate-only --run_id <id>`。
+
+### 8.1 采集与合并流程
+
+```mermaid
+flowchart TD
+    A[trace.list tags=run_id] --> M[按 trace id 去重]
+    B[trace.list session=work_session_id] --> M
+    C[trace.list session=judge_session_id] --> M
+    M --> G[对每个 id 执行 trace.get]
+    G --> R[转成 LangfuseTraceRef]
+    R --> P[按时间轴: *_agent + openclaw-plugin 1:1 合并]
+    P --> W[work_agent_traces / judge_agent_traces]
+    W --> A2[build_work_analytics 仅 work]
+```
+
+说明：
+
+| 步骤 | 作用 |
 |------|------|
-| `src/` | 旧 Python 包（`src.agents`、`src.eval_core` 等） |
-| `openclaw_main.py` / `hermes_main.py` | 旧 CLI 入口 |
-| `preprocess/` / `postprocess/` | 旧预处理与后处理 |
-| `langfuse-hermes/` | Hermes Langfuse 插件源码 |
-| `scripts/` | `rebuild-evolution-runtime.sh`、`reset-evolution.sh` 等 |
+| `trace.list` | 发现 trace id；列表接口 **无** token，仅有 latency 等粗字段 |
+| `trace.get` | 拉取 input/output/metadata、子 observation 的 **usage（token）** |
+| 1:1 合并 | 每条 `work_agent` / `judge_agent` 行吸收紧随其后的 `openclaw-plugin` |
+| `work_analytics` | 仅统计 **work** 侧（judge 模拟用户反馈，不参与全局 token 汇总） |
 
-## 正式入口
+### 8.2 输出结构（`phase.langfuse`）
 
-```bash
-python -m src.cli.lift_main -r openclaw --suite hello.json
-```
+> 下表以 OpenClaw 链路（`agent_source=openclaw`）为基准；Hermes 链路（`agent_source=hermes`）下 `plugin_trace_id` / `plugin_*` 来自 hermes turn 而非 `openclaw-plugin`，但字段含义一致。
 
-见 [docs/lift-framework-guide-cn.md](../docs/lift-framework-guide-cn.md)。
+**`work_agent_traces` / `judge_agent_traces`**（每轮对话一条，已合并 plugin）：
+
+| 字段 | 含义 |
+|------|------|
+| `id` | pre-chat agent trace id |
+| `plugin_trace_id` | 配对的 `openclaw-plugin` trace id |
+| `agent_input` | pre-chat span 全量字段（run、task、task_query、content_reqs 等） |
+| `plugin_prompt` / `plugin_response` | 当轮用户 prompt / assistant 回复 |
+| `plugin_metadata` | success、message_count、tool_roundtrips、tool_call_blocks 等 |
+| `tokens` | 来自 plugin trace 的 GENERATION usage |
+| `latency_seconds` | 来自 plugin trace 的 latency（秒） |
+
+### 8.3 代码模块（`src/report/`）
+
+| 文件 | 职责 |
+|------|------|
+| `langfuse_reporting.py` | 每次 chat 前 `emit_pre_chat_state`（`CustomTags` → span input） |
+| `langfuse_trace_stitch.py` | 入口：`stitch_phase_langfuse_traces` |
+| `langfuse_trace_fetch.py` | `trace.get`、解析 observation、生成 `LangfuseTraceRef` |
+| `langfuse_trace_merge.py` | 按时间将 agent 与 plugin 合并为单条 turn |
+| `langfuse_trace_parse.py` | 结构化 `agent_input` / `plugin_metadata` |
+| `langfuse_work_analytics.py` | 生成 `trace_chain`、`chat_turns`、`global_stats` |
+
+插件实现见仓库根目录 [langfuse-tracer/](./langfuse-tracer/) 与 [langfuse-hermes/](./langfuse-hermes/)。

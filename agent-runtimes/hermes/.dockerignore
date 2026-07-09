@@ -1,0 +1,4 @@
+# Build context is agent-runtimes/hermes. Keep it lean.
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/

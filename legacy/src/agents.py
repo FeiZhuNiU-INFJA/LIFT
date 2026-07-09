@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
 import shutil
@@ -9,7 +10,6 @@ import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from openai import AsyncOpenAI
 import os
 from pydantic import BaseModel
 from src.config import CONFIG, LOGGER, _PROJECT_ROOT
@@ -19,6 +19,12 @@ from src.utils import short_id
 
 GMT_PLUS_8 = timezone(timedelta(hours=8), name="GMT+8")
 WEEKDAY_ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+# 与 hermes-helper/hermes_runner.py 中的协议哨兵保持一致。
+_HERMES_RUNNER_TASK_END = "__evo_task_end__"
+_HERMES_RUNNER_MSG_END = "__evo_msg_end__"
+_HERMES_RUNNER_RESP_END = "__evo_resp_end__"
 
 
 
@@ -153,14 +159,40 @@ class Agent(ABC):
     ) -> str:
         pass
 
+    async def end_session(self, session_id: str) -> None:
+        """通知 agent 当前 session 已经结束，可以释放该 session 关联的资源
+        （例如 Hermes 模式下需要关闭对应的 hermes_runner 子进程，并触发 review）。
+
+        默认实现为 no-op，对不需要资源释放的 agent（如 OpenClaw）保持兼容。
+        """
+        _ = session_id
+
+
+@dataclass
+class _RunnerHandle:
+    """单个 hermes_runner 子进程的句柄。
+
+    一个 ``session_id`` 对应一个独立子进程，跨多次 chat 复用以维持多轮对话记忆。
+    work_agent runner 在结束时会触发 background review；judge_agent 不会。
+    """
+    proc: asyncio.subprocess.Process
+    session_id: str
+    chat_role: str
+    enable_review: bool
+    stderr_task: asyncio.Task
+
 
 class HermesAgent(Agent):
     _next_agent_id: int = 0
-    # 每个 HermesAgent profile 的 API server 监听端口起点。Hermes 默认是 8642，
-    # 在并发 / 串行多 profile 场景会冲突，因此为每个实例分配一个独立端口
-    # ``_BASE_API_SERVER_PORT + _agent_id``。50000 起步落在 IANA 动态端口范围
-    # （49152-65535）内，对千级别 agent 数仍然安全。
-    _BASE_API_SERVER_PORT: int = 50000
+    # ``hermes profile create --clone`` 在并发执行时可能竞争 ~/.hermes 下的
+    # 全局清单文件。用类级 asyncio.Lock 保证 profile 创建串行化。
+    _profile_create_lock: asyncio.Lock | None = None
+
+    @classmethod
+    def _get_profile_create_lock(cls) -> asyncio.Lock:
+        if cls._profile_create_lock is None:
+            cls._profile_create_lock = asyncio.Lock()
+        return cls._profile_create_lock
 
     @property
     def env_file_path(self) -> str | None:
@@ -174,17 +206,14 @@ class HermesAgent(Agent):
         self._agent_id = HermesAgent._next_agent_id
         HermesAgent._next_agent_id += 1
         self._profile_name = f"hermes-{self._agent_id}"
-        self._port = HermesAgent._BASE_API_SERVER_PORT + self._agent_id
-        self.client = AsyncOpenAI(
-            base_url=f"http://localhost:{self._port}/v1",
-            api_key=CONFIG.hermes_api_key,
-            timeout=3600.0,
-            max_retries=5,
-        )
-        self._gateway_proc: asyncio.subprocess.Process | None = None
-        self._gateway_ready: bool = False
-        self.has_emitted_work_pre_span: bool = False
-        self.has_emitted_judge_pre_span: bool = False
+        # session_id -> _RunnerHandle。session_id 由调用方生成（带毫秒时间戳 + uuid），
+        # 不同 session 必然不同 key，因此无需额外锁；同一 session 的 chat 又由 run_task
+        # 内部串行 await 调用，也不会自我并发。
+        self._runners: dict[str, _RunnerHandle] = {}
+        # 当 task 间并发执行时，多个 task 可能同时调用 copy_task_assets 往同一
+        # workspace 拷 skills / materials；用实例级 asyncio.Lock 串行化，避免
+        # shutil.copytree 在 dirs_exist_ok=True 下的并发写竞态。
+        self._assets_copy_lock = asyncio.Lock()
 
     @property
     def workspace_dir(self) -> Path:
@@ -195,12 +224,28 @@ class HermesAgent(Agent):
         skill_path: str | Path | None,
         material_path: str | Path | None,
     ) -> None:
-        """在每个 task 执行前，把 task 级 skills / materials 拷贝到当前 phase workspace。"""
+        """在每个 task 执行前，把 task 级 skills / materials 拷贝到当前 phase workspace。
+
+        ⚠️ 仅用于串行执行场景；task 间并发时请使用 ``copy_task_assets_async``，
+        否则多个协程并发 copytree 同一 workspace 会出现竞态。
+        """
         self._workspace_path.mkdir(parents=True, exist_ok=True)
         if skill_path:
             copy_skill_dir_to(self._workspace_path, skill_path)
         if material_path:
             copy_material_dir_to(self._workspace_path, material_path)
+
+    async def copy_task_assets_async(
+        self,
+        skill_path: str | Path | None,
+        material_path: str | Path | None,
+    ) -> None:
+        """``copy_task_assets`` 的并发安全版本，用 instance 锁串行化文件拷贝。
+
+        拷贝是同步且通常很快，全部塞进 lock 内部不会拖累 task 并发的 LLM 等待时间。
+        """
+        async with self._assets_copy_lock:
+            await asyncio.to_thread(self.copy_task_assets, skill_path, material_path)
 
     @classmethod
     async def create(
@@ -210,73 +255,33 @@ class HermesAgent(Agent):
         instance = cls(workspace_path)
         await instance._ensure_profile()
         instance._init_env()
-        await instance._spawn_gateway_proc()
         return instance
 
-    async def _spawn_gateway_proc(self) -> None:
-        """启动当前 profile 的 ``<profile_name> gateway run`` 后台进程，并等待端口就绪。
-
-        ``create`` 与 ``_restart_gateway`` 共用此方法，确保两条路径的启动方式完全一致。
-        stdout/stderr 走 DEVNULL，避免长时间运行后 PIPE buffer 写满反压子进程。
-        """
-        LOGGER.info(
-            "Starting command in background: %s gateway run (port=%d)",
-            self._profile_name,
-            self._port,
-        )
-        self._gateway_proc = await asyncio.create_subprocess_exec(
-            self._profile_name,
-            "gateway",
-            "run",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await self._wait_for_tcp_ready("localhost", self._port, timeout_s=300.0)
-        self._gateway_ready = True
-
     async def aclose(self) -> None:
-        """显式关闭后台 gateway 子进程，释放端口与 profile 占用。
+        """关闭当前 HermesAgent 持有的所有 hermes_runner 子进程。
 
         必须在每个 benchmark_path 运行完成（无论成功或异常）时调用，
-        否则 ``<profile_name> gateway run`` 会作为孤儿子进程持续占用端口，
-        且 Python 对象 GC 不会触发其退出。
+        否则 hermes_runner 子进程会作为孤儿进程残留在系统里。
         """
-        proc = self._gateway_proc
-        if proc is not None and proc.returncode is None:
-            LOGGER.info(
-                "Closing gateway process for profile %s (pid=%s, port=%d)",
-                self._profile_name,
-                proc.pid,
-                self._port,
-            )
+        for sid in list(self._runners.keys()):
             try:
-                proc.terminate()
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=15.0)
-                except asyncio.TimeoutError:
-                    LOGGER.warning(
-                        "Gateway process %s did not exit in 15s; killing",
-                        proc.pid,
-                    )
-                    proc.kill()
-                    await proc.wait()
-            except ProcessLookupError:
-                pass
-        self._gateway_proc = None
-        self._gateway_ready = False
+                await self.end_session(sid)
+            except Exception:
+                LOGGER.exception("Failed to end runner for session %s during aclose", sid)
 
     async def _ensure_profile(self) -> None:
-        try:
-            await self._run_cmd_checked(
-                ["hermes", "profile", "create", self._profile_name, "--clone"]
-            )
-        except subprocess.CalledProcessError:
-            await self._run_cmd_checked(
-                ["hermes", "profile", "delete", self._profile_name, "-y"]
-            )
-            await self._run_cmd_checked(
-                ["hermes", "profile", "create", self._profile_name, "--clone"]
-            )
+        async with self._get_profile_create_lock():
+            try:
+                await self._run_cmd_checked(
+                    ["hermes", "profile", "create", self._profile_name, "--clone"]
+                )
+            except subprocess.CalledProcessError:
+                await self._run_cmd_checked(
+                    ["hermes", "profile", "delete", self._profile_name, "-y"]
+                )
+                await self._run_cmd_checked(
+                    ["hermes", "profile", "create", self._profile_name, "--clone"]
+                )
 
     def _init_env(self) -> None:
         env = self._env_file
@@ -288,27 +293,14 @@ class HermesAgent(Agent):
             _upsert_env_var(env, "HERMES_LANGFUSE_BASE_URL", CONFIG.langfuse_base_url)
         if CONFIG.firecrawl_api_key:
             _upsert_env_var(env, "HERMES_FIRECRAWL_API_KEY", CONFIG.firecrawl_api_key)
-        if CONFIG.api_server_key:
-            _upsert_env_var(env, "API_SERVER_KEY", CONFIG.api_server_key)
-        if CONFIG.api_server_enabled:
-            _upsert_env_var(env, "API_SERVER_ENABLED", CONFIG.api_server_enabled)
-        # 每个 profile 独立监听端口，避免多 HermesAgent 之间端口冲突。
-        _upsert_env_var(env, "API_SERVER_PORT", str(self._port))
 
     @property
     def _env_file(self) -> Path:
-        return Path.home() / ".hermes" / "profiles" / self._profile_name / ".env"
-
-    async def switch_session(self, session_id: str) -> None:
-        if hasattr(self, "_current_session_id") and self._current_session_id == session_id:
-            return
-        self._current_session_id = session_id
-        _upsert_env_var(self._env_file, "SESSION_ID", session_id)
-        await self._restart_gateway()
+        return Path(CONFIG.hermes_dir).expanduser().resolve() / "profiles" / self._profile_name / ".env"
 
     def reset_pre_chat_state(self) -> None:
-        self.has_emitted_work_pre_span = False
-        self.has_emitted_judge_pre_span = False
+        # 已无内部状态需要重置；保留方法以向后兼容外部调用方（如 hermes_main 中的旧调用点）。
+        return None
 
     @staticmethod
     async def evolve(session_id: str) -> None:
@@ -346,107 +338,211 @@ class HermesAgent(Agent):
             )
         LOGGER.info("Command succeeded: %s", " ".join(args))
 
-    async def _wait_for_tcp_ready(
-        self, host: str, port: int, timeout_s: float = 60.0
-    ) -> None:
-        deadline = time.monotonic() + timeout_s
-        last_exc: Exception | None = None
-        delay_s = 0.2
-        while time.monotonic() < deadline:
-            try:
-                reader, writer = await asyncio.open_connection(host, port)
-                writer.close()
-                await writer.wait_closed()
-                return
-            except Exception as exc:  # noqa: BLE001
-                last_exc = exc
-                await asyncio.sleep(delay_s)
-                delay_s = min(delay_s * 1.5, 2.0)
-        raise TimeoutError(
-            f"Timed out waiting for TCP {host}:{port} to be ready"
-        ) from last_exc
-
     async def _restart_gateway(self) -> None:
-        LOGGER.info(
-            "Restarting gateway for profile: %s", self._profile_name
-        )
-        # 注意：``<profile_name> gateway restart`` 在前台模式下不会立即返回
-        # （与 ``<profile_name> gateway run`` 一样会阻塞当前进程）。
-        # 因此这里不调用 restart 子命令，而是直接 terminate 掉 ``create`` 阶段
-        # 由 ``_spawn_gateway_proc`` 拉起的那个 ``<profile_name> gateway run`` 子进程，
-        # 再复用同一方法重新拉起，从而触发 profile env 重新加载。
-        if self._gateway_proc is not None and self._gateway_proc.returncode is None:
-            LOGGER.info(
-                "Terminating existing gateway process for profile %s (pid=%s)",
-                self._profile_name,
-                self._gateway_proc.pid,
-            )
-            try:
-                self._gateway_proc.terminate()
-                try:
-                    await asyncio.wait_for(self._gateway_proc.wait(), timeout=15.0)
-                except asyncio.TimeoutError:
-                    LOGGER.warning(
-                        "Gateway process %s did not exit in 15s; killing",
-                        self._gateway_proc.pid,
-                    )
-                    self._gateway_proc.kill()
-                    await self._gateway_proc.wait()
-            except ProcessLookupError:
-                pass
-        self._gateway_proc = None
-        self._gateway_ready = False
+        """新链路下不再使用 gateway 子进程；保留方法以满足 Agent 抽象基类签名，无操作。"""
+        return None
 
-        await self._spawn_gateway_proc()
+    async def _spawn_runner(
+        self,
+        session_id: str,
+        chat_role: str,
+        enable_review: bool,
+    ) -> _RunnerHandle:
+        """为 ``session_id`` 拉起一个常驻 hermes_runner 子进程。
+
+        - work_agent + 非 evolve 阶段 ⇒ 附 ``--enable-review``，结束时跑 background review。
+        - work_agent + evolve 阶段 ⇒ 不附；evolve 之后不再需要 review。
+        - judge_agent ⇒ 不附；结束时直接退出。
+        - stdin/stdout/stderr 全部用 PIPE，stderr 起后台 task 转给 LOGGER，
+          防止子进程因 PIPE 缓冲写满而阻塞。
+        """
+        hermes_dir = Path(CONFIG.hermes_dir).expanduser().resolve()
+        hermes_agent_dir = hermes_dir / "hermes-agent"
+        profile_home = hermes_dir / "profiles" / self._profile_name
+        runner_script = _PROJECT_ROOT / "hermes-helper" / "hermes_runner.py"
+        # 使用 hermes-agent 仓库自带 venv 中的 python，确保依赖环境与 hermes 保持一致。
+        python_exe = hermes_agent_dir / "venv" / "bin" / "python"
+
+        cmd: list[str] = [
+            str(python_exe),
+            str(runner_script),
+            "--hermes-agent-dir", str(hermes_agent_dir),
+            "--profile-home", str(profile_home),
+            "--workspace", str(self._workspace_path),
+            "--model", CONFIG.hermes_model_name or "",
+            "--base-url", (CONFIG.hermes_api_url or "").strip(),
+            "--api-key", CONFIG.hermes_api_key or "",
+            "--session-id", session_id,
+            "--max-tokens", str(CONFIG.hermes_max_tokens),
+        ]
+        if enable_review:
+            cmd.append("--enable-review")
+
+        env = os.environ.copy()
+        env["HERMES_HOME"] = str(profile_home)
+        env["TERMINAL_CWD"] = str(self._workspace_path)
+
+        LOGGER.info(
+            "Spawning hermes_runner: profile=%s session=%s role=%s enable_review=%s",
+            self._profile_name,
+            session_id,
+            chat_role,
+            enable_review,
+        )
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            cwd=str(self._workspace_path),
+        )
+
+        async def _drain_stderr() -> None:
+            assert proc.stderr is not None
+            while True:
+                line = await proc.stderr.readline()
+                if not line:
+                    return
+                LOGGER.info(
+                    "[hermes_runner stderr session=%s] %s",
+                    session_id,
+                    line.decode("utf-8", errors="replace").rstrip(),
+                )
+
+        stderr_task = asyncio.create_task(_drain_stderr())
+
+        handle = _RunnerHandle(
+            proc=proc,
+            session_id=session_id,
+            chat_role=chat_role,
+            enable_review=enable_review,
+            stderr_task=stderr_task,
+        )
+        self._runners[session_id] = handle
+        return handle
+
+    async def _send_and_recv(self, handle: _RunnerHandle, msg: str) -> str:
+        """向 runner 发送一条 user message，并阻塞读取直到 ``__evo_resp_end__``。
+
+        协议：父进程一次性写入 ``msg + "\n" + __evo_msg_end__ + "\n"`` 表示这条
+        user message 结束；runner 处理完后写出 final_response，然后写一行
+        ``__evo_resp_end__`` 作为本轮回复终止哨兵。
+        """
+        proc = handle.proc
+        if proc.stdin is None or proc.stdout is None:
+            raise RuntimeError(
+                f"hermes_runner stdin/stdout not piped for session {handle.session_id}"
+            )
+        if proc.returncode is not None:
+            raise RuntimeError(
+                f"hermes_runner already exited (rc={proc.returncode}) for session {handle.session_id}"
+            )
+
+        payload = msg + "\n" + _HERMES_RUNNER_MSG_END + "\n"
+        proc.stdin.write(payload.encode("utf-8"))
+        await proc.stdin.drain()
+
+        chunks: list[str] = []
+        while True:
+            raw = await proc.stdout.readline()
+            if not raw:
+                # 子进程提前退出。读完 stderr task 已经写了 LOGGER。
+                rc = proc.returncode
+                raise RuntimeError(
+                    f"hermes_runner stdout closed unexpectedly (rc={rc}) "
+                    f"for session {handle.session_id}"
+                )
+            line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+            if line == _HERMES_RUNNER_RESP_END:
+                break
+            chunks.append(line)
+        return "\n".join(chunks)
+
+    async def end_session(self, session_id: str) -> None:
+        """通知对应 runner 结束会话：写入 ``__evo_task_end__``、关闭 stdin，等待退出。
+
+        - work_agent 的 runner 会在退出前跑 background review，因此此处的 await
+          会一直阻塞到 review 完成；这正是希望的语义。
+        - judge_agent 的 runner 不跑 review，几乎立即退出。
+        """
+        handle = self._runners.pop(session_id, None)
+        if handle is None:
+            return
+        proc = handle.proc
+
+        try:
+            if proc.stdin is not None and proc.returncode is None:
+                try:
+                    proc.stdin.write((_HERMES_RUNNER_TASK_END + "\n").encode("utf-8"))
+                    LOGGER.info("Sent task end sentinel to runner session=%s", session_id)
+                    await proc.stdin.drain()
+                    proc.stdin.close()
+                    LOGGER.info("Closed stdin for runner session=%s", session_id)
+                except Exception:
+                    LOGGER.exception(
+                        "Failed to send task end sentinel to runner session=%s",
+                        session_id,
+                    )
+            try:
+                await proc.wait()
+            except Exception:
+                LOGGER.exception(
+                    "Failed waiting for runner exit session=%s",
+                    session_id,
+                )
+                if proc.returncode is None:
+                    try:
+                        proc.kill()
+                        await proc.wait()
+                        LOGGER.info("Killed runner session=%s", session_id)
+                    except ProcessLookupError:
+                        pass
+        finally:
+            handle.stderr_task.cancel()
+            try:
+                await handle.stderr_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
     async def chat(
         self,
         msg: str,
         session_id: str,
         tags: CustomTags,
-        response_schema: BaseModel | None = None, # hermes agent对这个参数无感
+        response_schema: BaseModel | None = None,  # hermes agent 对该参数无原生支持，下面用 prompt 兜底
         *,
         chat_role: str = "work_agent",
     ) -> str:
-        if chat_role == "work_agent" and not self.has_emitted_work_pre_span:
+        if chat_role in ("work_agent", "judge_agent"):
             emit_pre_chat_state(session_id=session_id, tags=tags, chat_role=chat_role)
-            self.has_emitted_work_pre_span = True
-        elif chat_role == "judge_agent" and not self.has_emitted_judge_pre_span:
-            emit_pre_chat_state(session_id=session_id, tags=tags, chat_role=chat_role)
-            self.has_emitted_judge_pre_span = True
+
         msg = f"{_format_message_timestamp()}\n{msg}"
-        if response_schema is None:
-            response = await self.client.responses.create(
-                model="hermes-agent",
-                input=msg,
-                conversation=session_id,
-                max_output_tokens=32768
+        if response_schema is not None:
+            # hermes_runner.py 不支持原生 JSON schema 约束输出，把 schema 作为
+            # 指令追加到 user message，最大努力等价。
+            schema_text = json.dumps(response_schema.model_json_schema(), ensure_ascii=False)
+            msg = (
+                f"{msg}\n\n请严格按照以下 JSON Schema 输出一个 JSON 对象，"
+                f"不要包含任何额外说明文字：\n{schema_text}"
             )
-        else:
-            response = await self.client.responses.create(
-                model="hermes-agent",
-                input=msg,
-                conversation=session_id,
-                max_output_tokens=32768,
-                text={
-                    "format": {
-                        "type": "json_schema",
-                        "name": "eval_judge_result",
-                        "schema": response_schema.model_json_schema(),
-                        "strict": True,
-                    }
-                },
+
+        # 同一 session_id 复用同一 runner 进程，跨多轮对话保留记忆；
+        # 不同 session_id 必然不同进程（满足 work / judge 分离要求）。
+        # review 触发条件（三者必须同时满足）：
+        #   1. chat_role == "work_agent"（judge 永远不 review）
+        #   2. 非 evolve 阶段（evolve 完成后再 review 会污染下一轮 baseline 起点）
+        #   3. tags.enable_review 未被显式关闭（如 exam test_baseline 这种"对照组"场景）
+        handle = self._runners.get(session_id)
+        if handle is None:
+            enable_review = (
+                chat_role == "work_agent"
+                and not bool(getattr(tags, "is_evolve_turn", False))
+                and bool(getattr(tags, "enable_review", True))
             )
-        texts = []
-        for item in response.output:
-            if (
-                getattr(item, "type", None) == "message"
-                and getattr(item, "role", None) == "assistant"
-            ):
-                for content in getattr(item, "content", []):
-                    if getattr(content, "type", None) == "output_text":
-                        texts.append(content.text)
-        return "\n".join(texts)
+            handle = await self._spawn_runner(session_id, chat_role, enable_review)
+
+        return await self._send_and_recv(handle, msg)
 
 
 class OpenClawAgent(Agent):
@@ -512,7 +608,7 @@ class OpenClawAgent(Agent):
                         "add",
                         self.agent_name,
                         "--model",
-                        CONFIG.model,
+                        CONFIG.openclaw_model_name or "",
                         "--workspace",
                         str(self.workspace_dir),
                     ],
@@ -520,7 +616,7 @@ class OpenClawAgent(Agent):
                     env=self._openclaw_env(),
                 )
                 if chk_existance():
-                    LOGGER.info(f"Agent {self.agent_name} created successfully")
+                    LOGGER.info(f"Agent {self.agent_name} created successfully, model={CONFIG.openclaw_model_name}")
                     return
             except subprocess.CalledProcessError:
                 pass

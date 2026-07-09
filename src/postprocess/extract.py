@@ -70,26 +70,6 @@ def _should_ignore_tool_call_block(block: dict[str, Any]) -> bool:
     return isinstance(command, str) and "http://127.0.0.1:18090" in command
 
 
-def count_tool_call_blocks(all_messages: list[dict[str, Any]]) -> int:
-    """从 messages.content 中统计 toolCall 块数量（OpenClaw / Hermes 通用）。
-
-    复用 ``_should_ignore_tool_call_block`` 过滤 OpenClaw 自演化信号；Hermes 工具不会命中该过滤条件。
-    """
-    count = 0
-    for message in all_messages or []:
-        content = message.get("content")
-        if not isinstance(content, list):
-            continue
-        for block in content:
-            if (
-                isinstance(block, dict)
-                and block.get("type") == "toolCall"
-                and not _should_ignore_tool_call_block(block)
-            ):
-                count += 1
-    return count
-
-
 def _phase_plugin_trace_name(side: dict[str, Any]) -> str | None:
     """从 ``work_agent_traces`` 中取末轮的 ``plugin_trace_name``，用于识别 OpenClaw / Hermes。"""
     traces = (((side or {}).get("langfuse") or {}).get("work_agent_traces")) or []
@@ -98,16 +78,6 @@ def _phase_plugin_trace_name(side: dict[str, Any]) -> str | None:
         if name:
             return name
     return None
-
-
-def _hermes_count_user_messages(all_messages: list[dict[str, Any]]) -> int:
-    """Hermes：``role == 'user'`` 的 message 数。"""
-    return sum(1 for m in all_messages or [] if isinstance(m, dict) and m.get("role") == "user")
-
-
-def _hermes_count_tool_role_total(all_messages: list[dict[str, Any]]) -> int:
-    """Hermes：全量 ``role == 'tool'`` 的 message 数。"""
-    return sum(1 for m in all_messages or [] if isinstance(m, dict) and m.get("role") == "tool")
 
 
 def _make_row_openclaw(
@@ -144,17 +114,31 @@ def _make_row_hermes(
     """Hermes 模式：
     - ``total_tokens``：直接使用 trace 聚合的 ``global_stats.total_tokens``（与 messages 无关，
       由 GENERATION observation usage 累加得到，准确）。
-    - ``trials``：``role == 'user'`` 的 message 数（不再扣 1）。
-    - ``tool_use_num``：``role == 'tool'`` 的 message 数（不再扣"最后一条 user 之后的 tool"）。
+    - ``trials``：``chat_turns`` 长度，与 OpenClaw 口径对齐，避免 ``all_messages`` 在
+      context compaction 后丢失早期 user message 导致少算 / 把 compaction summary
+      误算成 user message。
+    - ``tool_use_num``：``global_stats.tool_call_blocks``，由每个 ``Hermes turn`` chain 的
+      ``output.tool_calls`` 长度累加得到（见 ``langfuse_trace_fetch._hermes_tool_call_count_from_output``）。
+      插件在 ``_finish_trace`` 时把整轮累计 tool_calls 注入 root output，不受上下文压缩影响。
+      兼容旧 enriched JSON：若 ``tool_call_blocks`` 缺失/为 0（插件修复前的产物未回填该字段），
+      回退为 ``all_messages`` 中 ``role == 'tool'`` 的 message 数。
     - ``cached_token`` / ``cached_token_ratio``：当前 hermes 链路未上报 cacheRead，置 0。
-    - 若 ``all_messages`` 为空（hermes 未上报 ``metadata.messages``），trials/tool_use 退化为 0；
-      ``total_tokens`` 仍可来自 ``global_stats``。
+    - ``all_messages`` 来源：``LangfuseTraceDetailRecord.plugin_metadata.messages``，
+      由插件在 root span（``Hermes turn`` chain）的 metadata.messages 全量写入。
+      当前插件已不在 GENERATION 子节点 metadata 中保存 messages，因此 root 缺失即
+      全量缺失（不再有兜底回填）。``all_messages`` 仅作为 transcript 留档，
+      ``trials`` / ``total_tokens`` 不依赖 messages。
     """
     global_stats = work_analytics.get("global_stats") or {}
     all_messages = work_analytics.get("all_messages") or []
+    chat_turns = work_analytics.get("chat_turns") or []
     total_tokens = int_value(global_stats.get("total_tokens"))
-    trials = _hermes_count_user_messages(all_messages)
-    tool_use_num = _hermes_count_tool_role_total(all_messages)
+    trials = len(chat_turns)
+    tool_use_num = int_value(global_stats.get("tool_call_blocks"))
+    if tool_use_num == 0:
+        tool_use_num = sum(
+            1 for m in all_messages or [] if isinstance(m, dict) and m.get("role") == "tool"
+        )
     return {
         "trials": trials,
         "tool_use_num": tool_use_num,
@@ -189,7 +173,9 @@ def make_row(
         "suite_name": suite_name,
         "suite_path": suite_path,
         "task_name": task.get("task_name"),
-        "category": task.get("category"),
+        # 口径统一为 ``suite``（即 asset/benchmarks 下的 JSON 名）。兼容旧 report JSON
+        # 仍用 ``category`` 写入场景名的情况。
+        "suite": task.get("suite") if task.get("suite") is not None else task.get("category"),
         "baseline": variant_name == "baseline",
         "evolved": variant_name == "evolved",
         "success": side.get("success"),
@@ -251,7 +237,7 @@ def build_extracted_dataframe(
             "suite_name",
             "suite_path",
             "task_name",
-            "category",
+            "suite",
             "baseline",
             "evolved",
             "success",

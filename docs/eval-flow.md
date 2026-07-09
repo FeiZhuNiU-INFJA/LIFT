@@ -266,7 +266,7 @@ LIFT 框架在不同层级对异常采取**就地重试一次 + 同级隔离**�
 | docker daemon 不可用 / VM OOM | 容器启动直接抛 `docker: ... is not running`，task / phase 重试也起不来 | §4.6 调 VM 内存 / `--max-parallel-suites` |
 | Langfuse 不可达 | `emit_pre_chat_state` warning 不阻塞主流程；trace 后处理时拉不到数据 | 检查 `.env` / 网络；后处理可单独 retry |
 | benchmark JSON 格式错 / 缺字段 | `load_lift_suite` 启动时直接抛 | 修正 suite JSON |
-| `MODEL_NAME` 未在镜像注册 | `agents add --model` 报错 | §12.6 重建镜像或换已 bake 的模型 |
+| `MODEL_NAME` 与镜像 bake 的不一致 / 格式非 `custom/model_id` | `agents add --model` 报错 | §12.6：改 `.env` 后 `build-image.sh` 重建镜像 |
 | 主进程被 kill / 机器重启 | report 落盘有节奏（每个 suite 完成都 write_json），但当前 suite 进度丢失 | 重新提交 run，已完成 suite 不会被重跑（设计上仍是新 run_id） |
 
 ---
@@ -717,26 +717,26 @@ worker / judge 对 LLM provider 错误（超时 / 限流）原地用同一 promp
 
 LIFT 在容器内通过 `agents add --model …` 注册 work / judge agent。OpenClaw 只接受已在容器 `openclaw.json` 中**登记过**的 `provider/model_id` 字符串。因此镜像构建与运行时 `.env` 之间存在固定契约——**当前由 OpenClaw 实现**，未来其他容器 runtime 亦应遵守同等「能力在镜像、选用在宿主」分层。
 
+**provider 固定为 `custom`**：OpenClaw 的 `models.fragment.json` 只登记一个名为 `custom` 的 provider（`baseUrl` 硬编码，`apiKey` 由构建期注入）。因此 `MODEL_NAME` 恒为 `custom/<model_id>` 形式，`.env` 里换模型只需改斜杠后的 model id，无需新增 provider。
+
 | 层级 | 谁配置 | 做什么 |
 |------|--------|--------|
-| **能力层**（镜像构建） | Agent runtime 的 config fragment（OpenClaw：`agent-runtimes/openclaw/config/models.fragment.json`） | 注册 provider：`baseUrl`、`apiKey`、可调用的 **model id 列表**；构建时 `ARK_API_KEY` 等写入 fragment |
-| **默认选用层**（镜像构建，可选） | Agent defaults fragment（OpenClaw：`config/agents.fragment.json` 的 `agents.defaults.model.primary`） | 未显式指定模型时 OpenClaw 的默认值 |
-| **运行时选用层**（评测前） | 仓库根 `.env` 的 `MODEL_NAME` | LIFT 调用 `openclaw agents add --model $MODEL_NAME`；**一次 eval run 内所有 eval agent 共用同一模型** |
+| **能力层**（镜像构建） | Agent runtime 的 config fragment（OpenClaw：`agent-runtimes/openclaw/config/models.fragment.json`） | 注册固定 provider `custom`：硬编码 `baseUrl`、占位符 `apiKey`（`__WORK_OPENAI_API_KEY__`）、单一 model（`id` 用占位符 `__MODEL_ID__`、`name` 固定 `LLM`）；构建期由 `install-plugins-in-image.sh` 用 sed 注入 `WORK_OPENAI_API_KEY` 与从 `MODEL_NAME` 斜杠后派生的 `MODEL_ID` |
+| **默认选用层**（镜像构建） | Agent defaults fragment（OpenClaw：`config/agents.fragment.json` 的 `agents.defaults.model.primary` / `models` key） | 用占位符 `__MODEL_NAME__`，构建期 sed 注入整串 `MODEL_NAME`（即 `custom/<model_id>`），作为默认 primary 与 models key |
+| **运行时选用层**（评测前） | 仓库根 `.env` 的 `MODEL_NAME` | 构建期作为 `--build-arg` 注入镜像；LIFT 运行时调用 `openclaw agents add --model $MODEL_NAME`（`custom/<model_id>`）；**一次 eval run 内所有 eval agent 共用同一模型** |
 
 **契约规则：**
 
-1. `MODEL_NAME` 必须为 `provider/model_id` 格式（例如 `custom-ark-cn-beijing-volces-com/doubao-seed-2-0-pro-260215`）。
-2. `provider` 前缀与 `models.fragment.json` 中某 provider 的 key 一致；`model_id` 与该 provider 下 `models[].id` 之一一致。
-3. 仅改 `.env` 的 `MODEL_NAME` **不能**使用镜像未注册的模型；须先在 fragment 中增加 provider/model，再 `build-image.sh` 重建镜像。
-4. 若 `MODEL_NAME` 与 `agents.fragment.json` 默认一致，则行为与镜像默认相同，但 LIFT 仍会显式传入 `--model`（便于不换镜像切换已 bake 的候选模型）。
+1. `MODEL_NAME` 必须为 `custom/model_id` 格式（provider 前缀恒为 `custom`，例如 `custom/ep-20260529115331-9zxpm`）。构建脚本会校验含斜杠，否则 `build-image.sh` / `install-plugins-in-image.sh` 直接报错退出。
+2. 斜杠后的 `model_id` 注入 `models.fragment.json` 的 `models[].id`；整串 `custom/model_id` 注入 `agents.fragment.json` 的 `primary` 与 `models` key。二者由同一 `MODEL_NAME` 派生，天然一致。
+3. `MODEL_NAME` 是**构建期**参数：换模型或换 apiKey 需要改 `.env` 后 `build-image.sh` 重建镜像使占位符重新注入；仅改 `.env` 不重建镜像不会改变镜像内已 bake 的 `openclaw.json`。
 
 **常见操作：**
 
 | 目标 | 做法 |
 |------|------|
-| 换用已 bake 的另一模型 | 只改 `.env` 的 `MODEL_NAME` |
-| 新增 provider 或 model id | 改 runtime 的 `models.fragment.json`（及所需 API key）→ 重建镜像 → `.env` 指向新 `provider/model_id` |
-| 对齐默认与评测 | 保持 `MODEL_NAME` 与 `agents.fragment.json` 的 `primary` 一致，或有意偏离以 A/B 不同模型 |
+| 换用另一模型 | 改 `.env` 的 `MODEL_NAME`（保持 `custom/` 前缀，只换斜杠后 model id）→ `build-image.sh` 重建镜像 |
+| 换 work LLM 端点/密钥 | 改 `.env` 的 `WORK_OPENAI_API_KEY`（`baseUrl` 在 `models.fragment.json` 硬编码，如需改端点直接改 fragment）→ 重建镜像 |
 
 代码入口：[`chat_agent.py`](../src/lift/adapters/openclaw/chat_agent.py)（`agents add --model`）；配置加载：[`config.py`](../src/config.py)（`MODEL_NAME`）。OpenClaw 镜像构建细节见 [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)。
 

@@ -1,10 +1,3 @@
-"""Langfuse trace backfill (轨迹回填) for eval reports.
-
-Loads traces from Langfuse, stitches them with framework pre-chat spans, and
-writes ``PhaseRun.langfuse``. The historical module name ``langfuse_enrich`` and
-the word "enrich" in some CLI paths are legacy; see docs/eval-flow.md §9.
-"""
-
 from __future__ import annotations
 
 from typing import Any, Literal

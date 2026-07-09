@@ -84,8 +84,8 @@ bash agent-runtimes/openclaw/verify-image.sh evolve-eval-openclaw-with-evolve:la
 
 本镜像构建时会 merge `config/plugins.fragment.json`、`config/gateway.fragment.json`、`config/agents.fragment.json`、`config/skills.fragment.json` 与 `config/models.fragment.json` 进容器内的 `openclaw.json`，并遵守仓库公共契约：[Agent 模型配置契约](../../docs/eval-flow.md#126-agent-模型配置契约lift--容器运行时)（能力在 fragment / 选用在 `.env` `MODEL_NAME`）。
 
-- `ARK_API_KEY` —— **构建镜像时必填**；会注入到 `config/models.fragment.json`
-- `MODEL_NAME` —— LIFT `agents add --model` 使用的运行时模型 id（必须是 fragment 中已登记的 `provider/model_id`）
+- `WORK_OPENAI_API_KEY` —— **构建镜像时必填**；会注入到 `config/models.fragment.json` 的 `custom` provider `apiKey`
+- `MODEL_NAME` —— **构建镜像时必填**，必须是 `custom/model_id` 格式（provider 前缀恒为 `custom`）。构建期斜杠后的 `model_id` 注入 `models.fragment.json` 的 `models[].id`，整串注入 `agents.fragment.json` 的 `primary` / `models` key；运行时 LIFT `agents add --model $MODEL_NAME` 使用同一串
 - `LANGFUSE_PUBLIC_KEY`、`LANGFUSE_SECRET_KEY` —— 运行时需要
 - `LANGFUSE_BASE_URL` —— 容器内使用 `http://host.docker.internal:3000`
 - LIFT `ContainerSession` 会附加 `--add-host=host.docker.internal:host-gateway`（Linux 上 langfuse-tracer 上报必需）
