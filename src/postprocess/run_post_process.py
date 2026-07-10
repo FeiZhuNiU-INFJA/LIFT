@@ -71,7 +71,7 @@ def is_backfilled_report(data: dict) -> bool:
     return False
 
 
-# Legacy alias
+# Backward-compatible alias
 is_enriched_report = is_backfilled_report  # Deprecated alias for is_backfilled_report.
 
 
@@ -91,7 +91,7 @@ def load_or_backfill_report(
     return backfilled_data, report.run_id
 
 
-# Legacy alias
+# Backward-compatible alias
 load_or_enrich_report = load_or_backfill_report  # Deprecated alias for load_or_backfill_report.
 
 

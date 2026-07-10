@@ -13,8 +13,6 @@
 | [upload_benchmark_to_hf.py](./upload_benchmark_to_hf.py) | 把 `benchmark_mds.zip` 从 TOS 镜像推到 HuggingFace dataset 仓库（维护者一次性脚本） | `huggingface_hub`, `HF_TOKEN`（写权限） |
 | [screenshot_dashboard.py](./screenshot_dashboard.py) | 用 Playwright 把 LIFT dashboard（HTTP 或静态 HTML）截成 PNG | `playwright`（需另装） |
 | [clean-results.sh](./clean-results.sh) | 回收 OpenClaw Docker workspace 里 root 拥有的 `results/` 文件并清空 | `sudo`, `bash` |
-| [extract_enriched_csv.py](./extract_enriched_csv.py) ⚠️ legacy | 把 enriched eval JSON 抽成扁平 CSV。**已被 `src/postprocess/extract.py` 取代**（自动随 `--evaluate-only` 跑，且按 agent runtime 分支选择正确口径）；保留供历史 run 临时检查使用 | `pandas` |
-| [compute_improvement_metrics.py](./compute_improvement_metrics.py) ⚠️ legacy | 基于上一步 CSV 算 evolved/baseline 提升。**已被 `src/postprocess/metrics.py` 取代**（用 `(evolved-baseline)/baseline` 百分比，含离群剔除、`cached_token_ratio` 等扩展列）；保留供历史 run 临时检查使用 | `pandas` |
 
 ## 主流程：跑完直接走 `src/postprocess`
 

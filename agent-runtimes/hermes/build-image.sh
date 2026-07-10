@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build evolve-eval-hermes image from agent-runtimes/hermes build context.
 #
-# The build context is self-contained: legacy/hermes-helper and
-# legacy/langfuse-hermes have been copied in-tree under this directory
+# The build context is self-contained: runner and plugin assets are maintained
+# in-tree under agent-runtimes/hermes.
 # (see .trae/documents/hermes_runtime_integration_plan.md §A).
 set -euo pipefail
 
@@ -35,7 +35,7 @@ Build evolve-eval-hermes:latest from the upstream Hermes image.
 Override via env:
   HERMES_IMAGE            产物 tag，默认 evolve-eval-hermes:latest
   HERMES_BASE_IMAGE_REPO  上游镜像仓库，默认 nousresearch/hermes-agent
-  HERMES_BASE_IMAGE_TAG   上游镜像 tag，默认 v2026.5.16（对齐 legacy 版本）
+  HERMES_BASE_IMAGE_TAG   上游镜像 tag，默认 v2026.5.16
   HERMES_BASE_IMAGE       直接指定完整上游镜像（优先于 REPO:TAG 拼接）
   PIP_INDEX_URL           内网构建时切换 PyPI 源
   DOCKER_BUILD_NETWORK    docker build 网络模式，默认 host（构建期复用宿主机

@@ -7,9 +7,9 @@ secrets never get baked into image layers.
 Model block written (per plan §A.1 / §D.12):
 
     model:
-      default:  <suffix of MODEL_NAME after "/">   (or HERMES_MODEL_NAME if set)
+      default:  <suffix of MODEL_NAME after "/">
       provider: custom                             (forced)
-      base_url: <HERMES_API_URL or WORK_OPENAI_BASE_URL>
+      base_url: <WORK_OPENAI_BASE_URL>
       api_key:  <WORK_OPENAI_API_KEY>
       api_mode: chat_completions
       max_tokens: <MAX_TOKENS>                     (output cap; default 51200)
@@ -29,9 +29,6 @@ CONFIG_PATH = Path(os.environ.get("HERMES_CONFIG_PATH", "/opt/hermes-state/confi
 
 
 def _model_default() -> str:
-    explicit = os.environ.get("HERMES_MODEL_NAME", "").strip()
-    if explicit:
-        return explicit
     model_name = os.environ.get("MODEL_NAME", "").strip()
     if not model_name:
         return ""
@@ -45,10 +42,7 @@ def _model_default() -> str:
 
 
 def _base_url() -> str:
-    return (
-        os.environ.get("HERMES_API_URL", "").strip()
-        or os.environ.get("WORK_OPENAI_BASE_URL", "").strip()
-    )
+    return os.environ.get("WORK_OPENAI_BASE_URL", "").strip()
 
 
 def _api_key() -> str:
@@ -172,11 +166,11 @@ def _patch_plaintext(model_block: dict) -> None:
 def main() -> None:
     model_block = _model_block()
     if not model_block["default"]:
-        print("[patch-hermes-config] WARN: model.default empty (MODEL_NAME/HERMES_MODEL_NAME unset).")
+        print("[patch-hermes-config] WARN: model.default empty (MODEL_NAME unset).")
     if not model_block["api_key"]:
         print("[patch-hermes-config] WARN: WORK_OPENAI_API_KEY empty; Hermes will have no api_key.")
     if not model_block["base_url"]:
-        print("[patch-hermes-config] WARN: WORK_OPENAI_BASE_URL/HERMES_API_URL empty; Hermes has no base_url.")
+        print("[patch-hermes-config] WARN: WORK_OPENAI_BASE_URL empty; Hermes has no base_url.")
 
     if _patch_with_yaml(model_block):
         print(f"[patch-hermes-config] patched model block via PyYAML in {CONFIG_PATH}")

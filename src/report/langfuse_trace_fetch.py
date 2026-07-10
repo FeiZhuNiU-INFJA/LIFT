@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 from concurrent.futures import ThreadPoolExecutor
 import json
-from typing import Any
+from threading import Lock
+from typing import Any, Callable
 
 from src.report.langfuse_trace_parse import structure_trace_payload, is_plugin_trace
 from src.models import (
@@ -185,29 +186,99 @@ def count_tool_observations(detail: LangfuseTraceDetailRecord) -> int:
     return sum(1 for ob in detail.observations if ob.type == "TOOL")
 
 
+class TranscriptChampion:
+    """按 timestamp 取“最晚一条” work transcript 的线程安全单槽归约器。
+
+    背景：Hermes 每条 ``Hermes turn`` trace 的 ``metadata.messages`` 都是当轮全量
+    transcript，若把每条 trace 的 messages 都留到内存/落盘，会产生 N 份重复
+    （实测单个 927MB backfilled JSON 里 work 侧 messages 就占 ~340MB）。
+
+    本类在 ``fetch_trace_details`` 的 worker 内**流式归约**：每条 trace 解析后把
+    messages ``offer`` 进来，只保留 timestamp 最大（最晚）的一份，其余当场丢弃。
+    因此任意时刻内存里最多 ``worker 数 + 1`` 份 transcript，而不是全部。
+
+    - 选择口径：**最晚**（timestamp 最大）。用户要的是“最终 messages”，即便它是
+      上下文压缩后的结果，也必须是链路末端那一份，而非早期更长的那份。
+    - ``predicate``：判定一条 trace 是否属于 work 侧候选（judge 侧 transcript
+      下游不消费，直接不 offer）。
+    """
+
+    def __init__(self, predicate: Callable[[LangfuseTraceDetailRecord], bool]):
+        self._predicate = predicate
+        self._lock = Lock()
+        self._best_ts: str | None = None
+        self._messages: list[Any] = []
+
+    def offer(self, detail: LangfuseTraceDetailRecord, messages: list[Any]) -> None:
+        """若 *detail* 是 work 候选且 timestamp 更晚，则用 *messages* 替换当前冠军。"""
+        if not messages or not self._predicate(detail):
+            return
+        ts = detail.timestamp or ""
+        with self._lock:
+            # 严格 >：并列时保留先到者即可，冠军口径是“最晚”，同 timestamp 无差别。
+            if self._best_ts is None or ts > self._best_ts:
+                self._best_ts = ts
+                self._messages = messages
+
+    @property
+    def messages(self) -> list[Any]:
+        """当前冠军 transcript（最晚一条 work trace 的 messages），无候选时为空列表。"""
+        return self._messages
+
+
+def _detach_plugin_messages(detail: LangfuseTraceDetailRecord) -> list[Any]:
+    """从 *detail* 的 ``plugin_metadata`` 上摘除 ``messages`` 并原地清空，返回被摘下的列表。
+
+    只丢 ``messages`` 列表本身；``message_count`` / ``messages_serialized_chars`` 等轻量
+    观测字段保留，下游 dashboard / extract 口径不变。``detail`` 被就地改为 messages 为空，
+    因此后续 ``trace_ref_from_detail`` 产出的 ref 天然不带 transcript。
+    """
+    meta = detail.plugin_metadata
+    if meta is None or not meta.messages:
+        return []
+    popped = meta.messages
+    meta.messages = []
+    return popped
+
+
 def fetch_trace_details(
     client: Any,
     trace_ids: list[str],
     cache: dict[str, LangfuseTraceDetailRecord] | None = None,
+    *,
+    champion: TranscriptChampion | None = None,
 ) -> dict[str, LangfuseTraceDetailRecord]:
     """Fetch full trace details for *trace_ids*, reusing entries in *cache* when provided.
 
     用线程池并发 ``trace.get``：单 phase 通常几十~上百条 trace，每条 RTT
     ~200-500ms（要拉完整 observations），串行 fetch 是 backfill 的主要瓶颈。
     并发上限通过 ``EVAL_BACKFILL_TRACE_GET_WORKERS`` 调节。
+
+    当传入 *champion* 时启用**流式 transcript 归约**：每条 trace 解析后立即把
+    ``plugin_metadata.messages`` 摘下，交给 *champion*（只保留最晚一条 work
+    transcript），非冠军的 messages 随 worker 栈帧出作用域被回收。返回的 detail
+    一律**不再携带** ``messages``，避免 N 份全量 transcript 同时驻留内存/落盘。
+    未传 *champion* 时保持原行为（detail 携带完整 messages）。
     """
     out = cache if cache is not None else {}
     pending = [tid for tid in trace_ids if tid not in out]
     if not pending:
         return out
+
+    def _fetch_one(tid: str) -> LangfuseTraceDetailRecord:
+        detail = trace_detail_from_api(client.api.trace.get(tid))
+        if champion is not None:
+            messages = _detach_plugin_messages(detail)
+            champion.offer(detail, messages)
+        return detail
+
     workers = min(_resolve_trace_get_workers(), len(pending))
     if workers <= 1:
         for tid in pending:
-            full = client.api.trace.get(tid)
-            out[tid] = trace_detail_from_api(full)
+            out[tid] = _fetch_one(tid)
         return out
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for tid, detail in zip(pending, pool.map(lambda t: trace_detail_from_api(client.api.trace.get(t)), pending)):
+        for tid, detail in zip(pending, pool.map(_fetch_one, pending)):
             out[tid] = detail
     return out
 

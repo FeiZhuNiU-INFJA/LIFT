@@ -51,7 +51,7 @@ if [[ -n "${LANGFUSE_BASE_URL:-}" ]]; then export HERMES_LANGFUSE_BASE_URL="${LA
 # Append LIFT-provided credentials into the Hermes .env so `hermes` picks them up
 # (the langfuse plugin / API server read from ~/.hermes/.env == $HERMES_HOME/.env).
 # - Langfuse vars require the HERMES_ prefix (Hermes requirement).
-# - API server vars are written as-is (legacy parity).
+# - API server vars are written as-is for Hermes compatibility.
 # Idempotent: each KEY line is removed then re-appended so container restarts
 # don't accumulate duplicates.
 HERMES_ENV_FILE="${HERMES_HOME}/.env"

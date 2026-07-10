@@ -104,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Per-task baseline/evolved execution order. Default: parallel "
             "(asyncio.gather both phases — saves ~1/3 holdout time). "
-            "Set to serial to keep the legacy baseline→evolved order."
+            "Set to serial to run baseline before evolved for each task."
         ),
     )
     parser.add_argument(

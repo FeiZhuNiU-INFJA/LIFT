@@ -169,7 +169,7 @@ lift/eval (work + judge) ← 单题 review loop（不知道 Docker 是什么）
 
 这一设计直接呼应 P3（产物来源无关）：不同 runtime 把产物放到镜像里 / 群体记忆里 / 文件系统里，对上层 pipeline 完全透明。
 
-**反例**：早期 legacy 实现（保留在 `legacy/openclaw_main.py`）把 OpenClaw 直接绑在评测脚本里。当我们尝试接入第二个 runtime（Hermes）时，整个 pipeline 几乎重写——这就是当前三层抽象诞生的直接动因。
+**反例**：早期宿主机实现把 OpenClaw 直接绑在评测脚本里。当我们尝试接入第二个 runtime（Hermes）时，整个 pipeline 几乎重写——这就是当前三层抽象诞生的直接动因。
 
 ### 3.4 单题内核：work + judge review loop
 
@@ -200,7 +200,7 @@ flowchart TD
 
 | 方案 | 优点 | 致命缺点 |
 |---|---|---|
-| 宿主机 toggle 加载（legacy） | 实现简单 | 状态依赖 host 文件系统；并发会互相污染；不可异机回放 |
+| 宿主机 toggle 加载 | 实现简单 | 状态依赖 host 文件系统；并发会互相污染；不可异机回放 |
 | 结构化导出（YAML/JSON 产物包） | 可读、可版本化 | 难以覆盖文件系统级别的进化（OpenClaw 的 `~/.openclaw/` 整棵树） |
 | 容器快照（docker commit） ✓ | 完整捕获文件系统；天然可异机回放；天然可并发隔离 | delta 镜像有体积，需要清理 |
 
@@ -276,11 +276,11 @@ LIFT 的报告分两次写：
 
 LIFT 框架本身只产出**结构化执行记录（ExecutionRecord，Pydantic）**，具体哪些指标必报由 benchmark 决定。这也是把 benchmark 单列的原因——评测协议和 benchmark 是正交的。
 
-### 3.9 与 legacy replay 模式的对照
+### 3.9 与 replay 模式的对照
 
-我们保留了一份 legacy 实现（legacy/openclaw_main.py 的 replay 模式：全 suite baseline → 一次 evolve → 全 suite evolved），不是为了使用，而是作为消融对照：
+早期 replay 模式（全 suite baseline → 一次 evolve → 全 suite evolved）不是主评测路径，只适合作为消融对照：
 
-|  | LIFT（本文） | replay（legacy） |
+|  | LIFT（本文） | replay |
 |---|---|---|
 | 评测焦点 | holdout final 的加载对照 | 全部 task 进化前后各跑一遍 |
 | 产物阶段 | warmup 产 Δ 镜像，再开始测 | 全 suite baseline 跑完后一次性 evolve |
@@ -389,4 +389,3 @@ LIFT 用训练/测试分离 + 同题双跑 + 容器快照 + 三层抽象 + 多�
 | 跨 Agent 对比 | 各自做 Base vs Loaded 比 delta，不直接横比 | WildClawBench 做了跨 harness，但仍是裸 Agent 对比 |
 | 安全 | 横切维度，可选 | OS-Harm / RAS-Eval 提供专项安全 benchmark，LIFT 不重做 |
 | Trace | Langfuse backfill | 类似 Opik，但只用 trace 不用 evaluator |
-

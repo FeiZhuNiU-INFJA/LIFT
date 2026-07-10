@@ -249,11 +249,11 @@ def make_row(
 
 
 def _iter_suites(run: dict[str, Any]) -> list[dict[str, Any]]:
-    """Yield suite dicts from a run, supporting legacy ``benchmarks`` key."""
+    """Yield suite dicts from a run, supporting the older ``benchmarks`` key."""
     suites = (run or {}).get("suites")
     if isinstance(suites, list) and suites:
         return suites
-    # legacy report JSON used "benchmarks"
+    # Older report JSON used "benchmarks".
     benchmarks = (run or {}).get("benchmarks")
     if isinstance(benchmarks, list) and benchmarks:
         return benchmarks

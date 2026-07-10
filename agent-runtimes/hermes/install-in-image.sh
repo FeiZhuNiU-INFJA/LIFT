@@ -4,8 +4,7 @@
 # Responsibilities (see .trae/documents/hermes_runtime_integration_plan.md §A.3):
 #   1. Install langfuse SDK into Hermes' own venv.
 #   2. Overlay Hermes' bundled observability/langfuse plugin with the LIFT
-#      version copied from legacy/langfuse-hermes (now in-tree at
-#      agent-runtimes/hermes/langfuse-hermes).
+#      version maintained in-tree at agent-runtimes/hermes/langfuse-hermes.
 #   3. Enable observability/langfuse (best-effort; falls back to entrypoint).
 #   4. Leave runner in place (already COPYed by Dockerfile) and record the
 #      discovered Hermes venv python path for the entrypoint / adapter.

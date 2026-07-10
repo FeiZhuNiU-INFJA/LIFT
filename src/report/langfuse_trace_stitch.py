@@ -13,7 +13,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from src.lift.adapters.registry import SUPPORTED_RUNTIMES
-from src.report.langfuse_trace_fetch import fetch_trace_details, trace_ref_from_detail
+from src.report.langfuse_trace_fetch import (
+    TranscriptChampion,
+    fetch_trace_details,
+    trace_ref_from_detail,
+)
 from src.report.langfuse_trace_merge import (
     pair_hermes_traces_to_agent_turns,
     pair_session_traces_to_agent_turns,
@@ -127,7 +131,13 @@ def _stitch_openclaw(
     for t in (*by_work, *by_judge, *by_work_tag, *by_judge_tag):
         merged[str(t.id)] = t
 
-    details = fetch_trace_details(client, list(merged.keys()))
+    # 流式 transcript 归约：fetch worker 内把每条 trace 的 messages 摘下并只保留最晚一条
+    # work transcript，避免 N 份全量 messages 同时驻留内存/落盘。work 判定与下方
+    # `_classify_openclaw_side` 一致（session_id 命中或 session tag 命中）。
+    champion = TranscriptChampion(
+        lambda d: d.session_id == work_session_id or work_session_id in (d.tags or [])
+    )
+    details = fetch_trace_details(client, list(merged.keys()), champion=champion)
     work_raw: list[LangfuseTraceRef] = []
     judge_raw: list[LangfuseTraceRef] = []
     for tid, list_item in merged.items():
@@ -156,7 +166,7 @@ def _stitch_openclaw(
         judge_session_id=judge_session_id,
         work_agent_traces=work_turns,
         judge_agent_traces=judge_turns,
-        work_analytics=build_work_analytics(work_turns),
+        work_analytics=build_work_analytics(work_turns, all_messages=champion.messages),
     )
 
 
@@ -199,7 +209,10 @@ def _stitch_hermes(
         merged[tid] = t
         judge_ids.add(tid)
 
-    details = fetch_trace_details(client, list(merged.keys()))
+    # 流式 transcript 归约：只保留最晚一条 work transcript（work 判定用 work_ids 集合，
+    # 与下方 pair 归类口径一致），fetch worker 内即摘除并丢弃非冠军 messages。
+    champion = TranscriptChampion(lambda d: d.id in work_ids)
+    details = fetch_trace_details(client, list(merged.keys()), champion=champion)
     work_raw: list[LangfuseTraceRef] = []
     judge_raw: list[LangfuseTraceRef] = []
     for tid, list_item in merged.items():
@@ -219,7 +232,7 @@ def _stitch_hermes(
         judge_session_id=judge_session_id,
         work_agent_traces=work_turns,
         judge_agent_traces=judge_turns,
-        work_analytics=build_work_analytics(work_turns),
+        work_analytics=build_work_analytics(work_turns, all_messages=champion.messages),
     )
 
 

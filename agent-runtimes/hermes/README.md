@@ -15,18 +15,17 @@ agent-runtimes/hermes/
 ├── install-in-image.sh          # 构建期：装 langfuse 进 Hermes venv + 覆盖插件 + 记录发现的路径
 ├── hermes-entrypoint.sh         # 启动期：patch config.yaml + enable 插件 + 容器空转
 ├── patch_hermes_config.py       # 从 env 生成 config.yaml 的 model 块（不 bake secret）
-├── hermes-helper/               # 从 legacy/hermes-helper 整目录拷贝
+├── hermes-helper/               # Hermes runner 与协议说明
 │   ├── hermes_runner.py         # 容器内长生命周期 runner（Hermes chat 唯一执行通道）
 │   └── README_hermes_runner.md
-└── langfuse-hermes/             # 从 legacy/langfuse-hermes 整目录拷贝（覆盖 Hermes 自带 langfuse 插件）
+└── langfuse-hermes/             # LIFT 版 Hermes Langfuse 插件（覆盖 Hermes 自带插件）
     ├── __init__.py
     ├── plugin.yaml
     └── README.md
 ```
 
-> 自包含约定：构建 Hermes 镜像所需、原本只在 `legacy/` 的资产（runner、langfuse 插件）
-> 已整目录拷贝进本目录，Dockerfile 只 `COPY` 本地文件，不跨目录引用 `../../legacy/`。
-> 更新 legacy 版本后需重新拷贝同步。
+> 自包含约定：构建 Hermes 镜像所需的 runner 与 langfuse 插件资产都维护在本目录内，
+> Dockerfile 只 `COPY` 本地文件，不依赖仓库外的旧入口或宿主机路径。
 
 ## 构建镜像
 
@@ -36,8 +35,7 @@ agent-runtimes/hermes/
 bash agent-runtimes/hermes/build-image.sh
 ```
 
-默认产出 `evolve-eval-hermes:latest`，基于上游 `nousresearch/hermes-agent:v2026.5.16`
-（对齐 legacy 使用的 Hermes 版本）。
+默认产出 `evolve-eval-hermes:latest`，基于上游 `nousresearch/hermes-agent:v2026.5.16`。
 
 ### 基础镜像 tag / 源切换
 
@@ -80,8 +78,7 @@ docker run --rm evolve-eval-hermes:latest sh -lc \
 
 - `MODEL_NAME` — `custom/model_id`（provider 前缀恒为 `custom`）；Hermes `config.yaml`
   中 `model.default` 取 `/` 后缀，`model.provider` 固定 `custom`
-- `HERMES_MODEL_NAME` —（可选）显式覆盖 `model.default`
-- `WORK_OPENAI_BASE_URL` / `HERMES_API_URL` — work LLM base_url（后者优先）
+- `WORK_OPENAI_BASE_URL` — work LLM base_url
 - `WORK_OPENAI_API_KEY` — work LLM api_key
 - `MAX_TOKENS` — runner `--max-tokens`（默认 51200）
 - `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` — 入口脚本
@@ -94,9 +91,9 @@ docker run --rm evolve-eval-hermes:latest sh -lc \
 
 ```yaml
 model:
-  default: <MODEL_NAME 的 / 后缀，或 HERMES_MODEL_NAME>
+  default: <MODEL_NAME 的 / 后缀>
   provider: custom
-  base_url: <HERMES_API_URL 或 WORK_OPENAI_BASE_URL>
+  base_url: <WORK_OPENAI_BASE_URL>
   api_key: <WORK_OPENAI_API_KEY>
   api_mode: chat_completions
 ```
@@ -132,7 +129,7 @@ Hermes 的演化是"每题 work session 结束触发 background review，写入�
 并发），此时多个 review 进程会**并发写同一 memory 存储，存在竞态**。
 
 **推荐 Hermes warmup 显式用 `serial_single`**（单容器逐题串行，review 也串行），
-与 legacy"suite 内串行"语义一致；跨 suite/repeat 的并发仍由 `--max-parallel-suites`
+与 Hermes suite 内串行评测语义一致；跨 suite/repeat 的并发仍由 `--max-parallel-suites`
 提供：
 
 ```bash

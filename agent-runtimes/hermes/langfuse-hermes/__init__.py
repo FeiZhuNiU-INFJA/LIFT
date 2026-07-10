@@ -778,7 +778,7 @@ def on_pre_llm_call(*, task_id: str = "", session_id: str = "", platform: str = 
     # passed the actual API messages. Current Hermes also has a turn-scoped
     # pre_llm_call used for context injection; tracing that hook creates an
     # extra orphan/root trace before the real request trace. Only trace the
-    # legacy request-shaped call here.
+    # older request-shaped call here.
     if not isinstance(messages, list):
         return
 
@@ -786,7 +786,7 @@ def on_pre_llm_call(*, task_id: str = "", session_id: str = "", platform: str = 
     if client is None:
         return
 
-    # messages is a list only for legacy Hermes branches that fired
+    # messages is a list only for older Hermes branches that fired
     # pre_llm_call with API messages directly. Current Hermes fires
     # pre_llm_call for context injection (conversation_history/user_message,
     # no messages list) — tracing that would create orphan traces.

@@ -206,7 +206,7 @@ class HermesContainerAgent(ChatAgent):
     async def end_session(self) -> bool:
         """结束 runner 子进程：发送 ``__evo_task_end__`` 并关闭 stdin，等待退出。
 
-        与 legacy ``HermesAgent.end_session``（``legacy/src/agents.py`` L462-506）一致：
+        与 Hermes runner 的终止协议一致：
         **无论是否 review，都必须发 task_end 哨兵来终止 runner**。runner 侧收到哨兵后
         是否真跑 background review，**完全**由该 runner spawn 时是否带 ``--enable-review``
         决定（见 ``hermes_runner.py::run_review_if_enabled``），不由结束流程控制——因此
@@ -274,13 +274,12 @@ class HermesContainerAgent(ChatAgent):
 class HermesWorkerJudgerPairFactory:
     """为同一 Hermes 容器内的题目构建 ``WorkerJudgerPair``。
 
-    **review 契约（spawn 时锁定，不可变）**——对齐 legacy
-    ``HermesAgent.chat`` 的 ``enable_review = (chat_role=="work_agent") and
-    not is_evolve_turn`` 规则：
+    **review 契约（spawn 时锁定，不可变）**——对齐 Hermes runner 的
+    ``enable_review = (chat_role=="work_agent") and not is_evolve_turn`` 规则：
 
     - **work agent runner**：``enable_review=self._warmup``——warmup 阶段一定带
       ``--enable-review``（每题结束跑 review 写 ``/opt/hermes-state``）；holdout（测量阶段，
-      对应 legacy 的 evolve/baseline turn）一定不带。
+      对应测量阶段的 evolved/baseline turn）一定不带。
     - **judge agent runner**：``enable_review=False``——judge **永远**不 review。
 
     end_session 不再有 review 参数：终止时统一发 task_end 哨兵，是否 review 只看这里
