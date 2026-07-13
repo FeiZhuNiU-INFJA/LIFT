@@ -27,6 +27,53 @@ except Exception:
 _LIFT_TRACE_NAME = "genericagent-plugin"
 
 
+def _normalize_message(msg):
+    """把 GA ``agent_loop`` 里的一条 message dict 规约成 backfill 友好的最小形状。
+
+    LIFT 后处理 (``report_html.build_trajectory_nodes``) 只认 ``role`` / ``content``
+    以及 assistant 的 ``tool_calls``（``function.name`` / ``function.arguments``）。
+    GA 的 ``messages`` 每轮是 ``{role, content, tool_results?}``，直接透传即可；
+    这里只做浅拷贝 + content 转字符串，避免把不可序列化对象塞进 metadata。
+    """
+    if not isinstance(msg, dict):
+        return {"role": "assistant", "content": str(msg)}
+    role = msg.get("role") or "assistant"
+    content = msg.get("content")
+    if not isinstance(content, (str, list, type(None))):
+        content = str(content)
+    out = {"role": role, "content": content if content is not None else ""}
+    return out
+
+
+def _assistant_message_from_response(response):
+    """把 GA ``response`` 对象（含 ``content`` / ``tool_calls``）转成 assistant message。
+
+    ``tool_calls`` 归一到 OpenAI 风格 ``{id, type, function:{name, arguments}}``，让
+    ``build_trajectory_nodes`` 能识别出 tool 节点；同时返回本轮的工具名列表用于计数。
+    """
+    content = getattr(response, "content", "") or ""
+    tool_calls_raw = getattr(response, "tool_calls", None) or []
+    tool_calls = []
+    tool_names = []
+    for tc in tool_calls_raw:
+        fn = getattr(tc, "function", None)
+        name = getattr(fn, "name", None) if fn is not None else None
+        args = getattr(fn, "arguments", None) if fn is not None else None
+        if name:
+            tool_names.append(name)
+        tool_calls.append(
+            {
+                "id": getattr(tc, "id", None),
+                "type": "function",
+                "function": {"name": name, "arguments": args},
+            }
+        )
+    msg = {"role": "assistant", "content": content if isinstance(content, str) else str(content)}
+    if tool_calls:
+        msg["tool_calls"] = tool_calls
+    return msg, tool_names
+
+
 def _lift_tags():
     tags = []
     run_tag = os.environ.get("LIFT_EVAL_RUN_TAG", "").strip()
@@ -47,20 +94,51 @@ if _lf:
     import llmcore
     _tls = threading.local()
 
-    # ── Agent root trace ─────────────────────────────────────────
+    # ── 进程/会话级 transcript 累积器 ─────────────────────────────
+    # 关键：GA 的多轮对话（LIFT 每写一次 ``reply.txt``）会各自重新调用一次
+    # ``agent_runner_loop``，因此 ``agent_before`` / ``agent_after`` 每轮都会触发，
+    # 而 ``agent_runner_loop`` 内的 ``messages`` 每轮从新 user 重建（历史存在
+    # llmcore backend 里）。若累积器绑在单次 loop 上，每轮 root span 只含本轮
+    # 增量，无法还原整段会话。
+    #
+    # 方案：transcript / 工具名 累积器提升到**进程级全局**（``_STATE``，进程与
+    # session 一一对应），跨轮持续追加；但 root span 仍**每轮一条**（agent_before
+    # 建、agent_after 关闭并 flush），每轮把「截至当前轮的全量 transcript」写进
+    # 该轮 root span 的 metadata。这样：
+    #   - 每轮都有一条完整落库的 trace（Input/Output 不为 undefined）；
+    #   - 最后一轮的 trace 天然含整段会话，后处理 ``TranscriptChampion``
+    #     取「最晚一条」即完整对话。
+    #
+    # 注意工具计数口径：``messages`` 走 champion「取最晚一条」（全量），而后处理
+    # ``build_work_analytics`` 对 ``toolCallBlocks`` 是**按轮 SUM**。因此 root
+    # metadata 里的 ``toolCallBlocks`` 写**本轮** per-round 增量
+    # （``_tls.round_tool_call_blocks``），SUM 后正好是总数；``toolNamesDistinct``
+    # 用全局累积去重（展示用，不参与 SUM）。
+    _STATE = {
+        "transcript": [],   # 跨轮累积的全量 message 列表
+        "tool_names": [],   # 跨轮累积的工具名（全局 distinct 展示用）
+    }
+    _STATE_LOCK = threading.Lock()
+
+    def _distinct(names):
+        seen = set()
+        out = []
+        for n in names:
+            if n and n not in seen:
+                seen.add(n)
+                out.append(n)
+        return out
+
+    # ── Agent root trace（每轮一条）──────────────────────────────
     @hooks.register('agent_before')
     def _on_agent_before(ctx):
-        """开启 propagate_attributes（写 session_id/tags 到 trace 根）+ root agent span。
+        """每轮开启 propagate_attributes（写 session_id/tags）+ root agent span。
 
-        Langfuse Python SDK 4.x 起，``user_id`` / ``session_id`` / ``tags`` 通过
-        ``propagate_attributes`` 上下文管理器传播到当前 OTel context 下所有 span，
-        而不是 v3 的 ``observation.update_trace(session_id=...)`` —— 后者在 4.x
-        ``LangfuseAgent`` 上根本不存在，会 silently 什么也不做。
-
-        我们手动 ``__enter__`` / ``__exit__``：因为 GA 的 hook 机制是分散在
-        agent_before / agent_after / tool_before / tool_after 多个回调里的，
-        没有 ``with`` 包住整段 chat 的位置。``start_as_current_observation``
-        同理 enter/exit。
+        Langfuse Python SDK 4.x 起，``session_id`` / ``tags`` 通过
+        ``propagate_attributes`` 上下文管理器传播到当前 OTel context 下所有 span。
+        我们手动 ``__enter__``（在 agent_after ``__exit__``）——GA hook 分散在多个
+        回调里，没有 ``with`` 包住整轮的位置。root span 每轮新建、当轮关闭，但
+        transcript 从进程级 ``_STATE`` 跨轮累积。
         """
         try:
             sid = _lift_session_id()
@@ -81,6 +159,21 @@ if _lf:
             _tls.attr_cm = attr_cm
             _tls.obs_cm = obs_cm
             _tls.trace_obs = obs
+            _tls.round_tool_call_blocks = 0  # 本轮 per-round 工具计数
+            # 播种本轮 user message（跳过 system prompt）到进程级 transcript。
+            # seeded 让 llm_before 不重复追加 agent_before 已播种的这批 messages。
+            _tls.seeded = False
+            try:
+                seed = ctx.get('messages')
+                if isinstance(seed, list):
+                    with _STATE_LOCK:
+                        for m in seed:
+                            if isinstance(m, dict) and m.get('role') == 'system':
+                                continue
+                            _STATE["transcript"].append(_normalize_message(m))
+                    _tls.seeded = True
+            except Exception:
+                pass
         except Exception:
             _tls.attr_cm = None
             _tls.obs_cm = None
@@ -88,10 +181,28 @@ if _lf:
 
     @hooks.register('agent_after')
     def _on_agent_after(ctx):
-        """反序退出 obs_cm → attr_cm，确保 OTel current span 栈正确归零。"""
+        """当轮结束：把「截至当前轮的全量 transcript」+ 本轮工具计数写进 root
+        metadata，再反序退出 obs_cm → attr_cm，最后 flush。"""
         try:
             obs = getattr(_tls, 'trace_obs', None)
             if obs:
+                # 从进程级 _STATE 读全量 transcript（含此前所有轮）。键名走 OpenClaw
+                # camelCase schema，见 LangfusePluginTraceMetadata。
+                try:
+                    with _STATE_LOCK:
+                        transcript = list(_STATE["transcript"])
+                        distinct = _distinct(_STATE["tool_names"])
+                    round_tcb = int(getattr(_tls, 'round_tool_call_blocks', 0) or 0)
+                    obs.update(metadata={
+                        "messages": transcript,
+                        "messageCount": len(transcript),
+                        # 本轮 per-round 工具数：后处理按轮 SUM，跨轮累加得总数。
+                        "toolCallBlocks": round_tcb,
+                        "toolRoundtrips": round_tcb,
+                        "toolNamesDistinct": ",".join(distinct) if distinct else None,
+                    })
+                except Exception:
+                    pass
                 obs.update(output=ctx.get('exit_reason'))
             obs_cm = getattr(_tls, 'obs_cm', None)
             if obs_cm is not None:
@@ -117,6 +228,20 @@ if _lf:
             _tls._usage = None
         except Exception:
             _tls.gen = None
+        # 累积当轮新 user message 到进程级 transcript：agent_before 已播种当轮
+        # 首批 messages（seeded=True）则跳过一次；同一轮内后续 llm_before（GA
+        # while 循环多 turn）把新 user（承载 tool_results / next_prompt）追加。
+        try:
+            if getattr(_tls, 'seeded', False):
+                _tls.seeded = False  # 当轮已由 agent_before 播种，本次不重复追加
+            else:
+                msgs = ctx.get('messages')
+                if isinstance(msgs, list):
+                    with _STATE_LOCK:
+                        for m in msgs:
+                            _STATE["transcript"].append(_normalize_message(m))
+        except Exception:
+            pass
 
     @hooks.register('llm_after')
     def _on_llm_after(ctx):
@@ -129,6 +254,22 @@ if _lf:
                 )
                 gen.end()
                 _tls.gen = None
+        except Exception:
+            pass
+        # 追加本轮 assistant message（含归一化 tool_calls）到进程级 transcript，
+        # 并累计工具计数：全局 tool_names（distinct 展示）+ 本轮 round 计数（SUM）。
+        try:
+            response = ctx.get('response')
+            if response is not None:
+                assistant_msg, tool_names = _assistant_message_from_response(response)
+                with _STATE_LOCK:
+                    _STATE["transcript"].append(assistant_msg)
+                    if tool_names:
+                        _STATE["tool_names"].extend(tool_names)
+                if tool_names:
+                    _tls.round_tool_call_blocks = (
+                        int(getattr(_tls, 'round_tool_call_blocks', 0) or 0) + len(tool_names)
+                    )
         except Exception:
             pass
 

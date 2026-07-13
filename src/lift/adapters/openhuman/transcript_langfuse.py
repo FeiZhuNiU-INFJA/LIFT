@@ -26,6 +26,7 @@ OpenHuman core 本身**不集成** Langfuse SDK / OTel exporter（binary 里仅�
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -139,6 +140,88 @@ def collect_session_transcripts(
     return hits
 
 
+_USER_TS_LINE_RE = re.compile(
+    r"^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}[^\]]*\]\s*$",
+    re.MULTILINE,
+)
+
+
+def _clean_user_content(content: Any) -> Any:
+    """把 OpenHuman user message 里的编排脚手架剥掉，只留真实用户请求。
+
+    OpenHuman 会给每条 user message 包裹大量上下文脚手架：
+      - ``Current Date & Time: ...`` 头
+      - ``## Agent context status`` / ``## Prepared context`` 段
+      - ``[context_bundle] ... [/context_bundle]`` 块
+      - ``[Context]`` / ``[Request]`` / ``[Orchestrator tools]`` 分节
+      - 巨长的可用工具清单
+
+    真实请求恒在一行 ``[<Weekday> YYYY-MM-DD HH:MM:SS GMT+N]`` 时间戳之后
+    （LIFT 侧 chat 注入的 ``[Fri ... GMT+8]\\n<query>``；judge 复跑轮则是 reason +
+    "你再试一次..."）。提取规则（按优先级）：
+
+    1. 若存在 ``[Request]`` 分节，取其正文（截到下一个 ``[Section]`` 或
+       ``## Heading`` 前），再对正文套规则 2 去时间戳头。
+    2. 取最后一个 ``[<Weekday> ... GMT±N]`` 时间戳行之后、下一个 ``[Section]`` /
+       ``## Heading`` 之前的正文。
+    3. 都不命中则原样返回（避免误伤 sub-agent 的非脚手架内容）。
+    """
+    if not isinstance(content, str) or not content.strip():
+        return content
+    text = content
+
+    # 下一分节标题：方括号标题（如 [Orchestrator tools]）或 markdown 标题 (## ...)。
+    # **排除** [Weekday ... GMT±N] 时间戳行——它同样是 [..] 形态但正是我们要保留的锚点。
+    def _next_section(s: str):
+        for mm in re.finditer(r"^(\[[^\]]+\]|##\s.*)\s*$", s, re.MULTILINE):
+            if _USER_TS_LINE_RE.match(mm.group(0)):
+                continue
+            return mm
+        return None
+
+    # 1) 优先 [Request] 分节
+    m = re.search(r"^\[Request\]\s*$", text, re.MULTILINE)
+    if m:
+        rest = text[m.end():]
+        stop = _next_section(rest)
+        body = rest[: stop.start()] if stop else rest
+        text = body
+
+    # 2) 取最后一个 [Weekday ... GMT±N] 时间戳行之后的内容
+    ts_matches = list(_USER_TS_LINE_RE.finditer(text))
+    if ts_matches:
+        last = ts_matches[-1]
+        rest = text[last.end():]
+        stop = _next_section(rest)
+        body = rest[: stop.start()] if stop else rest
+        cleaned = body.strip()
+        if cleaned:
+            return cleaned
+
+    # [Request] 命中但无时间戳时，返回 [Request] 正文
+    if m:
+        cleaned = text.strip()
+        if cleaned:
+            return cleaned
+
+    # 2.5) sub-agent 委托简报形态：``[Context]\nCurrent Date & Time: ...\n\n<正文>``
+    #      （无 [Fri...GMT+8] 时间戳、无 [Request]）。去掉 [Context] 头 + 紧随的
+    #      ``Current Date & Time:`` 行，保留 Task/Objective 等真实委托正文。
+    ctx_m = re.match(r"^\[Context\]\s*$", content.lstrip().splitlines()[0]) if content.strip() else None
+    if ctx_m is not None:
+        body = content
+        body = re.sub(r"^\[Context\]\s*$", "", body, count=1, flags=re.MULTILINE)
+        body = re.sub(
+            r"^Current Date & Time:.*$", "", body, count=1, flags=re.MULTILINE
+        )
+        cleaned = body.strip()
+        if cleaned:
+            return cleaned
+
+    # 3) 兜底：原样返回
+    return content
+
+
 def _extract_tool_calls_from_assistant(
     msg: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -233,6 +316,10 @@ def summarize_transcripts(transcripts: list[ParsedTranscript]) -> _PluginTraceSu
                 continue
             enriched = dict(msg)
             enriched["_agent"] = agent_name  # 标记来自哪个 sub-agent，便于 UI 阅读
+            if role == "user":
+                # 剥掉 OpenHuman 编排脚手架（[Context]/[Orchestrator tools]/工具清单
+                # 等），只留真实用户请求；首轮=task query，复跑轮=judge reason+重试语。
+                enriched["content"] = _clean_user_content(msg.get("content"))
             messages.append(enriched)
 
             if role == "assistant":
