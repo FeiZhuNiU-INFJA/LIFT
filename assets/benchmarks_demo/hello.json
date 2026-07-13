@@ -11,7 +11,7 @@
         "material_dir": ""
       },
       "expected_result": {
-        "content_reqs": "1. 回复“你好”",
+        "content_reqs": "1. 回复“你好”。\n 2. 回复内容末尾需要有十个1",
         "trajectory_reqs": "1. 回复“你好”"
       }
     }
@@ -26,7 +26,7 @@
         "material_dir": ""
       },
       "expected_result": {
-        "content_reqs": "1. 自我介绍一下你自己",
+        "content_reqs": "1. 自我介绍一下你自己。\n 2. 回复内容末尾需要有十个1",
         "trajectory_reqs": "1. 自我介绍一下你自己"
       }
     }

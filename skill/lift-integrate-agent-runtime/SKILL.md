@@ -82,6 +82,81 @@ langfuse_config = {"public_key": "__LANGFUSE_PUBLIC_KEY__", "secret_key": "__LAN
 >
 > 验证：容器内 `python -c "from langfuse import Langfuse; print(dir(Langfuse(...).start_as_current_observation(name='x')))"` 看不到 `update_trace` 即说明在 v4。再去 langfuse UI 看一条 trace 的 `Session` / `Tags` 列是否非空，是 → overlay 正确；空 → 还在用 v3 API。
 
+### 1.3.1 多轮对话的 root span 生命周期 —— transcript 累积器必须**进程级**，root span **每轮一条** ⚠️
+
+> **背景（GA 实测踩坑）**：文件 I/O 型 runtime（GA 那种：宿主写 `input.txt` / `reply.txt`，容器内一个常驻进程轮询）在**同一个进程**里跑多轮对话。但 GA 上游每收到一次 `reply.txt` 就重新调用一次 `agent_runner_loop`，而 `agent_before` / `agent_after` / `llm_before` / `llm_after` 这些 hook 是在 `agent_runner_loop` **内部**触发的（见 GA `agent_loop.py`：`_hook('agent_before', ...)` 在 loop 开头、`_hook('agent_after', ...)` 在 loop 结尾）。**结论：一次多轮对话 = N 次 `agent_runner_loop` = N 次 `agent_before`/`agent_after`**。真正的跨轮历史存在上游 LLM client 的 `backend.history` 里，每次 loop 的 `messages` 只从"本轮新 user"重建。
+
+接入任何 **"单进程跨多轮"** 的 runtime（文件 I/O 型、长连接 stdin/stdout 型都算）时，overlay 的 transcript 累积必须满足两条，否则 Langfuse 上 `messages` 无法还原整段会话：
+
+**规则 1：transcript / 工具名 累积器提升到进程级全局（模块级 dict），不要放 `threading.local`、更不要放单次 loop 的 `locals()`。**
+- 每轮 `agent_before` 只往这个全局累积器**追加**当轮 user，`llm_after` 追加 assistant（含归一化 `tool_calls`）——跨轮持续 append。
+- GA 单进程只服务一个 `session_id`（LIFT factory 每题每 role 各起一个进程 / iodir），所以"进程级 = 会话级"，无需再按 sid 分桶。若未来复用单进程跑多 session，才需要按 session_id 分桶。
+
+**规则 2：root span 仍然"每轮一条"（`agent_before` 建、`agent_after` 关闭并 `flush`），每轮把"截至当前轮的全量 transcript"写进该轮 root span 的 metadata。**
+- 为什么不做成"整进程一条 root span、退出时才 end"？因为**容器是被 `docker rm -f`（SIGKILL）杀的，`atexit` / 信号 handler 根本不会执行** → root span 永远 end 不掉 / flush 不出去 → Langfuse 上该 trace 的 Input / Output 全是 `undefined`（实测踩过这个坑）。所以必须每轮在 `agent_after` 里同步 `__exit__` + `flush`，保证每一轮都是一条**完整落库**的 trace。
+- 每轮写"截至当前的全量"后，**最后一轮的 trace 天然含整段会话**，后处理 `TranscriptChampion`（[`langfuse_trace_fetch.py`](file:///root/workspace/agent_evolve_evaluation/src/report/langfuse_trace_fetch.py) 按 timestamp "取最晚一条" work transcript）拿到的正好是完整对话。这与 Hermes"每轮全量 transcript"的 champion 口径一致。
+
+**规则 3（工具计数口径，容易反向踩坑）：`messages` 走 champion"取最晚一条"（全量），但 `toolCallBlocks` 在后处理 [`build_work_analytics`](file:///root/workspace/agent_evolve_evaluation/src/report/langfuse_work_analytics.py) 里是按轮 SUM（`g.tool_call_blocks += t.stats.tool_call_blocks`）。**
+- 因此写进 root metadata 的 `toolCallBlocks` / `toolRoundtrips` 必须是**本轮 per-round 增量**（用一个 `threading.local` 的 round 计数器），SUM 后才是正确总数。
+- 如果 `toolCallBlocks` 也用全局累积值，SUM 会把 round1 的量重复累加进 round2 → 工具数虚高。
+- `toolNamesDistinct` 用全局累积去重即可（它只做展示，不参与 SUM）。
+
+> **判定 runtime 是否踩这条**：run 一次 2 轮对话，去 Langfuse 按 `session_id=user-*` 搜。
+> - 只看到 **1 条** trace 且它只含某一轮的 messages → 你把 span/累积器绑在单次 loop 上了（每轮互相覆盖 / 各自独立），走规则 1+2。
+> - 看到 **N 条** trace 但每条只含单轮增量、无法拼出全量 → 累积器没提升到进程级，走规则 1。
+> - trace 的 Input / Output 是 `undefined` → span 没 end/flush（多半是想靠 atexit 收尾但被 SIGKILL），走规则 2 改回每轮 `agent_after` 收尾。
+>
+> 参考实现见 [`agent-runtimes/genericagent/langfuse_tracing_overlay.py`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/langfuse_tracing_overlay.py) 的 `_STATE`（进程级全量）+ `_tls.round_tool_call_blocks`（per-round SUM）+ `agent_after` 每轮 `__exit__` + `flush`。
+
+#### 1.3.1.1 怎么**发现**这个问题（两种诊断法）
+
+跑一个**至少 2 轮对话**的 suite（`assets/benchmarks_demo/hello.json` 就够——它 warmup Q1 + holdout Q2，且 judge 复跑会天然凑出多轮），然后二选一验证。
+
+**方法 A（推荐，最简，有实锤）：直接查 `results` 里的 backfilled JSON。** 不用开 Langfuse UI，离线可查。
+
+定位路径（结构见下方实测样本）：`runs[].suites[].tasks[].{baseline|evolved}.langfuse.work_analytics.all_messages`，同级还有 `chat_turns`。
+
+```bash
+RID=lift-runid-<run_id>
+JSON=results/$RID/${RID}_backfilled.json
+python3 -c "
+import json, collections
+d = json.load(open('$JSON', encoding='utf-8'))
+for rp in d['runs']:
+    for s in rp['suites']:
+        for t in s['tasks']:
+            for ph in ('baseline','evolved'):
+                wa = (t[ph].get('langfuse') or {}).get('work_analytics') or {}
+                am = wa.get('all_messages') or []
+                ct = wa.get('chat_turns') or []
+                roles = collections.Counter(m.get('role') for m in am if isinstance(m, dict))
+                users = roles.get('user', 0)
+                flag = '  <-- 断裂!' if (len(ct) >= 2 and users < len(ct)) else ''
+                print(f'{t[\"task_name\"]:6} {ph:8} chat_turns={len(ct)} all_messages={len(am)} roles={dict(roles)}{flag}')
+"
+```
+
+**判定标准**：
+- **健康**：`user` 数 ≈ `chat_turns` 数，`assistant` 数也随轮次增长；多条 user 的时间戳/内容各不相同（能看出是不同轮）。
+- **断裂（就是本节 bug）**：`chat_turns >= 2` 但 `all_messages` 里**显然只有 1 条 user**（或 user 数明显少于 chat_turns），且 assistant 只有 1 条汇报 —— 说明只捕获了某一轮，前面的轮次没续上。
+
+实测**健康样本**（`hello.json`，Q2 holdout，judge 复跑成 2 轮，来自 [ga-hello-test-1-h backfilled.json](file:///c:/Users/Admin/Desktop/evobench/agent_evolve_evaluation/results/lift-runid-ga-hello-test-1-h/lift-runid-ga-hello-test-1-h_backfilled.json)）：
+
+```
+Q2     baseline chat_turns=2 all_messages=4 roles={'user': 2, 'assistant': 2}
+Q2     evolved  chat_turns=2 all_messages=4 roles={'user': 2, 'assistant': 2}
+```
+
+`all_messages` 里两条 user 的时间戳不同（`[Mon ... 16:44:23]` 第一轮 vs `[Mon ... 16:44:57]` 第二轮），第二条 user 是 judge 的"你再试一次…"续问 —— 这就是续上了。若 bug 未修，这里会退化成 `chat_turns=2` 但 `roles={'user': 1, 'assistant': 1}`。
+
+> backfilled JSON 的完整层级：`runs[] → suites[] → tasks[] → {baseline,evolved} → langfuse → work_analytics → {chat_turns[], all_messages[], global_stats{total_tokens, tool_call_blocks, ...}, trace_chain[]}`。`all_messages` 每条是 `{role, content, tool_calls?}`（GA overlay `_normalize_message` 规约后的最小形状）。
+
+**方法 B（无 backfilled 产物 / 想看原始 trace 时）：查 Langfuse UI。** 按 `session_id = user-*`（或 runtime 对应前缀）搜 root span，展开 `metadata.messages`：
+- 如果只看到 **1 条** root trace 且它的 messages 明显没续上前面轮次 → 累积器/span 绑在单次 loop 上（§1.3.1 规则 1+2）。
+- 如果 root trace 的 Input/Output 是 `undefined` → span 没 end/flush（§1.3.1 规则 2）。
+
+> **证据优先级**：方法 A 有 backfilled JSON 落盘即有实锤，优先用。**如果你只是"怀疑"多轮没续上但手里没有 backfilled 产物 / 拿不到实际证据，不要主观下结论——让用户去 Langfuse UI 按 session_id 查 root span 的 messages 确认**，再决定要不要动 overlay。
+
 ### 1.4 patch 上游硬编码（如有）
 
 GA 上游把 `Handler.cwd` 与 system prompt cwd 都硬编码成 `os.path.join(script_dir, 'temp')`，LIFT 把 task materials bind 到 `/workspace/task`，必须在 build 期 patch 上游源码（见 [`install-in-image.sh:51-85`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/install-in-image.sh#L51-L85) 的 python in-place 替换）。换 runtime 时先 grep `script_dir` / `os.getcwd()` / `os.path.dirname(__file__)` 找类似硬编码。
@@ -827,6 +902,9 @@ done
 | `Judge response is not valid JSON` 重试日志 | 这是 prompt sanity 设计行为，不是 bug | 偶发可忽略；高频出现说明 judge prompt 没渲染干净 |
 | `logs/<run_id>.log` 看到 `wait output timeout` | GA 主循环 600s 内没产出 / 死循环 / LLM 卡 | `docker exec <c> tail -50 /opt/GenericAgent/temp/<iodir>/ga.stderr.log` 看 GA 自己日志 |
 | Langfuse trace 上 `Session` / `Tags` 列空 | overlay 还在用 v3 的 `obs.update_trace(...)` / `client.update_current_trace(...)`，4.x SDK 已删除 | overlay 改成 `propagate_attributes(session_id=, tags=)` 上下文管理器 + `start_as_current_observation`（见 §1.3） |
+| 多轮对话 Langfuse 上 `messages` 只有某一轮 / 拼不出整段会话（单进程跨多轮 runtime） | transcript 累积器绑在单次 `agent_runner_loop` 的 `locals()` / `threading.local` 上，每轮 `agent_before` 各自重建 → 每轮 root span 只含本轮增量 | 累积器提升到**进程级全局** dict，root span 仍每轮一条、每轮写"截至当前全量"（见 §1.3.1 规则 1+2）；用 2 轮对话 + `session_id=user-*` 搜 Langfuse 判定 |
+| 多轮 runtime 的 trace Input/Output 全 `undefined`，且整进程只留一条没闭合的 span | 想做"整进程一条 root span、`atexit` 收尾"，但容器被 `docker rm -f`（SIGKILL）杀掉，`atexit` 不执行 → span 从没 end/flush | 改回**每轮 `agent_after` 同步 `__exit__` + `flush`**，别依赖进程退出钩子收尾（见 §1.3.1 规则 2） |
+| 多轮 runtime 的 `tool_use_num` 虚高（约等于实际值 × 轮次） | `toolCallBlocks` 写成了跨轮全局累积值，但后处理 `build_work_analytics` 对它按轮 SUM → 重复累加 | root metadata 里 `toolCallBlocks` 写**本轮 per-round 增量**（`messages` 才用全量 champion 口径），见 §1.3.1 规则 3 |
 | 静态 dashboard tools 列空，但 `*_backfilled.json` 里 `tool_calls` 已有数 | B 路径 langfuse 兜底拿到了值但没回写 tracker，`tracker.snapshot()` 仍是 None → 嵌入 HTML 后显示 "—" | 确认 `run_post_process_pipeline` 调了 `tracker.set_phase_tool_calls(...)`（见 §5.3.1）；运行期实时 dashboard 看不到 B 路径 tools 是设计行为 |
 | evolved 与 baseline 结果几乎一致（improvement ≈ 0），或 LLM 明说"写了 memory"但 delta 镜像里没有 | Warmup 期 agent 的 evolve 产物落进了 bind mount / tmpfs（LLM 用 `memory/xxx` 相对路径，cwd 又在 bind mount 之内），`docker commit` 没捕获到 → delta 镜像内容 = baseline | 走 §6.5 证据 C 检查 delta diff；若 diff 为空回 §1.7 三点错位排查（引擎读 / LLM 写 / Dockerfile mkdir）。修法：`install-in-image.sh` patch 上游 system prompt 里 `[Memory]` 指示为绝对路径；reflection prompt 显式加"cwd 是 bind mount，只能用 `/opt/<runtime>/memory/`" |
 | 流水线全绿、report.json `success=true`，但 work agent 回复里出现 "I cannot access" / "no attachment" / `q1_materials.*not found` 等逃避语 | task materials bind mount 路径与 agent 侧 cwd / system prompt 里的路径不一致；LLM 拿到任务描述里的相对路径解析不出真实位置 | 走 §6.5 证据 A'.1 命中项;`docker exec <c> ls -la /workspace/task /root/.openclaw/workspace` 对比宿主 bind mount 目录,核对 `session.py:task_volume_binds` 与上游 cwd patch 是否指向同一目录;必要时在 workspace startup hook 里加 `qN_materials/ → cwd` 的软链 |

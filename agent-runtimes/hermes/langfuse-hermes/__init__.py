@@ -730,6 +730,31 @@ def _merge_trace_output(output: Any, state: TraceState) -> Any:
     return merged
 
 
+def _append_final_assistant_message(state: TraceState, output: Any) -> None:
+    """收尾时把最后一轮 assistant 输出补进 ``state.messages``。
+
+    ``on_pre_llm_request`` 在每次 LLM 调用**之前**把 ``input_messages`` 覆盖式写入
+    ``state.messages`` 并发布到 root，因此它记录的始终是「喂给本次调用」的历史，
+    不含本次调用返回的 assistant 消息。中间轮次的 assistant 消息会被下一次
+    ``pre`` 的 ``input_messages`` 重新带上；但**最后一轮**没有后续 ``pre``，其
+    assistant 回复只存在于 root ``output`` 里，导致 ``metadata.messages`` 缺失末条。
+
+    这里依据 ``post`` 阶段拿到的 ``output``（``{content, reasoning, tool_calls}``）
+    组装成标准 assistant message 追加，使 root ``metadata.messages`` 覆盖整段对话。
+    ``_finish_trace`` 已 ``pop`` 掉该 state，不会再有 ``pre`` 覆盖，故不会重复追加。
+    """
+    if not isinstance(output, dict):
+        return
+    content = output.get("content")
+    tool_calls = output.get("tool_calls") or []
+    if content is None and not tool_calls:
+        return
+    message: Dict[str, Any] = {"role": "assistant", "content": content}
+    if tool_calls:
+        message["tool_calls"] = tool_calls
+    state.messages = list(state.messages) + [message]
+
+
 def _finish_trace(task_key: str, *, output: Any = None) -> None:
     client = _get_langfuse()
     if client is None:
@@ -741,6 +766,10 @@ def _finish_trace(task_key: str, *, output: Any = None) -> None:
         return
 
     try:
+        # 补录最后一轮 assistant 消息后重新发布，确保 root metadata.messages
+        # 覆盖到整段对话的最后一条 assistant（pre_llm_request 只发布调用「前」历史）。
+        _append_final_assistant_message(state, output)
+        _publish_messages_to_root(state)
         for observation in state.generations.values():
             _end_observation(observation)
         for observation in state.tools.values():

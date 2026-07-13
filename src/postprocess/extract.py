@@ -201,6 +201,43 @@ def _make_row_hermes(
     }
 
 
+def _make_row_genericagent(
+    side: dict[str, Any],
+    work_analytics: dict[str, Any],
+) -> dict[str, Any]:
+    """GenericAgent 模式：token 走 ``global_stats``（GA overlay 的 generation usage 累加）。
+
+    - ``total_tokens``：``global_stats.total_tokens``（GA overlay 每次 LLM 调用挂
+      GENERATION observation，``usage_details`` 由 SSE tee 解析得到；messages 里不带
+      ``totalTokens``，故不能走 ``_make_row_openclaw`` 的 messages 累加口径）。
+    - ``tool_use_num``：``global_stats.tool_call_blocks``（GA overlay 在 agent_after
+      写 metadata.toolCallBlocks 后有值）；缺失/为 0 时回退 ``global_stats.tool_observation_count``
+      （``type=TOOL`` observation 数），保证有工具调用时不被静默丢成 0。
+    - ``cached_token``：从 ``all_messages`` 的 ``usage.cache_read_input_tokens`` / ``cacheRead``
+      累加（``global_stats`` 不含该字段；GA 多数情况下 messages 无 usage，则为 0）。
+    - ``trials``：``chat_turns`` 长度（与 OpenClaw 保持一致语义）。
+    """
+    global_stats = work_analytics.get("global_stats") or {}
+    all_messages = work_analytics.get("all_messages") or []
+    chat_turns = work_analytics.get("chat_turns") or []
+    total_tokens = int_value(global_stats.get("total_tokens"))
+    total_tool_calls = int_value(global_stats.get("tool_call_blocks"))
+    if total_tool_calls == 0:
+        total_tool_calls = int_value(global_stats.get("tool_observation_count"))
+    cached_tokens = _aggregate_openhuman_cached_tokens(all_messages)
+    cached_token_ratio = cached_tokens / total_tokens if total_tokens > 0 else 0.0
+    trials = len(chat_turns)
+    return {
+        "trials": trials,
+        "tool_use_num": total_tool_calls,
+        "total_tokens": total_tokens,
+        "cached_token": cached_tokens,
+        "cached_token_ratio": cached_token_ratio,
+        "total_latency_seconds": work_analytics.get("total_latency_seconds"),
+        "all_messages": dumps_json(all_messages),
+    }
+
+
 def make_row(
     task: dict[str, Any],
     variant_name: str,
@@ -218,6 +255,8 @@ def make_row(
         metric_row = _make_row_hermes(side, work_analytics)
     elif agent_source == "openhuman":
         metric_row = _make_row_openhuman(side, work_analytics)
+    elif agent_source in ("genericagent", "genericagent_active_evolve"):
+        metric_row = _make_row_genericagent(side, work_analytics)
     else:
         metric_row = _make_row_openclaw(side, work_analytics)
 
