@@ -34,7 +34,7 @@ from src.lift.adapters.openhuman.container_exec import OpenHumanContainerContext
 from src.lift.adapters.openhuman.transcript_langfuse import (
     push_openhuman_plugin_trace_safe,
 )
-from src.lift.eval.chat_agent import ChatAgent
+from src.lift.eval.chat_agent import ChatAgent, format_outbound_message
 from src.lift.eval.worker_judger import WorkerJudgerPair
 from src.models import SuiteTask
 from src.utils import short_id
@@ -82,14 +82,21 @@ class OpenHumanContainerAgent(ChatAgent):
         self._workspace_dir.mkdir(parents=True, exist_ok=True)
 
     async def chat(self, message: str, *, session_id: str) -> str:
-        """单轮 chat：POST /rpc → openhuman.agent_chat。"""
+        """单轮 chat：POST /rpc → openhuman.agent_chat。
+
+        OpenHuman 的 raw transcript 后处理（``_clean_user_content``）依赖
+        ``[<Weekday> YYYY-MM-DD HH:MM:SS GMT+8]`` 时间戳行作为锚点，从
+        脚手架里提取真实用户请求。这里在 message 前贴 stamp，其他 runtime
+        的 ``ChatAgent.chat`` 不做此转换。
+        """
+        stamped_message = format_outbound_message(message)
         rpc_id = next(self._RPC_ID_ITER)
         payload = {
             "jsonrpc": "2.0",
             "id": rpc_id,
             "method": _METHOD_AGENT_CHAT,
             "params": {
-                "message": message,
+                "message": stamped_message,
                 "thread_id": session_id,
             },
         }
@@ -147,12 +154,13 @@ class OpenHumanContainerAgent(ChatAgent):
         # Best-effort：从容器 ``session_raw/`` 拉 transcript → push 一条
         # ``openhuman-plugin`` root trace 到 Langfuse。失败仅 warning。
         # 放在成功返回路径下（错误 / 超时不 push），避免污染 trace 序列。
+        # 用 stamped_message 保持与容器内 raw transcript 的锚点一致。
         try:
             await asyncio.to_thread(
                 push_openhuman_plugin_trace_safe,
                 container_name=self._container.container_name,
                 session_id=session_id,
-                user_message=message,
+                user_message=stamped_message,
                 reply_text=reply_text,
                 run_tag=self._run_tag,
             )

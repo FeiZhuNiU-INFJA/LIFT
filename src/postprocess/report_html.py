@@ -415,22 +415,29 @@ def _parse_messages(raw: Any) -> list[dict[str, Any]]:
     return [m for m in parsed if isinstance(m, dict)] if isinstance(parsed, list) else []
 
 
-def _block_text(content: Any) -> tuple[str, str, list[dict[str, Any]]]:
-    """Split message ``content`` into (text, reasoning, tool_call_blocks).
+def _block_text(content: Any) -> tuple[str, str, list[dict[str, Any]], bool]:
+    """Split message ``content`` into (text, reasoning, tool_call_blocks, had_signal_only_tool_calls).
 
     Supports OpenClaw block-style content (list of ``text`` / ``thinking`` /
     ``toolCall`` dicts) as well as plain string content.
+
+    ``had_signal_only_tool_calls``: True 表示 message 里存在 toolCall block，且
+    **全部** 被 ``_should_ignore_tool_call_block`` 过滤（即整条 message 的工具调用
+    只是 self-evolution signal）。调用方据此把 signal-only 的 assistant message
+    整条 skip，避免在 trajectory 图上留下"只有 reasoning"的 orphan node。
     """
     if isinstance(content, str):
-        return content, "", []
+        return content, "", [], False
     if not isinstance(content, list):
         if content is None:
-            return "", "", []
-        return json.dumps(content, ensure_ascii=False), "", []
+            return "", "", [], False
+        return json.dumps(content, ensure_ascii=False), "", [], False
 
     texts: list[str] = []
     reasonings: list[str] = []
     tool_blocks: list[dict[str, Any]] = []
+    raw_tool_count = 0
+    ignored_tool_count = 0
     for block in content:
         if not isinstance(block, dict):
             texts.append(str(block))
@@ -441,10 +448,12 @@ def _block_text(content: Any) -> tuple[str, str, list[dict[str, Any]]]:
         elif btype == "thinking":
             reasonings.append(block.get("thinking", ""))
         elif btype == "toolCall":
+            raw_tool_count += 1
             # Skip OpenClaw self-evolution signal calls (exec to the local signal
             # port) so trajectory tool nodes match the ``tool_use_num`` metric,
             # which excludes them via the same predicate.
             if _should_ignore_tool_call_block(block):
+                ignored_tool_count += 1
                 continue
             tool_blocks.append(
                 {
@@ -455,7 +464,13 @@ def _block_text(content: Any) -> tuple[str, str, list[dict[str, Any]]]:
             )
         else:
             texts.append(json.dumps(block, ensure_ascii=False))
-    return "\n".join(t for t in texts if t), "\n".join(r for r in reasonings if r), tool_blocks
+    had_signal_only_tool_calls = raw_tool_count > 0 and raw_tool_count == ignored_tool_count
+    return (
+        "\n".join(t for t in texts if t),
+        "\n".join(r for r in reasonings if r),
+        tool_blocks,
+        had_signal_only_tool_calls,
+    )
 
 
 def _stringify(value: Any) -> str:
@@ -494,7 +509,9 @@ def build_trajectory_nodes(raw_messages: Any) -> list[dict[str, Any]]:
         if role in {"tool", "toolResult"} or message.get("tool_call_id") is not None:
             continue
 
-        text, reasoning, content_tool_blocks = _block_text(message.get("content"))
+        text, reasoning, content_tool_blocks, signal_only_toolcalls = _block_text(
+            message.get("content")
+        )
         if not reasoning:
             reasoning = message.get("reasoning") or ""
 
@@ -512,6 +529,17 @@ def build_trajectory_nodes(raw_messages: Any) -> list[dict[str, Any]]:
             continue
 
         if role == "assistant":
+            # Skip signal-only assistant messages entirely: OpenClaw self-evolution
+            # 会让 agent 先发一条只含 planning-thinking + signal exec toolCall 的
+            # message（没有 text）。signal toolCall 已在 ``_block_text`` 里被过滤，
+            # 但如果不整条 skip，就会在 trajectory 图上留下一个"只有 reasoning"的
+            # orphan assistant node（reasoning 内容还是内部 signal 决策）。
+            if (
+                not text
+                and signal_only_toolcalls
+                and not (message.get("tool_calls") or [])
+            ):
+                continue
             # Emit the assistant text/reasoning node when there is something to show.
             if text or reasoning:
                 nodes.append(

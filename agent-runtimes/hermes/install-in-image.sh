@@ -10,11 +10,11 @@
 #      discovered Hermes venv python path for the entrypoint / adapter.
 #
 # The Hermes image layout differs across builds, so paths are DISCOVERED here
-# rather than hardcoded, then persisted to /opt/evolve-eval/hermes-paths.env.
+# rather than hardcoded, then persisted to /opt/lift/hermes-paths.env.
 set -euo pipefail
 
-OUT_ENV="/opt/evolve-eval/hermes-paths.env"
-mkdir -p /opt/evolve-eval
+OUT_ENV="/opt/lift/hermes-paths.env"
+mkdir -p /opt/lift
 
 log() { echo "[hermes-install] $*"; }
 
@@ -158,6 +158,50 @@ if [[ -n "$HERMES_PLUGINS_DIR" ]]; then
   log "Overlaid LIFT langfuse plugin into $DEST"
 else
   log "WARN: Hermes plugins dir not found; langfuse plugin overlay skipped. Set it up at runtime." >&2
+fi
+
+# ---------------------------------------------------------------------------
+# 5b) Patch _supports_reasoning_extra_body 白名单加入 ARK (volces.com)。
+#     Hermes upstream 只对 OpenRouter / GitHub / LMStudio / Nous Portal 放开
+#     ``reasoning`` extra_body，ARK doubao-seed 端点默认走 "不支持" 分支 →
+#     ``reasoning_config`` 会被静默丢弃。ARK 已实测接受 ``reasoning_effort=medium``
+#     以及嵌套 ``reasoning={enabled,effort}``；这里用 Hermes 自带 python 在 nousresearch.com
+#     分支后插入一条 volces.com 分支，保留 8-space 缩进。幂等：已插入过就 skip。
+if [[ -n "${HERMES_SRC_DIR:-}" && -f "${HERMES_SRC_DIR}/run_agent.py" ]]; then
+  RUN_AGENT_PY="${HERMES_SRC_DIR}/run_agent.py"
+  log "Patching _supports_reasoning_extra_body to whitelist volces.com in $RUN_AGENT_PY"
+  "$HERMES_VENV_PY" - "$RUN_AGENT_PY" <<'PYEOF'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+marker = "# LIFT: allow ARK volces.com"
+if marker in text:
+    print(f"[hermes-install] volces.com whitelist already patched in {path}; skipping.")
+    sys.exit(0)
+
+anchor_lines = (
+    '        if base_url_host_matches(self._base_url_lower, "nousresearch.com"):\n'
+    '            return True\n'
+)
+insert_lines = (
+    '        if base_url_host_matches(self._base_url_lower, "volces.com"):  '
+    + marker + '\n'
+    '            return True\n'
+)
+if anchor_lines not in text:
+    sys.stderr.write(
+        f"[hermes-install] FATAL: anchor for reasoning whitelist not found in {path}. "
+        "Upstream Hermes may have refactored _supports_reasoning_extra_body.\n"
+    )
+    sys.exit(1)
+patched = text.replace(anchor_lines, anchor_lines + insert_lines, 1)
+path.write_text(patched, encoding="utf-8")
+print(f"[hermes-install] Patched volces.com whitelist into {path}.")
+PYEOF
+else
+  log "WARN: HERMES_SRC_DIR/run_agent.py missing; skip _supports_reasoning_extra_body patch." >&2
 fi
 
 # ---------------------------------------------------------------------------

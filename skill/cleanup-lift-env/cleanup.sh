@@ -97,10 +97,10 @@ else
     run "docker rm -f ${containers[*]} >/dev/null"
 fi
 
-# 2. delta 镜像（warmup commit 产物，命名 evolve-eval-delta:*）
-section "2. 清理 evolve-eval-delta:* 镜像"
+# 2. delta 镜像（warmup commit 产物，命名 lift-delta:*）
+section "2. 清理 lift-delta:* 镜像"
 mapfile -t delta_imgs < <(docker images --format "{{.Repository}}:{{.Tag}}" \
-    | awk '/^evolve-eval-delta:/' || true)
+    | awk '/^lift-delta:/' || true)
 if [[ ${#delta_imgs[@]} -eq 0 ]]; then
     echo "(无 delta 镜像)"
 else
@@ -168,4 +168,4 @@ docker ps -a --filter "name=evolve-" --format "  {{.Names}}\t{{.Status}}" || tru
 echo
 echo "当前镜像:"
 docker images --format "  {{.Repository}}:{{.Tag}}\t{{.Size}}" \
-    | grep -E "^evolve-eval" || echo "  (无相关镜像)"
+    | grep -E "^lift" || echo "  (无相关镜像)"

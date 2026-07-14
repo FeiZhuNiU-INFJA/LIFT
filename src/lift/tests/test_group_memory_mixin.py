@@ -64,7 +64,7 @@ def test_multi_user_openclaw_defaults_to_parallel_multi() -> None:
 
 async def test_delta_ref_unowned_cleanup_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     """``owned=False`` 时 ``DeltaRef.cleanup`` 不调用 docker rmi。"""
-    delta = DeltaRef(image_tag="evolve-eval-openclaw-base:latest", owned=False)
+    delta = DeltaRef(image_tag="lift-openclaw-base:latest", owned=False)
 
     called: list[str] = []
 
@@ -82,7 +82,7 @@ async def test_delta_ref_unowned_cleanup_is_noop(monkeypatch: pytest.MonkeyPatch
 
 async def test_delta_ref_owned_cleanup_invokes_rmi(monkeypatch: pytest.MonkeyPatch) -> None:
     """``owned=True`` 时 ``DeltaRef.cleanup`` 仅 rmi 一次（幂等）。"""
-    delta = DeltaRef(image_tag="evolve-eval-delta:foo", owned=True)
+    delta = DeltaRef(image_tag="lift-delta:foo", owned=True)
 
     called: list[str] = []
 
@@ -95,4 +95,4 @@ async def test_delta_ref_owned_cleanup_invokes_rmi(monkeypatch: pytest.MonkeyPat
     )
     await delta.cleanup()
     await delta.cleanup()  # 第二次幂等
-    assert called == ["evolve-eval-delta:foo"]
+    assert called == ["lift-delta:foo"]

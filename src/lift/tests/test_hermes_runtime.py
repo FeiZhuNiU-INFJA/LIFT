@@ -26,7 +26,7 @@ def test_hermes_registered() -> None:
     adapter = create_adapter("hermes", RunOptions())
     assert isinstance(adapter, HermesAdapter)
     assert adapter.resolve_docker_image() == HERMES_DOCKER_IMAGE
-    assert HERMES_DOCKER_IMAGE == "evolve-eval-hermes:latest"
+    assert HERMES_DOCKER_IMAGE == "lift-hermes:latest"
 
 
 def test_runner_params_model_suffix(monkeypatch: pytest.MonkeyPatch) -> None:

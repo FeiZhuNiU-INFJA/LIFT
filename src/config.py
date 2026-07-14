@@ -64,6 +64,20 @@ class AppConfig:
     """agent 使用的模型名（``MODEL_NAME``，形如 ``custom/model_id``，provider 前缀恒为 ``custom``）。"""
     max_tokens: int
     """单轮 work/judge chat 的最大输出 token（``MAX_TOKENS``，默认 51200）。"""
+    reasoning_effort: str
+    """全 runtime 统一的 seed 模型思维链强度（``REASONING_EFFORT``，默认 ``medium``）。
+
+    - OpenClaw：作为 ``agent --thinking <level>`` 参数传入，同时 ``models.fragment.json``
+      的 ``reasoning: true`` 让 gateway 视模型为可推理。
+    - Hermes：由 ``hermes_runner.py`` 转成 ``reasoning_config={"enabled": True, "effort": <level>}``
+      注入 AIAgent；ARK ``volces.com`` 已在 ``install-in-image.sh`` 中加入白名单。
+    - GenericAgent：镜像构建期 sed 到 ``mykey.py`` 的 ``native_oai_config`` 上，
+      再由 ``llmcore.py`` 作为顶层 ``reasoning_effort`` 透传到 OpenAI 兼容请求体。
+    - OpenHuman：Rust 二进制不支持该字段，服务端默认已 thinking，此处配置无效果。
+
+    值为空字符串时各 runtime 走各自的默认（Hermes 走 upstream 默认，OpenClaw 不追加
+    ``--thinking``，GenericAgent 不写入 ``reasoning_effort`` key）。
+    """
     log_file: str
     """日志文件路径（``EVAL_LOG_FILE``，默认项目根下 ``evolve_eval.log``）。"""
     langfuse_pre_chat: bool
@@ -106,6 +120,7 @@ def load_config() -> AppConfig:
         or None,
         model=_read_model_name(),
         max_tokens=int(os.getenv("MAX_TOKENS", "51200")),
+        reasoning_effort=(os.getenv("REASONING_EFFORT", "medium") or "").strip(),
         log_file=os.getenv("EVAL_LOG_FILE", str(_default_log_file())),
         langfuse_pre_chat=_env_flag("EVAL_LANGFUSE_PRE_CHAT", default=True),
         langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),

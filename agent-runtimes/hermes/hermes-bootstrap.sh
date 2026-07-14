@@ -16,7 +16,7 @@
 #     committed state authoritative and the entrypoint side-effect-free.
 set -euo pipefail
 
-PATHS_ENV="/opt/evolve-eval/hermes-paths.env"
+PATHS_ENV="/opt/lift/hermes-paths.env"
 if [[ -f "$PATHS_ENV" ]]; then
   # shellcheck disable=SC1090
   source "$PATHS_ENV"

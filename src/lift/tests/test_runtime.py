@@ -50,7 +50,7 @@ def test_delta_image_tag_sanitizes() -> None:
     验证 ``delta_image_tag`` 将 run id 与 suite 名 sanitize 为合法标签。
     """
     tag = delta_image_tag(run_id="run/id", repeat_index=2, suite_name="Suite A")
-    assert tag == "evolve-eval-delta:run-id-r2-Suite-A"
+    assert tag == "lift-delta:run-id-r2-Suite-A"
     assert tag.count(":") == 1
 
 
@@ -60,7 +60,7 @@ async def test_suite_run_resources_cleanup_order() -> None:
     验证 cleanup 按 LIFO 清理 disposable、删除 delta 镜像且可重复调用。
     """
     cleaner = _FakeCleaner()
-    delta = DeltaRef(image_tag="evolve-eval-delta:test:r0:suite")
+    delta = DeltaRef(image_tag="lift-delta:test:r0:suite")
     delta._cleaner = cleaner
     resources = SuiteRunResources(
         run_id="test", repeat_index=0, suite_name="suite", delta=delta
@@ -75,4 +75,4 @@ async def test_suite_run_resources_cleanup_order() -> None:
 
     assert second.cleaned
     assert first.cleaned
-    assert cleaner.removed_images == ["evolve-eval-delta:test:r0:suite"]
+    assert cleaner.removed_images == ["lift-delta:test:r0:suite"]

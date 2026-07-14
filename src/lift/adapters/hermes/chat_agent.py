@@ -127,6 +127,9 @@ class HermesContainerAgent(ChatAgent):
             "--session-id", session_id,
             "--max-tokens", str(params.max_tokens),
         ]
+        if params.reasoning_effort:
+            # Empty → 让 hermes_runner 走 Hermes upstream 默认，避免 argparse 校验空串。
+            cmd.extend(["--reasoning-effort", params.reasoning_effort])
         if self._enable_review:
             cmd.append("--enable-review")
         return cmd

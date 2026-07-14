@@ -72,12 +72,12 @@ def sanitize_image_tag(tag: str) -> str:
 
 
 def delta_image_tag(*, run_id: str, repeat_index: int, suite_name: str) -> str:
-    """生成 warmup commit 后的 delta 镜像 tag（``evolve-eval-delta:...``）。"""
+    """生成 warmup commit 后的 delta 镜像 tag（``lift-delta:...``）。"""
     safe_run = sanitize_image_tag(run_id)
     safe_suite = sanitize_image_tag(suite_name)
     # Docker allows only one ':' (repository:tag); use '-' inside the tag.
     tag = f"{safe_run}-r{repeat_index}-{safe_suite}"
-    return f"evolve-eval-delta:{tag[:128]}"
+    return f"lift-delta:{tag[:128]}"
 
 
 def _is_missing_target(stderr_text: str) -> bool:

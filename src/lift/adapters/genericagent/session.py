@@ -21,6 +21,9 @@ from pathlib import Path
 from src.config import LOGGER
 from src.lift.adapters.base import SuiteRunContext
 from src.lift.adapters.container.exec import docker_exec_shell_async
+from src.lift.adapters.container.langfuse import (
+    rewrite_langfuse_base_url_for_container,
+)
 from src.lift.adapters.container.session import ContainerSession
 from src.lift.adapters.container.volumes import (
     default_volume_binds,
@@ -31,26 +34,8 @@ from src.models import SuiteTask
 from src.paths import GENERICAGENT_WORKSPACE_SEED_DIR
 
 _CONTAINER_PREFIX = "evolve-genericagent"
-CONTAINER_WORKSPACE_SEED_DIR = "/opt/evolve-eval/workspace_seed"
+CONTAINER_WORKSPACE_SEED_DIR = "/opt/lift/workspace_seed"
 WORKSPACE_READY_MARKER = ".lift-workspace-ready"
-
-
-def _rewrite_langfuse_host_for_container(host_value: str | None) -> str | None:
-    """把宿主 ``.env`` 中的 Langfuse URL 里的 ``localhost`` / ``127.0.0.1``
-    替换为 ``host.docker.internal``，供容器内进程访问宿主 Langfuse。
-    其余字段（scheme / port / path）保留原值。空值返回 None。
-    """
-    if not host_value or not host_value.strip():
-        return None
-    value = host_value.strip()
-    # 简单字符串替换足够——LANGFUSE_BASE_URL 里 host 段唯一出现，且我们只关心
-    # 将两个 loopback 主机名换掉。避免引入 urllib.parse 处理不带 scheme 的情况。
-    for loopback in ("localhost", "127.0.0.1"):
-        value = value.replace(f"//{loopback}:", "//host.docker.internal:")
-        value = value.replace(f"//{loopback}/", "//host.docker.internal/")
-        if value.endswith(f"//{loopback}"):
-            value = value[: -len(f"//{loopback}")] + "//host.docker.internal"
-    return value
 
 
 def _container_reclaim_ownership_script(uid: int, gid: int) -> str:
@@ -176,7 +161,7 @@ async def start_genericagent_container(
     # 这里在 ``env_vars`` 层把 host 段改写为容器内可达的 ``host.docker.internal``
     # （scheme / port / path 从 ``.env`` 原值继承），优先级高于 ``env_file``。
     # 同名 ``LANGFUSE_HOST`` 同步覆写（部分 SDK 走它）。
-    ga_langfuse_host = _rewrite_langfuse_host_for_container(
+    ga_langfuse_host = rewrite_langfuse_base_url_for_container(
         os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST"),
     )
     if ga_langfuse_host:

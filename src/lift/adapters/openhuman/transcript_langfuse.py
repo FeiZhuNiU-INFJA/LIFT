@@ -157,8 +157,8 @@ def _clean_user_content(content: Any) -> Any:
       - 巨长的可用工具清单
 
     真实请求恒在一行 ``[<Weekday> YYYY-MM-DD HH:MM:SS GMT+N]`` 时间戳之后
-    （LIFT 侧 chat 注入的 ``[Fri ... GMT+8]\\n<query>``；judge 复跑轮则是 reason +
-    "你再试一次..."）。提取规则（按优先级）：
+    （LIFT 侧 chat 注入的 ``[Fri ... GMT+8]\\n<query>``；judge 复跑轮则是 judge
+    reason 原文）。提取规则（按优先级）：
 
     1. 若存在 ``[Request]`` 分节，取其正文（截到下一个 ``[Section]`` 或
        ``## Heading`` 前），再对正文套规则 2 去时间戳头。

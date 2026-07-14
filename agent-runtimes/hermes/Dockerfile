@@ -6,12 +6,12 @@
 # Manual:
 #   docker build -f agent-runtimes/hermes/Dockerfile \
 #     --build-arg HERMES_BASE_IMAGE=nousresearch/hermes-agent:v2026.5.16 \
-#     -t evolve-eval-hermes:latest \
+#     -t lift-hermes:latest \
 #     agent-runtimes/hermes
 #
 # Design (see .trae/documents/hermes_runtime_integration_plan.md):
 #   - Container idles (no `gateway run`); LIFT drives it via
-#     `docker exec ... <hermes-venv-python> /opt/evolve-eval/hermes_runner.py`.
+#     `docker exec ... <hermes-venv-python> /opt/lift/hermes_runner.py`.
 #   - Hermes state root is relocated to /opt/hermes-state (a plain image dir).
 #     The upstream base declares VOLUME /opt/data, so runtime writes there are
 #     dropped by `docker commit`; relocating lets warmup memory / skills /
@@ -40,11 +40,11 @@ ENV UV_INDEX_URL=${PIP_INDEX_URL} \
 
 # Copy the self-contained build context (runner/plugin assets maintained in-tree).
 COPY langfuse-hermes /tmp/langfuse-hermes
-COPY hermes-helper/hermes_runner.py /opt/evolve-eval/hermes_runner.py
+COPY hermes-helper/hermes_runner.py /opt/lift/hermes_runner.py
 COPY install-in-image.sh /tmp/install-in-image.sh
-COPY hermes-bootstrap.sh /opt/evolve-eval/hermes-bootstrap.sh
-COPY hermes-entrypoint.sh /opt/evolve-eval/hermes-entrypoint.sh
-COPY patch_hermes_config.py /opt/evolve-eval/patch_hermes_config.py
+COPY hermes-bootstrap.sh /opt/lift/hermes-bootstrap.sh
+COPY hermes-entrypoint.sh /opt/lift/hermes-entrypoint.sh
+COPY patch_hermes_config.py /opt/lift/patch_hermes_config.py
 
 # Firecrawl API key: only injected when non-empty (build-image.sh passes it only
 # then). Baked as runtime ENV so the Hermes agent can use firecrawl; also drives
@@ -59,11 +59,11 @@ ENV FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
 #    (paths differ across Hermes image builds; discovered at build time).
 ENV HERMES_HOME=/opt/hermes-state
 RUN chmod +x /tmp/install-in-image.sh \
-        /opt/evolve-eval/hermes-bootstrap.sh \
-        /opt/evolve-eval/hermes-entrypoint.sh \
+        /opt/lift/hermes-bootstrap.sh \
+        /opt/lift/hermes-entrypoint.sh \
     && mkdir -p /opt/hermes-state /workspace/task \
     && bash /tmp/install-in-image.sh \
-    && bash /opt/evolve-eval/hermes-bootstrap.sh
+    && bash /opt/lift/hermes-bootstrap.sh
 
 # 2) Ensure Hermes data root + eval task dir exist.
 RUN mkdir -p /opt/data /workspace/task
@@ -75,5 +75,5 @@ ENV LIFT_EVAL_RUN_TAG=""
 
 # Container idles; LIFT drives Hermes via docker exec runner. The entrypoint
 # patches /opt/hermes-state/config.yaml from env, then keeps the container alive.
-ENTRYPOINT ["/opt/evolve-eval/hermes-entrypoint.sh"]
+ENTRYPOINT ["/opt/lift/hermes-entrypoint.sh"]
 CMD ["tail", "-f", "/dev/null"]

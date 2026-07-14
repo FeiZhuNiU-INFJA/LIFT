@@ -3,7 +3,7 @@
 
 services:
   openclaw:
-    image: ${OPENCLAW_IMAGE:-evolve-eval-openclaw-with-evolve:latest}
+    image: ${OPENCLAW_IMAGE:-lift-openclaw-with-evolve:latest}
     build:
       context: .
       dockerfile: Dockerfile

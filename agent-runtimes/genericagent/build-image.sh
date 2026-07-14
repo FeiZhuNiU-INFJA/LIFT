@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build evolve-eval-genericagent image from agent-runtimes/genericagent build context.
+# Build lift-genericagent image from agent-runtimes/genericagent build context.
 set -euo pipefail
 
 AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -38,11 +38,11 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [-h|--help]
 
-Build evolve-eval-genericagent:latest by cloning lsdefine/GenericAgent and
+Build lift-genericagent:latest by cloning lsdefine/GenericAgent and
 baking WORK_OPENAI / Langfuse credentials from repo root .env into the image.
 
 Override via env:
-  GENERICAGENT_IMAGE       默认 evolve-eval-genericagent:latest
+  GENERICAGENT_IMAGE       默认 lift-genericagent:latest
   GENERICAGENT_GIT_URL     默认 https://github.com/lsdefine/GenericAgent.git
   GENERICAGENT_GIT_REF     默认 main
   APT_MIRROR / PIP_INDEX_URL  内网构建时切换上游（脚本会自动探测字节内网）
@@ -63,7 +63,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-TAG="${GENERICAGENT_IMAGE:-evolve-eval-genericagent:latest}"
+TAG="${GENERICAGENT_IMAGE:-lift-genericagent:latest}"
 GIT_URL="${GENERICAGENT_GIT_URL:-https://ghfast.top/https://github.com/lsdefine/GenericAgent.git}"
 GIT_REF="${GENERICAGENT_GIT_REF:-main}"
 WORK_OPENAI_API_KEY="${WORK_OPENAI_API_KEY:-}"
@@ -106,6 +106,9 @@ PY
 )"
 echo "==> LANGFUSE_HOST baked into mykey.py: ${LANGFUSE_HOST}"
 FIRECRAWL_API_KEY="${FIRECRAWL_API_KEY:-}"
+# LIFT 约定：REASONING_EFFORT 统一控制 seed 模型思维链强度（medium / low / high 等）。
+# 默认与 OpenClaw / Hermes 对齐为 medium；空串会 bake 出空占位，运行期 GA 也会跳过。
+REASONING_EFFORT="${REASONING_EFFORT:-medium}"
 
 if [[ -z "${WORK_OPENAI_API_KEY}" ]]; then
   echo "WARN: WORK_OPENAI_API_KEY is not set; image will bake mykey.py with empty apikey." >&2
@@ -125,6 +128,7 @@ BUILD_ARGS=(
   --build-arg "LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}"
   --build-arg "LANGFUSE_HOST=${LANGFUSE_HOST}"
   --build-arg "FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}"
+  --build-arg "REASONING_EFFORT=${REASONING_EFFORT}"
 )
 
 if [[ -n "${APT_MIRROR:-}" ]]; then

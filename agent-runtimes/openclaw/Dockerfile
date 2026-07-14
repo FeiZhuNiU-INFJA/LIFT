@@ -4,9 +4,9 @@
 #   bash agent-runtimes/openclaw/build-image.sh
 #
 # Or:
-#   docker build -f agent-runtimes/openclaw/Dockerfile -t evolve-eval-openclaw-with-evolve:latest agent-runtimes/openclaw
+#   docker build -f agent-runtimes/openclaw/Dockerfile -t lift-openclaw-with-evolve:latest agent-runtimes/openclaw
 #   # 不带进化插件的 base 变体（推荐通过 build-image.sh 走 INSTALL_SELF_EVOLVING=false）：
-#   docker build --build-arg INSTALL_SELF_EVOLVING=false -f agent-runtimes/openclaw/Dockerfile -t evolve-eval-openclaw-base:latest agent-runtimes/openclaw
+#   docker build --build-arg INSTALL_SELF_EVOLVING=false -f agent-runtimes/openclaw/Dockerfile -t lift-openclaw-base:latest agent-runtimes/openclaw
 
 ARG OPENCLAW_BASE_IMAGE=ghcr.io/openclaw/openclaw:latest
 FROM ${OPENCLAW_BASE_IMAGE}

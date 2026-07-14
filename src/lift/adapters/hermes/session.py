@@ -22,6 +22,9 @@ from pathlib import Path
 from src.config import CONFIG, LOGGER
 from src.lift.adapters.base import SuiteRunContext
 from src.lift.adapters.container.exec import docker_exec_shell_async
+from src.lift.adapters.container.langfuse import (
+    rewrite_langfuse_base_url_for_container,
+)
 from src.lift.adapters.container.session import ContainerSession
 from src.lift.adapters.container.volumes import default_volume_binds, task_volume_binds
 from src.lift.adapters.hermes.container_exec import HERMES_TASK_CWD
@@ -113,9 +116,10 @@ async def start_hermes_container(
         env_vars["LANGFUSE_SECRET_KEY"] = CONFIG.langfuse_secret_key
         env_vars["HERMES_LANGFUSE_SECRET_KEY"] = CONFIG.langfuse_secret_key
     if CONFIG.langfuse_base_url:
-        normalized_lf = _normalize_langfuse_base_url(CONFIG.langfuse_base_url)
-        env_vars["LANGFUSE_BASE_URL"] = normalized_lf
-        env_vars["HERMES_LANGFUSE_BASE_URL"] = normalized_lf
+        normalized_lf = rewrite_langfuse_base_url_for_container(CONFIG.langfuse_base_url)
+        if normalized_lf:
+            env_vars["LANGFUSE_BASE_URL"] = normalized_lf
+            env_vars["HERMES_LANGFUSE_BASE_URL"] = normalized_lf
     # Firecrawl：镜像 build 期已按非空 key init；运行期同样注入，供 Hermes agent 使用。
     if CONFIG.firecrawl_api_key:
         env_vars["FIRECRAWL_API_KEY"] = CONFIG.firecrawl_api_key
@@ -147,11 +151,3 @@ async def start_hermes_container(
         viz_repeat_index=ctx.repeat_index,
         viz_suite_name=ctx.suite_name,
     )
-
-
-def _normalize_langfuse_base_url(raw: str) -> str:
-    """localhost / 127.0.0.1 的 Langfuse URL 映射为 host.docker.internal。"""
-    lowered = raw.strip().lower()
-    if "127.0.0.1" in lowered or "localhost" in lowered:
-        return "http://host.docker.internal:3000"
-    return raw.strip()

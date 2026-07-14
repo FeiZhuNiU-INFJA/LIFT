@@ -10,6 +10,9 @@ from pathlib import Path
 from src.config import LOGGER
 from src.lift.adapters.base import SuiteRunContext
 from src.lift.adapters.container.exec import docker_exec_shell_async
+from src.lift.adapters.container.langfuse import (
+    rewrite_langfuse_base_url_for_container,
+)
 from src.lift.adapters.container.session import ContainerSession
 from src.lift.adapters.container.volumes import (
     default_volume_binds,
@@ -22,27 +25,10 @@ _GATEWAY_CONTAINER_PORT = 18789  # 容器内 gateway 端口（agent --local 连�
 _FASTAPI_CONTAINER_PORT = 18090  # 容器内 self-evolving plugin HTTP 端口
 _CONTAINER_PREFIX = "evolve-openclaw"  # docker 容器名前缀
 
-CONTAINER_LANGFUSE_BASE_URL = "http://host.docker.internal:3000"  # 容器内访问宿主机 Langfuse
-CONTAINER_LANGFUSE_HOST = "host.docker.internal"
+_FALLBACK_CONTAINER_LANGFUSE_BASE_URL = "http://host.docker.internal:3000"  # 未配 LANGFUSE_BASE_URL 时容器内使用的默认
 CONTAINER_AGENT_WORKSPACE = "/root/.openclaw/workspace"  # 与 agents.fragment.json 对齐
 CONTAINER_TASK_DIR = "/workspace/task"  # host bind mount：任务素材 + 当题产物
 CONTAINER_EXTRA_SKILLS_DIR = f"{CONTAINER_TASK_DIR}/skills"  # task.requirements.extra_skills_dir 挂载点
-
-
-def _normalize_langfuse_base_url(raw: str | None) -> str:
-    """将宿主机侧 loopback（``localhost`` / ``127.0.0.1``）映射为
-    ``host.docker.internal``，**保留原有端口 / 协议 / 路径**。"""
-    if not raw or not raw.strip():
-        return CONTAINER_LANGFUSE_BASE_URL
-    from urllib.parse import urlsplit, urlunsplit
-
-    parts = urlsplit(raw.strip())
-    host = (parts.hostname or "").lower()
-    if host not in {"localhost", "127.0.0.1"}:
-        return raw.strip()
-    port = parts.port
-    netloc = CONTAINER_LANGFUSE_HOST if port is None else f"{CONTAINER_LANGFUSE_HOST}:{port}"
-    return urlunsplit((parts.scheme or "http", netloc, parts.path, parts.query, parts.fragment))
 
 
 def _container_runtime_env() -> dict[str, str]:
@@ -55,9 +41,9 @@ def _container_runtime_env() -> dict[str, str]:
     """
     return {
         # 容器内 host.docker.internal 访问宿主机 Langfuse；宿主机 .env 通常配 localhost
-        "LANGFUSE_BASE_URL": _normalize_langfuse_base_url(
+        "LANGFUSE_BASE_URL": rewrite_langfuse_base_url_for_container(
             os.environ.get("LANGFUSE_BASE_URL")
-        ),
+        ) or _FALLBACK_CONTAINER_LANGFUSE_BASE_URL,
     }
 
 

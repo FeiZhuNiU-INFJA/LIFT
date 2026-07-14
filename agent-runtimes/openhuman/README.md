@@ -26,7 +26,7 @@ agent-runtimes/openhuman/
 bash agent-runtimes/openhuman/build-image.sh
 ```
 
-默认产出 `evolve-eval-openhuman:latest`，对应 LIFT `-r openhuman`。
+默认产出 `lift-openhuman:latest`，对应 LIFT `-r openhuman`。
 
 流程：
 
@@ -55,7 +55,7 @@ APT_MIRROR=http://mirrors.byted.org bash agent-runtimes/openhuman/build-image.sh
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `OPENHUMAN_IMAGE` | `evolve-eval-openhuman:latest` | 构建产物 tag |
+| `OPENHUMAN_IMAGE` | `lift-openhuman:latest` | 构建产物 tag |
 | `OPENHUMAN_VERSION` | *(latest)* | 指定 upstream release 版本（如 `0.58.12`） |
 | `OPENHUMAN_ARCH` | `amd64` | .deb 架构（arm64 host 需显式设 `arm64`） |
 | `OPENHUMAN_DEB_URL` | — | 显式指向 .deb 下载 URL（离线构建 / 内网镜像） |
@@ -117,14 +117,14 @@ python -m src.cli.lift_main -r openhuman \
 
 默认镜像：
 
-- `-r openhuman` → `evolve-eval-openhuman:latest`（常量 `OPENHUMAN_DOCKER_IMAGE`，
+- `-r openhuman` → `lift-openhuman:latest`（常量 `OPENHUMAN_DOCKER_IMAGE`，
   定义于 [`src/paths.py`](../../src/paths.py)）
 
 ## Manual sanity check
 
 ```bash
-docker run --rm evolve-eval-openhuman:latest /usr/local/bin/openhuman-core help
-docker run --rm -p 7788:7788 evolve-eval-openhuman:latest &
+docker run --rm lift-openhuman:latest /usr/local/bin/openhuman-core help
+docker run --rm -p 7788:7788 lift-openhuman:latest &
 curl -s http://127.0.0.1:7788/health || curl -s http://127.0.0.1:7788/
 curl -s http://127.0.0.1:7788/rpc \
     -H 'Content-Type: application/json' \

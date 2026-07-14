@@ -201,7 +201,7 @@ python -m src.cli.preprocess
 
 ```bash
 bash agent-runtimes/openclaw/build-image.sh
-# 默认产出：evolve-eval-openclaw-with-evolve:latest（带进化插件）
+# 默认产出：lift-openclaw-with-evolve:latest（带进化插件）
 # 国内拉取慢可换基础镜像源：
 #   OPENCLAW_BASE_IMAGE=ghcr.milu.moe/openclaw/openclaw:latest bash agent-runtimes/openclaw/build-image.sh
 # 只要 base 镜像（不带进化插件）：
@@ -224,8 +224,8 @@ bash agent-runtimes/openclaw/build-image.sh
 
 验证：
 ```bash
-docker images | grep evolve-eval-openclaw
-docker run --rm evolve-eval-openclaw-with-evolve:latest openclaw plugins list
+docker images | grep lift-openclaw
+docker run --rm lift-openclaw-with-evolve:latest openclaw plugins list
 ```
 
 > 构建前确保 `.env` 已填 `WORK_OPENAI_API_KEY`，否则镜像内模型 apiKey 为空。
@@ -264,7 +264,7 @@ python -m src.cli.lift_main -r openclaw --evaluate-only --run_id hello-smoke
 - [ ] `docker info` 正常；macOS 用 Colima 时 `colima status` 为 Running
 - [ ] `conda activate evolve_eval` 后依赖导入无误
 - [ ] `http://localhost:3000` 可登录 Langfuse，`.env` 已填 `LANGFUSE_*`
-- [ ] `docker images` 含 `evolve-eval-openclaw-with-evolve:latest`
+- [ ] `docker images` 含 `lift-openclaw-with-evolve:latest`
 - [ ] hello.json 冒烟结束，TUI 正常刷新、`http://localhost:8080` 可见 dashboard
 - [ ] `results/lift-runid-hello-smoke/report.json` 生成
 
