@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Manage ephemeral OpenClaw Docker instances for evolve_eval.
-# Registry: /tmp/evolve-eval-openclaw-instances/<id>.env (not ~/.openclaw on host)
+# Registry: /tmp/lift-openclaw-instances/<id>.env (not ~/.openclaw on host)
 #
 # Usage (from repo root):
 #   ./agent-runtimes/openclaw/scripts/openclaw-instance.sh create --id run-a
@@ -10,8 +10,8 @@
 
 set -euo pipefail
 
-REGISTRY_DIR="${OPENCLAW_INSTANCE_REGISTRY:-/tmp/evolve-eval-openclaw-instances}"
-IMAGE="${OPENCLAW_IMAGE:-evolve-eval-openclaw-with-evolve:latest}"
+REGISTRY_DIR="${OPENCLAW_INSTANCE_REGISTRY:-/tmp/lift-openclaw-instances}"
+IMAGE="${OPENCLAW_IMAGE:-lift-openclaw-with-evolve:latest}"
 BASE_GATEWAY_PORT="${OPENCLAW_BASE_GATEWAY_PORT:-18789}"
 BASE_FASTAPI_PORT="${OPENCLAW_BASE_FASTAPI_PORT:-18090}"
 PORT_STEP="${OPENCLAW_PORT_STEP:-20}"
@@ -295,8 +295,8 @@ Commands:
   destroy <id>       Stop container and remove registry file
 
 Environment:
-  OPENCLAW_IMAGE              (default: evolve-eval-openclaw-with-evolve:latest)
-  OPENCLAW_INSTANCE_REGISTRY  (default: /tmp/evolve-eval-openclaw-instances)
+  OPENCLAW_IMAGE              (default: lift-openclaw-with-evolve:latest)
+  OPENCLAW_INSTANCE_REGISTRY  (default: /tmp/lift-openclaw-instances)
   Repo .env supplies WORK_OPENAI_API_KEY, LANGFUSE_*, etc.
 
 Build image first:

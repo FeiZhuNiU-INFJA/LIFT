@@ -12,7 +12,13 @@ _WEEKDAY_ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def format_outbound_message(message: str) -> str:
-    """为发往 agent 的消息添加时间戳前缀（OpenClaw 等 runtime 的通用约定）。"""
+    """为发往 agent 的消息添加 ``[<Weekday> ... GMT+8]`` 时间戳前缀。
+
+    历史上 LIFT 对所有 runtime 都统一注入该前缀。目前只有 OpenHuman 仍需要它
+    作为后处理 ``_clean_user_content`` 从 raw transcript 提取真实请求的锚点，
+    因此调用点已下沉到 OpenHuman 的 ``ChatAgent.chat``；其他 runtime 直接
+    透传 message 原文。
+    """
     now = datetime.now(_GMT_PLUS_8)
     weekday = _WEEKDAY_ABBR[now.weekday()]
     stamp = f"[{weekday} {now.strftime('%Y-%m-%d %H:%M:%S')} GMT+8]"

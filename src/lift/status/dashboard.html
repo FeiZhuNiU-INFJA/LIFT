@@ -1953,8 +1953,8 @@ function renderDialogue(d) {
   const phaseBlock = (label, turns, phObj) => {
     if (!turns.length) return '';
     const src = phObj.dialogue_source || 'runtime';
-    // 只展示 worker 对话（prompt + result）。judge 的反馈在 run_task 里被拼成下一轮
-    // 的 work_prompt（current_prompt = judge.reason + "你再试一次..."），故不单独
+    // 只展示 worker 对话（prompt + result）。judge 的反馈在 run_task 里作为下一轮
+    // 的 work_prompt（current_prompt = judge.reason 原文），故不单独
     // 渲染 judge 行——它已作为下一轮的问题自然出现，避免与下一轮 prompt 重复。
     const rows = turns.map(t => `<div class="dlg-turn">
         <div class="dlg-role">turn ${t.turn_index} · work prompt</div>

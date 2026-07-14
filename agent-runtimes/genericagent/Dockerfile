@@ -5,7 +5,7 @@
 #
 # Manual:
 #   docker build -f agent-runtimes/genericagent/Dockerfile \
-#     -t evolve-eval-genericagent:latest \
+#     -t lift-genericagent:latest \
 #     agent-runtimes/genericagent
 
 ARG GENERICAGENT_BASE_IMAGE=python:3.12-slim
@@ -94,19 +94,21 @@ ARG LANGFUSE_PUBLIC_KEY=
 ARG LANGFUSE_SECRET_KEY=
 ARG LANGFUSE_HOST=http://host.docker.internal:3000
 ARG FIRECRAWL_API_KEY=
+ARG REASONING_EFFORT=medium
 ENV WORK_OPENAI_API_KEY=${WORK_OPENAI_API_KEY} \
     WORK_OPENAI_BASE_URL=${WORK_OPENAI_BASE_URL} \
     MODEL_NAME=${MODEL_NAME} \
     LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY} \
     LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY} \
     LANGFUSE_HOST=${LANGFUSE_HOST} \
-    FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+    FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY} \
+    REASONING_EFFORT=${REASONING_EFFORT}
 
 COPY mykey.py.template /tmp/mykey.py.template
 COPY langfuse_tracing_overlay.py /tmp/langfuse_tracing_overlay.py
 COPY firecrawl_plugin.py /tmp/firecrawl_plugin.py
 COPY install-in-image.sh /tmp/install-in-image.sh
-COPY workspace_seed /opt/evolve-eval/workspace_seed
+COPY workspace_seed /opt/lift/workspace_seed
 
 RUN chmod +x /tmp/install-in-image.sh \
     && bash /tmp/install-in-image.sh

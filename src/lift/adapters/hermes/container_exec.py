@@ -6,7 +6,7 @@
 
 - ``HermesContainerContext``：exec 目标容器名 + 构建期发现的 Hermes venv python /
   源码目录（见 ``agent-runtimes/hermes/install-in-image.sh`` 写入的
-  ``/opt/evolve-eval/hermes-paths.env``）。
+  ``/opt/lift/hermes-paths.env``）。
 - ``read_hermes_paths``：容器启动后从该文件读回发现的路径。
 - ``hermes_runner_params``：从 ``CONFIG`` 解析 work LLM 的 model / base_url /
   api_key / max_tokens（work/judge 共用同一 work LLM）。
@@ -20,8 +20,8 @@ from src.config import CONFIG, LOGGER
 from src.lift.adapters.container.exec import docker_exec_async
 
 # 镜像内固定路径（见 agent-runtimes/hermes/Dockerfile / install-in-image.sh）。
-HERMES_PATHS_ENV_FILE = "/opt/evolve-eval/hermes-paths.env"
-HERMES_RUNNER_PATH = "/opt/evolve-eval/hermes_runner.py"
+HERMES_PATHS_ENV_FILE = "/opt/lift/hermes-paths.env"
+HERMES_RUNNER_PATH = "/opt/lift/hermes_runner.py"
 # 状态根用 /opt/hermes-state（非 VOLUME）而非上游继承 VOLUME 的 /opt/data，
 # 使 warmup 期 review 写入的 memory/skills 能被 docker commit 捕获进 delta 镜像。
 HERMES_HOME_DIR = "/opt/hermes-state"
@@ -51,6 +51,7 @@ class HermesRunnerParams:
     base_url: str
     api_key: str
     max_tokens: int
+    reasoning_effort: str
 
 
 def _model_default() -> str:
@@ -75,6 +76,7 @@ def hermes_runner_params() -> HermesRunnerParams:
         base_url=base_url,
         api_key=(CONFIG.work_openai_api_key or "").strip(),
         max_tokens=CONFIG.max_tokens,
+        reasoning_effort=(CONFIG.reasoning_effort or "").strip(),
     )
 
 

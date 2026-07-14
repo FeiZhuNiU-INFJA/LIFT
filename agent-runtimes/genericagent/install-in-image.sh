@@ -18,6 +18,10 @@ LANGFUSE_PUBLIC_KEY_ESC="$(escape_sed "${LANGFUSE_PUBLIC_KEY:-}")"
 LANGFUSE_SECRET_KEY_ESC="$(escape_sed "${LANGFUSE_SECRET_KEY:-}")"
 LANGFUSE_HOST_ESC="$(escape_sed "${LANGFUSE_HOST:-http://host.docker.internal:3000}")"
 FIRECRAWL_API_KEY_ESC="$(escape_sed "${FIRECRAWL_API_KEY:-}")"
+# LIFT 约定：全 runtime 统一以 REASONING_EFFORT 环境变量控制 seed 模型思维链强度。
+# GA ``llmcore.py`` 会把 ``reasoning_effort`` 顶层透传到 OpenAI 兼容请求体，Ark
+# doubao-seed 端点已实测接受该字段；未显式设置则默认 medium 与 OpenClaw / Hermes 对齐。
+REASONING_EFFORT_ESC="$(escape_sed "${REASONING_EFFORT:-medium}")"
 
 sed \
   -e "s/__WORK_OPENAI_API_KEY__/${WORK_OPENAI_API_KEY_ESC}/g" \
@@ -27,6 +31,7 @@ sed \
   -e "s/__LANGFUSE_SECRET_KEY__/${LANGFUSE_SECRET_KEY_ESC}/g" \
   -e "s/__LANGFUSE_HOST__/${LANGFUSE_HOST_ESC}/g" \
   -e "s/__FIRECRAWL_API_KEY__/${FIRECRAWL_API_KEY_ESC}/g" \
+  -e "s/__REASONING_EFFORT__/${REASONING_EFFORT_ESC}/g" \
   /tmp/mykey.py.template > "${GA_DIR}/mykey.py"
 
 # 2) Overlay langfuse_tracing.py — strict overwrite. GA 自带版本可能在不同 ref 下漂移，

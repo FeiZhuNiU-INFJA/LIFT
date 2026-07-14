@@ -26,13 +26,13 @@ agent-runtimes/openclaw/
 bash agent-runtimes/openclaw/build-image.sh
 ```
 
-默认产出 `evolve-eval-openclaw-base:latest`（不带 self-evolving-plugin-pro 进化插件，对应 LIFT `-r openclaw`；`workspace_seed/` 在构建期已 baked 进镜像内的 `/root/.openclaw/workspace`）。
+默认产出 `lift-openclaw-base:latest`（不带 self-evolving-plugin-pro 进化插件，对应 LIFT `-r openclaw`；`workspace_seed/` 在构建期已 baked 进镜像内的 `/root/.openclaw/workspace`）。
 
 带进化插件的变体：
 
 ```bash
 bash agent-runtimes/openclaw/build-image.sh --with-evolve
-# 产出 evolve-eval-openclaw-with-evolve:latest
+# 产出 lift-openclaw-with-evolve:latest
 ```
 
 种子文件直接位于**镜像内**的 `/root/.openclaw/workspace`，也是 agent 真正的工作目录；因此 warmup 期间 agent 生成的 SOUL / MEMORY / 日常记忆都会被 `docker commit` 一并打进 delta 镜像（详见下文 *Workspace 布局*）。
@@ -47,14 +47,14 @@ OPENCLAW_BASE_IMAGE=ghcr.milu.moe/openclaw/openclaw:latest \
 APT_MIRROR=http://mirrors.byted.org \
 PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \
   bash agent-runtimes/openclaw/build-image.sh
-# → evolve-eval-openclaw-base:latest
+# → lift-openclaw-base:latest
 
 # 字节内网：with-evolve 镜像
 OPENCLAW_BASE_IMAGE=ghcr.milu.moe/openclaw/openclaw:latest \
 APT_MIRROR=http://mirrors.byted.org \
 PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \
   bash agent-runtimes/openclaw/build-image.sh --with-evolve
-# → evolve-eval-openclaw-with-evolve:latest
+# → lift-openclaw-with-evolve:latest
 ```
 
 ### 各环境镜像源切换一览
@@ -75,7 +75,7 @@ PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \
 验证镜像：
 
 ```bash
-bash agent-runtimes/openclaw/verify-image.sh evolve-eval-openclaw-with-evolve:latest
+bash agent-runtimes/openclaw/verify-image.sh lift-openclaw-with-evolve:latest
 ```
 
 ## 环境变量
@@ -165,8 +165,8 @@ python -m src.cli.lift_main -r openclaw_with_evolve --benchmark_dir assets/bench
 
 默认镜像：
 
-- `-r openclaw` → `evolve-eval-openclaw-base:latest`（不带进化插件，常量 `OPENCLAW_BASE_DOCKER_IMAGE`）
-- `-r openclaw_with_evolve` → `evolve-eval-openclaw-with-evolve:latest`（带 self-evolving-plugin-pro，常量 `OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE`）
+- `-r openclaw` → `lift-openclaw-base:latest`（不带进化插件，常量 `OPENCLAW_BASE_DOCKER_IMAGE`）
+- `-r openclaw_with_evolve` → `lift-openclaw-with-evolve:latest`（带 self-evolving-plugin-pro，常量 `OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE`）
 
 均定义于 `src/paths.py`。
 
@@ -181,7 +181,7 @@ eval "$(./agent-runtimes/openclaw/scripts/openclaw-instance.sh env run-a)"
 把 warmup 容器 commit 成 delta 镜像：
 
 ```bash
-./agent-runtimes/openclaw/scripts/openclaw-instance.sh commit run-a --tag evolve-eval-delta:my-run-r0-suite
+./agent-runtimes/openclaw/scripts/openclaw-instance.sh commit run-a --tag lift-delta:my-run-r0-suite
 ```
 
 ## Compose（可选）

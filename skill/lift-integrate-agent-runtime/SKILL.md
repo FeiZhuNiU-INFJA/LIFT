@@ -321,7 +321,7 @@ src/lift/adapters/<runtime>/
 
 ```python
 <RUNTIME>_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "<runtime>"
-<RUNTIME>_DOCKER_IMAGE = "evolve-eval-<runtime>:latest"
+<RUNTIME>_DOCKER_IMAGE = "lift-<runtime>:latest"
 <RUNTIME>_WORKSPACE_SEED_DIR = <RUNTIME>_AGENT_DIR / "workspace_seed"
 ```
 
@@ -593,7 +593,7 @@ tail -f logs/<run_id>.log               # 主进度看这里
 
 ```bash
 cd agent-runtimes/<runtime> && bash build-image.sh
-docker images | grep evolve-eval-<runtime>
+docker images | grep lift-<runtime>
 ```
 
 构建期检查：
@@ -735,7 +735,7 @@ print(dict(buckets))
 单看 delta 有文件不够,还得看内容是不是"agent 学到了什么"的自然语言,而不是空文件 / stack trace / 无意义字符:
 
 ```bash
-DELTA=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep 'evolve-eval-delta:.*<run_id>' | head -1)
+DELTA=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep 'lift-delta:.*<run_id>' | head -1)
 
 docker run --rm --entrypoint sh "$DELTA" -c '
   find /opt/<runtime>/memory -type f -size +10c 2>/dev/null | head -5 | while read f; do
@@ -804,14 +804,14 @@ grep -E "trace not found|Failed to fetch trace|trace_backfill" "$LOG"
 
 #### 证据 C：Layer —— delta 镜像真的包含进化内容吗？
 
-这是 LIFT 全流程的**核心命题**。必须在 warmup 结束、`docker commit` 之后、pipeline `docker rmi evolve-eval-delta:*` 之前抢到 delta 镜像做 diff。
+这是 LIFT 全流程的**核心命题**。必须在 warmup 结束、`docker commit` 之后、pipeline `docker rmi lift-delta:*` 之前抢到 delta 镜像做 diff。
 
 **优先看 pipeline 日志的 `Delta preflight diff` 行**（[commit_delta_image](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/container/delta.py) 在 `docker commit` 之前会自动跑 `docker diff` 并打摘要，见 §2.1 的 `evolve_paths` 说明）：
 
 ```
 INFO Delta preflight diff (full) [evolve-genericagent-xxxxx]: +2038A ~14C -0D across 17 paths (top: /usr/local/lib x1800, /opt/GenericAgent/memory x9, /opt/GenericAgent/temp x120, ...)
 INFO Delta preflight diff (evolve-only) [evolve-genericagent-xxxxx]: +9A ~2C -0D across 1 paths (top: /opt/GenericAgent/memory x11)
-INFO Delta materialized: evolve-eval-delta:<run_id>-r0-<suite>
+INFO Delta materialized: lift-delta:<run_id>-r0-<suite>
 ```
 
 - `full` 行 = upperdir 全集，`+NA ~NC -ND` = 新增 / 修改 / 删除 的容器 FS 层文件计数（bind mount 天然不进 diff）
@@ -832,11 +832,11 @@ nohup python -m src.cli.lift_main -r <runtime> \
 wait
 
 # 找出 delta 镜像
-DELTA=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "evolve-eval-delta:.*<run_id>" | head -1)
+DELTA=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "lift-delta:.*<run_id>" | head -1)
 echo "delta = $DELTA"
 
 # 与 baseline 镜像 diff（看真的多了什么）
-BASE=evolve-eval-<runtime>:latest
+BASE=lift-<runtime>:latest
 docker run --rm --entrypoint sh "$BASE" -c 'ls -la /opt/<runtime>/memory' > /tmp/base_memory.txt
 docker run --rm --entrypoint sh "$DELTA" -c 'ls -la /opt/<runtime>/memory' > /tmp/delta_memory.txt
 diff /tmp/base_memory.txt /tmp/delta_memory.txt
@@ -850,7 +850,7 @@ docker run --rm --entrypoint sh "$DELTA" -c 'find /opt/<runtime>/memory -newer /
 ```bash
 # 提前开另一个 shell 循环抓 delta，第一次抓到就 docker tag 保留
 while true; do
-  D=$(docker images -q "evolve-eval-delta:*<run_id>*" | head -1)
+  D=$(docker images -q "lift-delta:*<run_id>*" | head -1)
   if [[ -n "$D" ]]; then docker tag "$D" "kept-delta:<run_id>"; break; fi
   sleep 2
 done
@@ -976,4 +976,4 @@ M  src/models.py                             # LANGFUSE_PLUGIN_TRACE_NAMES 加 "
 | skill | 何时调用 |
 |---|---|
 | [`setup-lift-env`](file:///root/workspace/agent_evolve_evaluation/skill/setup-lift-env/SKILL.md) | 还没装 conda / docker / langfuse / 跑过 hello.json 的全新机器 |
-| [`cleanup-lift-env`](file:///root/workspace/agent_evolve_evaluation/skill/cleanup-lift-env/SKILL.md) | 评测中途 Ctrl-C / OOM 后留下 `evolve-<runtime>-*` 容器、`evolve-eval-delta:*` 镜像，重跑前清场用 |
+| [`cleanup-lift-env`](file:///root/workspace/agent_evolve_evaluation/skill/cleanup-lift-env/SKILL.md) | 评测中途 Ctrl-C / OOM 后留下 `evolve-<runtime>-*` 容器、`lift-delta:*` 镜像，重跑前清场用 |

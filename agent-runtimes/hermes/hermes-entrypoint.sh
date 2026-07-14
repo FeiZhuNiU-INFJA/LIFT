@@ -13,7 +13,7 @@
 #      can drive Hermes via `docker exec ... hermes_runner.py`.
 set -euo pipefail
 
-PATHS_ENV="/opt/evolve-eval/hermes-paths.env"
+PATHS_ENV="/opt/lift/hermes-paths.env"
 if [[ -f "$PATHS_ENV" ]]; then
   # shellcheck disable=SC1090
   source "$PATHS_ENV"
@@ -37,7 +37,7 @@ fi
 if [[ -n "$PY" ]]; then
   # Fatal on failure: an unpatched config.yaml means Hermes runs with the wrong
   # model/api_key and every task fails in a confusing way. Better to stop here.
-  "$PY" /opt/evolve-eval/patch_hermes_config.py
+  "$PY" /opt/lift/patch_hermes_config.py
 else
   echo "[hermes-entrypoint] FATAL: no python found to patch config.yaml" >&2
   exit 1

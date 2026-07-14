@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build evolve-eval-hermes image from agent-runtimes/hermes build context.
+# Build lift-hermes image from agent-runtimes/hermes build context.
 #
 # The build context is self-contained: runner and plugin assets are maintained
 # in-tree under agent-runtimes/hermes.
@@ -30,10 +30,10 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [-h|--help]
 
-Build evolve-eval-hermes:latest from the upstream Hermes image.
+Build lift-hermes:latest from the upstream Hermes image.
 
 Override via env:
-  HERMES_IMAGE            产物 tag，默认 evolve-eval-hermes:latest
+  HERMES_IMAGE            产物 tag，默认 lift-hermes:latest
   HERMES_BASE_IMAGE_REPO  上游镜像仓库，默认 nousresearch/hermes-agent
   HERMES_BASE_IMAGE_TAG   上游镜像 tag，默认 v2026.5.16
   HERMES_BASE_IMAGE       直接指定完整上游镜像（优先于 REPO:TAG 拼接）
@@ -50,7 +50,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-TAG="${HERMES_IMAGE:-evolve-eval-hermes:latest}"
+TAG="${HERMES_IMAGE:-lift-hermes:latest}"
 BASE_IMAGE_REPO="${HERMES_BASE_IMAGE_REPO:-nousresearch/hermes-agent}"
 BASE_IMAGE_TAG="${HERMES_BASE_IMAGE_TAG:-v2026.5.16}"
 BASE_IMAGE="${HERMES_BASE_IMAGE:-${BASE_IMAGE_REPO}:${BASE_IMAGE_TAG}}"
@@ -94,6 +94,6 @@ docker build -f "${AGENT_DIR}/Dockerfile" \
 echo ""
 echo "Built: ${TAG}"
 echo "Verify discovered Hermes paths:"
-echo "  docker run --rm ${TAG} cat /opt/evolve-eval/hermes-paths.env"
+echo "  docker run --rm ${TAG} cat /opt/lift/hermes-paths.env"
 echo "Verify langfuse + pyyaml installed in Hermes venv:"
-echo "  docker run --rm ${TAG} sh -lc '. /opt/evolve-eval/hermes-paths.env; \"\$HERMES_VENV_PY\" -m pip show langfuse pyyaml'"
+echo "  docker run --rm ${TAG} sh -lc '. /opt/lift/hermes-paths.env; \"\$HERMES_VENV_PY\" -m pip show langfuse pyyaml'"

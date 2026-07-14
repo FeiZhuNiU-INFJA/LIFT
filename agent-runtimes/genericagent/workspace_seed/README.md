@@ -1,7 +1,7 @@
 # GenericAgent workspace seed
 
 GenericAgent baseline 不需要 OpenClaw 那套 IDENTITY / SOUL / USER / HEARTBEAT 文件，
-因此本目录默认仅保留此 README，作为占位让 `COPY workspace_seed /opt/evolve-eval/workspace_seed`
+因此本目录默认仅保留此 README，作为占位让 `COPY workspace_seed /opt/lift/workspace_seed`
 不至于失败。
 
 LIFT 在 holdout 容器启动时仍会调用 `seed_workspace=True`，把目录内容复制到

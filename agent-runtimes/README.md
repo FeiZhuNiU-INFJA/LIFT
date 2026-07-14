@@ -7,9 +7,9 @@
 
 | 镜像目录 | 默认 tag | 使用它的 CLI `-r` 取值 |
 |---|---|---|
-| [`openclaw/`](openclaw/) | `evolve-eval-openclaw-base:latest`（基础，构建时 `INSTALL_SELF_EVOLVING=false`） | `openclaw`、`multi_user_openclaw` |
-| [`openclaw/`](openclaw/) | `evolve-eval-openclaw-with-evolve:latest`（带 `self-evolving-plugin-pro`） | `openclaw_with_evolve` |
-| [`genericagent/`](genericagent/) | `evolve-eval-genericagent:latest` | `genericagent`、`genericagent_active_evolve` |
+| [`openclaw/`](openclaw/) | `lift-openclaw-base:latest`（基础，构建时 `INSTALL_SELF_EVOLVING=false`） | `openclaw`、`multi_user_openclaw` |
+| [`openclaw/`](openclaw/) | `lift-openclaw-with-evolve:latest`（带 `self-evolving-plugin-pro`） | `openclaw_with_evolve` |
+| [`genericagent/`](genericagent/) | `lift-genericagent:latest` | `genericagent`、`genericagent_active_evolve` |
 
 > 注：`*_with_evolve` / `*_active_evolve` 等"带进化"变体共享同一个镜像
 > ——区别在于 adapter 侧的 `evolve_after_warmup` 钩子是否实际触发学习；

@@ -2,7 +2,7 @@
 # Quick check that LIFT OpenClaw image has required plugins.
 set -euo pipefail
 
-IMAGE="${1:-evolve-eval-openclaw-with-evolve:latest}"
+IMAGE="${1:-lift-openclaw-with-evolve:latest}"
 
 echo "==> Verifying image: ${IMAGE}"
 docker run --rm "${IMAGE}" openclaw --version || true

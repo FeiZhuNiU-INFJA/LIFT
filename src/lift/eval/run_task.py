@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from src.config import LOGGER
 from src.lift.adapters.openclaw.json_output import MAX_TOKENS_TRUNCATION_MARKER
-from src.lift.eval.chat_agent import format_outbound_message
 from src.lift.eval.worker_judger import WorkerJudgerPair
 from src.models import CustomTags, SuiteTask
 from src.report.langfuse_reporting import emit_pre_chat_state
@@ -63,7 +62,7 @@ def _build_judge_prompt(user_prompt: str, agent_result: str, content_reqs: str) 
         "也没人在 prompt 里告诉过它。所以你不能只说「没满足要求」「结构不对」「格式不对」"
         "「按要求重新调整」这种空话，必须把那条要求**用人话讲出来**，agent 才有办法改。\n"
         "- 你的角色是「用户突然想起还要这样这样」——把缺的那条要求自然地补出来，"
-        "就像你刚收到 agent 的产物、随口提一句「哦对了，我还想要 X」。\n"
+        "像刚收到 agent 产物后临时补一句要求那样，语气随意即可，**不要用固定开场词**。\n"
         "\n"
         "【reason 字段的语气和写法】\n"
         "- 用第二人称口语：「你这次……」「你看这个……」，不要用「当前未执行」「未产出」这类汇报体；\n"
@@ -126,7 +125,7 @@ async def _agent_chat(
     tags: CustomTags | None = None,
     chat_role: str | None = None,
 ) -> str:
-    """时间戳 + transport chat；可选地先 emit Langfuse pre-chat span。
+    """transport chat；可选地先 emit Langfuse pre-chat span。
 
     - **首次发送**：传入 ``tags`` 与 ``chat_role``，先落一条 ``*_agent`` pre-chat
       span，然后插件侧（agent_end hook）会紧随其后再写一条 plugin trace。
@@ -136,13 +135,14 @@ async def _agent_chat(
       ``_pair_single_session`` 扩展贪心配对算法据此统计
       ``provider_retry_count = 同 agent 下 plugin trace 数 - 1``，
       跨 runtime 通用（不依赖 OpenClaw 特有的 ``plugin_metadata.success`` 字段）。
+
+    历史注入的 ``[<Weekday> ... GMT+8]`` 时间戳前缀现在下沉到需要它的 runtime
+    自己的 ``ChatAgent.chat``（目前仅 OpenHuman，因为它靠这个锚点从 raw
+    transcript 提取真实请求）；其他 runtime 直接送 message 原文。
     """
     if tags is not None and chat_role is not None:
         _emit_pre_chat(agent, session_id=session_id, tags=tags, chat_role=chat_role)
-    return await agent.chat(
-        format_outbound_message(message),  # GMT+8 时间戳前缀，OpenClaw 等 runtime 约定
-        session_id=session_id,
-    )
+    return await agent.chat(message, session_id=session_id)
 
 
 def _build_judge_prompt_retry(invalid_response: str, error_message: str) -> str:
@@ -391,7 +391,7 @@ async def run_task(
             )
 
         # judge reason 作为下一轮 work 的用户消息（多轮改进循环）
-        current_prompt = judge_result.reason + "你再试一次看看能不能完成任务"
+        current_prompt = judge_result.reason
 
     return (  # 耗尽 max_conversation_turns：success=False，score 为最后一轮 judge 分
         False,

@@ -65,20 +65,25 @@ class OpenClawContainerAgent(ChatAgent):
         ``CHAT_EXEC_TIMEOUT_MARKER`` 前缀的字符串，让上层 ``_looks_like_provider_error``
         把它当作 provider error 走重试通道，避免单次 chat 永久 hang 把整个 run 拖死。
         """
+        args = [
+            "agent",
+            "--agent",
+            self.agent_name,
+            "--message",
+            message,
+            "--session-id",
+            session_id,  # 与 emit_pre_chat_state / langfuse-tracer 的 sessionId 对齐
+        ]
+        effort = (CONFIG.reasoning_effort or "").strip()
+        if effort:
+            # LIFT 约定：REASONING_EFFORT 环境变量统一控制 seed 模型思维链强度。
+            # 空串则不追加 --thinking，让 OpenClaw CLI 走 gateway/plugin 侧默认。
+            args.extend(["--thinking", effort])
+        args.extend(["--json", "--local"])
         try:
             stdout = await exec_openclaw_async(
                 self._container,
-                [
-                    "agent",
-                    "--agent",
-                    self.agent_name,
-                    "--message",
-                    message,
-                    "--session-id",
-                    session_id,  # 与 emit_pre_chat_state / langfuse-tracer 的 sessionId 对齐
-                    "--json",
-                    "--local",
-                ],
+                args,
                 timeout_seconds=CHAT_EXEC_TIMEOUT_SECONDS,
             )
         except RuntimeError as exc:

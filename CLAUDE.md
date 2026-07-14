@@ -17,8 +17,8 @@ Agents are hosted in Docker containers (OpenClaw and other runtimes); the pipeli
 ```bash
 # Build the OpenClaw evaluation image (rebuild required after runtime changes)
 # Default builds the base image; pass --with-evolve to include the evolution plugin
-bash agent-runtimes/openclaw/build-image.sh                # → evolve-eval-openclaw-base:latest
-bash agent-runtimes/openclaw/build-image.sh --with-evolve  # → evolve-eval-openclaw-with-evolve:latest
+bash agent-runtimes/openclaw/build-image.sh                # → lift-openclaw-base:latest
+bash agent-runtimes/openclaw/build-image.sh --with-evolve  # → lift-openclaw-with-evolve:latest
 
 # ByteDance intranet build (defaults go through public mirrors; switch via env vars)
 APT_MIRROR=http://mirrors.byted.org \
@@ -85,7 +85,7 @@ Supported runtimes (`-r` values, see `src/lift/adapters/registry.py`):
 
 1. **Warmup**: warmup tasks within a suite run in a shared container (or multiple containers); state accumulates in the container layer
 2. **Evolve**: `evolve_after_task` (per-task hook, no-op by default) + `evolve_after_warmup` (post-batch hook; OpenClaw = `learn review`)
-3. **Delta materialization**: `docker commit` to a temporary image `evolve-eval-delta:{run_id}-r{repeat}-{suite_name}`; non-image deltas are flagged via `DeltaRef.owned=False`
+3. **Delta materialization**: `docker commit` to a temporary image `lift-delta:{run_id}-r{repeat}-{suite_name}`; non-image deltas are flagged via `DeltaRef.owned=False`
 4. **Holdout**: each holdout task starts 2 containers for baseline / evolved — baseline from the base image, evolved from the delta image (or same image + `load_state` injection)
 5. **Report**: writes `results/{run_id}/report.json` with `success` / `content_score` / `turns` / `tool_calls` / session id, etc.
 6. **Post-process** (default, `-e`): pulls Langfuse traces for backfill, extracts metrics, emits CSV / HTML / static dashboard snapshot
@@ -110,7 +110,7 @@ EvalReport
 ## Key Constraints
 
 - **Model configuration**: `MODEL_NAME` in `.env` is `provider/model_id` with the provider fixed to `custom` by convention (e.g. `custom/ep-...`). At OpenClaw image build, `models.fragment.json` registers the `custom` provider and derives `model.id` from the part after `/`; `agents.fragment.json` uses the full `MODEL_NAME` as the primary model key.ked into the image. Adding a new provider/model requires updating the fragment and rebuilding
-- **Delta naming**: `evolve-eval-delta:{run_id}-r{repeat}-{suite_name}`; suite cleanup via `SuiteRunResources.cleanup()` runs `docker rmi` (not for `owned=False`, so base images aren't accidentally deleted)
+- **Delta naming**: `lift-delta:{run_id}-r{repeat}-{suite_name}`; suite cleanup via `SuiteRunResources.cleanup()` runs `docker rmi` (not for `owned=False`, so base images aren't accidentally deleted)
 - **Workspace layout (OpenClaw)**:
   - The agent's default workspace inside the container is fixed at `/root/.openclaw/workspace` (container FS) so warmup-produced memory / skills are captured by `docker commit`
   - The bind-mount point for task materials and artifacts is `/workspace/task` — this is **not** captured in the delta
@@ -124,7 +124,7 @@ EvalReport
 - **Concurrency & resources**: `--max-parallel-suites` (default 3) caps cells; `--max-concurrent-tasks` caps per-phase task containers; `--container-memory` / `--container-cpus` pass through to `docker run` — **no per-container cap by default** (OpenClaw peaks can exceed 3g; hard cgroup limits tend to trigger OOM-kill, so overall memory is left to VM kernel + swap)
 - **Failure isolation + auto-retry**: cells are isolated so failures don't cascade; the pipeline collects first-pass failed cells and **retries them once globally**; phases / tasks each retry once at their own layer; the chat layer retries provider errors 5×, judge JSON parse 8×
 - **Port allocation**: containers use `-p 0:N` so Docker picks an ephemeral port; the actual port is recovered via `docker inspect` after startup, avoiding collisions under concurrency
-- **Delta naming**: `evolve-eval-delta:{run_id}-r{repeat}-{suite_name}` (auto-cleaned after suite)
+- **Delta naming**: `lift-delta:{run_id}-r{repeat}-{suite_name}` (auto-cleaned after suite)
 - **Workspace isolation**: Each holdout task gets isolated workspace; warmup tasks share state
 - **Container policies**: 
   - Warmup: `parallel_single` (default), `serial_single`, `parallel_multi`

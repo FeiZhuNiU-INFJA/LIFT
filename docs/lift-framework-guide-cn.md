@@ -133,10 +133,10 @@ sequenceDiagram
 
 | 钩子                      | 干什么                                                                                                                                           |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `resolve_docker_image`  | 用哪个镜像（基础`evolve-eval-openclaw-base:latest`，不带进化插件）                                                                             |
+| `resolve_docker_image`  | 用哪个镜像（基础`lift-openclaw-base:latest`，不带进化插件）                                                                             |
 | `start_container`       | 起 gateway、挂卷、记录 session_id                                                                                                                |
 | `worker_judger_factory` | 容器里怎么跑 chat（work agent + judge agent）                                                                                                    |
-| `evolve_after_warmup`   | 基础 adapter 是 no-op；`OpenClawWithEvolveAdapter`（镜像 `evolve-eval-openclaw-with-evolve:latest`）在 warmup 后跑 `openclaw learn review` |
+| `evolve_after_warmup`   | 基础 adapter 是 no-op；`OpenClawWithEvolveAdapter`（镜像 `lift-openclaw-with-evolve:latest`）在 warmup 后跑 `openclaw learn review` |
 
 **Docker commit 产 delta 镜像**是上层 `ContainerAgentRuntimeAdapter` 已经写好的，OpenClaw 不用重复实现——这是分层带来的红利。
 

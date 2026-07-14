@@ -35,13 +35,13 @@ agent-runtimes/hermes/
 bash agent-runtimes/hermes/build-image.sh
 ```
 
-默认产出 `evolve-eval-hermes:latest`，基于上游 `nousresearch/hermes-agent:v2026.5.16`。
+默认产出 `lift-hermes:latest`，基于上游 `nousresearch/hermes-agent:v2026.5.16`。
 
 ### 基础镜像 tag / 源切换
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `HERMES_IMAGE` | `evolve-eval-hermes:latest` | 产物 tag |
+| `HERMES_IMAGE` | `lift-hermes:latest` | 产物 tag |
 | `HERMES_BASE_IMAGE_REPO` | `nousresearch/hermes-agent` | 上游仓库 |
 | `HERMES_BASE_IMAGE_TAG` | `v2026.5.16` | 上游 tag（`.env` 可覆盖） |
 | `HERMES_BASE_IMAGE` | （未设） | 直接指定完整上游镜像，优先于 REPO:TAG |
@@ -57,7 +57,7 @@ PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ bash agent-runtimes/hermes/bui
 ## 构建期自动发现的路径
 
 不同 Hermes 镜像布局不一致，`install-in-image.sh` 在构建期**自动探测**并写入
-`/opt/evolve-eval/hermes-paths.env`：
+`/opt/lift/hermes-paths.env`：
 
 - `HERMES_VENV_PY` — Hermes 自带 venv 的 python（用于跑 runner / 装 langfuse）
 - `HERMES_SRC_DIR` — Hermes 源码目录（runner `--hermes-agent-dir`）
@@ -66,9 +66,9 @@ PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ bash agent-runtimes/hermes/bui
 校验：
 
 ```bash
-docker run --rm evolve-eval-hermes:latest cat /opt/evolve-eval/hermes-paths.env
-docker run --rm evolve-eval-hermes:latest sh -lc \
-  '. /opt/evolve-eval/hermes-paths.env; "$HERMES_VENV_PY" -m pip show langfuse'
+docker run --rm lift-hermes:latest cat /opt/lift/hermes-paths.env
+docker run --rm lift-hermes:latest sh -lc \
+  '. /opt/lift/hermes-paths.env; "$HERMES_VENV_PY" -m pip show langfuse'
 ```
 
 ## 环境变量（运行期）
@@ -119,7 +119,7 @@ python -m src.cli.lift_main -r hermes --benchmark_dir assets/benchmarks_demo \
     --suite hello.json --run_id hermes-smoke
 ```
 
-默认镜像常量 `HERMES_DOCKER_IMAGE`（`evolve-eval-hermes:latest`）定义于
+默认镜像常量 `HERMES_DOCKER_IMAGE`（`lift-hermes:latest`）定义于
 [`src/paths.py`](../../src/paths.py)。
 
 ### warmup 并发策略（重要）

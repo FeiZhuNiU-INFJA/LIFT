@@ -10,18 +10,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OPENCLAW_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "openclaw"
 """OpenClaw 镜像与容器配置目录（``agent-runtimes/openclaw/``）。"""
 
-OPENCLAW_BASE_DOCKER_IMAGE = "evolve-eval-openclaw-base:latest"
+OPENCLAW_BASE_DOCKER_IMAGE = "lift-openclaw-base:latest"
 """不带 self-evolving-plugin-pro 进化插件的基础 OpenClaw 镜像（``OpenClawAdapter`` 使用；
 ``INSTALL_SELF_EVOLVING=false bash build-image.sh`` 构建）。"""
 
-OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE = "evolve-eval-openclaw-with-evolve:latest"
+OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE = "lift-openclaw-with-evolve:latest"
 """带 self-evolving-plugin-pro 进化插件的 OpenClaw 镜像（``OpenClawWithEvolveAdapter`` 使用；
 ``build-image.sh`` 默认 tag，对应 ``INSTALL_SELF_EVOLVING=true``）。"""
 
 GENERICAGENT_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "genericagent"
 """GenericAgent 镜像与容器配置目录（``agent-runtimes/genericagent/``）。"""
 
-GENERICAGENT_DOCKER_IMAGE = "evolve-eval-genericagent:latest"
+GENERICAGENT_DOCKER_IMAGE = "lift-genericagent:latest"
 """GenericAgent baseline 镜像（``GenericAgentAdapter`` 使用；
 ``agent-runtimes/genericagent/build-image.sh`` 构建）。"""
 
@@ -31,7 +31,7 @@ GENERICAGENT_WORKSPACE_SEED_DIR = GENERICAGENT_AGENT_DIR / "workspace_seed"
 HERMES_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "hermes"
 """Hermes 镜像与容器配置目录（``agent-runtimes/hermes/``）。"""
 
-HERMES_DOCKER_IMAGE = "evolve-eval-hermes:latest"
+HERMES_DOCKER_IMAGE = "lift-hermes:latest"
 """Hermes 评测镜像（``HermesAdapter`` 使用；``agent-runtimes/hermes/build-image.sh`` 构建，
 默认基于上游 ``nousresearch/hermes-agent:v2026.5.16``）。"""
 
@@ -41,7 +41,7 @@ HERMES_WORKSPACE_SEED_DIR = HERMES_AGENT_DIR / "workspace_seed"
 OPENHUMAN_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "openhuman"
 """OpenHuman 镜像与容器配置目录（``agent-runtimes/openhuman/``）。"""
 
-OPENHUMAN_DOCKER_IMAGE = "evolve-eval-openhuman:latest"
+OPENHUMAN_DOCKER_IMAGE = "lift-openhuman:latest"
 """OpenHuman baseline 镜像（``OpenHumanAdapter`` 使用；
 ``agent-runtimes/openhuman/build-image.sh`` 构建）。"""
 

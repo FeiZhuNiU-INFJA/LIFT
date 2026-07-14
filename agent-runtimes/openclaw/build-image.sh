@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build evolve-eval-openclaw image (base 或 with-evolve) from agent-runtimes/openclaw build context.
+# Build lift-openclaw image (base 或 with-evolve) from agent-runtimes/openclaw build context.
 set -euo pipefail
 
 AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -66,9 +66,9 @@ done
 # 默认走官方 ghcr.io；国内拉取慢时可设 OPENCLAW_BASE_IMAGE=ghcr.milu.moe/openclaw/openclaw:latest 切到加速源
 BASE_IMAGE="${OPENCLAW_BASE_IMAGE:-ghcr.io/openclaw/openclaw:latest}"
 if [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
-  TAG="${OPENCLAW_IMAGE:-evolve-eval-openclaw-with-evolve:latest}"
+  TAG="${OPENCLAW_IMAGE:-lift-openclaw-with-evolve:latest}"
 else
-  TAG="${OPENCLAW_IMAGE:-evolve-eval-openclaw-base:latest}"
+  TAG="${OPENCLAW_IMAGE:-lift-openclaw-base:latest}"
 fi
 WORK_OPENAI_API_KEY="${WORK_OPENAI_API_KEY:-}"
 MODEL_NAME="${MODEL_NAME:-}"

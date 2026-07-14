@@ -5,7 +5,7 @@
 #
 # Manual:
 #   docker build -f agent-runtimes/openhuman/Dockerfile \
-#     -t evolve-eval-openhuman:latest \
+#     -t lift-openhuman:latest \
 #     agent-runtimes/openhuman
 #
 # Runtime：容器以 `openhuman-core run --host 0.0.0.0 --port 7788` 启动，
@@ -96,7 +96,7 @@ ENV ARK_API_KEY=${API_KEY} \
 
 COPY config.toml.template /tmp/config.toml.template
 COPY install-in-image.sh /tmp/install-in-image.sh
-COPY workspace_seed /opt/evolve-eval/workspace_seed
+COPY workspace_seed /opt/lift/workspace_seed
 
 RUN chmod +x /tmp/install-in-image.sh \
     && API_KEY="${API_KEY}" \

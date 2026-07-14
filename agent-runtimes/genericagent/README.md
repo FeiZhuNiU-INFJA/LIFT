@@ -26,7 +26,7 @@ agent-runtimes/genericagent/
 bash agent-runtimes/genericagent/build-image.sh
 ```
 
-默认产出 `evolve-eval-genericagent:latest`，对应 LIFT `-r genericagent`。
+默认产出 `lift-genericagent:latest`，对应 LIFT `-r genericagent`。
 
 构建步骤：
 
@@ -51,7 +51,7 @@ bash agent-runtimes/genericagent/build-image.sh
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `GENERICAGENT_IMAGE` | `evolve-eval-genericagent:latest` | 构建产物 tag |
+| `GENERICAGENT_IMAGE` | `lift-genericagent:latest` | 构建产物 tag |
 | `GENERICAGENT_GIT_URL` | `https://github.com/lsdefine/GenericAgent.git` | clone 源 |
 | `GENERICAGENT_GIT_REF` | `main` | git checkout 分支 / commit |
 
@@ -107,12 +107,12 @@ python -m src.cli.lift_main -r genericagent --benchmark_dir assets/benchmarks_de
 
 默认镜像：
 
-- `-r genericagent` → `evolve-eval-genericagent:latest`（常量
+- `-r genericagent` → `lift-genericagent:latest`（常量
   `GENERICAGENT_DOCKER_IMAGE`，定义于 [`src/paths.py`](../../src/paths.py)）
 
 ## Manual sanity check
 
 ```bash
-docker run --rm evolve-eval-genericagent:latest \
+docker run --rm lift-genericagent:latest \
     python -c 'import sys; sys.path.insert(0, "/opt/GenericAgent"); import agentmain'
 ```

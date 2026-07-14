@@ -12,6 +12,7 @@ native_oai_config = {
     "apibase": "__WORK_OPENAI_BASE_URL__",
     "model": "__MODEL_NAME__",
     "api_mode": "openai-completions",
+    "reasoning_effort": "__REASONING_EFFORT__",
 }
 
 langfuse_config = {

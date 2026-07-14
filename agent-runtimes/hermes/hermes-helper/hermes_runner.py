@@ -24,6 +24,32 @@ NONE_RESPONSE_FALLBACK = (
     "or an incomplete tool-calling state."
 )
 
+# ``AIAgent.reasoning_config`` 与 hermes CLI 的 ``_parse_reasoning_config``（cli.py）
+# 语义对齐；这里就地实现一份而不 import upstream 常量，让 runner 保持 self-contained
+# （避免受 hermes-agent-dir 里 hermes_constants 版本漂移影响）。
+_VALID_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
+
+
+def _build_reasoning_config(effort: str) -> dict | None:
+    """将 ``--reasoning-effort`` 字符串映射为 ``AIAgent(reasoning_config=...)``。
+
+    - ``""`` / ``None`` → ``None``（走 Hermes upstream 默认；OpenRouter 兼容路径下等价 medium）。
+    - ``"none"`` → ``{"enabled": False}``（显式关 thinking）。
+    - 合法 effort → ``{"enabled": True, "effort": <lvl>}``。
+    - 非法值 → 抛错，让 build/run 快速 fail 而不是静默降级。
+    """
+    if not effort or not effort.strip():
+        return None
+    normalized = effort.strip().lower()
+    if normalized == "none":
+        return {"enabled": False}
+    if normalized in _VALID_REASONING_EFFORTS:
+        return {"enabled": True, "effort": normalized}
+    raise SystemExit(
+        f"[hermes_runner] invalid --reasoning-effort {effort!r}. "
+        f"Valid: none|{'|'.join(_VALID_REASONING_EFFORTS)}"
+    )
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -40,6 +66,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-key", required=True, help="API key passed to AIAgent.")
     parser.add_argument("--session-id", required=True, help="Session ID passed to AIAgent.")
     parser.add_argument("--max-tokens", type=int, required=True, help="max_tokens passed to AIAgent.")
+    parser.add_argument(
+        "--reasoning-effort",
+        default="",
+        help=(
+            "reasoning effort level passed to AIAgent (mapped into reasoning_config="
+            "{enabled: True, effort: <lvl>}). Valid: minimal|low|medium|high|xhigh. "
+            "'none' disables reasoning. Empty = keep Hermes default."
+        ),
+    )
     parser.add_argument(
         "--profile-home",
         default="",
@@ -124,6 +159,11 @@ def main() -> int:
 
     from run_agent import AIAgent
 
+    # ``--reasoning-effort`` → ``reasoning_config``：与 hermes CLI 的 ``_parse_reasoning_config``
+    # 语义一致（``hermes_constants.parse_reasoning_effort``）。空字符串保持 Hermes 默认
+    # 行为（None → OpenRouter/兼容路径下默认 medium；非白名单路径下静默丢弃）。
+    reasoning_config = _build_reasoning_config(args.reasoning_effort)
+
     agent = AIAgent(
         model=args.model,
         base_url=args.base_url.strip(),
@@ -135,6 +175,7 @@ def main() -> int:
         max_iterations=192,
         session_id=args.session_id,
         max_tokens=args.max_tokens,
+        reasoning_config=reasoning_config,
         disabled_toolsets=["delegation"],
     )
 
@@ -183,6 +224,7 @@ def main() -> int:
             max_iterations=16,
             session_id=f"review-{args.session_id}",
             max_tokens=args.max_tokens,
+            reasoning_config=reasoning_config,
             disabled_toolsets=["delegation"],
         )
         review_holder._memory_nudge_interval = 0

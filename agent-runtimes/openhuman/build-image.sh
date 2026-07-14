@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build evolve-eval-openhuman image from agent-runtimes/openhuman build context.
+# Build lift-openhuman image from agent-runtimes/openhuman build context.
 set -euo pipefail
 
 AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -37,13 +37,13 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [-h|--help]
 
-Build evolve-eval-openhuman:latest by downloading the upstream
+Build lift-openhuman:latest by downloading the upstream
 openhuman-core headless binary tarball (same-release sibling of the CEF
 GUI .deb) into a slim Debian image, then baking ARK credentials from
 repo root .env into ~/.openhuman/config.toml.
 
 Override via env:
-  OPENHUMAN_IMAGE           默认 evolve-eval-openhuman:latest
+  OPENHUMAN_IMAGE           默认 lift-openhuman:latest
   OPENHUMAN_VERSION         指定 upstream release 版本（如 0.58.7）；留空则宿主探测 latest
   OPENHUMAN_CORE_TRIPLE     Rust target triple（默认 x86_64-unknown-linux-gnu；arm64 host 用 aarch64-unknown-linux-gnu）
   OPENHUMAN_CORE_URL        显式指向 openhuman-core-<ver>-<triple>.tar.gz 下载 URL，跳过 mirror 拼接
@@ -59,7 +59,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-TAG="${OPENHUMAN_IMAGE:-evolve-eval-openhuman:latest}"
+TAG="${OPENHUMAN_IMAGE:-lift-openhuman:latest}"
 VERSION="${OPENHUMAN_VERSION:-}"
 CORE_TRIPLE="${OPENHUMAN_CORE_TRIPLE:-x86_64-unknown-linux-gnu}"
 CORE_URL="${OPENHUMAN_CORE_URL:-}"
@@ -88,13 +88,17 @@ fi
 # LIFT 约定所有 agent 用同一个 seed 模型（ARK doubao-seed-2-0-pro-260215）；
 # 与 GA 类似，OpenHuman 走 ``inference_url`` + ``api_key`` + ``default_model``
 # 直连 ARK OpenAI-兼容端点。允许通过 OPENHUMAN_MODEL_NAME 覆盖，避免污染共享 MODEL_NAME。
-ARK_API_KEY="${ARK_API_KEY:-}"
-ARK_BASE_URL="${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}"
+#
+# API key 解析优先级：``WORK_OPENAI_API_KEY``（.env / .env.example 唯一约定的共享 key）
+# 优先；``ARK_API_KEY`` 作为老变量向后兼容 fallback；``OPENHUMAN_API_KEY`` 允许临时
+# 单独覆盖 OpenHuman 而不影响其它 runtime。
+OPENHUMAN_API_KEY_RESOLVED="${OPENHUMAN_API_KEY:-${WORK_OPENAI_API_KEY:-${ARK_API_KEY:-}}}"
+ARK_BASE_URL="${OPENHUMAN_BASE_URL:-${WORK_OPENAI_BASE_URL:-${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}}}"
 MODEL_NAME_RESOLVED="${OPENHUMAN_MODEL_NAME:-${MODEL_NAME:-}}"
 
-if [[ -z "${ARK_API_KEY}" ]]; then
-  echo "WARN: ARK_API_KEY is not set; image will bake config.toml with empty api_key." >&2
-  echo "      Set ARK_API_KEY in repo root .env before build." >&2
+if [[ -z "${OPENHUMAN_API_KEY_RESOLVED}" ]]; then
+  echo "WARN: no API key found (WORK_OPENAI_API_KEY / ARK_API_KEY / OPENHUMAN_API_KEY); image will bake config.toml with empty api_key." >&2
+  echo "      Set WORK_OPENAI_API_KEY in repo root .env before build." >&2
 fi
 if [[ -z "${MODEL_NAME_RESOLVED}" ]]; then
   echo "WARN: MODEL_NAME is not set; config.toml default_model field will be empty." >&2
@@ -110,7 +114,7 @@ if [[ "${MODEL_NAME_RESOLVED}" == */* ]]; then
 fi
 
 BUILD_ARGS=(
-  --build-arg "API_KEY=${ARK_API_KEY}"
+  --build-arg "API_KEY=${OPENHUMAN_API_KEY_RESOLVED}"
   --build-arg "INFERENCE_URL=${ARK_BASE_URL}"
   --build-arg "DEFAULT_MODEL=${MODEL_NAME_RESOLVED}"
   --build-arg "OPENHUMAN_CORE_TRIPLE=${CORE_TRIPLE}"

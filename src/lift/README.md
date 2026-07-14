@@ -12,7 +12,7 @@ Three adapter layers:
 2. **`ContainerAgentRuntimeAdapter`** (`adapters/container/`) — Docker lifecycle; default delta via `docker commit`
 3. **`OpenClawAdapter`** (`adapters/openclaw/`) — base image + `start_container` + chat factory; **不带**进化插件，`evolve_after_warmup` 为 no-op；带进化插件的变体为 `OpenClawWithEvolveAdapter`（`adapters/openclaw_with_evolve/`，warmup 后 `openclaw learn review`）
 
-- **before-load**: fresh container from base image (`evolve-eval-openclaw-base:latest` / `evolve-eval-openclaw-with-evolve:latest`)
+- **before-load**: fresh container from base image (`lift-openclaw-base:latest` / `lift-openclaw-with-evolve:latest`)
 - **after-load**: fresh container from **delta image** (committed after warmup)
 - **Cleanup**: `SuiteRunResources.cleanup()` removes containers and delta images
 
@@ -20,8 +20,8 @@ Three adapter layers:
 
 ```bash
 bash agent-runtimes/openclaw/build-image.sh
-# 默认产出 evolve-eval-openclaw-with-evolve:latest（带进化插件）；
-# INSTALL_SELF_EVOLVING=false bash agent-runtimes/openclaw/build-image.sh → evolve-eval-openclaw-base:latest（不带进化插件）
+# 默认产出 lift-openclaw-with-evolve:latest（带进化插件）；
+# INSTALL_SELF_EVOLVING=false bash agent-runtimes/openclaw/build-image.sh → lift-openclaw-base:latest（不带进化插件）
 ```
 
 ## Run
@@ -69,4 +69,4 @@ python -m pytest src/lift/tests -q
 
 ## Delta image naming
 
-`evolve-eval-delta:{run_id}-r{repeat}-{suite_name}` — removed by `SuiteRunResources.cleanup()` after each suite run.
+`lift-delta:{run_id}-r{repeat}-{suite_name}` — removed by `SuiteRunResources.cleanup()` after each suite run.
