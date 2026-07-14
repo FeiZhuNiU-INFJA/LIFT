@@ -195,8 +195,8 @@ async def openclaw_learn_review(container: OpenClawContainerContext) -> None:
     # 预备：
     # 1. ``_PREPARE_WORKSPACE_GIT_SCRIPT``：onboard 要求的 git repo（幂等，
     #    bootstrap_evolution_runtime 已先跑过一次）。
-    # 2. review worker 与 work/judge 对齐用 thinking=medium：ARK doubao-seed-2-0-pro
-    #    端点对 ``reasoning_effort=medium`` 原生支持，statistics 上 review 的
+    # 2. review worker 与 work/judge 对齐用 thinking=high：ARK doubao-seed-2-0-pro
+    #    端点对 ``reasoning_effort=high`` 原生支持，statistics 上 review 的
     #    trajectory 也需要与主链路的思考深度一致才有可比性。
     await docker_exec_shell_async(
         container.container_name,
@@ -204,7 +204,7 @@ async def openclaw_learn_review(container: OpenClawContainerContext) -> None:
 {_PREPARE_WORKSPACE_GIT_SCRIPT}
 WORKER_JS="${{HOME}}/.openclaw/extensions/self-evolving-plugin-pro/src/review/worker.js"
 if [[ -f "${{WORKER_JS}}" ]]; then
-  sed -i 's/"--thinking", "low"/"--thinking", "medium"/g' "${{WORKER_JS}}" || true
+  sed -i 's/"--thinking", "low"/"--thinking", "high"/g' "${{WORKER_JS}}" || true
 fi
 """.strip(),
     )

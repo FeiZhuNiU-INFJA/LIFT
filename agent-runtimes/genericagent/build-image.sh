@@ -107,8 +107,8 @@ PY
 echo "==> LANGFUSE_HOST baked into mykey.py: ${LANGFUSE_HOST}"
 FIRECRAWL_API_KEY="${FIRECRAWL_API_KEY:-}"
 # LIFT 约定：REASONING_EFFORT 统一控制 seed 模型思维链强度（medium / low / high 等）。
-# 默认与 OpenClaw / Hermes 对齐为 medium；空串会 bake 出空占位，运行期 GA 也会跳过。
-REASONING_EFFORT="${REASONING_EFFORT:-medium}"
+# 默认与 OpenClaw / Hermes 对齐为 high；空串会 bake 出空占位，运行期 GA 也会跳过。
+REASONING_EFFORT="${REASONING_EFFORT:-high}"
 
 if [[ -z "${WORK_OPENAI_API_KEY}" ]]; then
   echo "WARN: WORK_OPENAI_API_KEY is not set; image will bake mykey.py with empty apikey." >&2

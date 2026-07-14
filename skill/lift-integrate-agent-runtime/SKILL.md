@@ -1,6 +1,6 @@
 ---
 name: "lift-integrate-agent-runtime"
-description: "把一个新的 agent runtime（如 OpenClaw / GenericAgent）接入 LIFT 评测框架的端到端清单：镜像脚手架 + adapter 三件套 + 注册点（SUPPORTED_RUNTIMES 唯一事实源）+ Langfuse trace 拼装 + 验收 checklist。在用户说\"集成 / 接入 / 添加新 agent runtime\"或\"-r <name>\"想新增可选项时调用。"
+description: "LIFT 评测框架接入新 agent runtime 的端到端清单：镜像脚手架 + adapter 三件套 + registry 注册 + Langfuse trace 拼装 + 验收。用户说\"集成/接入新 agent runtime\"或想新增 CLI `-r` 可选项时调用。"
 ---
 
 # LIFT: 集成新 Agent Runtime
@@ -140,7 +140,7 @@ for rp in d['runs']:
 - **健康**：`user` 数 ≈ `chat_turns` 数，`assistant` 数也随轮次增长；多条 user 的时间戳/内容各不相同（能看出是不同轮）。
 - **断裂（就是本节 bug）**：`chat_turns >= 2` 但 `all_messages` 里**显然只有 1 条 user**（或 user 数明显少于 chat_turns），且 assistant 只有 1 条汇报 —— 说明只捕获了某一轮，前面的轮次没续上。
 
-实测**健康样本**（`hello.json`，Q2 holdout，judge 复跑成 2 轮，来自 [ga-hello-test-1-h backfilled.json](file:///c:/Users/Admin/Desktop/evobench/agent_evolve_evaluation/results/lift-runid-ga-hello-test-1-h/lift-runid-ga-hello-test-1-h_backfilled.json)）：
+实测**健康样本**（`hello.json`，Q2 holdout，judge 复跑成 2 轮，来自 `results/lift-runid-ga-hello-test-1-h/lift-runid-ga-hello-test-1-h_backfilled.json`）：
 
 ```
 Q2     baseline chat_turns=2 all_messages=4 roles={'user': 2, 'assistant': 2}
@@ -163,7 +163,7 @@ GA 上游把 `Handler.cwd` 与 system prompt cwd 都硬编码成 `os.path.join(s
 
 ### 1.5 工具 schema 中英双份（如果 runtime 用了 GA 那套 schema）
 
-GA 风格 runtime 通过 `assets/tools_schema.json`（英文）+ `assets/tools_schema_cn.json`（中文）两套声明告知 LLM 可用工具。GA 在 [`agentmain.py:96-98`](file:///tmp/_ga_agentmain.py#L96-L98) 按模型名（`glm` / `minimax` / `kimi` 走 cn）切换。新加 plugin tool 时，**两套 schema 都要 append**，不然中文模型看不到工具。参考 [`install-in-image.sh:93-208`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/install-in-image.sh#L93-L208) 的 idempotent append 实现（已存在则跳过，避免重复 append）。
+GA 风格 runtime 通过 `assets/tools_schema.json`（英文）+ `assets/tools_schema_cn.json`（中文）两套声明告知 LLM 可用工具。GA 上游 `agentmain.py` 按模型名（`glm` / `minimax` / `kimi` 走 cn）切换。新加 plugin tool 时，**两套 schema 都要 append**，不然中文模型看不到工具。参考 [`install-in-image.sh:93-208`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent/install-in-image.sh#L93-L208) 的 idempotent append 实现（已存在则跳过，避免重复 append）。
 
 ### 1.6 字节内网 / GitHub 拉取受限时的构建环境变量
 
@@ -261,13 +261,38 @@ src/lift/adapters/<runtime>/
 | `worker_judger_factory` | 把 `ContainerSession` 包成 `WorkerJudgerPairFactory` | `return <Runtime>WorkerJudgerPairFactory(container=..., workspace_dir=...)` |
 | `evolve_after_warmup` | 演化钩子；baseline runtime 是 no-op | `return None` |
 
-另外**强烈建议**声明一个类属性 —— `evolve_paths`（默认继承 `ContainerAgentRuntimeAdapter.evolve_paths = ()`）：
+另外**必须**声明一个类属性 —— `evolve_paths`（默认继承 `ContainerAgentRuntimeAdapter.evolve_paths = ()`）：
 
-| 类属性 | 作用 | 最简声明 |
+| 类属性 | 作用 | 最简声明（**实测路径，勿照抄文档猜测**） |
 |---|---|---|
-| `evolve_paths: tuple[str, ...]` | 声明本 runtime "真进化产物"落地的**容器内绝对路径**白名单，供 `commit_delta_image` 在 `docker diff` 后单独打一行 `evolve-only` 摘要；计数为 0 时 WARNING（负向信号） | GA: `("/opt/GenericAgent/memory",)`；OpenClaw: `("/root/.openclaw/memory", "/root/.openclaw/skills")` |
+| `evolve_paths: tuple[str, ...]` | 声明本 runtime "真进化产物"落地的**容器内绝对路径**白名单，供 `commit_delta_image` 在 `docker diff` 后单独打一行 `evolve-only` 摘要；计数为 0 时 WARNING（负向信号），并追加一行 candidate unlisted paths 提示 | GA: `("/opt/GenericAgent/memory",)`；OpenClaw: `("/root/.openclaw/workspace/memory", "/root/.openclaw/skill-workshop")`；Hermes: `("/opt/hermes-state/skills", "/opt/hermes-state/memories")`；OpenHuman: `("/root/.openhuman/users", "/root/.openhuman/skill-registry")` |
 
-漏声明的后果：pipeline 日志只有 `full` 摘要（含 pip / cache / temp 等噪声），无法在无人值守下自动预警"warmup 没写出任何进化产物"。参考 [`GenericAgentAdapter.evolve_paths`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/genericagent/adapter.py#L38-L42)、[`OpenClawAdapter.evolve_paths`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/openclaw/adapter.py#L36-L42) 的定义。声明的路径应与 §1.7 "三点错位"里的**引擎读路径**一致（引擎去哪读，就在哪声明）。
+> ⚠️ **不要照抄上游文档 / 项目 README 里给的路径就当声明完了**。同一 agent 的"记忆目录"文档路径与实际写入路径经常错位（OpenClaw 文档写 `/root/.openclaw/memory`，实际写 `/root/.openclaw/workspace/memory`，因为 `learn review` 写的是 workspace 子目录）。**唯一可信来源是 §6.5 证据 C 的 `results/{run_id}/delta_diff_*.txt` dump**：先用一个"必然会写记忆"的 suite（推荐 `integration_check.json`，见 §6.0）跑一次 `--warmup-only`，读 dump 文件找到真实落地目录，再回填 `evolve_paths`。
+
+漏声明的后果：pipeline 日志只有 `full` 摘要（含 pip / cache / temp 等噪声），无法在无人值守下自动预警"warmup 没写出任何进化产物"。参考 [`GenericAgentAdapter.evolve_paths`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/genericagent/adapter.py#L38-L42)、[`OpenClawAdapter.evolve_paths`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/openclaw/adapter.py#L36-L45)、[`HermesAdapter.evolve_paths`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/hermes/adapter.py#L39-L49)、[`OpenHumanAdapter.evolve_paths`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/openhuman/adapter.py#L48-L51) 的定义。声明的路径应与 §1.7 "三点错位"里的**引擎读路径**一致（引擎去哪读，就在哪声明）。
+
+**声明错了怎么办 —— LIFT 已内建两级自动诊断**（不用再手动保留 delta 镜像 `docker diff`）：
+
+1. **`evolve-only` WARNING**（[`commit_delta_image`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/container/delta.py) 触发条件：白名单命中数 = 0）：
+   ```
+   WARNING Delta preflight diff (evolve-only) [<container>]: no changes under evolve_paths=['/wrong/path'] — warmup produced no evolve artifacts
+   ```
+   —— 你声明的路径下什么都没写；下一行 `candidate` 会给出线索。
+
+2. **`candidate unlisted evolve paths` INFO**（仅在上一条 WARNING 触发时追加）：从 `docker diff` 全集里剔除 `_NOISE_PATH_PREFIXES`（`/tmp` / `/root/.cache` / `pip` / `apt` 等噪音黑名单）+ 已声明白名单，剩余的前 3 层目录按出现次数 top-5：
+   ```
+   INFO Delta preflight diff (candidate unlisted evolve paths) [<container>]: /root/.openhuman/users x67, /root/.openhuman/skill-registry x2 — 若这些是真进化产物，请把顶层目录加入 adapter.evolve_paths 声明
+   ```
+   —— 直接对着建议名单更新 `evolve_paths` 即可，不需要再手动 `docker diff` 反查。
+
+3. **完整 `docker diff` 落盘**：`commit_delta_image` 无条件把原始 diff 全量落到 `results/{run_id}/delta_diff_{container_name}.txt`（约 MB 量级；含每条 `A|C|D <absolute_path>`）。集成期需要看任意深度的具体路径（log 摘要只按前 3 层聚合）时：
+   ```bash
+   grep -vE "^[ACD] (/root/\.cache|/tmp|/var/lib/(apt|dpkg))" \
+     results/lift-runid-<run_id>/delta_diff_*.txt | head -80
+   ```
+   这个文件在 delta 镜像被清理后仍在，是集成期定位 `evolve_paths` 的黄金证据来源。
+
+> **典型迭代路径**：新 runtime 首次跑 `--warmup-only` → 看到 `evolve-only` WARNING → 看 candidate 那行的 top 目录 → grep dump 文件确认那些目录里确实是 memory / wiki / skill 类内容 → 更新 `evolve_paths` 声明 → 二次跑，WARNING 消失即视为白名单声明正确。
 
 ### 2.2 `session.py`（容器启动）
 
@@ -331,7 +356,7 @@ src/lift/adapters/<runtime>/
 
 ## 4. 后处理类型同步（`AgentSource` 收敛到单点，只改 `SUPPORTED_RUNTIMES`）
 
-从 2026-07-09 起，`AgentSource` 已从「5 处 Literal 手动同步」重构成「1 处 `TypeAlias = str` + 4 处 import」，合法值域**唯一事实源**是 [`SUPPORTED_RUNTIMES`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/registry.py#L12)。**新增 runtime 只改 registry 一处即可**。
+`AgentSource` 的合法值域**唯一事实源**是 [`SUPPORTED_RUNTIMES`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/registry.py#L12) tuple；后处理侧只是一个 `TypeAlias = str` 语义标记。**新增 runtime 只改 registry 一处即可**，argparse choices / dispatch tuple 全部从这里派生。
 
 | 文件 | 作用 |
 |---|---|
@@ -583,9 +608,10 @@ tail -f logs/<run_id>.log               # 主进度看这里
 
 > **不要用默认 `nohup.out`**：默认行为会把所有 run 的日志拼在同一个 `nohup.out` 里（`>>` append），多 run 并行 / 反复跑会互相覆盖、相互污染，事后排查时分不清谁是谁。统一显式写到 `logs/<run_id>.log`（先 `mkdir -p logs`），一个 run 一份日志，文件名直接对应 `results/lift-runid-<run_id>/`。
 
-> `assets/benchmarks_demo/` 里两个常用 sanity suite：
+> `assets/benchmarks_demo/` 里三个常用 sanity suite：
 > - **`hello.json`** — 1 W + 1 H 寒暄（Q1 "回复你好" / Q2 "自我介绍"），测的是基本 chat / warmup-commit-holdout 流水线连通性。
 > - **`test_search.json`** — 1 W + 1 H 联网题（W1 查 2026 北京展会、H1 查 Node.js LTS 版本），测的是 agent 的联网工具是否生效。如果 runtime 没接联网工具，H1 会失败但流水线本身仍然走完。
+> - **`integration_check.json`** — **集成验收专用**：4 W + 2 H 个人偏好档案（W1 邮件称呼/署名/无 emoji、W2 清单单位/千分位、W3 日程 Markdown/北京时间、W4 示例代码 Python/禁模板化尾缀），holdout H1/H2 用新任务考察 recall + 遵守 + 25% 变体防过拟合。**每题 query 显式让 agent"以后都遵守"**，是 §6.5 证据 C 里最能触发所有 runtime memory / reflection hook 往 `evolve_paths` 白名单目录真写产物的 suite（hello.json 太简单，一般不会写 memory；test_search.json 依赖联网工具，不 runtime-agnostic）。
 
 > `--dashboard 0.0.0.0:<port>` 远程机器开 dashboard 必须 0.0.0.0；只在本机调试用 PORT 单字段（默认绑 127.0.0.1）即可。
 
@@ -611,6 +637,8 @@ docker images | grep lift-<runtime>
 - `results/lift-runid-<run_id>/report.json` 存在且 task `outcome.success: true`
 - `logs/<run_id>.log` 没有 `wait output timeout` / `Cannot connect to Docker daemon` / `Judge response is not valid JSON` 高频重试
 
+> ⚠️ **hello.json 只能证连通性 —— evolve_paths 声明是否正确必须靠 §6.5 的 `integration_check.json` 才能触发**。hello.json 题目太简单，agent 根本不会写记忆，即使 `evolve_paths` 声明错了也不会 WARNING（"白名单里 0 条"与"agent 根本没写"外观相同）。集成新 runtime 时不要在 hello 全绿就停手 —— 必须继续跑 §6.5。
+
 ### 6.3 Trace stitching 对齐
 
 run 完后默认会自动跑后处理；想单独重跑：
@@ -635,7 +663,7 @@ python -m src.cli.lift_main -r <runtime> --evaluate-only --run_id <run_id>
 
 ### 6.5 三层证据交叉验证（必跑；hello.json 只能证连通，不能证 evolve）
 
-要证明 evolve 有效必须做 **Log × Langfuse × Layer** 三层交叉验证——三个证据缺一不可,证明的不是同一件事。选一个**会让 agent 有话可记**的 suite（`test_search.json` 或自己拼含明确 memory 写入指令的 warmup 题）。
+要证明 evolve 有效必须做 **Log × Langfuse × Layer** 三层交叉验证——三个证据缺一不可,证明的不是同一件事。**默认用 `assets/benchmarks_demo/integration_check.json`**（4 W + 2 H 个人偏好档案，见 §6.0 的 suite 表格）—— 每题都要求 agent "以后都遵守"，是最容易让 memory / reflection hook 真写产物的 suite，且 runtime-agnostic（不依赖联网工具、不依赖 material_dir）。如果 runtime 已经通过 hello.json 但在 integration_check 上仍然 evolve-only WARNING，就是本节要抓的问题；若换更复杂的自定 suite，参考本节交叉验证方法即可。
 
 #### 证据 A：Log —— agent 真的对话了吗？
 
@@ -804,25 +832,52 @@ grep -E "trace not found|Failed to fetch trace|trace_backfill" "$LOG"
 
 #### 证据 C：Layer —— delta 镜像真的包含进化内容吗？
 
-这是 LIFT 全流程的**核心命题**。必须在 warmup 结束、`docker commit` 之后、pipeline `docker rmi lift-delta:*` 之前抢到 delta 镜像做 diff。
+这是 LIFT 全流程的**核心命题**。**LIFT 已内建自动化落盘**，绝大多数情况**不需要**手动保留 delta 镜像做 `docker diff` —— 直接看 pipeline 日志三行 + `results/{run_id}/delta_diff_*.txt` dump 文件即可完成 layer 层验证。
 
-**优先看 pipeline 日志的 `Delta preflight diff` 行**（[commit_delta_image](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/container/delta.py) 在 `docker commit` 之前会自动跑 `docker diff` 并打摘要，见 §2.1 的 `evolve_paths` 说明）：
+**C.1 pipeline 日志三行**（[`commit_delta_image`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/container/delta.py) 在 `docker commit` 之前自动打）：
 
 ```
-INFO Delta preflight diff (full) [evolve-genericagent-xxxxx]: +2038A ~14C -0D across 17 paths (top: /usr/local/lib x1800, /opt/GenericAgent/memory x9, /opt/GenericAgent/temp x120, ...)
-INFO Delta preflight diff (evolve-only) [evolve-genericagent-xxxxx]: +9A ~2C -0D across 1 paths (top: /opt/GenericAgent/memory x11)
-INFO Delta materialized: lift-delta:<run_id>-r0-<suite>
+INFO Delta preflight diff (full dump) [evolve-<runtime>-...]: -> /root/.../results/lift-runid-<run_id>/delta_diff_evolve-<runtime>-...txt
+INFO Delta preflight diff (full) [evolve-<runtime>-...]: +2038A ~14C -0D across 17 paths (top: /usr/local/lib x1800, /opt/<runtime>/memory x9, ...)
+INFO Delta preflight diff (evolve-only) [evolve-<runtime>-...]: +9A ~2C -0D across 1 paths (top: /opt/<runtime>/memory x11)
 ```
 
-- `full` 行 = upperdir 全集，`+NA ~NC -ND` = 新增 / 修改 / 删除 的容器 FS 层文件计数（bind mount 天然不进 diff）
-- `evolve-only` 行 = 只统计 adapter `evolve_paths` 白名单目录下的变更；未声明白名单则不打此行
-- **红旗 1**：`full` 行显示 `no changes (empty upperdir)` —— warmup 没往容器 FS 写任何东西，铁定是 §1.7 三点错位
-- **红旗 2**：`evolve-only` 行升级为 `WARNING` 且带 `no changes under evolve_paths=...` —— 白名单目录里没落任何东西（可能写去了 `/tmp` / `/root` / bind mount），需要核对上游引擎的读路径
-- **红旗 3**（未声明 `evolve_paths` 时的降级判定）：`full` 行 `top:` 里根本没出现 `/opt/<runtime>/memory` —— 走 §2.1 补上 `evolve_paths` 后就能自动 WARNING
+含义速查：
+- **`full dump`** = 完整 `docker diff` 原始输出落盘路径（每行 `A|C|D <absolute_path>`；MB 级；delta 镜像被 pipeline 清理后仍可回溯）
+- **`full`** = upperdir 全集摘要，`+NA ~NC -ND` = 新增 / 修改 / 删除 的容器 FS 层文件计数（bind mount 天然不进 upperdir）
+- **`evolve-only`** = 只统计 adapter `evolve_paths` 白名单目录下的变更；未声明白名单则不打此行
 
-如果日志摘要已经有明确红旗，可以跳过下面的手工 diff；如果想深挖具体新增了什么文件、mtime 情况：
+**红旗速查**：
 
-**方案 1（推荐）**：在 pipeline 的清理钩子前拦一次（`--warmup-only` 会跳过 holdout 且不会 `docker rmi` delta，最方便）：
+| 现象 | 含义 | 处理路径 |
+|---|---|---|
+| `full` = `no changes (empty upperdir)` | warmup 完全没往容器 FS 层写东西 | §1.7 三点错位（LLM 写到了 bind mount / tmpfs） |
+| `evolve-only` 升级为 **`WARNING`** + `no changes under evolve_paths=...` | 白名单目录里没落东西 | 看紧跟着的 `candidate unlisted evolve paths` 那行，或 grep dump 文件（下面 C.2） |
+| WARNING 下面又跟一行 `candidate unlisted evolve paths ... top: /X x67, /Y x2` | LIFT 已经从 dump 里挑出疑似 evolve 顶层目录 | 直接对着建议名单更新 `evolve_paths`，见 §2.1 "声明错了怎么办" |
+| 未声明 `evolve_paths`（无 `evolve-only` 行）+ `full` 的 `top:` 里没出现你期望的 `/opt/<runtime>/memory` | 三点错位或路径声明缺失 | 补 `evolve_paths` 后即可自动 WARNING / candidate |
+
+**C.2 dump 文件抽样**（当 log 摘要不够看时）：
+
+log 里的 `top:` 只按前 3 层目录聚合，看不到具体是哪个文件。想看具体文件路径（哪一层挂的、mtime、大小）时直接读 dump：
+
+```bash
+DUMP=$(ls results/lift-runid-<run_id>/delta_diff_*.txt | head -1)
+
+# 剔除噪音看剩下的（如果白名单声明正确，这里应能看到 memory / skill / wiki 类路径）
+grep -vE "^[ACD] (/root/\.cache|/tmp|/var/(cache|lib/(apt|dpkg))|/proc|/sys)" "$DUMP" | head -50
+
+# 想看某个具体目录深度的所有变更（比 log 的 3 层聚合更细）
+grep -E "^A /opt/<runtime>/memory/" "$DUMP" | head
+```
+
+**C.3 通过 = 什么样**：
+- `full` 行有实质变更（不是 `no changes`）
+- `evolve-only` 是 `INFO` 级别（不是 `WARNING`）+ 非零计数
+- 抽样 dump 文件里 `evolve_paths` 白名单目录下的新增 / 修改内容与证据 A 里的 reflection reply 语义一致（LLM 说要写什么就真的写下了什么，配合证据 A'.4 的内容抽样）
+
+**C.4 兜底方案：手动保留 delta 镜像做内容级 diff**（仅当想比对文件**内容**而非路径列表时）：
+
+`--warmup-only` 会跳过 holdout 且不 `docker rmi` delta，最方便：
 
 ```bash
 # 用 --warmup-only 只跑 warmup + commit，delta 镜像会保留下来
@@ -835,20 +890,19 @@ wait
 DELTA=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "lift-delta:.*<run_id>" | head -1)
 echo "delta = $DELTA"
 
-# 与 baseline 镜像 diff（看真的多了什么）
+# 与 baseline 镜像做内容级 diff（看 memory 文件的具体自然语言内容）
 BASE=lift-<runtime>:latest
-docker run --rm --entrypoint sh "$BASE" -c 'ls -la /opt/<runtime>/memory' > /tmp/base_memory.txt
-docker run --rm --entrypoint sh "$DELTA" -c 'ls -la /opt/<runtime>/memory' > /tmp/delta_memory.txt
-diff /tmp/base_memory.txt /tmp/delta_memory.txt
+docker run --rm --entrypoint sh "$BASE"  -c 'find /opt/<runtime>/memory -type f -exec md5sum {} +' | sort > /tmp/base_md5.txt
+docker run --rm --entrypoint sh "$DELTA" -c 'find /opt/<runtime>/memory -type f -exec md5sum {} +' | sort > /tmp/delta_md5.txt
+diff /tmp/base_md5.txt /tmp/delta_md5.txt
 
-# 也可以直接看 diff summary（A = added, C = changed, D = deleted）
-docker run --rm --entrypoint sh "$DELTA" -c 'find /opt/<runtime>/memory -newer /opt/<runtime>/agentmain.py -type f'
+# 或者直接读一个 memory 文件的内容看是不是自然语言（配合 A'.4）
+docker run --rm --entrypoint sh "$DELTA" -c 'cat /opt/<runtime>/memory/*.md | head -100'
 ```
 
-**方案 2**：正式跑（含 holdout），在 pipeline 打日志"Delta materialized"之后立刻 tag 保护：
+正式跑（含 holdout）时可以在另一个 shell 循环抢 tag：
 
 ```bash
-# 提前开另一个 shell 循环抓 delta，第一次抓到就 docker tag 保留
 while true; do
   D=$(docker images -q "lift-delta:*<run_id>*" | head -1)
   if [[ -n "$D" ]]; then docker tag "$D" "kept-delta:<run_id>"; break; fi
@@ -856,11 +910,7 @@ while true; do
 done
 ```
 
-**通过标准**：
-- delta 镜像的 `/opt/<runtime>/memory/` （或 runtime 对应目录）**存在**且**内容不同于 baseline**（有新文件 / 有 mtime 更新的现有文件）
-- 具体新内容与日志证据 A 里的 reflection reply 一致（LLM 说要写什么就真的写下了什么）
-
-**红旗**：delta 与 baseline 完全一致 —— 意味着 warmup 阶段 agent 学到的所有东西都写去了别处（bind mount / tmpfs / /tmp）没进 commit。这就是 §1.7 描述的**三点错位** bug。**必须**先修好这一层再谈其他，否则整个 LIFT 数据都是伪造的（baseline vs evolved 无差异，improvement 恒为 0）。
+> **走 C.4 的场景**：dump 文件已能告诉你"哪些路径变了"，但如果要看某个 memory 文件的**具体内容**（自然语言 vs traceback vs 空文件），必须从 delta 镜像里 `cat`。这也是 A'.4 内容抽样的入口。
 
 #### 综合判断表
 
@@ -907,6 +957,7 @@ done
 | 多轮 runtime 的 `tool_use_num` 虚高（约等于实际值 × 轮次） | `toolCallBlocks` 写成了跨轮全局累积值，但后处理 `build_work_analytics` 对它按轮 SUM → 重复累加 | root metadata 里 `toolCallBlocks` 写**本轮 per-round 增量**（`messages` 才用全量 champion 口径），见 §1.3.1 规则 3 |
 | 静态 dashboard tools 列空，但 `*_backfilled.json` 里 `tool_calls` 已有数 | B 路径 langfuse 兜底拿到了值但没回写 tracker，`tracker.snapshot()` 仍是 None → 嵌入 HTML 后显示 "—" | 确认 `run_post_process_pipeline` 调了 `tracker.set_phase_tool_calls(...)`（见 §5.3.1）；运行期实时 dashboard 看不到 B 路径 tools 是设计行为 |
 | evolved 与 baseline 结果几乎一致（improvement ≈ 0），或 LLM 明说"写了 memory"但 delta 镜像里没有 | Warmup 期 agent 的 evolve 产物落进了 bind mount / tmpfs（LLM 用 `memory/xxx` 相对路径，cwd 又在 bind mount 之内），`docker commit` 没捕获到 → delta 镜像内容 = baseline | 走 §6.5 证据 C 检查 delta diff；若 diff 为空回 §1.7 三点错位排查（引擎读 / LLM 写 / Dockerfile mkdir）。修法：`install-in-image.sh` patch 上游 system prompt 里 `[Memory]` 指示为绝对路径；reflection prompt 显式加"cwd 是 bind mount，只能用 `/opt/<runtime>/memory/`" |
+| pipeline 日志出现 `Delta preflight diff (evolve-only) ... no changes under evolve_paths=...` WARNING，但 `full` 有大量变更 | `evolve_paths` 白名单声明与实际落地路径不符（新 runtime 集成时最常见——上游文档给的路径与代码实际写的路径有偏差） | 直接看 WARNING 下面那行 `candidate unlisted evolve paths ... top: /X x67, /Y x2`——LIFT 已经从 `docker diff` 全集里剔除噪音后挑好了候选。对着建议名单更新 `adapter.evolve_paths`，重跑 `--warmup-only` 直到 WARNING 消失。若 candidate 也没线索，grep `results/{run_id}/delta_diff_*.txt` dump 文件自查（见 §2.1 "声明错了怎么办" / §6.5 证据 C.1-C.2） |
 | 流水线全绿、report.json `success=true`，但 work agent 回复里出现 "I cannot access" / "no attachment" / `q1_materials.*not found` 等逃避语 | task materials bind mount 路径与 agent 侧 cwd / system prompt 里的路径不一致；LLM 拿到任务描述里的相对路径解析不出真实位置 | 走 §6.5 证据 A'.1 命中项;`docker exec <c> ls -la /workspace/task /root/.openclaw/workspace` 对比宿主 bind mount 目录,核对 `session.py:task_volume_binds` 与上游 cwd patch 是否指向同一目录;必要时在 workspace startup hook 里加 `qN_materials/ → cwd` 的软链 |
 | Judge `content_score` 全 0 或全 1(A'.3 分布异常) | 全 0:material 缺失/LLM 拿不到任务上下文,judge 一律判 fail;全 1:judge prompt 里 rubric 或任务描述被 truncate,judge 无凭无据一律放行 | 打开 dashboard 抽 1 条 judge dialogue,检查 rubric 字段与任务描述是否完整;再回 A'.1 排查 material 挂载 |
 | 首次 chat 直接返回 `SESSION_EXPIRED` / `backend session not active` / 强制走 OAuth 登录 | 上游 runtime（尤其闭源 Rust / Go 二进制）没有 Python plugin 系统，headless 模式下缺少显式 CLI 开关 → 默认走 backend `app-session` JWT 校验 | 先 `docker run --rm --entrypoint sh <image> -c 'strings /usr/local/bin/<binary> \| grep -iE "session\|agentbox\|bypass\|headless\|maas" '  \| head -50` 反查隐藏 env 开关；OpenHuman 案例：找到 `OPENHUMAN_AGENTBOX_MODE=1` + `GMI_MAAS_BASE_URL/API_KEY/MODELS` 三件套，`chat-factory` 会走 "AgentBox mode ... bypassing app-session gate" 分支直连 OpenAI 兼容端点（见 [Dockerfile:81-95](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openhuman/Dockerfile#L81-L95)）；能通过 env 绕过就**别**上 sed 二进制补丁 |

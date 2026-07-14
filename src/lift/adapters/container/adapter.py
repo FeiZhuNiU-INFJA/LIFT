@@ -18,6 +18,7 @@ from src.lift.runtime.environment_cleaner import delta_image_tag
 from src.lift.runtime.suite_run_resources import SuiteRunResources
 from src.models import SuiteTask
 from src.lift.pipeline.run_options import RunOptions
+from src.paths import results_run_dir
 from src.utils import short_id
 
 
@@ -154,17 +155,27 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
     async def materialize_delta(
         self, env: ExecutionEnvironment, ctx: SuiteRunContext
     ) -> DeltaRef:
-        """将 warmup 容器 commit 为 delta 镜像并返回 ``DeltaRef``。"""
+        """将 warmup 容器 commit 为 delta 镜像并返回 ``DeltaRef``。
+
+        commit 前会打 preflight diff 摘要 + 落盘完整 ``docker diff`` 到
+        ``results/{run_id}/delta_diff_{container_name}.txt``，便于集成期从任意
+        深度反查真实持久化路径（详见 ``commit_delta_image``）。
+        """
         session: ContainerSession = env.handle
         image_tag = delta_image_tag(
             run_id=ctx.run_id,
             repeat_index=ctx.repeat_index,
             suite_name=ctx.suite_name,
         )
+        diff_dump_path = (
+            results_run_dir(ctx.run_id)
+            / f"delta_diff_{session.container_name}.txt"
+        )
         await commit_delta_image(
             session.container_name,
             image_tag,
             evolve_paths=self.evolve_paths,
+            diff_dump_path=diff_dump_path,
         )
         return DeltaRef(
             image_tag=image_tag,
