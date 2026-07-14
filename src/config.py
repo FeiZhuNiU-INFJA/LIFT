@@ -65,7 +65,7 @@ class AppConfig:
     max_tokens: int
     """单轮 work/judge chat 的最大输出 token（``MAX_TOKENS``，默认 51200）。"""
     reasoning_effort: str
-    """全 runtime 统一的 seed 模型思维链强度（``REASONING_EFFORT``，默认 ``medium``）。
+    """全 runtime 统一的 seed 模型思维链强度（``REASONING_EFFORT``，默认 ``high``）。
 
     - OpenClaw：作为 ``agent --thinking <level>`` 参数传入，同时 ``models.fragment.json``
       的 ``reasoning: true`` 让 gateway 视模型为可推理。
@@ -120,7 +120,7 @@ def load_config() -> AppConfig:
         or None,
         model=_read_model_name(),
         max_tokens=int(os.getenv("MAX_TOKENS", "51200")),
-        reasoning_effort=(os.getenv("REASONING_EFFORT", "medium") or "").strip(),
+        reasoning_effort=(os.getenv("REASONING_EFFORT", "high") or "").strip(),
         log_file=os.getenv("EVAL_LOG_FILE", str(_default_log_file())),
         langfuse_pre_chat=_env_flag("EVAL_LANGFUSE_PRE_CHAT", default=True),
         langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),

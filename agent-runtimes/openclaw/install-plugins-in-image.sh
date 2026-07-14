@@ -44,12 +44,12 @@ openclaw plugins install @openclaw/firecrawl-plugin
 openclaw plugins enable firecrawl 2>/dev/null || true
 
 # self-evolving-plugin-pro 的 review worker 默认 ``--thinking low``；LIFT 统一把
-# seed 模型跑成 ``thinking medium``（与 work/judge 保持一致），evolve 阶段也升到
-# medium 以匹配 ARK ``doubao-seed-2-0-pro-260215`` 端点的 ``reasoning_effort`` 语义。
+# seed 模型跑成 ``thinking high``（与 work/judge 保持一致），evolve 阶段也升到
+# high 以匹配 ARK ``doubao-seed-2-0-pro-260215`` 端点的 ``reasoning_effort`` 语义。
 if [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
   WORKER_JS="${OPENCLAW_STATE_DIR}/extensions/self-evolving-plugin-pro/src/review/worker.js"
   if [[ -f "${WORKER_JS}" ]]; then
-    sed -i 's/"--thinking", "low"/"--thinking", "medium"/g' "${WORKER_JS}" || true
+    sed -i 's/"--thinking", "low"/"--thinking", "high"/g' "${WORKER_JS}" || true
   fi
 fi
 

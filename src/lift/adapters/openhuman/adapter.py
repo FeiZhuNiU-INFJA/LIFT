@@ -37,12 +37,17 @@ from src.paths import OPENHUMAN_DOCKER_IMAGE
 class OpenHumanAdapter(ContainerAgentRuntimeAdapter):
     """OpenHuman baseline runtime（无显式 evolve 命令）。"""
 
-    #: OpenHuman warmup 期间的"真进化产物"目录：memory_tree（结构化长期记忆树）
-    #: 与 wiki（自建知识库）。thread history 等 IO 副作用不算证据，落在
-    #: ``.openhuman/threads`` 之类的兄弟目录，不入白名单。
+    #: OpenHuman warmup 期间的"真进化产物"目录：``/root/.openhuman/users`` 下
+    #: 集中了 memory tree、wiki、skill registry、thread session 等所有随任务累积
+    #: 的持久化状态（``users/{profile}/workspace/{memory_tree,wiki,...}`` 布局）。
+    #: 这些是 warmup 里 orchestrator/subagent 学到内容的落地位置，会随 docker
+    #: commit 进入 delta 镜像并在 evolved holdout 中被 orchestrator 检索复用。
+    #: skill-registry 也一并纳入（同一父目录下的可复用产物，路径由 OpenHuman
+    #: baseline 生成）。thread 历史等 pure IO 副作用不在 users/ 之外，天然由该
+    #: 白名单一次覆盖。
     evolve_paths: tuple[str, ...] = (
-        "/root/.openhuman/workspace/memory_tree",
-        "/root/.openhuman/workspace/wiki",
+        "/root/.openhuman/users",
+        "/root/.openhuman/skill-registry",
     )
 
     @classmethod

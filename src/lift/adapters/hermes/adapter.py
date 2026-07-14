@@ -39,6 +39,15 @@ from src.paths import HERMES_DOCKER_IMAGE
 class HermesAdapter(ContainerAgentRuntimeAdapter):
     """Hermes runtime：容器 exec runner + review 驱动的隐式演化。"""
 
+    #: Hermes 的进化产物落在容器内 ``/opt/hermes-state/skills`` (background review
+    #: 蒸馏出的技能包，含 ``SKILL.md``) 和 ``/opt/hermes-state/memories``
+    #: (``MEMORY.md`` / ``USER.md`` 等长期记忆)。``sessions/`` 是每题会话流水、
+    #: ``logs/`` 是运行时日志，不作为进化证据。
+    evolve_paths: tuple[str, ...] = (
+        "/opt/hermes-state/skills",
+        "/opt/hermes-state/memories",
+    )
+
     def __init__(self, options: RunOptions) -> None:
         """初始化并对 warmup 并发策略做竞态提示。
 

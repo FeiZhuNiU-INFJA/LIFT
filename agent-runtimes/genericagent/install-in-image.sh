@@ -20,8 +20,8 @@ LANGFUSE_HOST_ESC="$(escape_sed "${LANGFUSE_HOST:-http://host.docker.internal:30
 FIRECRAWL_API_KEY_ESC="$(escape_sed "${FIRECRAWL_API_KEY:-}")"
 # LIFT 约定：全 runtime 统一以 REASONING_EFFORT 环境变量控制 seed 模型思维链强度。
 # GA ``llmcore.py`` 会把 ``reasoning_effort`` 顶层透传到 OpenAI 兼容请求体，Ark
-# doubao-seed 端点已实测接受该字段；未显式设置则默认 medium 与 OpenClaw / Hermes 对齐。
-REASONING_EFFORT_ESC="$(escape_sed "${REASONING_EFFORT:-medium}")"
+# doubao-seed 端点已实测接受该字段；未显式设置则默认 high 与 OpenClaw / Hermes 对齐。
+REASONING_EFFORT_ESC="$(escape_sed "${REASONING_EFFORT:-high}")"
 
 sed \
   -e "s/__WORK_OPENAI_API_KEY__/${WORK_OPENAI_API_KEY_ESC}/g" \

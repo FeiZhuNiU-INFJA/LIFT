@@ -33,12 +33,15 @@ from src.paths import OPENCLAW_BASE_DOCKER_IMAGE
 class OpenClawAdapter(ContainerAgentRuntimeAdapter):
     """OpenClaw（不带进化插件）：镜像配置、容器启动、chat factory。"""
 
-    #: OpenClaw 的进化产物集中在容器内 ``/root/.openclaw/memory``（记忆）与
-    #: ``/root/.openclaw/skills``（技能），供 delta preflight diff 的 evolve-only
-    #: 视角单独统计。``/root/.openclaw/workspace`` 属于人设/上下文种子，不计。
+    #: OpenClaw 的进化产物落在 ``/root/.openclaw/workspace/memory``（agent 在
+    #: warmup 期间写的记忆片段）与 ``/root/.openclaw/skill-workshop``（``learn
+    #: review`` 产出的技能草案 + ``proposals.json``）。``/root/.openclaw/workspace``
+    #: 本身包含 SOUL/IDENTITY 种子和运行时 git 元数据，粒度太粗，因此只白名单它下面
+    #: 的 ``memory`` 子目录，避免把种子文件误计成进化产物。``evolution-runtime`` /
+    #: ``agents/*/sessions`` / ``extensions`` 都是运行时状态/会话历史，不计。
     evolve_paths: tuple[str, ...] = (
-        "/root/.openclaw/memory",
-        "/root/.openclaw/skills",
+        "/root/.openclaw/workspace/memory",
+        "/root/.openclaw/skill-workshop",
     )
 
     @classmethod
