@@ -5,7 +5,7 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-from src.preprocess.benchmark_mds_fetch import _resolve_extracted_root, extract_benchmark_mds_zip
+from src.preprocess.benchmark_mds_fetch import _resolve_extracted_root, ensure_benchmark_mds, extract_benchmark_mds_zip
 
 
 def _write_zip(path: Path, entries: dict[str, bytes]) -> None:
@@ -31,3 +31,24 @@ def test_extract_benchmark_mds_zip_writes_scene_tree(tmp_path: Path) -> None:
     target_dir = tmp_path / "assets" / "benchmark_mds"
     extract_benchmark_mds_zip(zip_path, target_dir)
     assert (target_dir / "hello" / "q1_task" / "q1_task.md").read_text(encoding="utf-8") == "### query\nhi\n"
+
+
+def test_ensure_benchmark_mds_dispatches_modelscope_alias(tmp_path: Path, monkeypatch) -> None:
+    from src.preprocess import benchmark_mds_modelscope
+
+    calls: list[tuple[Path, bool]] = []
+
+    def fake_ensure_from_modelscope(target_dir: Path, *, force: bool) -> Path:
+        calls.append((target_dir, force))
+        target_dir.mkdir(parents=True)
+        return target_dir
+
+    monkeypatch.setattr(
+        benchmark_mds_modelscope,
+        "ensure_benchmark_mds_from_modelscope",
+        fake_ensure_from_modelscope,
+    )
+
+    target_dir = tmp_path / "assets" / "benchmark_mds"
+    assert ensure_benchmark_mds(target_dir, force=True, source="ms") == target_dir.resolve()
+    assert calls == [(target_dir.resolve(), True)]

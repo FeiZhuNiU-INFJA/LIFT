@@ -2,6 +2,7 @@
 
 bytedtos
 huggingface_hub
+modelscope
 openai
 pydantic
 python-dotenv

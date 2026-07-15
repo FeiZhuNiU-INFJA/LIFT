@@ -38,7 +38,7 @@ python -m src.cli.lift_main -r openclaw \
 # Post-process only (rebuild dashboard / metrics from existing report.json)
 python -m src.cli.lift_main -r openclaw --evaluate-only --run_id my-run
 
-# Pull benchmark markdowns from TOS / HuggingFace and convert to suite JSON
+# Pull benchmark markdowns from TOS / HuggingFace / ModelScope and convert to suite JSON
 python -m src.cli.preprocess
 
 # Unit tests
@@ -152,11 +152,12 @@ TRAJECTORY_JUDGE_OPENAI_API_KEY=your_judge_api_key
 TRAJECTORY_JUDGE_OPENAI_BASE_URL=https://your-openai-compatible-endpoint
 TRAJECTORY_JUDGE_MODEL=gpt-4o-mini
 
-# Benchmark source (TOS or HuggingFace)
-BENCHMARK_SOURCE=tos                # or huggingface
+# Benchmark source (TOS, HuggingFace, or ModelScope)
+BENCHMARK_SOURCE=tos                # or huggingface / modelscope
 TOS_ACCESS_KEY=your_access_key
 TOS_SECRET_KEY=your_secret_key
 # BENCHMARK_HF_REPO=FeiZhuNiU-INFJA/EALE
+# BENCHMARK_MODELSCOPE_REPO=iKlare/EALE
 ```
 
 ## OpenClaw Runtime Integration

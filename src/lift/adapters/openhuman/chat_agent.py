@@ -155,6 +155,8 @@ class OpenHumanContainerAgent(ChatAgent):
         # ``openhuman-plugin`` root trace 到 Langfuse。失败仅 warning。
         # 放在成功返回路径下（错误 / 超时不 push），避免污染 trace 序列。
         # 用 stamped_message 保持与容器内 raw transcript 的锚点一致。
+        # 留档到本机** ``workspace_dir/session_raw/<session_id>/``，便于离线查看
+        dump_dir = self._workspace_dir / "session_raw"
         try:
             await asyncio.to_thread(
                 push_openhuman_plugin_trace_safe,
@@ -163,6 +165,7 @@ class OpenHumanContainerAgent(ChatAgent):
                 user_message=stamped_message,
                 reply_text=reply_text,
                 run_tag=self._run_tag,
+                dump_dir=dump_dir,
             )
         except Exception:  # noqa: BLE001
             LOGGER.exception(

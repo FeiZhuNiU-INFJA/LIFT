@@ -1,4 +1,4 @@
-"""Download ``benchmark_mds`` from ByteDance TOS before markdown → JSON preprocess."""
+"""Download ``benchmark_mds`` before markdown → JSON preprocess."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ import os
 import shutil
 import tempfile
 import zipfile
+from types import ModuleType
 from pathlib import Path
 
-import bytedtos
 from dotenv import load_dotenv
 
 from src.paths import BENCHMARK_MDS_DIR, BENCHMARK_MDS_TOS_BUCKET, BENCHMARK_MDS_TOS_OBJECT_KEY
@@ -23,7 +23,19 @@ class BenchmarkMdsFetchError(RuntimeError):
     """Raised when benchmark markdown assets cannot be fetched or extracted."""
 
 
-def _tos_credentials() -> bytedtos.StaticCredentials:
+def _load_bytedtos() -> ModuleType:
+    try:
+        import bytedtos
+    except ImportError as exc:
+        raise BenchmarkMdsFetchError(
+            "bytedtos is required to download benchmark_mds.zip from TOS. "
+            "Install project dependencies or choose BENCHMARK_SOURCE=huggingface/modelscope."
+        ) from exc
+    return bytedtos
+
+
+def _tos_credentials() -> object:
+    bytedtos = _load_bytedtos()
     access_key = os.environ.get("TOS_ACCESS_KEY", "").strip()
     secret_key = os.environ.get("TOS_SECRET_KEY", "").strip()
     missing = [name for name, value in (("TOS_ACCESS_KEY", access_key), ("TOS_SECRET_KEY", secret_key)) if not value]
@@ -36,7 +48,8 @@ def _tos_credentials() -> bytedtos.StaticCredentials:
     return bytedtos.StaticCredentials(access_key, secret_key)
 
 
-def _tos_client() -> bytedtos.Client:
+def _tos_client() -> object:
+    bytedtos = _load_bytedtos()
     endpoint = os.environ.get("TOS_ENDPOINT", DEFAULT_TOS_BOE_ENDPOINT).strip()
     kwargs: dict[str, object] = {}
     if endpoint:
@@ -88,10 +101,10 @@ def ensure_benchmark_mds(
     force: bool = False,
     source: str | None = None,
 ) -> Path:
-    """Ensure markdown benchmark assets exist locally, downloading from TOS or HuggingFace.
+    """Ensure markdown benchmark assets exist locally, downloading from a configured source.
 
     *source* overrides the ``BENCHMARK_SOURCE`` env var (defaults to ``tos``).
-    Accepted values: ``tos`` (default) or ``huggingface``.
+    Accepted values: ``tos`` (default), ``huggingface``, or ``modelscope``.
     """
     resolved_target = (target_dir or BENCHMARK_MDS_DIR).resolve()
     if resolved_target.exists() and any(resolved_target.iterdir()) and not force:
@@ -103,9 +116,14 @@ def ensure_benchmark_mds(
         from src.preprocess.benchmark_mds_hf import ensure_benchmark_mds_from_hf
 
         return ensure_benchmark_mds_from_hf(resolved_target, force=force)
+    if selected in {"modelscope", "ms"}:
+        # Lazy import keeps modelscope optional for non-ModelScope users.
+        from src.preprocess.benchmark_mds_modelscope import ensure_benchmark_mds_from_modelscope
+
+        return ensure_benchmark_mds_from_modelscope(resolved_target, force=force)
     if selected != "tos":
         raise BenchmarkMdsFetchError(
-            f"Unknown BENCHMARK_SOURCE={selected!r}; expected 'tos' or 'huggingface'."
+            f"Unknown BENCHMARK_SOURCE={selected!r}; expected 'tos', 'huggingface', or 'modelscope'."
         )
 
     with tempfile.TemporaryDirectory(prefix="benchmark_mds_download_") as tmp:
