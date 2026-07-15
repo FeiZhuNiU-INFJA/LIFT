@@ -1,4 +1,4 @@
-"""独立 CLI：从 TOS 拉取 benchmark_mds 并转换为 suite JSON。
+"""独立 CLI：拉取 benchmark_mds 并转换为 suite JSON。
 
 在 benchmark 源变更后、运行 ``python -m src.cli.lift_main`` 前执行：
 
@@ -35,20 +35,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--skip-download",
         action="store_true",
-        help="Skip TOS download and use the existing local assets/benchmark_mds directory.",
+        help="Skip benchmark_mds download and use the existing local assets/benchmark_mds directory.",
     )
     parser.add_argument(
         "--force-download",
         action="store_true",
-        help="Re-download benchmark_mds.zip from TOS even if assets/benchmark_mds already exists.",
+        help="Re-download benchmark_mds even if assets/benchmark_mds already exists.",
     )
     parser.add_argument(
         "--source",
-        choices=("tos", "huggingface"),
+        choices=("tos", "huggingface", "modelscope"),
         default=None,
         help=(
-            "Download source for benchmark_mds.zip. Defaults to BENCHMARK_SOURCE env "
-            "(or 'tos' if unset). 'huggingface' requires BENCHMARK_HF_REPO in env."
+            "Download source for benchmark_mds. Defaults to BENCHMARK_SOURCE env "
+            "(or 'tos' if unset). Use BENCHMARK_HF_REPO or BENCHMARK_MODELSCOPE_REPO to override mirrors."
         ),
     )
     return parser

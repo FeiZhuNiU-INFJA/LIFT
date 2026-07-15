@@ -7,18 +7,29 @@ OpenHuman core 本身**不集成** Langfuse SDK / OTel exporter（binary 里仅�
 
 1. ``docker exec`` 读容器内 ``~/.openhuman/users/local/workspace/session_raw/*.jsonl``，
    按 ``_meta.thread_id == session_id`` 过滤出本轮的 orchestrator + subagent transcript；
-2. 用 Langfuse Python SDK v4 push 一条 name = ``openhuman-plugin`` 的
+2. （可选）把拉到的**原始 jsonl 留档到本机** ``dump_dir``，便于离线查看 / 分析
+   OpenHuman 那套与 OpenAI 有出入的 schema（``usage={input,output,cached_input}``、
+   ``tool_calls`` 藏在 ``extra_metadata.openhuman_turn_usage``、独立 ``reasoning_content``
+   等）；
+3. 把 messages **归一化成与 GenericAgent 一致的最小形状**（``{role, content}`` +
+   assistant 的 OpenAI 风格 ``tool_calls=[{id,type,function:{name,arguments}}]``），
+   用 Langfuse Python SDK v4 push 一条 name = ``openhuman-plugin`` 的
    ``as_type='agent'`` root observation，附带：
      - ``propagate_attributes(session_id=..., tags=[run_tag, session_id])`` — 与
        LIFT pre-chat span 走同一 ``session_id`` / ``tags``，后处理据此配对
      - ``metadata`` 按 ``LangfusePluginTraceMetadata`` 形状写入（success /
        message_count / tool_roundtrips / tool_call_blocks / tool_names_distinct /
-       messages）
+       messages），messages 即上面归一化后的 GA 风格数组
      - 每个 assistant iteration 挂一个 ``as_type='generation'`` 子 observation，
        ``usage_details`` 从 ``openhuman_turn_usage.usage`` 取（input / output /
        cached_input）
      - 每个 ``tool_calls`` 条目 + 后续 ``role=tool`` 结果挂一个 ``as_type='tool'``
        子 observation
+
+OpenHuman 每题（每 thread_id）所有轮次的对话都累积在同一批 ``session_raw/*.jsonl``
+里，因此每次 chat 后**全量重读**得到的就是"截至当前轮的整段会话"——与 GA 修复后
+"每轮 push 一条含全量 transcript 的 root trace"语义一致，后处理 ``TranscriptChampion``
+取最晚一条即完整对话。
 
 这份模块是**尽力而为**的：Langfuse 未配置或 push 失败都只 warning，不影响 chat 主路径。
 """
@@ -51,6 +62,7 @@ class ParsedTranscript:
     path: str
     meta: dict[str, Any]  # 首行 ``_meta``
     messages: list[dict[str, Any]]  # 其余每行一个 role message
+    raw_text: str = ""  # 原始 jsonl 全文（留档到本机用）
 
 
 def _docker_exec_capture(container_name: str, argv: list[str]) -> str:
@@ -116,7 +128,96 @@ def _parse_transcript_text(path: str, raw: str) -> ParsedTranscript | None:
             continue
         if isinstance(row, dict) and row.get("role"):
             messages.append(row)
-    return ParsedTranscript(path=path, meta=meta, messages=messages)
+    messages = _coalesce_assistant_pairs(messages)
+    return ParsedTranscript(path=path, meta=meta, messages=messages, raw_text=raw)
+
+
+def _unwrap_dumped_content(content: Any) -> Any:
+    """若 assistant 顶层 ``content`` 被写成整条 message 的 JSON dump，解出内层干净文本。
+
+    OpenHuman 对**带 tool_call 的 assistant 轮次**的"完整版"记录，会把顶层 ``content``
+    写成 ``{"content":"<干净文本>","reasoning_content":...,"tool_calls":[...]}`` 的
+    JSON 字符串（导致 HTML 轨迹里出现嵌套 content）。这里尝试 ``json.loads`` 并取内层
+    ``content``；非该形态则原样返回。
+    """
+    if not isinstance(content, str):
+        return content
+    s = content.lstrip()
+    if not s.startswith("{") or '"content"' not in s[:60]:
+        return content
+    try:
+        obj = json.loads(content)
+    except json.JSONDecodeError:
+        return content
+    if isinstance(obj, dict) and isinstance(obj.get("content"), str):
+        return obj["content"]
+    return content
+
+
+def _tool_call_id_from_content(content: Any) -> str | None:
+    """从 tool message 的 JSON 串 content 里提取 ``tool_call_id``（若有）。"""
+    if not isinstance(content, str):
+        return None
+    s = content.lstrip()
+    if not s.startswith("{"):
+        return None
+    try:
+        obj = json.loads(content)
+    except json.JSONDecodeError:
+        return None
+    cid = obj.get("tool_call_id") if isinstance(obj, dict) else None
+    return cid if isinstance(cid, str) else None
+
+
+def _coalesce_assistant_pairs(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """折叠 OpenHuman 对同一 assistant 轮次写出的"预览版 + 完整版"两条记录。
+
+    OpenHuman 对带 tool_call 的 assistant 会连续写两行：
+      - **预览版**：仅 ``{role, content}``，content 是干净思考文本，但**无 tool_calls**；
+      - **完整版**：紧随其后，带 ``extra_metadata`` / ``ts`` / ``tool_calls``，但顶层
+        ``content`` 是整条 message 的 JSON dump（嵌套、脏）。
+
+    二者是同一轮 iteration（完整版内层 content == 预览版 content）。不折叠会导致：
+    HTML 轨迹里同一轮重复出现两次，且完整版那条显示为嵌套 JSON。
+
+    折叠规则（满足"不重复、不嵌套、内容尽量完善"）：
+      - 识别"前一条 assistant 无 extra_metadata/ts（预览版），后一条 assistant 有
+        （完整版）"的相邻对 → 合并为**一条**；
+      - 合并后保留完整版的全部元信息（tool_calls / usage / ts / extra_metadata），
+        但把顶层 ``content`` 覆盖为**干净文本**（优先预览版 content，回退完整版内层
+        解包 content）。
+    """
+    out: list[dict[str, Any]] = []
+    i = 0
+    n = len(messages)
+    while i < n:
+        cur = messages[i]
+        nxt = messages[i + 1] if i + 1 < n else None
+        is_cur_assist = str(cur.get("role") or "") == "assistant"
+        is_nxt_assist = nxt is not None and str(nxt.get("role") or "") == "assistant"
+        cur_is_preview = is_cur_assist and not (cur.get("extra_metadata") or cur.get("ts"))
+        nxt_is_full = is_nxt_assist and bool(nxt.get("extra_metadata") or nxt.get("ts"))
+        if cur_is_preview and nxt_is_full:
+            merged = dict(nxt)  # 保留完整版元信息（tool_calls/usage/ts/...）
+            clean = cur.get("content")
+            if not (isinstance(clean, str) and clean.strip()):
+                clean = _unwrap_dumped_content(nxt.get("content"))
+            merged["content"] = clean
+            out.append(merged)
+            i += 2
+            continue
+        # 未配对的完整版单条：也把嵌套 content 解包，避免 HTML 嵌套显示。
+        if is_cur_assist and (cur.get("extra_metadata") or cur.get("ts")):
+            fixed = dict(cur)
+            fixed["content"] = _unwrap_dumped_content(cur.get("content"))
+            out.append(fixed)
+            i += 1
+            continue
+        out.append(cur)
+        i += 1
+    return out
 
 
 def collect_session_transcripts(
@@ -140,6 +241,38 @@ def collect_session_transcripts(
     return hits
 
 
+def archive_transcripts_to_host(
+    transcripts: list[ParsedTranscript],
+    dump_dir: Path,
+    session_id: str,
+) -> None:
+    """把拉到的**原始 jsonl** 留档到本机 ``dump_dir/<session_id>/``。
+
+    OpenHuman 的 session_raw jsonl 是"真源数据"，schema 与 OpenAI 有诸多出入
+    （usage 键名、tool_calls 藏在 extra_metadata、独立 reasoning_content 等），
+    落一份到本机方便离线人肉查看 / 二次分析，不依赖容器还活着。文件名沿用容器内
+    basename（含 orchestrator / subagent 区分与 epoch 前缀）。best-effort，失败仅
+    warning。
+    """
+    if not transcripts:
+        return
+    try:
+        target = dump_dir / session_id
+        target.mkdir(parents=True, exist_ok=True)
+        for t in transcripts:
+            name = Path(t.path).name or f"{session_id}.jsonl"
+            (target / name).write_text(t.raw_text, encoding="utf-8")
+        LOGGER.info(
+            "[openhuman langfuse] archived %d transcript(s) for session=%s -> %s",
+            len(transcripts), session_id, target,
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning(
+            "[openhuman langfuse] failed to archive transcripts for session=%s: %r",
+            session_id, exc,
+        )
+
+
 _USER_TS_LINE_RE = re.compile(
     r"^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}[^\]]*\]\s*$",
     re.MULTILINE,
@@ -157,8 +290,7 @@ def _clean_user_content(content: Any) -> Any:
       - 巨长的可用工具清单
 
     真实请求恒在一行 ``[<Weekday> YYYY-MM-DD HH:MM:SS GMT+N]`` 时间戳之后
-    （LIFT 侧 chat 注入的 ``[Fri ... GMT+8]\\n<query>``；judge 复跑轮则是 judge
-    reason 原文）。提取规则（按优先级）：
+    （LIFT 侧 chat 注入的 ``[Fri ... GMT+8]\\n<query>``；judge 复跑轮则是只有返回的 reason"）。提取规则（按优先级）：
 
     1. 若存在 ``[Request]`` 分节，取其正文（截到下一个 ``[Section]`` 或
        ``## Heading`` 前），再对正文套规则 2 去时间戳头。
@@ -238,6 +370,77 @@ def _extract_tool_calls_from_assistant(
     return [c for c in calls if isinstance(c, dict)]
 
 
+def _normalize_tool_calls_ga_style(
+    calls: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """把 OpenHuman ``{name, arguments, id}`` tool_calls 归一成 GA/OpenAI 风格。
+
+    目标形状与 GenericAgent overlay ``_assistant_message_from_response`` 完全一致：
+    ``{"id":..., "type":"function", "function":{"name":..., "arguments":...}}``，
+    让后处理 ``report_html.build_trajectory_nodes`` 能识别成 tool 节点。
+    """
+    out: list[dict[str, Any]] = []
+    for c in calls:
+        if not isinstance(c, dict):
+            continue
+        name = c.get("name")
+        if not name:
+            continue
+        out.append(
+            {
+                "id": c.get("id"),
+                "type": "function",
+                "function": {"name": name, "arguments": c.get("arguments")},
+            }
+        )
+    return out
+
+
+def _normalize_message_ga_style(
+    msg: dict[str, Any], agent_name: str
+) -> dict[str, Any]:
+    """把一条 OpenHuman message 规约成与 GenericAgent 一致的最小形状。
+
+    GA transcript 里每条只有 ``{role, content}``，assistant 额外带 OpenAI 风格
+    ``tool_calls``。OpenHuman 原始 message 混入了 ``reasoning_content`` / ``provider``
+    / ``model`` / ``usage`` / ``iteration`` / ``ts`` / ``extra_metadata`` 等大量
+    非对话字段，且 tool_calls 藏在 ``extra_metadata``——这里统一剥成 GA 形状，只额外
+    保留 ``_agent`` 标注（便于 UI 区分 orchestrator / subagent），与 GA 侧 champion
+    消费口径对齐。
+    """
+    role = str(msg.get("role") or "assistant")
+    content = msg.get("content")
+    if not isinstance(content, (str, list, type(None))):
+        content = str(content)
+    out: dict[str, Any] = {
+        "role": role,
+        "content": content if content is not None else "",
+        "_agent": agent_name,
+    }
+    if role == "user":
+        # 剥掉 OpenHuman 编排脚手架（[Context]/[Orchestrator tools]/工具清单等），
+        # 只留真实用户请求；首轮=task query，复跑轮=judge reason+重试语。
+        out["content"] = _clean_user_content(content)
+    elif role == "assistant":
+        # 兜底解包：极端情况下未被 _coalesce_assistant_pairs 处理到的完整版，
+        # 顶层 content 仍是 JSON dump，这里再解一次内层干净文本，杜绝嵌套。
+        out["content"] = _unwrap_dumped_content(out["content"])
+        calls = _normalize_tool_calls_ga_style(
+            _extract_tool_calls_from_assistant(msg)
+        )
+        if calls:
+            out["tool_calls"] = calls
+    elif role == "tool":
+        # tool result 的 content 是 ``{"content":"<真实输出>","tool_call_id":...}``
+        # JSON 串；解出内层输出文本，避免 all_messages 里残留嵌套 JSON。同时透传
+        # ``tool_call_id`` 供 report_html.build_trajectory_nodes 识别 / drop。
+        out["content"] = _unwrap_dumped_content(out["content"])
+        cid = _tool_call_id_from_content(content)
+        if cid:
+            out["tool_call_id"] = cid
+    return out
+
+
 def _usage_details_from_assistant(msg: dict[str, Any]) -> dict[str, int] | None:
     """``role=assistant`` 的 ``usage`` → Langfuse ``usage_details``。
 
@@ -286,16 +489,178 @@ def _dedup_preserve_order(items: list[str]) -> list[str]:
     return ordered
 
 
+def _is_subagent(t: ParsedTranscript) -> bool:
+    """``_meta.agent_type == 'subagent'`` 判定（root/orchestrator 之外的委托代理）。"""
+    return str(t.meta.get("agent_type") or "").lower() == "subagent"
+
+
+def _root_epoch_from_path(path: str) -> str:
+    """从 transcript 文件名取父 root 轮次的 epoch 前缀。
+
+    - root 文件名：``<epoch>_orchestrator.jsonl``
+    - subagent 文件名：``<epoch>_orchestrator__<childepoch>_..._<subagent>_....jsonl``
+      （``__`` 之前是发起它的 root 轮次同款前缀）
+
+    两者都取第一个 ``_`` 之前的 epoch，即可把 subagent 归到其父 root 轮次。多个
+    orchestrator（多轮对话）会得到不同 epoch，据此按轮拆分。
+    """
+    name = Path(path).name
+    head = name.split("__", 1)[0]  # 去掉 subagent 后缀，只留父 root 段
+    return head.split("_", 1)[0]
+
+
+def _child_epoch_from_path(path: str) -> str | None:
+    """从 subagent 文件名取 child epoch（``__`` 之后的第一个 epoch 段）。
+
+    subagent 文件名：``<parentepoch>_orchestrator__<childepoch>_<rand>_<subagent>_....jsonl``。
+    这个 child epoch（秒级）**恰好等于** 发起它的 root assistant 那条 tool_call 的
+    ``ts`` 取整秒（实测对齐），用于把 subagent 精确内联到触发它的 tool 调用之后。
+    root 文件（无 ``__``）返回 None。
+    """
+    name = Path(path).name
+    if "__" not in name:
+        return None
+    tail = name.split("__", 1)[1]
+    epoch = tail.split("_", 1)[0]
+    return epoch or None
+
+
+def _assistant_call_epoch(msg: dict[str, Any]) -> str | None:
+    """把 root assistant 的 ``ts`` 转成整秒字符串，用于匹配 subagent child epoch。
+
+    OpenHuman assistant 顶层 ``ts`` 形如 ``2026-07-15T06:30:57.895...+00:00``；取
+    ``int(timestamp())`` 得到秒级 epoch，与 subagent 文件名的 child epoch 对齐。
+    解析失败返回 None（退化为轮末兜底追加）。
+    """
+    ts = msg.get("ts")
+    if not isinstance(ts, str) or not ts.strip():
+        return None
+    from datetime import datetime
+
+    try:
+        return str(int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()))
+    except (ValueError, OSError):
+        return None
+
+
+def _subagent_middle_messages(t: ParsedTranscript) -> list[dict[str, Any]]:
+    """把一个 subagent transcript 折叠成"并入父 root 轮次"的中间执行痕迹。
+
+    按约定：subagent 的**首个（连续）user**（orchestrator 下发的委托简报）与**末尾
+    （连续）纯文本 assistant**（子代理最终汇报，root 层 tool result 里通常已含）都属于
+    "子代理内部交接"，剔除；中间剩下的才是真正的执行痕迹（tool_call assistant + tool
+    result），并入发起它的 root 轮次，让最终 messages 看起来像单 agent。
+
+    - 末尾剔除只针对**无 tool_calls** 的 assistant：一旦末尾 assistant 带 tool_calls
+      （说明是一次真实工具调用，即便无结果也算调用），就停止剔除并保留它，满足
+      "subagent 的调用也算调用"的计数要求。
+    - read-only 预检类子代理若无任何 tool（如 hello 场景的 context_scout：仅
+      system+user+assistant），折叠后中间为空 → 等价整段丢弃，不污染主轨迹。
+    """
+    convo = [m for m in t.messages if str(m.get("role") or "") != "system"]
+    if not convo:
+        return []
+    # 剔除开头连续 user（委托简报，通常一条）
+    start = 0
+    while start < len(convo) and str(convo[start].get("role")) == "user":
+        start += 1
+    # 剔除末尾连续的"无 tool_calls 的 assistant"（子代理最终汇报）
+    end = len(convo)
+    while end > start:
+        last = convo[end - 1]
+        if str(last.get("role")) == "assistant" and not _extract_tool_calls_from_assistant(last):
+            end -= 1
+        else:
+            break
+    return convo[start:end]
+
+
 def summarize_transcripts(transcripts: list[ParsedTranscript]) -> _PluginTraceSummary:
     """把 orchestrator + subagent transcripts 聚合成 plugin trace payload。
 
     metadata 目标 schema（``LangfusePluginTraceMetadata``）：
 
-    - ``messages``：所有 transcript 里 role != system 的消息扁平化（保留原顺序）
-    - ``tool_roundtrips``：出现的 ``role=tool`` 消息数
-    - ``tool_call_blocks``：所有 assistant 消息中 tool_calls 条目总数
+    - ``messages``：**折叠成单 agent 主线**后的对话消息，归一化成与 GenericAgent
+      一致的 GA 风格最小形状（``{role, content, _agent}`` + assistant 的 OpenAI 风格
+      ``tool_calls``）。subagent（``agent_type=='subagent'``）不作为独立轮次展示：
+      剔除其委托简报（首个 user）与最终汇报（末尾纯文本 assistant），中间执行痕迹
+      （tool 调用等）并入发起它的 root 轮次之后。
+    - ``tool_roundtrips``：进入主线的 ``role=tool`` 消息数
+    - ``tool_call_blocks``：进入主线的 assistant 消息中 tool_calls 条目总数（**含
+      subagent 的工具调用**）
     - ``tool_names_distinct``：去重后的工具名列表
+
+    多轮：``session_raw`` 里每个 root orchestrator = 用户主动发起的一轮对话。按 root
+    epoch 升序排列构成主线；每个 root 轮次处理完后，紧接着插入"父 epoch == 该 root
+    epoch"的 subagent 中间消息。因此最终 ``messages`` 里 ``role=user`` 的条数 == root
+    orchestrator 轮数 == ``chat_turns`` 长度（每轮 root 首条即真实用户 query）。
     """
+    # ── 1) 分离 root 主线与 subagent，subagent 按父 root epoch 归组 ──
+    roots: list[ParsedTranscript] = []
+    subs_by_parent: dict[str, list[ParsedTranscript]] = {}
+    for t in transcripts:
+        if _is_subagent(t):
+            subs_by_parent.setdefault(_root_epoch_from_path(t.path), []).append(t)
+        else:
+            roots.append(t)
+    roots.sort(key=lambda t: t.path)  # 路径含 epoch 前缀，字典序≈时间序
+    for lst in subs_by_parent.values():
+        lst.sort(key=lambda t: t.path)
+
+    # ── 2) 组装有序的 (agent_name, 原始 msg dict) 主线序列 ──
+    # 每个 root 轮次内：root 消息按序进入；遇到带 tool_call 的 root assistant，其
+    # ``ts``（整秒）对应触发的 subagent child epoch —— 在紧随的 root tool result 之后
+    # 内联插入该 subagent 的中间执行痕迹，实现"像单 agent 一样"的内联展开。无法按
+    # child epoch 匹配的 subagent（如框架预检 context_scout：child epoch == root
+    # epoch，无对应 tool_call）在轮末兜底追加，不丢数据。
+    ordered: list[tuple[str, dict[str, Any]]] = []
+    for rt in roots:
+        rt_agent = str(rt.meta.get("agent") or "orchestrator")
+        epoch = _root_epoch_from_path(rt.path)
+        subs = subs_by_parent.get(epoch, [])
+        # child epoch -> subagent transcript（用于精确内联匹配）
+        subs_by_child: dict[str, ParsedTranscript] = {}
+        for sub in subs:
+            ce = _child_epoch_from_path(sub.path)
+            if ce is not None:
+                subs_by_child.setdefault(ce, sub)
+        consumed: set[int] = set()  # 已内联的 subagent id()，避免轮末重复追加
+
+        # 记录"上一条 root assistant tool_call 的 ts→epoch"，在其 tool result 后内联
+        pending_child_epoch: str | None = None
+        rt_msgs = [m for m in rt.messages if str(m.get("role") or "") != "system"]
+        for msg in rt_msgs:
+            role = str(msg.get("role") or "")
+            ordered.append((rt_agent, msg))
+            if role == "assistant" and _extract_tool_calls_from_assistant(msg):
+                # 该 assistant 触发了工具调用；记下它的 ts 秒，等 tool result 出现后内联。
+                pending_child_epoch = _assistant_call_epoch(msg)
+            elif role == "tool" and pending_child_epoch is not None:
+                sub = subs_by_child.get(pending_child_epoch)
+                if sub is not None and id(sub) not in consumed:
+                    consumed.add(id(sub))
+                    sub_agent = str(sub.meta.get("agent") or "subagent")
+                    for mid in _subagent_middle_messages(sub):
+                        ordered.append((sub_agent, mid))
+                pending_child_epoch = None
+
+        # 轮末兜底：未被内联匹配的 subagent（如 context_scout 预检），按 path 顺序追加。
+        for sub in subs:
+            if id(sub) in consumed:
+                continue
+            sub_agent = str(sub.meta.get("agent") or "subagent")
+            for mid in _subagent_middle_messages(sub):
+                ordered.append((sub_agent, mid))
+
+    # 兜底：无任何 root（异常）时平铺所有 transcript，避免整体丢数据。
+    if not roots and transcripts:
+        for t in transcripts:
+            agent_name = str(t.meta.get("agent") or "unknown")
+            for msg in t.messages:
+                if str(msg.get("role") or "") == "system":
+                    continue
+                ordered.append((agent_name, msg))
+
     messages: list[dict[str, Any]] = []
     tool_names: list[str] = []
     tool_call_blocks = 0
@@ -304,88 +669,75 @@ def summarize_transcripts(transcripts: list[ParsedTranscript]) -> _PluginTraceSu
     tools: list[dict[str, Any]] = []
     final_response = ""
 
-    # 按 transcript 顺序拼接。系统消息（role=system，openhuman 里通常是 tool
-    # policy + orchestrator system prompt）不放进 messages，避免冗余 + 尊重
-    # LangfusePluginTraceMetadata 只关心 conversation 语义。
     pending_tool_call_id_to_name: dict[str, str] = {}
-    for t in transcripts:
-        agent_name = str(t.meta.get("agent") or "unknown")
-        for msg in t.messages:
-            role = str(msg.get("role") or "")
-            if role == "system":
-                continue
-            enriched = dict(msg)
-            enriched["_agent"] = agent_name  # 标记来自哪个 sub-agent，便于 UI 阅读
-            if role == "user":
-                # 剥掉 OpenHuman 编排脚手架（[Context]/[Orchestrator tools]/工具清单
-                # 等），只留真实用户请求；首轮=task query，复跑轮=judge reason+重试语。
-                enriched["content"] = _clean_user_content(msg.get("content"))
-            messages.append(enriched)
+    for agent_name, msg in ordered:
+        role = str(msg.get("role") or "")
+        # 归一化成 GA 风格最小形状（root/subagent 统一处理，tool_calls 转 OpenAI 风格）。
+        messages.append(_normalize_message_ga_style(msg, agent_name))
 
-            if role == "assistant":
-                calls = _extract_tool_calls_from_assistant(msg)
-                if calls:
-                    tool_call_blocks += len(calls)
-                    for c in calls:
-                        name = str(c.get("name") or "")
-                        if name:
-                            tool_names.append(name)
-                            call_id = c.get("id")
-                            if isinstance(call_id, str):
-                                pending_tool_call_id_to_name[call_id] = name
-                            tools.append(
-                                {
-                                    "name": name,
-                                    "call_id": c.get("id"),
-                                    "arguments": c.get("arguments"),
-                                    "agent": agent_name,
-                                }
-                            )
-                usage_details = _usage_details_from_assistant(msg)
-                if usage_details is not None:
-                    generations.append(
-                        {
-                            "agent": agent_name,
-                            "iteration": (
-                                msg.get("iteration")
-                                or (msg.get("extra_metadata") or {})
-                                .get("openhuman_turn_usage", {})
-                                .get("iteration")
-                            ),
-                            "content": msg.get("content") or "",
-                            "usage_details": usage_details,
-                            "model": msg.get("model") or t.meta.get("model"),
-                        }
-                    )
-                # 最后一条 orchestrator 层的、非 tool_call 结果 assistant 就是最终回复
-                if agent_name == "orchestrator" and not _extract_tool_calls_from_assistant(msg):
-                    txt = msg.get("content")
-                    if isinstance(txt, str) and txt.strip():
-                        final_response = txt
+        if role == "assistant":
+            calls = _extract_tool_calls_from_assistant(msg)
+            if calls:
+                # 工具调用计数：root 与 subagent 的调用都计入（满足"subagent 调用也算"）。
+                tool_call_blocks += len(calls)
+                for c in calls:
+                    name = str(c.get("name") or "")
+                    if name:
+                        tool_names.append(name)
+                        call_id = c.get("id")
+                        if isinstance(call_id, str):
+                            pending_tool_call_id_to_name[call_id] = name
+                        tools.append(
+                            {
+                                "name": name,
+                                "call_id": c.get("id"),
+                                "arguments": c.get("arguments"),
+                                "agent": agent_name,
+                            }
+                        )
+            usage_details = _usage_details_from_assistant(msg)
+            if usage_details is not None:
+                generations.append(
+                    {
+                        "agent": agent_name,
+                        "iteration": (
+                            msg.get("iteration")
+                            or (msg.get("extra_metadata") or {})
+                            .get("openhuman_turn_usage", {})
+                            .get("iteration")
+                        ),
+                        "content": msg.get("content") or "",
+                        "usage_details": usage_details,
+                        "model": msg.get("model"),
+                    }
+                )
+            # 最后一条 orchestrator 层的、非 tool_call 结果 assistant 就是最终回复
+            if agent_name == "orchestrator" and not calls:
+                txt = msg.get("content")
+                if isinstance(txt, str) and txt.strip():
+                    final_response = txt
 
-            elif role == "tool":
-                tool_roundtrips += 1
-                # 从 tool result 中找回对应 call_id → name
-                content = msg.get("content")
-                call_id: str | None = None
-                if isinstance(content, str):
-                    try:
-                        payload = json.loads(content)
-                        if isinstance(payload, dict):
-                            cid = payload.get("tool_call_id")
-                            if isinstance(cid, str):
-                                call_id = cid
-                    except json.JSONDecodeError:
-                        pass
-                name = pending_tool_call_id_to_name.get(call_id or "") if call_id else None
-                if tools and name is None:
-                    name = tools[-1].get("name")
-                # 回填 tool result 到最近一次同名 tool entry
-                if tools and name:
-                    for entry in reversed(tools):
-                        if entry.get("name") == name and "output" not in entry:
-                            entry["output"] = content
-                            break
+        elif role == "tool":
+            tool_roundtrips += 1
+            content = msg.get("content")
+            call_id2: str | None = None
+            if isinstance(content, str):
+                try:
+                    payload = json.loads(content)
+                    if isinstance(payload, dict):
+                        cid = payload.get("tool_call_id")
+                        if isinstance(cid, str):
+                            call_id2 = cid
+                except json.JSONDecodeError:
+                    pass
+            name = pending_tool_call_id_to_name.get(call_id2 or "") if call_id2 else None
+            if tools and name is None:
+                name = tools[-1].get("name")
+            if tools and name:
+                for entry in reversed(tools):
+                    if entry.get("name") == name and "output" not in entry:
+                        entry["output"] = content
+                        break
 
     return _PluginTraceSummary(
         messages=messages,
@@ -425,6 +777,7 @@ def push_openhuman_plugin_trace(
     user_message: str,
     reply_text: str,
     run_tag: str,
+    dump_dir: Path | None = None,
 ) -> None:
     """将本轮 chat 的 transcript 上传到 Langfuse ``openhuman-plugin``。
 
@@ -435,10 +788,12 @@ def push_openhuman_plugin_trace(
         reply_text: 本轮 chat 回复（作为 root observation.output 兜底；若能从
             transcript 里拿到 orchestrator 最终回复则以后者为准）
         run_tag: LIFT 评测 run id（作为 Langfuse tag，与 pre-chat span 一致）
+        dump_dir: 若给定，把拉到的**原始 jsonl 留档到本机** ``dump_dir/<session_id>/``，
+            便于离线查看 OpenHuman 原始 schema。best-effort，不影响 push。
 
     失败仅 warning，不影响 chat 主路径。
     """
-    if not CONFIG.langfuse_credentials_present:
+    if not CONFIG.langfuse_credentials_present and dump_dir is None:
         return
 
     transcripts = collect_session_transcripts(container_name, session_id)
@@ -447,6 +802,13 @@ def push_openhuman_plugin_trace(
             "[openhuman langfuse] no transcripts for session_id=%s in %s",
             session_id, container_name,
         )
+        return
+
+    # 留档原始 jsonl 到本机（在归一化 / push 之前，保证拿到的是原样源数据）。
+    if dump_dir is not None:
+        archive_transcripts_to_host(transcripts, dump_dir, session_id)
+
+    if not CONFIG.langfuse_credentials_present:
         return
 
     summary = summarize_transcripts(transcripts)
@@ -542,6 +904,7 @@ def push_openhuman_plugin_trace_safe(
     user_message: str,
     reply_text: str,
     run_tag: str,
+    dump_dir: Path | None = None,
 ) -> None:
     """薄封装：调 ``push_openhuman_plugin_trace``，任何异常仅 warning。"""
     try:
@@ -551,6 +914,7 @@ def push_openhuman_plugin_trace_safe(
             user_message=user_message,
             reply_text=reply_text,
             run_tag=run_tag,
+            dump_dir=dump_dir,
         )
     except Exception:  # noqa: BLE001
         LOGGER.exception("[openhuman langfuse] unexpected error, swallowed")

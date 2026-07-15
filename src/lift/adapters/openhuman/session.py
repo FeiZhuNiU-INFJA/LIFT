@@ -218,18 +218,34 @@ async def start_openhuman_container(
     # backend session not active`）。设 ``OPENHUMAN_AGENTBOX_MODE=1`` 且 GMI 三件套
     # 齐全时，``chat-factory`` 走 "AgentBox mode ... bypassing app-session gate for
     # custom provider" 分支直连 OpenAI 兼容端点。镜像已 bake 一份缺省值；这里根据
-    # 宿主 .env 再覆盖一次，方便运行时不重建镜像也能换 ARK 凭据 / model。
-    ark_api_key = os.environ.get("ARK_API_KEY", "").strip()
-    ark_base_url = os.environ.get("ARK_BASE_URL", "").strip()
-    model_name = (os.environ.get("MODEL_NAME") or "").strip()
+    # 宿主 .env 再覆盖一次，方便运行时不重建镜像也能换凭据 / model。
+    # 兼容两套变量名：优先 ``WORK_OPENAI_*``（LIFT 统一约定），回退历史 ``ARK_*``。
+    work_api_key = (
+        os.environ.get("WORK_OPENAI_API_KEY")
+        or os.environ.get("ARK_API_KEY")
+        or ""
+    ).strip()
+    work_base_url = (
+        os.environ.get("WORK_OPENAI_BASE_URL")
+        or os.environ.get("ARK_BASE_URL")
+        or ""
+    ).strip()
+    model_name = (os.environ.get("OPENHUMAN_MODEL_NAME") or os.environ.get("MODEL_NAME") or "").strip()
     if model_name and "/" in model_name:
-        # `provider/model` 复合形式（GA/OpenClaw 约定）里 provider 前缀对 ARK 无意义
+        # `provider/model` 复合形式（GA/OpenClaw 约定）里 provider 前缀对直连无意义
         model_name = model_name.rsplit("/", 1)[-1]
-    if ark_api_key and ark_base_url and model_name:
+    if work_api_key and work_base_url and model_name:
         env_vars["OPENHUMAN_AGENTBOX_MODE"] = "1"
-        env_vars["GMI_MAAS_BASE_URL"] = ark_base_url
-        env_vars["GMI_MAAS_API_KEY"] = ark_api_key
+        env_vars["GMI_MAAS_BASE_URL"] = work_base_url
+        env_vars["GMI_MAAS_API_KEY"] = work_api_key
         env_vars["GMI_MODELS"] = model_name
+    else:
+        LOGGER.warning(
+            "OpenHuman AgentBox bypass env incomplete "
+            "(work_api_key=%s work_base_url=%s model=%s); "
+            "relying on image-baked defaults.",
+            bool(work_api_key), bool(work_base_url), bool(model_name),
+        )
 
     oh_langfuse_host = rewrite_langfuse_base_url_for_container(
         os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST"),

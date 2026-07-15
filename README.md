@@ -225,14 +225,15 @@ python -m src.cli.lift_main -r hermes \
 
 ---
 
-## Benchmark 数据：TOS / HuggingFace 双源
+## Benchmark 数据：TOS / HuggingFace / ModelScope 多源
 
-完整 benchmark 的 markdown 源（`benchmark_mds.zip`）同时托管在：
+完整 benchmark 的 markdown 源同时托管在：
 
 - **TOS**（字节内网，`aml-fde-boe/benchmark_mds.zip`，需 TOS 凭证）
 - **HuggingFace dataset**（公开仓库，默认 [`FeiZhuNiU-INFJA/EALE`](https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE)，读取无需 token；可用 `BENCHMARK_HF_REPO` 覆盖）
+- **ModelScope dataset**（默认 `iKlare/EALE`，通过 `modelscope download --dataset ... --local_dir assets/benchmark_mds` 拉取目录树；可用 `BENCHMARK_MODELSCOPE_REPO` 覆盖）
 
-切换走哪边：`.env` 的 `BENCHMARK_SOURCE=tos|huggingface`，或 CLI 加 `--source huggingface`。具体命令见 [`setup-lift-env`](./skill/setup-lift-env/SKILL.md) 步骤 4。
+切换走哪边：`.env` 的 `BENCHMARK_SOURCE=tos|huggingface|modelscope`，或 CLI 加 `--source modelscope`。具体命令见 [`setup-lift-env`](./skill/setup-lift-env/SKILL.md) 步骤 4。
 
 ---
 
