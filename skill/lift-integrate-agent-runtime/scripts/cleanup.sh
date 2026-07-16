@@ -34,9 +34,10 @@ for arg in "$@"; do
     esac
 done
 
-# 项目根目录：脚本所在目录的上两级（skill/cleanup-lift-env/cleanup.sh -> 项目根）
+# 项目根目录：脚本所在目录的上三级
+# （skill/lift-integrate-agent-runtime/scripts/cleanup.sh -> 项目根）
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
-PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../.." &> /dev/null && pwd)"
+PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../../.." &> /dev/null && pwd)"
 
 run() {
     if [[ $DRY_RUN -eq 1 ]]; then
@@ -83,10 +84,10 @@ else
     fi
 fi
 
-# 1. 评测容器（按 SKILL "lift-integrate-agent-runtime" §2.2 约定，
-# 所有 runtime 的 _CONTAINER_PREFIX 都形如 "evolve-<runtime>"，
-# 例如 evolve-openclaw / evolve-genericagent。统一用 "evolve-" 前缀过滤，
-# 未来新加 runtime 不必再改 cleanup 脚本。）
+# 1. 评测容器（按 SKILL "lift-integrate-agent-runtime" adapter-quartet.md
+# 里 session.py 的 _CONTAINER_PREFIX 约定，所有 runtime 都形如
+# "evolve-<runtime>"（例如 evolve-openclaw / evolve-genericagent）。
+# 统一用 "evolve-" 前缀过滤，未来新加 runtime 不必再改 cleanup 脚本。）
 section "1. 清理 evolve-* 评测容器"
 mapfile -t containers < <(docker ps -a --filter "name=evolve-" --format "{{.Names}}" || true)
 if [[ ${#containers[@]} -eq 0 ]]; then

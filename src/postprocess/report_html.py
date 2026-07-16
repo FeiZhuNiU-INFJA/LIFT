@@ -17,10 +17,14 @@ from src.postprocess.extract import AgentSource, _should_ignore_tool_call_block
 from src.postprocess.metrics import METRIC_COLUMNS, _outlier_mask
 
 # Metrics hidden from HTML for all agent sources.
-_HTML_HIDDEN_METRICS_BASE = {"cached_token"}
-# Hermes 上报暂不提供缓存命中与每轮延迟，HTML 不展示这两项及其改进比例。
+# Token 侧默认只显示"新增输入" / "cache read" / "输出" / "reasoning" / 派生的
+# ``total_tokens`` / ``cache_hit_ratio``；``cache_write_tokens`` 对 OpenAI 家恒 0，
+# HTML 里冗余，隐藏以减少列宽压力（CSV 仍保留全部 5 字段供离线分析）。
+_HTML_HIDDEN_METRICS_BASE = {"cache_write_tokens"}
+# Hermes 插件层没有 per-turn latency 数据（Hermes upstream 不上报），
+# HTML 显示时隐藏该列避免误导。cache 侧字段已由插件 ``_fallback_extract_from_raw_usage``
+# 从 ``prompt_tokens_details.cached_tokens`` 兜底提取，正常可见。
 _HTML_HIDDEN_METRICS_HERMES = _HTML_HIDDEN_METRICS_BASE | {
-    "cached_token_ratio",
     "total_latency_seconds",
 }
 
@@ -79,9 +83,13 @@ _METRIC_DISPLAY_LABELS: dict[str, str] = {
     "trials": "Trials",
     "tool_use_num": "Tool Use Num",
     "content_score": "Outcome Score",
-    "cached_token": "Cached Token",
-    "cached_token_ratio": "Cached Token Ratio",
+    "input_tokens": "Input (fresh)",
+    "cache_write_tokens": "Cache Write",
+    "cache_read_tokens": "Cache Read",
+    "output_tokens": "Output",
+    "reasoning_tokens": "Reasoning",
     "total_tokens": "Total Tokens",
+    "cache_hit_ratio": "Cache Hit Ratio",
     "total_latency_seconds": "Latency",
     "trajectory_score": "Trajectory Score",
 }
@@ -90,10 +98,15 @@ _METRIC_DISPLAY_LABELS: dict[str, str] = {
 _METRIC_LOWER_IS_BETTER: dict[str, bool] = {
     "trials": True,
     "tool_use_num": True,
+    "input_tokens": True,
+    "cache_write_tokens": True,
+    "output_tokens": True,
+    "reasoning_tokens": True,
     "total_tokens": True,
     "total_latency_seconds": True,
-    "cached_token": True,
-    "cached_token_ratio": False,
+    # ``cache_read_tokens`` 越多说明命中越多、越省钱，与命中率同向：越大越好。
+    "cache_read_tokens": False,
+    "cache_hit_ratio": False,
     "content_score": False,
     "trajectory_score": False,
 }
@@ -834,17 +847,9 @@ def task_table_html(
     prefixed with a star.
     """
     hidden = _hidden_metrics(agent_source)
-    metric_columns: list[str] = [
-        "trials",
-        "tool_use_num",
-        "content_score",
-    ]
-    if "cached_token_ratio" not in hidden:
-        metric_columns.append("cached_token_ratio")
-    metric_columns.append("total_tokens")
-    if "total_latency_seconds" not in hidden:
-        metric_columns.append("total_latency_seconds")
-    metric_columns.append("trajectory_score")
+    # 按 ``METRIC_COLUMNS`` 顺序取交集（去掉 hidden），保持一致的展示顺序，
+    # 未来在 ``METRIC_COLUMNS`` 加/删列时不用再改这里。
+    metric_columns: list[str] = [m for m in METRIC_COLUMNS if m not in hidden]
 
     headers = ["Run", "Benchmark", "Task"]
     for metric in metric_columns:

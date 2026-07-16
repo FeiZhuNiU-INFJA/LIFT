@@ -2,7 +2,7 @@
 
 OpenHuman core 本身**不集成** Langfuse SDK / OTel exporter（binary 里仅有
 ``"langfuse"`` 字面量，无 push 通路）。为让 LIFT 后处理侧的 trace 拼装
-（``langfuse_trace_stitch._stitch_openclaw`` + ``LANGFUSE_PLUGIN_TRACE_NAMES``
+（``langfuse_trace_stitch._stitch_by_session_id`` + ``LANGFUSE_PLUGIN_TRACE_NAMES``
 白名单里的 ``openhuman-plugin``）能正常工作，我们在**宿主端** chat 完成后：
 
 1. ``docker exec`` 读容器内 ``~/.openhuman/users/local/workspace/session_raw/*.jsonl``，
@@ -446,7 +446,7 @@ def _usage_details_from_assistant(msg: dict[str, Any]) -> dict[str, int] | None:
 
     OpenHuman schema：``usage = {input, output, cached_input, cost_usd, ...}``；
     映射到 Langfuse 标准键 ``input`` / ``output`` / ``total`` / ``cache_read_input_tokens``
-    （参考 ``langfuse_trace_fetch._usage_triplet`` 的兼容读取逻辑）。
+    （参考 ``langfuse_trace_fetch._usage_breakdown`` 的兼容读取逻辑）。
     """
     usage = msg.get("usage")
     if not isinstance(usage, dict):

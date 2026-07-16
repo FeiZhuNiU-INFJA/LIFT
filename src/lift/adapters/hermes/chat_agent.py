@@ -13,7 +13,7 @@
 - **Langfuse tag 桥接**：runner 以 ``-e SESSION_ID=<lift session>`` /
   ``-e EVOBENCH_RUN_ID=<run_id>`` 启动，容器内 langfuse 插件据此把 LIFT 的
   work/judge session id 写进 ``Hermes turn`` trace 的 tags，供后处理
-  ``_stitch_hermes`` 配对。
+  ``_stitch_by_tags`` 配对。
 """
 
 from __future__ import annotations

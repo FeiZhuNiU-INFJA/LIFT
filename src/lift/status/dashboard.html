@@ -1382,11 +1382,15 @@ function renderCompare(repeats) {
 }
 
 // FINAL SUMMARY：postprocess 完成后由 RunSnapshot.final_summary 注入。
-// 列：scope/label/tasks · baseline_sr/evolved_sr · 8 个 metric 的 mean_impr / mean_diff。
+// 列：scope/label/tasks · baseline_sr/evolved_sr · 每个 metric 的 mean_impr / mean_diff。
+// Token 侧展开成 5 字段模型（input_fresh / cache_write / cache_read / output / reasoning）
+// + 派生 total_tokens 与 cache_hit_ratio，与 postprocess/metrics.METRIC_COLUMNS 保持同源。
 const FS_METRICS = [
   'content_score', 'trajectory_score', 'trials',
   'tool_use_num', 'total_latency_seconds',
-  'total_tokens', 'cached_token', 'cached_token_ratio',
+  'input_tokens', 'cache_write_tokens', 'cache_read_tokens',
+  'output_tokens', 'reasoning_tokens',
+  'total_tokens', 'cache_hit_ratio',
 ];
 // 各 panel 折叠状态（by id）；默认展开
 const PANEL_COLLAPSED = {};

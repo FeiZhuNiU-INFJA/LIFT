@@ -283,4 +283,4 @@ python -m src.cli.lift_main -r openclaw --evaluate-only --run_id hello-smoke
 - **report.json 里 `langfuse` 为 null**：执行期只写结论，trace 在后处理阶段填入 `*_backfilled.json`；确认 Langfuse 已启动且 `.env` 的 `LANGFUSE_*` 正确。
 - **build 报 permission denied**：当前用户不在 docker 组（Linux）或 Docker daemon 未启动（macOS 未 `colima start` / 未开 Docker Desktop）。
 - **拉取基础镜像慢/失败**：设 `OPENCLAW_BASE_IMAGE` 切换加速源后重试。
-- **想清理残留容器/镜像再重来**：使用同仓库的 `cleanup-lift-env` skill。
+- **想清理残留容器/镜像再重来**：见 [`lift-integrate-agent-runtime/docs/environment-cleanup.md`](file:///root/workspace/agent_evolve_evaluation/skill/lift-integrate-agent-runtime/docs/environment-cleanup.md),配套脚本 `bash skill/lift-integrate-agent-runtime/scripts/cleanup.sh`。

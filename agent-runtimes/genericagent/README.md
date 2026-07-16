@@ -86,6 +86,35 @@ bash agent-runtimes/genericagent/build-image.sh
 
 完整契约：[docs/eval-flow.md §12.5](../../docs/eval-flow.md#125-trace_backfill观测)。
 
+<a id="token-5-fields"></a>
+### Token 5 字段落库状态
+
+全 5 字段（`input_fresh` / `cache_write` / `cache_read` / `output` / `reasoning`）齐。
+
+**已修复的历史坑**：overlay 只 wrap SSE parser 时 non-stream 路径丢字段。
+
+- 早期版本 [`langfuse_tracing_overlay.py`](langfuse_tracing_overlay.py) 只
+  `_wrap_parser(_parse_claude_sse)` / `_parse_openai_sse`，但 GA `llmcore.py`
+  里有对称的 `_parse_claude_json` / `_parse_openai_json` 走 non-stream 路径
+  （`sess.stream=False`），没被 wrap → `_tls._usage` 永远是 None →
+  `gen.update(usage_details=None)` → Langfuse observation `usage_details={}`。
+- **修法**：直接 wrap llmcore 内的**公共汇聚点** `_record_usage(usage, api_mode)`。
+  该函数被 messages / chat_completions / responses 三种 api_mode 的 SSE + JSON
+  parser **7 处**调用，wrap 它比 wrap 所有 parser 更根本。三个 api_mode 各自的
+  reasoning / cache 字段位置：
+  * `messages`：`cache_read_input_tokens` / `cache_creation_input_tokens` 顶层
+  * `chat_completions`：`prompt_tokens_details.cached_tokens` /
+    `completion_tokens_details.reasoning_tokens`
+  * `responses`：`input_tokens_details.cached_tokens` /
+    `output_tokens_details.reasoning_tokens`
+
+**关键坑**：overlay 是构建时 `COPY` 进镜像的，修改后**必须 rebuild**
+（`bash agent-runtimes/genericagent/build-image.sh`）才生效——运行期 bind
+mount 覆盖不适用于 GA。
+
+统一口径 / 跨 runtime 排障方法见
+[skill/lift-integrate-agent-runtime/docs/token-observability.md](../../skill/lift-integrate-agent-runtime/docs/token-observability.md)。
+
 ## Task extra skills
 
 Benchmark 任务可通过 `requirements.extra_skills_dir` 提供额外技能。LIFT 在容器启动时

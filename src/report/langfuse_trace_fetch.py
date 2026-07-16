@@ -54,27 +54,101 @@ def _iso(ts: Any) -> str | None:
     return str(ts)
 
 
-def _usage_triplet(usage: Any) -> tuple[int, int, int]:
-    """Extract (input_tokens, output_tokens, total_tokens) from a usage dict or model."""
+def _first_int(d: dict[str, Any], *keys: str) -> int:
+    """按顺序取第一个非空整数字段；用于跨 provider 的 usage 字段兜底。"""
+    for k in keys:
+        v = d.get(k)
+        if v is None:
+            continue
+        try:
+            iv = int(v)
+        except (TypeError, ValueError):
+            continue
+        if iv:
+            return iv
+    return 0
+
+
+def _usage_breakdown(usage: Any) -> tuple[int, int, int, int, int]:
+    """从 Langfuse usage 归一到 ``(input_fresh, cache_write, cache_read, output, reasoning)``。
+
+    覆盖当前生产链路里出现的三种 provider 命名口径：
+    - **Langfuse 标准 / OpenAI / Ark**：``input`` / ``output``（``prompt_tokens`` 系列自动
+      归一到这两个键），``prompt_tokens_details.cached_tokens`` → ``cache_read_tokens``。
+      OpenAI 家的 ``input`` **含** cached，故这里做 ``input - cached`` 拿"新增"；
+      ``cache_write`` 恒 0（不区分）。
+    - **Anthropic**：``cache_creation_input_tokens`` → ``cache_write``；``cache_read_input_tokens``
+      → ``cache_read``；``input_tokens``（Anthropic 定义为**不含** cache）→ ``input``。
+    - **OpenHuman transcript_langfuse 归一后**：``input`` / ``output`` / ``cache_read_input_tokens``；
+      语义同 OpenAI 家（``input`` 含 cached），透过 ``input - cache_read`` 拿新增。
+    - ``usage_details`` 嵌套结构：Langfuse observation.usage_details 里同样支持上述字段。
+
+    返回值恒满足 ``fresh + write + read`` = 原始 prompt 总量。
+    """
     if usage is None:
-        return 0, 0, 0
+        return 0, 0, 0, 0, 0
     if hasattr(usage, "model_dump"):
         d = usage.model_dump()
     elif isinstance(usage, dict):
         d = usage
     else:
-        return 0, 0, 0
-    inp = int(d.get("input") or d.get("input_tokens") or 0)
-    out = int(d.get("output") or d.get("output_tokens") or 0)
-    tot = d.get("total") or d.get("total_tokens")
-    if tot is None and isinstance(d.get("usage_details"), dict):
-        ud = d["usage_details"]
-        inp = int(ud.get("input") or inp)
-        out = int(ud.get("output") or out)
-        tot = ud.get("total")
-    if tot is None:
-        tot = inp + out
-    return inp, out, int(tot or 0)
+        return 0, 0, 0, 0, 0
+
+    # observation.usage 顶层与 usage_details 二者都可能出现；合并读，details 优先。
+    # OpenAI 家把 cached / reasoning 嵌在 prompt_tokens_details / completion_tokens_details
+    # 里，因此把这两个子 dict 也一并 flatten 进合并视图，让 _first_int 直接命中。
+    # Langfuse SDK 同时暴露 snake_case (`usage_details`) 和 camelCase (`usageDetails`)。
+    details = d.get("usage_details") if isinstance(d.get("usage_details"), dict) else {}
+    details_camel = d.get("usageDetails") if isinstance(d.get("usageDetails"), dict) else {}
+    prompt_details = (
+        d.get("prompt_tokens_details") if isinstance(d.get("prompt_tokens_details"), dict) else {}
+    )
+    completion_details = (
+        d.get("completion_tokens_details")
+        if isinstance(d.get("completion_tokens_details"), dict)
+        else {}
+    )
+    merged = {**d, **prompt_details, **completion_details, **details, **details_camel}
+
+    # output
+    out = _first_int(merged, "output", "output_tokens", "completion_tokens")
+
+    # cache read / write（多种命名）
+    cache_read = _first_int(
+        merged,
+        "cache_read_input_tokens",  # Anthropic / Langfuse 标准
+        "cachedInputTokens",
+        "cached_input",             # OpenHuman transcript raw
+        "cache_read",
+        "cacheRead",                # OpenClaw plugin
+        "cached_tokens",            # OpenAI prompt_tokens_details.cached_tokens
+        "prompt_cache_hit_tokens",  # DeepSeek
+        "cachedContentTokenCount",  # Gemini
+    )
+    cache_write = _first_int(
+        merged,
+        "cache_creation_input_tokens",  # Anthropic
+        "cacheWrite",                   # OpenClaw plugin
+        "cache_write",
+    )
+
+    # Prompt 总量（不同 provider 语义不一）：
+    # - Anthropic ``input_tokens`` 定义为**不含** cache（"fresh"），加上 cache_write/read 才是完整 prompt。
+    # - OpenAI/Ark ``input`` / ``prompt_tokens`` 定义为**含** cache 的完整 prompt。
+    # 归一策略：先取一个"标注为 input 的值"，再和 cache_read+cache_write 比较：
+    # 如果 >= 二者之和，说明它是"含 cache 的完整 prompt"，扣掉 cache 部分得到 fresh；否则本身就是 fresh。
+    raw_input = _first_int(merged, "input", "input_tokens", "prompt_tokens", "promptTokenCount")
+    cache_total = cache_read + cache_write
+    if raw_input >= cache_total and cache_total > 0:
+        fresh = raw_input - cache_total
+    else:
+        fresh = raw_input
+
+    # reasoning：OpenAI 家 completion_tokens_details.reasoning_tokens 已在上面被 flatten 进
+    # merged；OpenClaw plugin 用 reasoningTokens 键在顶层。
+    reasoning = _first_int(merged, "reasoning_tokens", "reasoningTokens")
+
+    return fresh, cache_write, cache_read, out, reasoning
 
 
 def observation_briefs(observations: list[Any]) -> list[LangfuseObservationBrief]:
@@ -82,15 +156,29 @@ def observation_briefs(observations: list[Any]) -> list[LangfuseObservationBrief
     briefs: list[LangfuseObservationBrief] = []
     for o in observations or []:
         d = o.model_dump() if hasattr(o, "model_dump") else {}
-        inp_t, out_t, tot_t = _usage_triplet(d.get("usage"))
+        # observation.usage 与 observation.usageDetails 是同级字段。usageDetails 承载
+        # 精细化 token 分项（cache_read_input_tokens / reasoning_tokens 等），必须一并
+        # 传入 _usage_breakdown，否则 OpenClaw / Hermes 通过 Langfuse ingestion 写入的
+        # 细分字段会被忽略。
+        usage_payload: dict[str, Any] = {}
+        raw_usage = d.get("usage")
+        if isinstance(raw_usage, dict):
+            usage_payload.update(raw_usage)
+        for details_key in ("usage_details", "usageDetails"):
+            details_val = d.get(details_key)
+            if isinstance(details_val, dict):
+                usage_payload[details_key] = details_val
+        fresh, cw, cr, out_t, reasoning = _usage_breakdown(usage_payload)
         briefs.append(
             LangfuseObservationBrief(
                 id=str(d.get("id") or ""),
                 type=str(d.get("type") or "").upper(),
                 name=str(d["name"]) if d.get("name") is not None else None,
-                input_tokens=inp_t,
+                input_tokens=fresh,
+                cache_write_tokens=cw,
+                cache_read_tokens=cr,
                 output_tokens=out_t,
-                total_tokens=tot_t,
+                reasoning_tokens=reasoning,
             )
         )
     return briefs
@@ -162,16 +250,20 @@ def trace_detail_from_api(full: Any) -> LangfuseTraceDetailRecord:
 
 def tokens_from_detail(detail: LangfuseTraceDetailRecord) -> LangfuseTraceTokens:
     """Sum GENERATION observation token counts from a trace detail record."""
-    inp = out = tot = 0
+    fresh = cw = cr = out = reasoning = 0
     for ob in detail.observations:
         if ob.type == "GENERATION":
-            inp += ob.input_tokens
+            fresh += ob.input_tokens
+            cw += ob.cache_write_tokens
+            cr += ob.cache_read_tokens
             out += ob.output_tokens
-            tot += ob.total_tokens
+            reasoning += ob.reasoning_tokens
     return LangfuseTraceTokens(
-        input_tokens=inp,
+        input_tokens=fresh,
+        cache_write_tokens=cw,
+        cache_read_tokens=cr,
         output_tokens=out,
-        total_tokens=tot if tot else inp + out,
+        reasoning_tokens=reasoning,
     )
 
 

@@ -19,8 +19,10 @@ def _stats_from_turn_ref(ref: LangfuseTraceRef) -> LangfuseTokenToolStats:
     if ref.tokens is not None:
         return LangfuseTokenToolStats(
             input_tokens=ref.tokens.input_tokens,
+            cache_write_tokens=ref.tokens.cache_write_tokens,
+            cache_read_tokens=ref.tokens.cache_read_tokens,
             output_tokens=ref.tokens.output_tokens,
-            total_tokens=ref.tokens.total_tokens,
+            reasoning_tokens=ref.tokens.reasoning_tokens,
             tool_roundtrips=meta.tool_roundtrips if meta else 0,
             tool_call_blocks=meta.tool_call_blocks if meta else 0,
             tool_observation_count=ref.tool_observation_count,
@@ -96,8 +98,10 @@ def build_work_analytics(
     total_latency = 0.0
     for t in chat_turns:
         g.input_tokens += t.stats.input_tokens
+        g.cache_write_tokens += t.stats.cache_write_tokens
+        g.cache_read_tokens += t.stats.cache_read_tokens
         g.output_tokens += t.stats.output_tokens
-        g.total_tokens += t.stats.total_tokens
+        g.reasoning_tokens += t.stats.reasoning_tokens
         g.tool_roundtrips += t.stats.tool_roundtrips
         g.tool_call_blocks += t.stats.tool_call_blocks
         g.tool_observation_count += t.stats.tool_observation_count

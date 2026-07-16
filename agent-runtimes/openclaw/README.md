@@ -99,6 +99,46 @@ bash agent-runtimes/openclaw/verify-image.sh lift-openclaw-with-evolve:latest
 
 完整的写入 / 拉取 / 配对契约见：[docs/eval-flow.md §12.5](../../docs/eval-flow.md#125-trace_backfill观测)。
 
+<a id="token-5-fields"></a>
+### Token 5 字段落库状态
+
+全 5 字段（`input_fresh` / `cache_write` / `cache_read` / `output` / `reasoning`）齐。
+
+**已修复的历史坑**：
+
+1. **microtask 竞争**（agent 侧 accumulator 拿 0）
+   - 根因：OpenClaw `runVoidHook` 内部把 handler 排到 microtask 队列。语法上
+     `llm_output` 先 fire、`agent_end` 后 await；但 async 函数首次调用**立即 return
+     pending Promise 并把 handler body 排入 microtask**，如果 agent_end handler 用
+     `await` 让出，handler 反而先跑，accumulator 是空的。
+   - 修法：`agent_end` handler 里让一个 macrotask 排空 microtask 队列：
+     ```javascript
+     // plugins/langfuse-tracer/index.js
+     api.on('agent_end', async (event, ctx) => {
+       await new Promise((resolve) => setImmediate(resolve));  // KEY FIX
+       const accumulated = pendingUsage.get(key);
+     });
+     ```
+
+2. **usage → usageDetails 承载错位**（Langfuse 存了但字段丢失）
+   - 根因：Langfuse `/api/public/ingestion` 的 `usage` 字段**只识别
+     `input / output / total / unit`**，Anthropic-style key 必须写在 sibling
+     `usageDetails`，否则被静默丢弃。
+   - 修法：`generation-create` body 同时写 `usage` + `usageDetails`，用
+     `usageDetailsFromUsage()` 复制 5 字段。
+
+**配置前提**：
+
+- `openclaw.json` 中 `hooks.allowConversationAccess: true`（见
+  [plugins.fragment.json](config/plugins.fragment.json)），否则 `llm_output` /
+  `agent_end` hook 从未被订阅
+- `REASONING_EFFORT=high` 需通过 `--thinking high` 传给 CLI，`chat_agent.py` 已 wire
+- plugin log 落 host：`LANGFUSE_TRACER_LOG_FILE=/workspace/task/langfuse-tracer.log`
+  （见 [session.py](../../src/lift/adapters/openclaw/session.py)），事后诊断必需
+
+统一口径 / 跨 runtime 排障方法见
+[skill/lift-integrate-agent-runtime/docs/token-observability.md](../../skill/lift-integrate-agent-runtime/docs/token-observability.md)。
+
 ### 任务级 extra skills
 
 Benchmark 任务可在 `requirements.extra_skills_dir` 中提供额外 skill 目录。OpenClaw 容器会把该目录挂载到 `/workspace/task/skills`，容器启动时由 LIFT 把挂载内容复制进 `${OPENCLAW_STATE_DIR:-/root/.openclaw}/skills`，使得 warmup 阶段的 `docker commit` 能把任务 skill 一并打进 delta 镜像；而 bind mount 本身的 `/workspace/task/skills` 内容是不会被 `docker commit` 捕获的。
