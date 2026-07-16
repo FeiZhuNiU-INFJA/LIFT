@@ -15,7 +15,7 @@ from langfuse import Langfuse, get_client
 from src.config import LOGGER
 from src.models import EvalReport, PhaseRun
 from src.postprocess.extract import AgentSource
-from src.report.langfuse_trace_stitch import stitch_phase_langfuse_traces
+from src.report.langfuse_trace_stitch import RunTraceIndex, stitch_phase_langfuse_traces
 
 
 # Langfuse SDK 4.x 默认 5s 超时（langfuse/_client/client.py:279 读 LANGFUSE_TIMEOUT
@@ -58,11 +58,15 @@ def backfill_phase(
     run_tag: str,
     phase: PhaseRun | None,
     agent_source: AgentSource = "openclaw",
+    index: RunTraceIndex | None = None,
 ):
     """Attach stitched Langfuse traces to a single ``PhaseRun``, or return None if *phase* is None.
 
     单题 backfill 失败（langfuse 网络抖 / 数据格式异常）时返回原 ``phase``，
     避免一题崩掉整个 pipeline 让 dashboard 拿不到 ``tool_calls``。
+
+    ``index`` 由上层预取的 per-run trace 索引；给出时 stitch 跳过 per-phase 4 路
+    ``trace.list``，把 REST 数量从 O(phase × 4) 收敛到 O(1)（run 层级预取）。
     """
     if phase is None:
         return None
@@ -74,6 +78,7 @@ def backfill_phase(
             work_session_id=phase.work_session_id,
             judge_session_id=phase.judge_session_id,
             agent_source=agent_source,
+            index=index,
         )
     except Exception:
         LOGGER.exception(
@@ -152,12 +157,31 @@ def backfill_report(
 
     workers = _resolve_backfill_workers()
     if jobs:
+        # Per-run 预取：一次按 run_tag 拉齐所有 trace 的 metadata，phase 层不再触发
+        # ``trace.list``（原路径每 phase 4 路 REST，56 phase = 224 次；改为 O(1) 分页）。
+        # 构造失败时 fallback 到旧路径（index=None），保证 backfill 仍能推进。
+        try:
+            index = RunTraceIndex(client, run_tag=run_tag)
+            LOGGER.info(
+                "Pre-fetched %d trace(s) for run_tag=%s (per-phase trace.list disabled).",
+                len(index), run_tag,
+            )
+        except Exception:
+            LOGGER.exception(
+                "Failed to pre-fetch run trace index for %s — falling back to per-phase trace.list.",
+                run_tag,
+            )
+            index = None
+
         LOGGER.info(
             "Backfilling %d phase(s) with %d worker thread(s).", len(jobs), workers,
         )
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [
-                (pool.submit(backfill_phase, client, run_tag, phase, agent_source), setter)
+                (
+                    pool.submit(backfill_phase, client, run_tag, phase, agent_source, index),
+                    setter,
+                )
                 for phase, setter in jobs
             ]
             for future, setter in futures:

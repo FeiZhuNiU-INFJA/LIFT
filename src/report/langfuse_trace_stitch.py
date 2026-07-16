@@ -77,6 +77,60 @@ def _list_traces_parallel(
         )
 
 
+class RunTraceIndex:
+    """按 run tag 一次性拉整个 run 的 trace list，供各 phase 通过 session_id / session tag
+    做本地字典查询，替代 per-phase 4 路 ``trace.list``。
+
+    背景：``_stitch_by_session_id`` / ``_stitch_by_tags`` 各自 per-phase 触发 4 路
+    ``trace.list``。一个 run 有 ``task 数 × 2 phase`` 个 phase，REST 数量按 ``O(phase×4)``
+    放大（例如 28 task × 2 × 4 = 224 次），全部按 ``sessionId`` 打 ClickHouse——sessionId
+    非排序键，每次几乎全表扫，容易压垮单进程 ``langfuse-web`` 触发 ``httpx.ReadTimeout``。
+
+    本索引把发现阶段收敛到 O(1) 次分页 REST：按 ``run_tag`` 拉一次（run_tag = run_id 唯一），
+    Python 侧按 ``session_id`` 与每个 ``tag`` 建立二级字典，phase 层只做 dict 查询。
+    完整 payload 仍由 ``fetch_trace_details`` 按需 ``trace.get``，本索引不影响。
+
+    仅承担 "发现"（list）阶段的缓存；后续 classify / pair 逻辑无变化。当外部传入 ``None``
+    时，stitch 函数回落到 per-phase ``_list_traces_parallel``，便于灰度 / 排障对拍。
+    """
+
+    def __init__(self, client: Any, *, run_tag: str, page_limit: int = 100):
+        if not run_tag:
+            raise ValueError("RunTraceIndex requires a non-empty run_tag")
+        self._run_tag = run_tag
+        # 单次分页拉全 run；order_by=timestamp.asc 与 per-phase 查询保持一致，
+        # 让 pair 阶段的时间顺序假设仍然成立。
+        self._items: list[Any] = _list_traces_all_pages(
+            client,
+            page_limit=page_limit,
+            tags=[run_tag],
+            order_by="timestamp.asc",
+        )
+        by_session: dict[str, list[Any]] = {}
+        by_tag: dict[str, list[Any]] = {}
+        for item in self._items:
+            sid = getattr(item, "session_id", None)
+            if sid:
+                by_session.setdefault(str(sid), []).append(item)
+            for tag in (getattr(item, "tags", None) or []):
+                by_tag.setdefault(str(tag), []).append(item)
+        self._by_session = by_session
+        self._by_tag = by_tag
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    @property
+    def run_tag(self) -> str:
+        return self._run_tag
+
+    def by_session_id(self, session_id: str) -> list[Any]:
+        return self._by_session.get(session_id, [])
+
+    def by_tag(self, tag: str) -> list[Any]:
+        return self._by_tag.get(tag, [])
+
+
 def _normalize_eval_session(
     ref: LangfuseTraceRef,
     *,
@@ -108,6 +162,39 @@ def _classify_by_session(
     return None
 
 
+def _discover_traces_four_ways(
+    client: Any,
+    *,
+    work_session_id: str,
+    judge_session_id: str,
+    page_limit: int,
+    index: RunTraceIndex | None,
+) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
+    """4 路 trace 发现：按 work/judge 的 session_id 与 session tag 命中。
+
+    - ``index`` 非空：从 per-run 索引本地查询（0 次 REST）。
+    - ``index`` 为空：回落到原路径 ``_list_traces_parallel``（4 次 REST）。
+    """
+    if index is not None:
+        return (
+            index.by_session_id(work_session_id),
+            index.by_session_id(judge_session_id),
+            index.by_tag(work_session_id),
+            index.by_tag(judge_session_id),
+        )
+    by_work, by_judge, by_work_tag, by_judge_tag = _list_traces_parallel(
+        client,
+        [
+            {"session_id": work_session_id, "order_by": "timestamp.asc"},
+            {"session_id": judge_session_id, "order_by": "timestamp.asc"},
+            {"tags": [work_session_id], "order_by": "timestamp.asc"},
+            {"tags": [judge_session_id], "order_by": "timestamp.asc"},
+        ],
+        page_limit=page_limit,
+    )
+    return by_work, by_judge, by_work_tag, by_judge_tag
+
+
 def _stitch_by_session_id(
     client: Any,
     *,
@@ -115,6 +202,7 @@ def _stitch_by_session_id(
     work_session_id: str,
     judge_session_id: str,
     page_limit: int,
+    index: RunTraceIndex | None = None,
 ) -> PhaseLangfuseBundle:
     """默认拼装策略：pre-chat ``*_agent`` + plugin trace 都写了同一 ``session_id``，
     直接按 work/judge session id 命中 + session tag 兜底并 1:1 配对。
@@ -126,16 +214,15 @@ def _stitch_by_session_id(
 
     适用 runtime：OpenClaw 全家 / GenericAgent / OpenHuman —— 只要 pre-chat 与 plugin
     trace 的 ``session_id`` 与 eval 外部下发的 session id 一致，就走这条路径。
+
+    传入 ``index`` 时，"发现" 阶段从 per-run 索引本地查询，不再触发 4 路 ``trace.list``。
     """
-    by_work, by_judge, by_work_tag, by_judge_tag = _list_traces_parallel(
+    by_work, by_judge, by_work_tag, by_judge_tag = _discover_traces_four_ways(
         client,
-        [
-            {"session_id": work_session_id, "order_by": "timestamp.asc"},
-            {"session_id": judge_session_id, "order_by": "timestamp.asc"},
-            {"tags": [work_session_id], "order_by": "timestamp.asc"},
-            {"tags": [judge_session_id], "order_by": "timestamp.asc"},
-        ],
+        work_session_id=work_session_id,
+        judge_session_id=judge_session_id,
         page_limit=page_limit,
+        index=index,
     )
 
     # 多路 trace.list 并集去重；完整 payload 一律 trace.get 拉取
@@ -189,6 +276,7 @@ def _stitch_by_tags(
     work_session_id: str,
     judge_session_id: str,
     page_limit: int,
+    index: RunTraceIndex | None = None,
 ) -> PhaseLangfuseBundle:
     """Tag-based 拼装（Hermes 专用）：
     - ``*_agent`` pre-chat span 的 ``session_id`` 与外部一致，走 session_id 命中。
@@ -197,16 +285,15 @@ def _stitch_by_tags(
     - 归类：work_ids / judge_ids 集合记录命中 work/judge 的 trace id，pair 时用集合判断
       （而不是 session_id 比对），避免 ``Hermes turn`` 因 sid 不一致被丢弃。
     - 配对：``pair_hermes_traces_to_agent_turns`` 不按 session_id 分组，纯按时间 1:1 合并。
+
+    传入 ``index`` 时，"发现" 阶段从 per-run 索引本地查询，不再触发 4 路 ``trace.list``。
     """
-    by_work_sid, by_judge_sid, by_work_tag, by_judge_tag = _list_traces_parallel(
+    by_work_sid, by_judge_sid, by_work_tag, by_judge_tag = _discover_traces_four_ways(
         client,
-        [
-            {"session_id": work_session_id, "order_by": "timestamp.asc"},
-            {"session_id": judge_session_id, "order_by": "timestamp.asc"},
-            {"tags": [work_session_id], "order_by": "timestamp.asc"},
-            {"tags": [judge_session_id], "order_by": "timestamp.asc"},
-        ],
+        work_session_id=work_session_id,
+        judge_session_id=judge_session_id,
         page_limit=page_limit,
+        index=index,
     )
 
     merged: dict[str, Any] = {}
@@ -256,8 +343,13 @@ def stitch_phase_langfuse_traces(
     judge_session_id: str,
     agent_source: AgentSource = "openclaw",
     page_limit: int = 100,
+    index: RunTraceIndex | None = None,
 ) -> PhaseLangfuseBundle:
-    """按 ``agent_source`` 分发到 tag-based / session-id-based 实现。默认 ``openclaw`` 走 session_id 分支。"""
+    """按 ``agent_source`` 分发到 tag-based / session-id-based 实现。默认 ``openclaw`` 走 session_id 分支。
+
+    ``index`` 若给出，则跳过 per-phase 4 路 ``trace.list``，改由 index 本地查询。
+    索引由上层（如 ``backfill_report``）在整个 run 开始前构造一次即可。
+    """
     if agent_source == "hermes":
         return _stitch_by_tags(
             client,
@@ -265,6 +357,7 @@ def stitch_phase_langfuse_traces(
             work_session_id=work_session_id,
             judge_session_id=judge_session_id,
             page_limit=page_limit,
+            index=index,
         )
     # 其余 runtime 都复用默认 sid-only trace layout（``*_agent`` + plugin trace 按
     # ``session_id`` 配对）。合法 runtime 名以 ``SUPPORTED_RUNTIMES`` 为唯一事实源，
@@ -276,5 +369,6 @@ def stitch_phase_langfuse_traces(
             work_session_id=work_session_id,
             judge_session_id=judge_session_id,
             page_limit=page_limit,
+            index=index,
         )
     raise ValueError(f"Unsupported agent_source: {agent_source!r}")
