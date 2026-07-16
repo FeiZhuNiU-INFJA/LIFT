@@ -153,4 +153,24 @@ Hermes（非容器主路径），会改动 `~/.hermes/config.yaml`，与容器�
 每轮 chat 产生两条 trace：框架 `emit_pre_chat_state` 的 `work_agent` / `judge_agent`
 span（宿主机侧），与容器内 Hermes 插件的 `Hermes turn`。后处理
 （`agent_source="hermes"`）通过 tags 里的 work/judge session_id 配对，走
-[`_stitch_hermes`](../../src/report/langfuse_trace_stitch.py)。
+[`_stitch_by_tags`](../../src/report/langfuse_trace_stitch.py)。
+
+<a id="token-5-fields"></a>
+### Token 5 字段落库状态
+
+全 5 字段（`input_fresh` / `cache_write` / `cache_read` / `output` / `reasoning`）齐，
+**依赖 LIFT 覆盖版 `langfuse-hermes` 插件**（构建期由 `install-in-image.sh`
+overlay 到 Hermes venv 的 `observability/langfuse`）。要点：
+
+- 上游 `agent.usage_pricing.normalize_usage` 在 **OpenAI-compatible / Ark** 路径下会
+  丢弃 `prompt_tokens_details.cached_tokens` 与 `completion_tokens_details.reasoning_tokens`，
+  canonical 里对应字段为 0。
+- 覆盖版插件里的 `_fallback_extract_from_raw_usage()` 直接从 raw usage 兜底
+  提取,兼容 OpenAI/Ark、Anthropic (`cache_read_input_tokens` /
+  `cache_creation_input_tokens`)、DeepSeek (`prompt_cache_hit_tokens`) 命名,
+  按 Anthropic-style key 写入 `usageDetails`。
+- 结果：跑 LIFT 镜像时 5 字段齐;直接跑上游 Hermes 时 Ark 路径下 `cache_read` /
+  `reasoning` 仍会为 0。
+
+统一口径 / 排障 / 断层图见
+[skill/lift-integrate-agent-runtime/docs/token-observability.md](../../skill/lift-integrate-agent-runtime/docs/token-observability.md)。

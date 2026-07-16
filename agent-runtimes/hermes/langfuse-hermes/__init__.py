@@ -517,6 +517,68 @@ def _serialize_assistant_message(message: Any) -> dict[str, Any]:
     }
 
 
+def _get_from_any(obj: Any, *keys: str) -> int:
+    """从 Pydantic model 或 dict 上按候选 key 顺序取第一个非空整数。"""
+    for key in keys:
+        if obj is None:
+            return 0
+        value = obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+        if value is None:
+            continue
+        try:
+            iv = int(value)
+        except (TypeError, ValueError):
+            continue
+        if iv:
+            return iv
+    return 0
+
+
+def _fallback_extract_from_raw_usage(raw_usage: Any) -> tuple[int, int, int]:
+    """从原始 usage 对象直接抽 ``(cache_read, cache_write, reasoning)``。
+
+    Hermes upstream ``agent.usage_pricing.normalize_usage`` 在 OpenAI-compatible 路径
+    （``provider=custom`` / ``api_mode=chat_completions``）可能不透传
+    ``prompt_tokens_details.cached_tokens`` 与 ``completion_tokens_details.reasoning_tokens``，
+    造成 canonical 里对应字段为 0，Langfuse trace 也就丢失了 cache_read /
+    reasoning 键。本函数直接读原始 usage（同时兼容 Pydantic model 与 dict），把这些
+    "provider 明明有、但被中间层丢掉"的信号补回来。
+
+    覆盖：
+    - OpenAI/Ark ``prompt_tokens_details.cached_tokens`` → cache_read
+    - OpenAI ``completion_tokens_details.reasoning_tokens`` → reasoning
+    - Anthropic 顶层 ``cache_read_input_tokens`` / ``cache_creation_input_tokens``
+    - DeepSeek 顶层 ``prompt_cache_hit_tokens``
+    """
+    if raw_usage is None:
+        return 0, 0, 0
+
+    prompt_details = (
+        raw_usage.get("prompt_tokens_details")
+        if isinstance(raw_usage, dict)
+        else getattr(raw_usage, "prompt_tokens_details", None)
+    )
+    completion_details = (
+        raw_usage.get("completion_tokens_details")
+        if isinstance(raw_usage, dict)
+        else getattr(raw_usage, "completion_tokens_details", None)
+    )
+
+    cache_read = _get_from_any(prompt_details, "cached_tokens")
+    if not cache_read:
+        cache_read = _get_from_any(
+            raw_usage, "cache_read_input_tokens", "prompt_cache_hit_tokens"
+        )
+
+    cache_write = _get_from_any(raw_usage, "cache_creation_input_tokens")
+
+    reasoning = _get_from_any(completion_details, "reasoning_tokens")
+    if not reasoning:
+        reasoning = _get_from_any(raw_usage, "reasoning_tokens")
+
+    return cache_read, cache_write, reasoning
+
+
 def _usage_and_cost(response: Any, *, provider: str, api_mode: str, model: str, base_url: str) -> tuple[dict[str, int], dict[str, float]]:
     usage_details: Dict[str, int] = {}
     cost_details: Dict[str, float] = {}
@@ -528,6 +590,16 @@ def _usage_and_cost(response: Any, *, provider: str, api_mode: str, model: str, 
         from agent.usage_pricing import estimate_usage_cost, normalize_usage
 
         canonical = normalize_usage(raw_usage, provider=provider, api_mode=api_mode)
+
+        # Fallback：normalize_usage 在 OpenAI-compatible 路径下会丢失
+        # ``prompt_tokens_details.cached_tokens`` / ``completion_tokens_details.reasoning_tokens``。
+        # 直接从 raw_usage 兜底提取一遍，取 canonical or fallback 的第一个非零值。
+        # 这样即便 Hermes upstream 变了 normalize_usage 也能保证 Langfuse 数据完整。
+        fb_cache_read, fb_cache_write, fb_reasoning = _fallback_extract_from_raw_usage(raw_usage)
+        cache_read_tokens = canonical.cache_read_tokens or fb_cache_read
+        cache_write_tokens = canonical.cache_write_tokens or fb_cache_write
+        reasoning_tokens = canonical.reasoning_tokens or fb_reasoning
+
         # Langfuse usage_details keys follow a naming convention:
         #   - Dashboard sums all keys containing "input" as input total
         #   - Dashboard sums all keys containing "output" as output total
@@ -539,12 +611,12 @@ def _usage_and_cost(response: Any, *, provider: str, api_mode: str, model: str, 
             "input": canonical.input_tokens,
             "output": canonical.output_tokens,
         }
-        if canonical.cache_read_tokens:
-            usage_details["cache_read_input_tokens"] = canonical.cache_read_tokens
-        if canonical.cache_write_tokens:
-            usage_details["cache_creation_input_tokens"] = canonical.cache_write_tokens
-        if canonical.reasoning_tokens:
-            usage_details["reasoning_tokens"] = canonical.reasoning_tokens
+        if cache_read_tokens:
+            usage_details["cache_read_input_tokens"] = cache_read_tokens
+        if cache_write_tokens:
+            usage_details["cache_creation_input_tokens"] = cache_write_tokens
+        if reasoning_tokens:
+            usage_details["reasoning_tokens"] = reasoning_tokens
         cost = estimate_usage_cost(
             model,
             canonical,
@@ -565,10 +637,10 @@ def _usage_and_cost(response: Any, *, provider: str, api_mode: str, model: str, 
                         cost_details["input"] = float(Decimal(canonical.input_tokens) * entry.input_cost_per_million / _ONE_M)
                     if entry.output_cost_per_million is not None and canonical.output_tokens:
                         cost_details["output"] = float(Decimal(canonical.output_tokens) * entry.output_cost_per_million / _ONE_M)
-                    if entry.cache_read_cost_per_million is not None and canonical.cache_read_tokens:
-                        cost_details["cache_read_input_tokens"] = float(Decimal(canonical.cache_read_tokens) * entry.cache_read_cost_per_million / _ONE_M)
-                    if entry.cache_write_cost_per_million is not None and canonical.cache_write_tokens:
-                        cost_details["cache_creation_input_tokens"] = float(Decimal(canonical.cache_write_tokens) * entry.cache_write_cost_per_million / _ONE_M)
+                    if entry.cache_read_cost_per_million is not None and cache_read_tokens:
+                        cost_details["cache_read_input_tokens"] = float(Decimal(cache_read_tokens) * entry.cache_read_cost_per_million / _ONE_M)
+                    if entry.cache_write_cost_per_million is not None and cache_write_tokens:
+                        cost_details["cache_creation_input_tokens"] = float(Decimal(cache_write_tokens) * entry.cache_write_cost_per_million / _ONE_M)
                 else:
                     cost_details["total"] = float(cost.amount_usd)
             except Exception:

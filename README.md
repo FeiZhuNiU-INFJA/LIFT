@@ -194,9 +194,12 @@ python -m src.cli.lift_main -r hermes \
 | Benchmark 收集规范（query / 要求 / 轨迹要求） | [assets/suite_requirement.md](./assets/suite_requirement.md) |
 | OpenClaw 镜像构建细节 | [agent-runtimes/openclaw/README.md](./agent-runtimes/openclaw/README.md) |
 | Hermes 镜像构建细节 | [agent-runtimes/hermes/README.md](./agent-runtimes/hermes/README.md) |
-| 从零搭环境 | skill: [setup-eval-env](./skill/setup-eval-env/SKILL.md) |
-| 清理评测残留容器/镜像 | skill: [cleanup-eval-env](./skill/cleanup-eval-env/SKILL.md) |
+| OpenHuman 镜像构建细节 | [agent-runtimes/openhuman/README.md](./agent-runtimes/openhuman/README.md) |
+| GenericAgent 镜像构建细节 | [agent-runtimes/genericagent/README.md](./agent-runtimes/genericagent/README.md) |
+| 从零搭环境 | skill: [setup-lift-env](./skill/setup-lift-env/SKILL.md) |
+| 清理评测残留容器/镜像 | [lift-integrate-agent-runtime/docs/environment-cleanup.md](./skill/lift-integrate-agent-runtime/docs/environment-cleanup.md) |
 | 接入新的 agent runtime | skill: [lift-integrate-agent-runtime](./skill/lift-integrate-agent-runtime/SKILL.md) |
+| 历次重要改动复盘 | [docs/release-notes/](./docs/release-notes/README.md) |
 
 ---
 
@@ -218,7 +221,7 @@ python -m src.cli.lift_main -r hermes \
 │   ├── benchmarks_demo/    # 冒烟 demo suite（hello.json，随仓库提供）
 │   └── benchmarks/         # 完整 suite JSON（preprocess 生成，gitignore）
 ├── docs/                   # 流程与架构文档
-├── skill/                  # 引导用 SKILL（搭环境、清理、接 runtime）
+├── skill/                  # 引导用 SKILL（首次搭环境、接入 runtime + 集成/观测/清理）
 ├── scripts/                # 运维 / 分析小工具
 └── results/                # 每次 run 产物（gitignore）
 ```

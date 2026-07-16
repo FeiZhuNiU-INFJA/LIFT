@@ -303,6 +303,10 @@ if _lf:
             pass
 
     # ── Usage tracking: tee SSE for token counts (上游同款实现) ──
+    #
+    # 抽 5 字段：input / output / cache_read_input_tokens / cache_creation_input_tokens /
+    # reasoning_tokens。key 名对齐 Langfuse Anthropic-style 约定，使 dashboard 输入
+    # 面板能自动把 cache 计入 input 汇总。LIFT 侧 ``_usage_breakdown`` 也识别这批 key。
     def _extract_usage(buf):
         u = {}
         import json as _j
@@ -337,6 +341,10 @@ if _lf:
                 cr = (us.get('input_tokens_details') or {}).get('cached_tokens')
                 if cr:
                     u['cache_read_input_tokens'] = cr
+                # OpenAI Responses API：reasoning 计入 output_tokens_details。
+                rt = (us.get('output_tokens_details') or {}).get('reasoning_tokens')
+                if rt:
+                    u['reasoning_tokens'] = rt
             else:
                 us = evt.get('usage')
                 if us:
@@ -347,6 +355,10 @@ if _lf:
                     cr = (us.get('prompt_tokens_details') or {}).get('cached_tokens')
                     if cr:
                         u['cache_read_input_tokens'] = cr
+                    # OpenAI Chat Completions：reasoning 计入 completion_tokens_details。
+                    rt = (us.get('completion_tokens_details') or {}).get('reasoning_tokens')
+                    if rt:
+                        u['reasoning_tokens'] = rt
         return u or None
 
     def _wrap_parser(orig):
@@ -372,5 +384,65 @@ if _lf:
         pass
     try:
         llmcore._parse_openai_sse = _wrap_parser(llmcore._parse_openai_sse)
+    except Exception:
+        pass
+
+    # non-stream JSON 路径不经过 _wrap_parser 的 SSE line 累积，直接由 llmcore 内
+    # 部把 provider 归一后的 usage 传给 `_record_usage(usage, api_mode)`。为让 non-
+    # stream 也能拿到 usage_details，直接 wrap `_record_usage` —— 这是 SSE / JSON /
+    # streaming 三条 parser 的公共汇聚点（见 llmcore.py 中 7 处调用）。
+    #
+    # api_mode 取值：
+    #   * 'messages'         → Anthropic Messages
+    #   * 'chat_completions' → OpenAI Chat Completions（reasoning 在 completion_tokens_details）
+    #   * 'responses'        → OpenAI Responses API（reasoning 在 output_tokens_details）
+    try:
+        _orig_record_usage = llmcore._record_usage
+
+        def _wrapped_record_usage(usage, api_mode):
+            try:
+                _orig_record_usage(usage, api_mode)
+            finally:
+                try:
+                    if not usage:
+                        return
+                    u: dict[str, int] = {}
+                    if api_mode == 'messages':
+                        if usage.get('input_tokens'):
+                            u['input'] = usage['input_tokens']
+                        if usage.get('output_tokens'):
+                            u['output'] = usage['output_tokens']
+                        if usage.get('cache_creation_input_tokens'):
+                            u['cache_creation_input_tokens'] = usage['cache_creation_input_tokens']
+                        if usage.get('cache_read_input_tokens'):
+                            u['cache_read_input_tokens'] = usage['cache_read_input_tokens']
+                    elif api_mode == 'responses':
+                        if usage.get('input_tokens'):
+                            u['input'] = usage['input_tokens']
+                        if usage.get('output_tokens'):
+                            u['output'] = usage['output_tokens']
+                        cr = (usage.get('input_tokens_details') or {}).get('cached_tokens')
+                        if cr:
+                            u['cache_read_input_tokens'] = cr
+                        rt = (usage.get('output_tokens_details') or {}).get('reasoning_tokens')
+                        if rt:
+                            u['reasoning_tokens'] = rt
+                    else:  # chat_completions
+                        if usage.get('prompt_tokens'):
+                            u['input'] = usage['prompt_tokens']
+                        if usage.get('completion_tokens'):
+                            u['output'] = usage['completion_tokens']
+                        cr = (usage.get('prompt_tokens_details') or {}).get('cached_tokens')
+                        if cr:
+                            u['cache_read_input_tokens'] = cr
+                        rt = (usage.get('completion_tokens_details') or {}).get('reasoning_tokens')
+                        if rt:
+                            u['reasoning_tokens'] = rt
+                    if u:
+                        _tls._usage = u
+                except Exception:
+                    pass
+
+        llmcore._record_usage = _wrapped_record_usage
     except Exception:
         pass

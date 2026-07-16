@@ -9,13 +9,18 @@ from typing import Any
 import pandas as pd
 
 # Metric columns compared between baseline and evolved variants.
+# Token 侧展开成 5 字段 + 派生 ``total_tokens`` / ``cache_hit_ratio``，供后处理逐项对比。
 METRIC_COLUMNS = [
     "trials",
     "tool_use_num",
     "content_score",
-    "cached_token",
-    "cached_token_ratio",
+    "input_tokens",
+    "cache_write_tokens",
+    "cache_read_tokens",
+    "output_tokens",
+    "reasoning_tokens",
     "total_tokens",
+    "cache_hit_ratio",
     "total_latency_seconds",
     "trajectory_score",
 ]

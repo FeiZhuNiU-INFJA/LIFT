@@ -67,6 +67,49 @@ export function register(api) {
   // Capture the prompt text before the turn starts so we have a clean "input"
   const pendingPrompts = new Map();
 
+  // llm_output usage accumulator keyed by sessionKey. OpenClaw's `agent_end` fires
+  // before the current turn's assistant.usage.cacheRead / cacheWrite / reasoningTokens
+  // land on message.usage (they are patched on the *next* turn's history rewrite), so
+  // reading turnSlice.msg.usage at agent_end always sees cacheRead=0 for the just-
+  // produced assistant. `llm_output` fires per model call inside the turn with the
+  // provider-normalized `usage` payload — accumulating those gives the true per-turn
+  // usage. See LIFT docs: openclaw cache_read=0 root cause.
+  const pendingUsage = new Map();
+
+  api.on('llm_output', (event, ctx) => {
+    const key = ctx?.sessionKey ?? ctx?.agentId ?? 'default';
+    let usagePreview = '(no usage)';
+    try {
+      usagePreview = event && typeof event === 'object' && event.usage
+        ? JSON.stringify(event.usage).slice(0, 400)
+        : '(no usage)';
+    } catch {}
+    appendLog(`[langfuse-tracer] hit: llm_output sessionKey=${key} usage=${usagePreview}`);
+    const u = event?.usage;
+    if (!u || typeof u !== 'object') return;
+    const inp = num(u.input);
+    const out = num(u.output);
+    const cr = num(u.cacheRead);
+    const cw = num(u.cacheWrite);
+    const reasoning = num(u.reasoningTokens);
+    if (inp === 0 && out === 0 && cr === 0 && cw === 0 && reasoning === 0) return;
+    const acc = pendingUsage.get(key) ?? {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      reasoning: 0,
+      calls: 0,
+    };
+    acc.input += inp;
+    acc.output += out;
+    acc.cacheRead += cr;
+    acc.cacheWrite += cw;
+    acc.reasoning += reasoning;
+    acc.calls += 1;
+    pendingUsage.set(key, acc);
+  });
+
   api.on('before_agent_start', (event, ctx) => {
     api.logger.info(
       `[langfuse-tracer] hit: before_agent_start sessionKey=${ctx?.sessionKey ?? '-'} agentId=${ctx?.agentId ?? '-'}`,
@@ -156,7 +199,34 @@ export function register(api) {
     const lastUserIndex = findLastIndex(safeMessages, (m) => m?.role === 'user');
     const turnSlice = lastUserIndex >= 0 ? safeMessages.slice(lastUserIndex + 1) : safeMessages;
 
-    const usage = aggregateAssistantUsage(turnSlice);
+    // Primary source: llm_output-accumulated usage for this session. Fallback to
+    // scanning turnSlice.assistant.usage when llm_output didn't fire (defensive:
+    // subagent embedded runs, or hook subscription failing to bind).
+    //
+    // OpenClaw fires `llm_output` synchronously *before* `agent_end` (see
+    // run-attempt.runCodexAppServerAttempt), but both hooks are dispatched via
+    // an internal `runVoidHook` that schedules handlers on the microtask queue.
+    // Empirically, this agent_end handler runs *before* the llm_output handler
+    // gets to update pendingUsage, so a naive read here returns undefined. Yield
+    // one macrotask via setImmediate to drain pending microtasks — after this
+    // resolves, any llm_output handler that fired before us has completed and
+    // pendingUsage carries the true per-turn usage (cacheRead / reasoningTokens
+    // included). Without this yield, cache_read/reasoning silently land as 0.
+    await new Promise((resolve) => setImmediate(resolve));
+    const accumulated = pendingUsage.get(key);
+    pendingUsage.delete(key);
+    appendLog(
+      `[langfuse-tracer] agent_end usage source: accumulated=${
+        accumulated ? JSON.stringify(accumulated) : '(none)'
+      }`,
+    );
+    const usage = usageFromAccumulator(accumulated) ?? aggregateAssistantUsage(turnSlice);
+    // Langfuse ingestion API: `usage` only recognizes input/output/total/unit; the
+    // fine-grained cache_read_input_tokens / cache_creation_input_tokens /
+    // reasoning_tokens keys must live under `usageDetails` (Anthropic-style names),
+    // otherwise they are silently dropped. Mirror the payload so both legacy and
+    // typed consumers see the numbers. See LIFT lesson: openclaw ingestion drop.
+    const usageDetails = usageDetailsFromUsage(usage);
     const toolStats = summarizeTools(turnSlice);
     const messagesPayload = serializeMessagesForMetadata(safeMessages, appendLog);
 
@@ -212,6 +282,7 @@ export function register(api) {
           level: success ? 'DEFAULT' : 'ERROR',
           statusMessage: error ?? undefined,
           usage,
+          usageDetails,
           metadata: {
             durationMs,
             messageCount: safeMessages.length,
@@ -321,28 +392,98 @@ function findLastIndex(arr, pred) {
   return -1;
 }
 
-/** OpenClaw Pi: usage uses input/output (and totalTokens); some stacks use input_tokens/output_tokens. */
+/**
+ * Aggregate per-turn assistant usage.
+ *
+ * OpenClaw's transcript assistant.usage shape:
+ *   { input, output, cacheRead, cacheWrite, reasoningTokens, totalTokens, cost }
+ *
+ * We pass all 5 tokens forward to Langfuse under Langfuse-convention keys so
+ * ``prompt_tokens_details.cached_tokens``-style dashboards / downstream extract
+ * can see the full breakdown. Historically this only forwarded input / output,
+ * silently dropping cacheRead (which for Ark can be >90% of prompt) and
+ * reasoningTokens (relevant when REASONING_EFFORT=high).
+ */
 function aggregateAssistantUsage(turnMessages) {
   let inputSum = 0;
   let outputSum = 0;
+  let cacheReadSum = 0;
+  let cacheWriteSum = 0;
+  let reasoningSum = 0;
   let hasAny = false;
   for (const msg of turnMessages) {
     if (msg?.role !== 'assistant' || !msg.usage || typeof msg.usage !== 'object') continue;
     const u = msg.usage;
     const inp = num(u.input_tokens ?? u.input);
     const out = num(u.output_tokens ?? u.output);
-    if (inp > 0 || out > 0) hasAny = true;
+    const cr = num(u.cacheRead ?? u.cache_read_input_tokens ?? u.cached_tokens);
+    const cw = num(u.cacheWrite ?? u.cache_creation_input_tokens);
+    const reasoning = num(u.reasoningTokens ?? u.reasoning_tokens);
+    if (inp > 0 || out > 0 || cr > 0 || cw > 0 || reasoning > 0) hasAny = true;
     inputSum += inp;
     outputSum += out;
+    cacheReadSum += cr;
+    cacheWriteSum += cw;
+    reasoningSum += reasoning;
   }
-  if (!hasAny && inputSum === 0 && outputSum === 0) {
+  if (!hasAny) {
     return undefined;
   }
-  return {
-    input: inputSum > 0 ? inputSum : undefined,
-    output: outputSum > 0 ? outputSum : undefined,
-    unit: 'TOKENS',
-  };
+  // Langfuse convention: keys containing "input" contribute to the dashboard input
+  // total, so we use ``cache_read_input_tokens`` / ``cache_creation_input_tokens``
+  // (Anthropic-style names) — LIFT's ``_usage_breakdown`` already recognizes both
+  // these and OpenClaw's raw ``cacheRead`` / ``cacheWrite`` keys.
+  const usage = { unit: 'TOKENS' };
+  if (inputSum > 0) usage.input = inputSum;
+  if (outputSum > 0) usage.output = outputSum;
+  if (cacheReadSum > 0) usage.cache_read_input_tokens = cacheReadSum;
+  if (cacheWriteSum > 0) usage.cache_creation_input_tokens = cacheWriteSum;
+  if (reasoningSum > 0) usage.reasoning_tokens = reasoningSum;
+  return usage;
+}
+
+/**
+ * Turn `pendingUsage` accumulator entry into a Langfuse `usage` object.
+ *
+ * `llm_output` fires per model call inside a turn with the provider-normalized
+ * payload `{ input, output, cacheRead, cacheWrite, reasoningTokens }`. This is
+ * the only place where OpenClaw exposes cache_read at the moment the turn ends —
+ * `assistant.usage.cacheRead` is patched onto the message only during the *next*
+ * turn's history rewrite (ensureAssistantUsageSnapshots), which is after
+ * `agent_end` has already fired. Returns undefined when nothing was accumulated
+ * so the caller can fall back to `aggregateAssistantUsage`.
+ */
+function usageFromAccumulator(acc) {
+  if (!acc || acc.calls === 0) return undefined;
+  const usage = { unit: 'TOKENS' };
+  if (acc.input > 0) usage.input = acc.input;
+  if (acc.output > 0) usage.output = acc.output;
+  if (acc.cacheRead > 0) usage.cache_read_input_tokens = acc.cacheRead;
+  if (acc.cacheWrite > 0) usage.cache_creation_input_tokens = acc.cacheWrite;
+  if (acc.reasoning > 0) usage.reasoning_tokens = acc.reasoning;
+  return usage;
+}
+
+/** Turn a `usage` object into Langfuse `usageDetails` — the ingestion API only
+ * recognises input/output/total/unit inside `usage`; fine-grained cache/reasoning
+ * fields must live under `usageDetails` to persist. Numbers are copied verbatim
+ * so dashboard input totals aggregate the cache_*_input_tokens correctly. */
+function usageDetailsFromUsage(usage) {
+  if (!usage || typeof usage !== 'object') return undefined;
+  const details = {};
+  const passthrough = [
+    'input',
+    'output',
+    'total',
+    'cache_read_input_tokens',
+    'cache_creation_input_tokens',
+    'reasoning_tokens',
+  ];
+  for (const key of passthrough) {
+    const v = usage[key];
+    if (typeof v === 'number' && v > 0) details[key] = v;
+  }
+  return Object.keys(details).length > 0 ? details : undefined;
 }
 
 function num(v) {

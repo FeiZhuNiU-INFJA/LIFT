@@ -8,7 +8,7 @@ LIFT (Loaded Impact on Final Task) is an evaluation framework for **agent self-e
 
 **Core paradigm**: every holdout task is run twice — once with a clean baseline image, and once with a delta image committed after warmup + evolve. The diff measures improvement.
 
-Agents are hosted in Docker containers (OpenClaw and other runtimes); the pipeline is a single-process asyncio orchestrator. Typical peak: ~36 concurrent containers.
+Agents are hosted in Docker containers (OpenClaw and other runtimes); the pipeline is a single-process asyncio orchestrator. Container fan-out is `max_parallel_suites × per-cell task parallelism × 2 phases`; with defaults (3 parallel cells, moderate holdout task counts) peak is on the order of a few dozen concurrent containers, and can climb into the hundreds when `--max-parallel-suites` is raised.
 
 ## Common Commands
 
@@ -80,6 +80,8 @@ Supported runtimes (`-r` values, see `src/lift/adapters/registry.py`):
 - `openclaw_with_evolve` — evolution plugin variant; runs `openclaw learn review` after warmup
 - `multi_user_openclaw` — OpenClaw + group memory mixin; multi-container warmup (`parallel_multi`), evolve writes to external memory service
 - `genericagent` / `genericagent_active_evolve` — file-I/O-style agent; the latter performs an extra active-reflection pass
+- `hermes` — Hermes runner via `docker exec`; warmup **must** use `serial_single` (concurrent writes to `/opt/hermes-state` race the review process)
+- `openhuman` — Rust core `serve` with JSON-RPC over HTTP; chat goes through `agent.chat`; `reasoning_tokens` is folded into `output_tokens` by upstream schema and reported as `null(counted_into_output)`
 
 ### Evaluation Flow
 
@@ -107,9 +109,21 @@ EvalReport
 - **Suite display name**: `suite_name` on dashboards / container labels is forced to read from the JSON `name` field, decoupled from the file name
 - **Two-phase report fill**: success / score / session id are written during execution; `PhaseRun.langfuse` is backfilled by the post-process `trace_backfill` step
 
+## Token Accounting (5 fields)
+
+LIFT enforces a fixed 5-field token schema across all runtimes (see `LangfuseTraceTokens` in `src/models.py`):
+
+- `input_tokens` — fresh input, **excludes** cache
+- `cache_write_tokens` — first-time cache writes (Anthropic-style; OpenAI-family is always 0)
+- `cache_read_tokens` — cache hits
+- `output_tokens` — total completion tokens; **includes** `reasoning_tokens` as a subset
+- `reasoning_tokens` — extended-thinking / o-series reasoning, `⊂ output_tokens`
+
+`total_tokens = input + cache_write + cache_read + output` — do **not** add `reasoning` again (double counts). Per-runtime status matrix and known gotchas live in `skill/lift-integrate-agent-runtime/docs/token-observability.md`; the full narrative of the cross-runtime fix is in `docs/release-notes/2026-07-16-token-5-fields-observability.md`.
+
 ## Key Constraints
 
-- **Model configuration**: `MODEL_NAME` in `.env` is `provider/model_id` with the provider fixed to `custom` by convention (e.g. `custom/ep-...`). At OpenClaw image build, `models.fragment.json` registers the `custom` provider and derives `model.id` from the part after `/`; `agents.fragment.json` uses the full `MODEL_NAME` as the primary model key.ked into the image. Adding a new provider/model requires updating the fragment and rebuilding
+- **Model configuration**: `MODEL_NAME` in `.env` is `provider/model_id` with the provider fixed to `custom` by convention (e.g. `custom/ep-...`). At OpenClaw image build, `models.fragment.json` registers the `custom` provider and derives `model.id` from the part after `/`; `agents.fragment.json` uses the full `MODEL_NAME` as the primary model key. Fragments are baked into the image, so adding a new provider/model requires updating the fragment and rebuilding.
 - **Delta naming**: `lift-delta:{run_id}-r{repeat}-{suite_name}`; suite cleanup via `SuiteRunResources.cleanup()` runs `docker rmi` (not for `owned=False`, so base images aren't accidentally deleted)
 - **Workspace layout (OpenClaw)**:
   - The agent's default workspace inside the container is fixed at `/root/.openclaw/workspace` (container FS) so warmup-produced memory / skills are captured by `docker commit`
@@ -124,12 +138,6 @@ EvalReport
 - **Concurrency & resources**: `--max-parallel-suites` (default 3) caps cells; `--max-concurrent-tasks` caps per-phase task containers; `--container-memory` / `--container-cpus` pass through to `docker run` — **no per-container cap by default** (OpenClaw peaks can exceed 3g; hard cgroup limits tend to trigger OOM-kill, so overall memory is left to VM kernel + swap)
 - **Failure isolation + auto-retry**: cells are isolated so failures don't cascade; the pipeline collects first-pass failed cells and **retries them once globally**; phases / tasks each retry once at their own layer; the chat layer retries provider errors 5×, judge JSON parse 8×
 - **Port allocation**: containers use `-p 0:N` so Docker picks an ephemeral port; the actual port is recovered via `docker inspect` after startup, avoiding collisions under concurrency
-- **Delta naming**: `lift-delta:{run_id}-r{repeat}-{suite_name}` (auto-cleaned after suite)
-- **Workspace isolation**: Each holdout task gets isolated workspace; warmup tasks share state
-- **Container policies**: 
-  - Warmup: `parallel_single` (default), `serial_single`, `parallel_multi`
-  - Holdout: `parallel_multi` (default), `serial_multi`
-  - Phase: `parallel` (baseline+evolved concurrent) or `serial`
 
 ## Environment Variables (`.env` required)
 
@@ -164,11 +172,11 @@ TOS_SECRET_KEY=your_secret_key
 
 - **Image tags**: `src/paths.py` defines `OPENCLAW_BASE_DOCKER_IMAGE` and `OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE`, corresponding to `INSTALL_SELF_EVOLVING=false/true`
 - **Plugins**: `langfuse-tracer`, `self-evolving-plugin-pro`, firecrawl-plugin, etc. are baked at build time and not downloaded at runtime
-- **Chat channel**: `docker exec openclaw agent --local --json --session-id <sid>`; stdout JSON is parsed into the chat result; a 600s safety timeout applies per call (timeouts retry as provider errors)
+- **Chat channel**: `docker exec openclaw agent --local --json --session-id <sid>`; stdout JSON is parsed into the chat result; a 1000s safety timeout applies per call (timeouts retry as provider errors). Other runtimes use similar per-call ceilings (GenericAgent / OpenHuman = 1000s, Hermes = 1200s) — see `CHAT_EXEC_TIMEOUT_SECONDS` in each adapter's `chat_agent.py`
 - **Langfuse correlation contract**:
   - Same Langfuse project (host and container share keys / host)
   - Same `session_id` (pre-chat span and in-container plugin trace share it)
-  - Plugin trace name ∈ `{"openclaw-plugin", "Hermes turn", "genericagent-plugin"}`
+  - Plugin trace name ∈ `{"openclaw-plugin", "Hermes turn", "genericagent-plugin", "openhuman-plugin"}` (see `LANGFUSE_PLUGIN_TRACE_NAMES` in `src/models.py`)
   - Retries do **not** emit a new `*_agent` pre-chat span; post-process consumes multiple plugin traces via an extended greedy pairing
 - **Workspace seed**: `agent-runtimes/openclaw/workspace_seed/` is `COPY`'d into `/root/.openclaw/workspace` at build time. It contains `SOUL.md` / `IDENTITY.md` / `USER.md` / `AGENTS.md` / `TOOLS.md` / `HEARTBEAT.md`. The old host-side copy logic has been removed.
 
@@ -197,3 +205,4 @@ TOS_SECRET_KEY=your_secret_key
 - Chinese protocol deep-dive (preferred long-form): `docs/lift-framework-guide-cn.md`
 - Flow / data / post-process details: `docs/eval-flow.md`
 - OpenClaw image build: `agent-runtimes/openclaw/README.md`
+- Cross-module change narratives: `docs/release-notes/`

@@ -44,6 +44,8 @@ def _container_runtime_env() -> dict[str, str]:
         "LANGFUSE_BASE_URL": rewrite_langfuse_base_url_for_container(
             os.environ.get("LANGFUSE_BASE_URL")
         ) or _FALLBACK_CONTAINER_LANGFUSE_BASE_URL,
+        # 让 langfuse-tracer 的 append log 落到 bind mount，便于事后诊断 accumulator 是否 populate
+        "LANGFUSE_TRACER_LOG_FILE": f"{CONTAINER_TASK_DIR}/langfuse-tracer.log",
     }
 
 

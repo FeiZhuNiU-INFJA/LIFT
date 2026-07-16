@@ -1,10 +1,18 @@
 """
 Collect Langfuse traces for one ``openclaw_run_task`` phase (single pipeline).
 
-1. ``trace.list`` × N — discover trace ids（OpenClaw 仅 sid；Hermes 走 sid + tag）。
+1. ``trace.list`` × N — discover trace ids（默认按 session_id 命中；Hermes 走 tag）。
 2. ``trace.get`` — fetch all details (tokens from GENERATION observations).
 3. Pair ``*_agent`` + plugin trace → ``work_agent_traces`` / ``judge_agent_traces``。
 4. Build ``work_analytics`` from work turns.
+
+拼装策略命名反映"如何匹配 trace"，而非某个具体 runtime：
+- ``_stitch_by_session_id`` 是绝大多数 runtime（OpenClaw / GenericAgent / OpenHuman /
+  multi_user_openclaw 等）走的默认路径——pre-chat 与 plugin trace 都写了同一个
+  ``session_id``，直接按 session 命中 + 一路 session tag 兜底。
+- ``_stitch_by_tags`` 是 Hermes 走的备用路径——Hermes 内部 ``Hermes turn`` 的
+  ``session_id`` 是它自己的 task_id，与外部 eval session_id 对不上，只能靠
+  外挂在 tags 上的 work/judge session id 反查。
 """
 
 from __future__ import annotations
@@ -84,13 +92,13 @@ def _normalize_eval_session(
     return ref
 
 
-def _classify_openclaw_side(
+def _classify_by_session(
     ref: LangfuseTraceRef,
     *,
     work_session_id: str,
     judge_session_id: str,
 ) -> str | None:
-    """Return ``'work'``, ``'judge'``, or None for an OpenClaw trace ref."""
+    """Return ``'work'``, ``'judge'``, or None based on ``session_id`` / session tag."""
     sid = ref.session_id
     tags = ref.tags or []
     if sid == work_session_id or work_session_id in tags:
@@ -100,7 +108,7 @@ def _classify_openclaw_side(
     return None
 
 
-def _stitch_openclaw(
+def _stitch_by_session_id(
     client: Any,
     *,
     eval_run_tag: str,
@@ -108,12 +116,16 @@ def _stitch_openclaw(
     judge_session_id: str,
     page_limit: int,
 ) -> PhaseLangfuseBundle:
-    """OpenClaw：pre-chat ``*_agent`` + ``openclaw-plugin`` 按 eval session 归类并 1:1 配对。
+    """默认拼装策略：pre-chat ``*_agent`` + plugin trace 都写了同一 ``session_id``，
+    直接按 work/judge session id 命中 + session tag 兜底并 1:1 配对。
 
     只按 work/judge 的 ``session_id`` 与对应 session tag 检索（四路并集去重）。不再按
     ``eval_run_tag`` 全量拉取——该 tag 是整个 run 所有 task×phase×turn 的公共 tag，按它
     检索会把全 run trace 拖进 ``trace.get``，但 classify 阶段只保留本 phase 的 work/judge
     trace，其余全部丢弃，造成 O(phase 数 × 全 run trace 数) 的 N+1 放大。
+
+    适用 runtime：OpenClaw 全家 / GenericAgent / OpenHuman —— 只要 pre-chat 与 plugin
+    trace 的 ``session_id`` 与 eval 外部下发的 session id 一致，就走这条路径。
     """
     by_work, by_judge, by_work_tag, by_judge_tag = _list_traces_parallel(
         client,
@@ -133,7 +145,7 @@ def _stitch_openclaw(
 
     # 流式 transcript 归约：fetch worker 内把每条 trace 的 messages 摘下并只保留最晚一条
     # work transcript，避免 N 份全量 messages 同时驻留内存/落盘。work 判定与下方
-    # `_classify_openclaw_side` 一致（session_id 命中或 session tag 命中）。
+    # `_classify_by_session` 一致（session_id 命中或 session tag 命中）。
     champion = TranscriptChampion(
         lambda d: d.session_id == work_session_id or work_session_id in (d.tags or [])
     )
@@ -148,7 +160,7 @@ def _stitch_openclaw(
             work_session_id=work_session_id,
             judge_session_id=judge_session_id,
         )
-        side = _classify_openclaw_side(
+        side = _classify_by_session(
             ref,
             work_session_id=work_session_id,
             judge_session_id=judge_session_id,
@@ -170,7 +182,7 @@ def _stitch_openclaw(
     )
 
 
-def _stitch_hermes(
+def _stitch_by_tags(
     client: Any,
     *,
     eval_run_tag: str,
@@ -178,7 +190,7 @@ def _stitch_hermes(
     judge_session_id: str,
     page_limit: int,
 ) -> PhaseLangfuseBundle:
-    """Hermes 模式：
+    """Tag-based 拼装（Hermes 专用）：
     - ``*_agent`` pre-chat span 的 ``session_id`` 与外部一致，走 session_id 命中。
     - ``Hermes turn`` 的 ``session_id`` 是 hermes 内部 task_id，不可用 session_id 命中；
       hermes 侧已把 work/judge session_id 写入 ``tags``，因此走 tag 路径查询。
@@ -245,20 +257,20 @@ def stitch_phase_langfuse_traces(
     agent_source: AgentSource = "openclaw",
     page_limit: int = 100,
 ) -> PhaseLangfuseBundle:
-    """按 ``agent_source`` 分发到 OpenClaw / Hermes 实现。默认 ``openclaw`` 保持原行为。"""
+    """按 ``agent_source`` 分发到 tag-based / session-id-based 实现。默认 ``openclaw`` 走 session_id 分支。"""
     if agent_source == "hermes":
-        return _stitch_hermes(
+        return _stitch_by_tags(
             client,
             eval_run_tag=eval_run_tag,
             work_session_id=work_session_id,
             judge_session_id=judge_session_id,
             page_limit=page_limit,
         )
-    # 其余 runtime 都复用 OpenClaw 的 sid-only trace layout（``*_agent`` + plugin
-    # trace 按 session_id 配对）。合法 runtime 名以 ``SUPPORTED_RUNTIMES`` 为唯一
-    # 事实源，新增 runtime 只要落到该 tuple 里就自动纳入这条分支。
+    # 其余 runtime 都复用默认 sid-only trace layout（``*_agent`` + plugin trace 按
+    # ``session_id`` 配对）。合法 runtime 名以 ``SUPPORTED_RUNTIMES`` 为唯一事实源，
+    # 新增 runtime 只要落到该 tuple 里就自动纳入这条分支。
     if agent_source in SUPPORTED_RUNTIMES:
-        return _stitch_openclaw(
+        return _stitch_by_session_id(
             client,
             eval_run_tag=eval_run_tag,
             work_session_id=work_session_id,

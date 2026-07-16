@@ -1,7 +1,10 @@
 """Extract per-task metric rows from backfilled eval report JSON.
 
 Flattens nested run/suite/task structure into a DataFrame with baseline and
-evolved rows, applying OpenClaw- or Hermes-specific metric derivation rules.
+evolved rows. Token 字段全部走 ``PhaseLangfuseBundle.work_analytics.global_stats``
+（5 字段 ``LangfuseTokenToolStats``），provider 差异已在 Langfuse 归一层
+``langfuse_trace_fetch._usage_breakdown`` 消化：``input_tokens`` / ``cache_write_tokens``
+/ ``cache_read_tokens`` / ``output_tokens`` / ``reasoning_tokens``。
 """
 
 import json
@@ -49,21 +52,6 @@ def int_value(value: Any) -> int:
         return 0
 
 
-def aggregate_message_tokens(all_messages: list[dict[str, Any]]) -> tuple[int, int]:
-    """Sum ``totalTokens`` and ``cacheRead`` across message usage dicts."""
-    total_tokens = 0
-    cached_tokens = 0
-
-    for message in all_messages or []:
-        usage = message.get("usage")
-        if not isinstance(usage, dict):
-            continue
-        total_tokens += int_value(usage.get("totalTokens", usage.get("total_tokens")))
-        cached_tokens += int_value(usage.get("cacheRead", usage.get("cache_read")))
-
-    return total_tokens, cached_tokens
-
-
 def _should_ignore_tool_call_block(block: dict[str, Any]) -> bool:
     """Return True for OpenClaw self-evolution ``exec`` calls to the local signal port."""
     if block.get("type") != "toolCall" or block.get("name") != "exec":
@@ -82,77 +70,65 @@ def _phase_plugin_trace_name(side: dict[str, Any]) -> str | None:
     return None
 
 
+def _base_token_row(global_stats: dict[str, Any]) -> dict[str, Any]:
+    """从 ``global_stats``（``LangfuseTokenToolStats`` 序列化后的 dict）读 5 字段 token。
+
+    ``total_tokens`` 与 ``cache_hit_ratio`` 是 pydantic ``computed_field``，落盘时会写进
+    dict；读取时优先取，缺失/为 0 时按同样规则自算（防御旧 backfilled JSON 里没落该字段）。
+    """
+    input_tokens = int_value(global_stats.get("input_tokens"))
+    cache_write_tokens = int_value(global_stats.get("cache_write_tokens"))
+    cache_read_tokens = int_value(global_stats.get("cache_read_tokens"))
+    output_tokens = int_value(global_stats.get("output_tokens"))
+    reasoning_tokens = int_value(global_stats.get("reasoning_tokens"))
+    total_tokens = int_value(global_stats.get("total_tokens"))
+    if total_tokens == 0:
+        total_tokens = input_tokens + cache_write_tokens + cache_read_tokens + output_tokens
+    denom = input_tokens + cache_write_tokens + cache_read_tokens
+    cache_hit_ratio = (cache_read_tokens / denom) if denom > 0 else 0.0
+    return {
+        "input_tokens": input_tokens,
+        "cache_write_tokens": cache_write_tokens,
+        "cache_read_tokens": cache_read_tokens,
+        "output_tokens": output_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "total_tokens": total_tokens,
+        "cache_hit_ratio": cache_hit_ratio,
+    }
+
+
 def _make_row_openclaw(
     side: dict[str, Any],
     work_analytics: dict[str, Any],
 ) -> dict[str, Any]:
-    """OpenClaw 模式：依赖 plugin metadata 的 toolCallBlocks 与 messages.usage 累加 token。
-
-    现已不再对"最后一条 user 之后的 tool / token"做特殊裁剪，也不再对 ``trials``
-    做 ``-1`` 处理：``run_task`` 不再在判定结束后追加额外 chat。
-    """
+    """OpenClaw：``global_stats.tool_call_blocks`` 已由插件 metadata 提供，
+    token 全部走归一后的 ``global_stats`` 5 字段。"""
     global_stats = work_analytics.get("global_stats") or {}
     all_messages = work_analytics.get("all_messages") or []
     chat_turns = work_analytics.get("chat_turns") or []
-    total_tokens, cached_tokens = aggregate_message_tokens(all_messages)
-    total_tool_calls = int_value(global_stats.get("tool_call_blocks"))
-    cached_token_ratio = cached_tokens / total_tokens if total_tokens > 0 else 0.0
-    trials = len(chat_turns)
     return {
-        "trials": trials,
-        "tool_use_num": total_tool_calls,
-        "total_tokens": total_tokens,
-        "cached_token": cached_tokens,
-        "cached_token_ratio": cached_token_ratio,
+        "trials": len(chat_turns),
+        "tool_use_num": int_value(global_stats.get("tool_call_blocks")),
+        **_base_token_row(global_stats),
         "total_latency_seconds": work_analytics.get("total_latency_seconds"),
         "all_messages": dumps_json(all_messages),
     }
-
-
-def _aggregate_openhuman_cached_tokens(all_messages: list[dict[str, Any]]) -> int:
-    """OpenHuman：assistant 消息的 ``usage.cached_input`` 累加。
-
-    OpenHuman transcript usage schema 是 ``{input, output, cached_input, ...}``，
-    没有 ``totalTokens``；``total_tokens`` 走 ``global_stats``（由 Langfuse GENERATION
-    observation usage_details 累加，见 ``langfuse_trace_fetch._usage_triplet``），
-    本函数只补 cache_read_input 缺失的一块。
-    """
-    cached = 0
-    for message in all_messages or []:
-        usage = message.get("usage")
-        if not isinstance(usage, dict):
-            continue
-        cached += int_value(usage.get("cached_input", usage.get("cache_read_input_tokens")))
-    return cached
 
 
 def _make_row_openhuman(
     side: dict[str, Any],
     work_analytics: dict[str, Any],
 ) -> dict[str, Any]:
-    """OpenHuman 模式：``usage`` schema 与 OpenClaw 不同，走 ``global_stats``。
-
-    - ``total_tokens``：``global_stats.total_tokens``（Langfuse GENERATION usage 累加，权威）。
-    - ``cached_token``：从 assistant messages 的 ``usage.cached_input`` 累加，``global_stats``
-      不含该字段所以只能走 messages 通路。
-    - ``tool_use_num``：``global_stats.tool_call_blocks``（transcript_langfuse 已按
-      assistant 消息 tool_calls 计数）。
-    - ``trials``：``chat_turns`` 长度（与 OpenClaw 保持一致语义）。
-    """
+    """OpenHuman：``global_stats.tool_call_blocks`` 由 transcript_langfuse 按 assistant
+    ``tool_calls`` 计数写入，token 5 字段走 ``global_stats``（Langfuse GENERATION
+    ``usage_details`` 已含 ``cache_read_input_tokens``）。"""
     global_stats = work_analytics.get("global_stats") or {}
     all_messages = work_analytics.get("all_messages") or []
     chat_turns = work_analytics.get("chat_turns") or []
-    total_tokens = int_value(global_stats.get("total_tokens"))
-    cached_tokens = _aggregate_openhuman_cached_tokens(all_messages)
-    total_tool_calls = int_value(global_stats.get("tool_call_blocks"))
-    cached_token_ratio = cached_tokens / total_tokens if total_tokens > 0 else 0.0
-    trials = len(chat_turns)
     return {
-        "trials": trials,
-        "tool_use_num": total_tool_calls,
-        "total_tokens": total_tokens,
-        "cached_token": cached_tokens,
-        "cached_token_ratio": cached_token_ratio,
+        "trials": len(chat_turns),
+        "tool_use_num": int_value(global_stats.get("tool_call_blocks")),
+        **_base_token_row(global_stats),
         "total_latency_seconds": work_analytics.get("total_latency_seconds"),
         "all_messages": dumps_json(all_messages),
     }
@@ -162,40 +138,30 @@ def _make_row_hermes(
     side: dict[str, Any],
     work_analytics: dict[str, Any],
 ) -> dict[str, Any]:
-    """Hermes 模式：
-    - ``total_tokens``：直接使用 trace 聚合的 ``global_stats.total_tokens``（与 messages 无关，
-      由 GENERATION observation usage 累加得到，准确）。
+    """Hermes：
+    - Token 5 字段全部走 ``global_stats``。当前 Hermes 插件层未透传 ``prompt_tokens_details``
+      至 Langfuse GENERATION usage，因此 ``cache_read_tokens`` / ``cache_write_tokens``
+      通常为 0；修复 Hermes 侧后本文件无需再改。
     - ``trials``：``chat_turns`` 长度，与 OpenClaw 口径对齐，避免 ``all_messages`` 在
       context compaction 后丢失早期 user message 导致少算 / 把 compaction summary
       误算成 user message。
     - ``tool_use_num``：``global_stats.tool_call_blocks``，由每个 ``Hermes turn`` chain 的
       ``output.tool_calls`` 长度累加得到（见 ``langfuse_trace_fetch._hermes_tool_call_count_from_output``）。
-      插件在 ``_finish_trace`` 时把整轮累计 tool_calls 注入 root output，不受上下文压缩影响。
-      兼容旧 enriched JSON：若 ``tool_call_blocks`` 缺失/为 0（插件修复前的产物未回填该字段），
-      回退为 ``all_messages`` 中 ``role == 'tool'`` 的 message 数。
-    - ``cached_token`` / ``cached_token_ratio``：当前 hermes 链路未上报 cacheRead，置 0。
-    - ``all_messages`` 来源：``LangfuseTraceDetailRecord.plugin_metadata.messages``，
-      由插件在 root span（``Hermes turn`` chain）的 metadata.messages 全量写入。
-      当前插件已不在 GENERATION 子节点 metadata 中保存 messages，因此 root 缺失即
-      全量缺失（不再有兜底回填）。``all_messages`` 仅作为 transcript 留档，
-      ``trials`` / ``total_tokens`` 不依赖 messages。
+      插件在 ``_finish_trace`` 时把整轮累计 tool_calls 注入 root output，不受上下文压缩影响；
+      缺失/为 0 时回退为 ``all_messages`` 中 ``role == 'tool'`` 的 message 数。
     """
     global_stats = work_analytics.get("global_stats") or {}
     all_messages = work_analytics.get("all_messages") or []
     chat_turns = work_analytics.get("chat_turns") or []
-    total_tokens = int_value(global_stats.get("total_tokens"))
-    trials = len(chat_turns)
     tool_use_num = int_value(global_stats.get("tool_call_blocks"))
     if tool_use_num == 0:
         tool_use_num = sum(
             1 for m in all_messages or [] if isinstance(m, dict) and m.get("role") == "tool"
         )
     return {
-        "trials": trials,
+        "trials": len(chat_turns),
         "tool_use_num": tool_use_num,
-        "total_tokens": total_tokens,
-        "cached_token": 0,
-        "cached_token_ratio": 0.0,
+        **_base_token_row(global_stats),
         "total_latency_seconds": work_analytics.get("total_latency_seconds"),
         "all_messages": dumps_json(all_messages),
     }
@@ -205,34 +171,20 @@ def _make_row_genericagent(
     side: dict[str, Any],
     work_analytics: dict[str, Any],
 ) -> dict[str, Any]:
-    """GenericAgent 模式：token 走 ``global_stats``（GA overlay 的 generation usage 累加）。
-
-    - ``total_tokens``：``global_stats.total_tokens``（GA overlay 每次 LLM 调用挂
-      GENERATION observation，``usage_details`` 由 SSE tee 解析得到；messages 里不带
-      ``totalTokens``，故不能走 ``_make_row_openclaw`` 的 messages 累加口径）。
-    - ``tool_use_num``：``global_stats.tool_call_blocks``（GA overlay 在 agent_after
-      写 metadata.toolCallBlocks 后有值）；缺失/为 0 时回退 ``global_stats.tool_observation_count``
-      （``type=TOOL`` observation 数），保证有工具调用时不被静默丢成 0。
-    - ``cached_token``：从 ``all_messages`` 的 ``usage.cache_read_input_tokens`` / ``cacheRead``
-      累加（``global_stats`` 不含该字段；GA 多数情况下 messages 无 usage，则为 0）。
-    - ``trials``：``chat_turns`` 长度（与 OpenClaw 保持一致语义）。
+    """GenericAgent：token 5 字段走 ``global_stats``（GA overlay 每次 LLM 调用挂
+    GENERATION observation，``usage_details`` 由 SSE tee 解析）；``tool_call_blocks``
+    优先取，缺失/为 0 时回退 ``tool_observation_count``（``type=TOOL`` observation 数）。
     """
     global_stats = work_analytics.get("global_stats") or {}
     all_messages = work_analytics.get("all_messages") or []
     chat_turns = work_analytics.get("chat_turns") or []
-    total_tokens = int_value(global_stats.get("total_tokens"))
     total_tool_calls = int_value(global_stats.get("tool_call_blocks"))
     if total_tool_calls == 0:
         total_tool_calls = int_value(global_stats.get("tool_observation_count"))
-    cached_tokens = _aggregate_openhuman_cached_tokens(all_messages)
-    cached_token_ratio = cached_tokens / total_tokens if total_tokens > 0 else 0.0
-    trials = len(chat_turns)
     return {
-        "trials": trials,
+        "trials": len(chat_turns),
         "tool_use_num": total_tool_calls,
-        "total_tokens": total_tokens,
-        "cached_token": cached_tokens,
-        "cached_token_ratio": cached_token_ratio,
+        **_base_token_row(global_stats),
         "total_latency_seconds": work_analytics.get("total_latency_seconds"),
         "all_messages": dumps_json(all_messages),
     }
@@ -340,9 +292,13 @@ def build_extracted_dataframe(
             "task_query",
             "trials",
             "tool_use_num",
+            "input_tokens",
+            "cache_write_tokens",
+            "cache_read_tokens",
+            "output_tokens",
+            "reasoning_tokens",
             "total_tokens",
-            "cached_token",
-            "cached_token_ratio",
+            "cache_hit_ratio",
             "total_latency_seconds",
             "all_messages",
         ],

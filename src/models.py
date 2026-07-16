@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 
 class TaskRequirements(BaseModel):
@@ -179,11 +179,38 @@ class LangfusePluginTraceMetadata(BaseModel):
 
 
 class LangfuseTraceTokens(BaseModel):
-    """当轮 LLM token（来自配对 ``openclaw-plugin`` trace 的 GENERATION usage）。"""
+    """
+    当轮 LLM token 拆分（来自配对 plugin trace 的 GENERATION usage）。
 
-    input_tokens: int = Field(default=0, description="输入 token 数")
-    output_tokens: int = Field(default=0, description="输出 token 数")
-    total_tokens: int = Field(default=0, description="总 token 数")
+    语义与 Anthropic prompt-cache 一致的**三段互斥** input 划分：
+    ``input_tokens``（本次新增，不命中 cache）+ ``cache_write_tokens``（首次写入 cache）
+    + ``cache_read_tokens``（命中 cache 读取）= 真实进入模型的完整 prompt。
+
+    - OpenAI / Ark / DeepSeek / Gemini 家的 ``prompt_tokens`` 天然**包含** cache，
+      归一时会做 ``input_tokens = prompt_tokens - cached_tokens``，``cache_write_tokens = 0``。
+    - Anthropic 家三段互斥直接对应。
+    - ``reasoning_tokens ⊂ output_tokens``（extended thinking / o-series reasoning），
+      单列出来但**不参与 total 累加**。
+    - ``total_tokens`` 为派生字段：``input + cache_write + cache_read + output``。
+    """
+
+    input_tokens: int = Field(default=0, description="新增输入 token（**不含** cache 部分）")
+    cache_write_tokens: int = Field(
+        default=0,
+        description="首次写入 cache 的 input token（Anthropic-style；OpenAI 家恒 0）",
+    )
+    cache_read_tokens: int = Field(default=0, description="命中 cache 读取的 input token")
+    output_tokens: int = Field(default=0, description="输出 token")
+    reasoning_tokens: int = Field(
+        default=0,
+        description="思维链 token（extended thinking / o-series reasoning），``⊂ output_tokens``",
+    )
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def total_tokens(self) -> int:
+        """三段 input + output 之和；reasoning 已算在 output 内，不再重复计入。"""
+        return self.input_tokens + self.cache_write_tokens + self.cache_read_tokens + self.output_tokens
 
 
 class LangfuseTraceRef(BaseModel):
@@ -257,17 +284,29 @@ class LangfuseObservationBrief(BaseModel):
     id: str = Field(description="observation id")
     type: str = Field(default="", description="observation 类型（如 GENERATION、TOOL）")
     name: str | None = Field(default=None, description="observation 名称")
-    input_tokens: int = Field(default=0, description="输入 token 数")
-    output_tokens: int = Field(default=0, description="输出 token 数")
-    total_tokens: int = Field(default=0, description="总 token 数")
+    input_tokens: int = Field(default=0, description="新增输入 token（不含 cache）")
+    cache_write_tokens: int = Field(default=0, description="首次写入 cache 的 input token")
+    cache_read_tokens: int = Field(default=0, description="命中 cache 读取的 input token")
+    output_tokens: int = Field(default=0, description="输出 token")
+    reasoning_tokens: int = Field(default=0, description="reasoning token（⊂ output）")
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.cache_write_tokens + self.cache_read_tokens + self.output_tokens
 
 
 class LangfuseTokenToolStats(BaseModel):
-    """Token（来自 Langfuse GENERATION usage）与工具调用相关计数。"""
+    """Token（来自 Langfuse GENERATION usage）与工具调用相关计数。
 
-    input_tokens: int = Field(default=0, description="输入 token 数")
-    output_tokens: int = Field(default=0, description="输出 token 数")
-    total_tokens: int = Field(default=0, description="总 token 数")
+    Token 字段与 ``LangfuseTraceTokens`` 同源，见其 docstring 语义说明。
+    """
+
+    input_tokens: int = Field(default=0, description="新增输入 token（不含 cache）")
+    cache_write_tokens: int = Field(default=0, description="首次写入 cache 的 input token")
+    cache_read_tokens: int = Field(default=0, description="命中 cache 读取的 input token")
+    output_tokens: int = Field(default=0, description="输出 token")
+    reasoning_tokens: int = Field(default=0, description="reasoning token（⊂ output）")
     tool_roundtrips: int = Field(
         default=0,
         description="与 OpenClaw transcript 中 toolResult 轮次一致，优先取插件 trace.metadata.toolRoundtrips",
@@ -280,6 +319,23 @@ class LangfuseTokenToolStats(BaseModel):
         default=0,
         description="Langfuse observation type=TOOL 的数量（元数据缺失时的兜底）",
     )
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def total_tokens(self) -> int:
+        """三段 input + output 之和（与 ``LangfuseTraceTokens.total_tokens`` 同义）。"""
+        return self.input_tokens + self.cache_write_tokens + self.cache_read_tokens + self.output_tokens
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def cache_hit_ratio(self) -> float:
+        """命中率：``cache_read / (input + cache_write + cache_read)``；无输入时为 0。
+
+        分母是"输入侧全部 token"（三段互斥之和），语义为"prompt 里有多少比例复用了历史
+        KV cache"。跨 provider 一致，也是 evolve 前后可以直接对比的信号。
+        """
+        denom = self.input_tokens + self.cache_write_tokens + self.cache_read_tokens
+        return (self.cache_read_tokens / denom) if denom > 0 else 0.0
 
 
 class LangfuseTraceDetailRecord(BaseModel):
