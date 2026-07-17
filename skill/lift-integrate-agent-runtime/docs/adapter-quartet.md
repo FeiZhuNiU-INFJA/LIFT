@@ -28,11 +28,11 @@ src/lift/adapters/<runtime>/
 
 | 类属性 | 作用 | 最简声明(**实测路径,勿照抄文档猜测**) |
 |---|---|---|
-| `evolve_paths: tuple[str, ...]` | 声明本 runtime "真进化产物"落地的**容器内绝对路径**白名单,供 `commit_delta_image` 在 `docker diff` 后单独打一行 `evolve-only` 摘要;计数为 0 时 WARNING(负向信号),并追加一行 candidate unlisted paths 提示 | GA: `("/opt/GenericAgent/memory",)`;OpenClaw: `("/root/.openclaw/workspace/memory", "/root/.openclaw/skill-workshop")`;Hermes: `("/opt/hermes-state/skills", "/opt/hermes-state/memories")`;OpenHuman: `("/root/.openhuman/users", "/root/.openhuman/skill-registry")` |
+| `evolve_paths: tuple[str, ...]` | 声明本 runtime "真进化产物"落地的**容器内绝对路径**白名单,供 `commit_delta_image` 在 `docker diff` 后单独打一行 `evolve-only` 摘要;计数为 0 时 WARNING(负向信号),并追加一行 candidate unlisted paths 提示 | GA: `("/opt/GenericAgent/memory",)`;OpenClaw: `("/root/.openclaw/workspace/memory", "/root/.openclaw/skill-workshop")`;Hermes: `("/opt/hermes-state/skills", "/opt/hermes-state/memories")`;OpenHuman: `("/root/.openhuman/users", "/root/.openhuman/skill-registry")`;EvoScientist: `("/root/.evoscientist",)` |
 
 > ⚠️ **不要照抄上游文档 / 项目 README 里给的路径就当声明完了**。同一 agent 的"记忆目录"文档路径与实际写入路径经常错位(OpenClaw 文档写 `/root/.openclaw/memory`,实际写 `/root/.openclaw/workspace/memory`,因为 `learn review` 写的是 workspace 子目录)。**唯一可信来源是 [`three-layer-verification.md` 证据 C](three-layer-verification.md#证据-clayer--delta-镜像真的包含进化内容吗) 的 `results/{run_id}/delta_diff_*.txt` dump**:先用一个"必然会写记忆"的 suite(推荐 `integration_check.json`,见 [`acceptance-checklist.md`](acceptance-checklist.md))跑一次 `--warmup-only`,读 dump 文件找到真实落地目录,再回填 `evolve_paths`。
 
-漏声明的后果:pipeline 日志只有 `full` 摘要(含 pip / cache / temp 等噪声),无法在无人值守下自动预警"warmup 没写出任何进化产物"。参考 [`GenericAgentAdapter.evolve_paths`](../../../src/lift/adapters/genericagent/adapter.py#L38-L42)、[`OpenClawAdapter.evolve_paths`](../../../src/lift/adapters/openclaw/adapter.py#L36-L45)、[`HermesAdapter.evolve_paths`](../../../src/lift/adapters/hermes/adapter.py#L39-L49)、[`OpenHumanAdapter.evolve_paths`](../../../src/lift/adapters/openhuman/adapter.py#L48-L51) 的定义。声明的路径应与 [`evolve-artifact-contract.md`](evolve-artifact-contract.md) "三点错位"里的**引擎读路径**一致(引擎去哪读,就在哪声明)。
+漏声明的后果:pipeline 日志只有 `full` 摘要(含 pip / cache / temp 等噪声),无法在无人值守下自动预警"warmup 没写出任何进化产物"。参考 [`GenericAgentAdapter.evolve_paths`](../../../src/lift/adapters/genericagent/adapter.py#L38-L42)、[`OpenClawAdapter.evolve_paths`](../../../src/lift/adapters/openclaw/adapter.py#L36-L45)、[`HermesAdapter.evolve_paths`](../../../src/lift/adapters/hermes/adapter.py#L39-L49)、[`OpenHumanAdapter.evolve_paths`](../../../src/lift/adapters/openhuman/adapter.py#L48-L51)、[`EvoScientistAdapter.evolve_paths`](../../../src/lift/adapters/evoscientist/adapter.py#L42-L46) 的定义。声明的路径应与 [`evolve-artifact-contract.md`](evolve-artifact-contract.md) "三点错位"里的**引擎读路径**一致(引擎去哪读,就在哪声明)。
 
 **声明错了怎么办 —— LIFT 已内建两级自动诊断**(不用再手动保留 delta 镜像 `docker diff`):
 
@@ -62,7 +62,7 @@ src/lift/adapters/<runtime>/
 模板:[`src/lift/adapters/genericagent/session.py`](../../../src/lift/adapters/genericagent/session.py)
 
 必须做的:
-1. `_CONTAINER_PREFIX = "evolve-<runtime>"` — 容器名前缀,方便 `docker ps` / cleanup grep。
+1. `_CONTAINER_PREFIX = "lift-<runtime>"` — 容器名前缀,方便 `docker ps` / cleanup grep。
 2. `start_<runtime>_container` 调 `ContainerSession.start`,传 `port_mappings` / `env_vars` / `volume_binds` / `readiness_check` / `post_start_hooks` / `pre_cleanup_hooks`。
 3. `default_volume_binds` + `task_volume_binds` 是标准 bind(`/workspace/outcome`、`/workspace/task`、`/workspace/benchmarks`),照抄即可。
 4. `seed_eval_workspace`:宿主机端把 `workspace_seed/` 拷进 `workspace_dir`,留 `.lift-workspace-ready` marker。

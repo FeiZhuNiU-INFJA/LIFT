@@ -167,9 +167,15 @@ python -m src.cli.lift_main \
 
 跑完看 [results/lift-runid-my-first-run/](./results) 下的报告与自动生成的 `dashboard.html` 离线快照。
 
-**其它 runtime**：`-r genericagent` 跑 GenericAgent；`-r hermes` 跑 Hermes（容器空转 +
-`docker exec` 拉起 `hermes_runner.py`，warmup 期 work session 结束触发 review 演化）。
+**其它 runtime**：`-r genericagent` / `genericagent_active_evolve` 跑文件 I/O 型
+GenericAgent；`-r hermes` 跑 Hermes（容器空转 + `docker exec` 拉起
+`hermes_runner.py`，warmup 期 work session 结束触发 review 演化）；`-r openhuman`
+跑 OpenHuman Rust JSON-RPC runtime；`-r evoscientist` / `evoscientist_active_evolve`
+跑 EvoScientist，其中 active 变体在 warmup 后显式触发 EvoMemory AutoSkills。
+
 Hermes 镜像构建见 [agent-runtimes/hermes/README.md](./agent-runtimes/hermes/README.md)；
+EvoScientist 镜像构建和 AutoSkills active evolve 说明见
+[agent-runtimes/evoscientist/README.md](./agent-runtimes/evoscientist/README.md)。
 推荐 WSL/Linux 服务器跑完整评测，本机只做最小 smoke test。Hermes warmup 建议加
 `--warmup-container-policy serial_single`（避免每题 review 并发写共享 `/opt/hermes-state` 的竞态）。
 
@@ -196,6 +202,7 @@ python -m src.cli.lift_main -r hermes \
 | Hermes 镜像构建细节 | [agent-runtimes/hermes/README.md](./agent-runtimes/hermes/README.md) |
 | OpenHuman 镜像构建细节 | [agent-runtimes/openhuman/README.md](./agent-runtimes/openhuman/README.md) |
 | GenericAgent 镜像构建细节 | [agent-runtimes/genericagent/README.md](./agent-runtimes/genericagent/README.md) |
+| EvoScientist 镜像与 AutoSkills active evolve | [agent-runtimes/evoscientist/README.md](./agent-runtimes/evoscientist/README.md) |
 | 从零搭环境 | skill: [setup-lift-env](./skill/setup-lift-env/SKILL.md) |
 | 清理评测残留容器/镜像 | [lift-integrate-agent-runtime/docs/environment-cleanup.md](./skill/lift-integrate-agent-runtime/docs/environment-cleanup.md) |
 | 接入新的 agent runtime | skill: [lift-integrate-agent-runtime](./skill/lift-integrate-agent-runtime/SKILL.md) |

@@ -73,10 +73,13 @@ class AppConfig:
       注入 AIAgent；ARK ``volces.com`` 已在 ``install-in-image.sh`` 中加入白名单。
     - GenericAgent：镜像构建期 sed 到 ``mykey.py`` 的 ``native_oai_config`` 上，
       再由 ``llmcore.py`` 作为顶层 ``reasoning_effort`` 透传到 OpenAI 兼容请求体。
+    - EvoScientist：镜像构建期写入 ``~/.evoscientist/config.yaml`` 的
+      ``reasoning_effort`` 字段，随 ``custom-openai`` provider 生效。
     - OpenHuman：Rust 二进制不支持该字段，服务端默认已 thinking，此处配置无效果。
 
     值为空字符串时各 runtime 走各自的默认（Hermes 走 upstream 默认，OpenClaw 不追加
-    ``--thinking``，GenericAgent 不写入 ``reasoning_effort`` key）。
+    ``--thinking``，GenericAgent 不写入 ``reasoning_effort`` key；EvoScientist
+    构建脚本未设置时默认 bake 为 ``high``）。
     """
     log_file: str
     """日志文件路径（``EVAL_LOG_FILE``，默认项目根下 ``evolve_eval.log``）。"""

@@ -85,11 +85,15 @@ else
 fi
 
 # 1. 评测容器（按 SKILL "lift-integrate-agent-runtime" adapter-quartet.md
-# 里 session.py 的 _CONTAINER_PREFIX 约定，所有 runtime 都形如
-# "evolve-<runtime>"（例如 evolve-openclaw / evolve-genericagent）。
-# 统一用 "evolve-" 前缀过滤，未来新加 runtime 不必再改 cleanup 脚本。）
-section "1. 清理 evolve-* 评测容器"
-mapfile -t containers < <(docker ps -a --filter "name=evolve-" --format "{{.Names}}" || true)
+# 里 session.py 的 _CONTAINER_PREFIX 约定，新容器统一形如
+# "lift-<runtime>"（例如 lift-openclaw / lift-genericagent）。
+# 同时兼容历史 "evolve-<runtime>" 残留，避免改名前的孤儿容器清不掉。）
+section "1. 清理 LIFT 评测容器"
+mapfile -t containers < <(
+    docker ps -a --format "{{.Names}}" \
+        | grep -E '^(lift|evolve)-(openclaw|genericagent|hermes|openhuman|evoscientist)(-|$)' \
+        || true
+)
 if [[ ${#containers[@]} -eq 0 ]]; then
     echo "(无残留容器)"
 else
@@ -164,8 +168,10 @@ else
 fi
 
 section "完成"
-echo "当前 evolve-* 评测容器:"
-docker ps -a --filter "name=evolve-" --format "  {{.Names}}\t{{.Status}}" || true
+echo "当前 LIFT 评测容器:"
+docker ps -a --format "{{.Names}}\t{{.Status}}" \
+    | grep -E '^(lift|evolve)-(openclaw|genericagent|hermes|openhuman|evoscientist)(-|$)' \
+    | sed 's/^/  /' || true
 echo
 echo "当前镜像:"
 docker images --format "  {{.Repository}}:{{.Tag}}\t{{.Size}}" \

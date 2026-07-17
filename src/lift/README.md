@@ -10,11 +10,21 @@ Three adapter layers:
 
 1. **`SuiteRunContext`** + **`AgentRuntimeAdapter`** (`adapters/base.py`) — per `(repeat, suite)` coordinates; template `produce_delta` / holdout; calls `lift/eval`
 2. **`ContainerAgentRuntimeAdapter`** (`adapters/container/`) — Docker lifecycle; default delta via `docker commit`
-3. **`OpenClawAdapter`** (`adapters/openclaw/`) — base image + `start_container` + chat factory; **不带**进化插件，`evolve_after_warmup` 为 no-op；带进化插件的变体为 `OpenClawWithEvolveAdapter`（`adapters/openclaw_with_evolve/`，warmup 后 `openclaw learn review`）
+3. **Runtime adapters** (`adapters/<runtime>/`) — OpenClaw / GenericAgent / Hermes / OpenHuman / EvoScientist 等具体 runtime 的 container start、chat factory、evolve hook
 
-- **before-load**: fresh container from base image (`lift-openclaw-base:latest` / `lift-openclaw-with-evolve:latest`)
+- **before-load**: fresh container from the runtime's base image (`lift-openclaw-*`, `lift-genericagent:latest`, `lift-hermes:latest`, `lift-openhuman:latest`, `lift-evoscientist:latest`, ...)
 - **after-load**: fresh container from **delta image** (committed after warmup)
 - **Cleanup**: `SuiteRunResources.cleanup()` removes containers and delta images
+
+当前主要 runtime：
+
+| `-r` | Adapter | 说明 |
+|---|---|---|
+| `openclaw` / `openclaw_with_evolve` / `multi_user_openclaw` | `adapters/openclaw*` | OpenClaw baseline、显式 learn review、群体记忆 |
+| `genericagent` / `genericagent_active_evolve` | `adapters/genericagent*` | 文件 I/O 型 agent；active 变体追加 reflection |
+| `hermes` | `adapters/hermes` | `docker exec` 常驻 runner；Hermes review 写 `/opt/hermes-state` |
+| `openhuman` | `adapters/openhuman` | Rust JSON-RPC `agent.chat` |
+| `evoscientist` / `evoscientist_active_evolve` | `adapters/evoscientist*` | `EvoSci -p ... --output-format stream-json`；active 变体触发 EvoMemory AutoSkills |
 
 ## Build image
 
