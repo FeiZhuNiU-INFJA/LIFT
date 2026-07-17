@@ -48,6 +48,16 @@ OPENHUMAN_DOCKER_IMAGE = "lift-openhuman:latest"
 OPENHUMAN_WORKSPACE_SEED_DIR = OPENHUMAN_AGENT_DIR / "workspace_seed"
 """宿主机 OpenHuman eval workspace seed 源目录。"""
 
+EVOSCIENTIST_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "evoscientist"
+"""EvoScientist 镜像与容器配置目录（``agent-runtimes/evoscientist/``）。"""
+
+EVOSCIENTIST_DOCKER_IMAGE = "lift-evoscientist:latest"
+"""EvoScientist baseline 镜像（``EvoScientistAdapter`` 使用；
+``agent-runtimes/evoscientist/build-image.sh`` 构建，基于 ``ghcr.io/evoscientist/evoscientist:latest`` 叠 overlay）。"""
+
+EVOSCIENTIST_WORKSPACE_SEED_DIR = EVOSCIENTIST_AGENT_DIR / "workspace_seed"
+"""宿主机 EvoScientist eval workspace seed 源目录。"""
+
 RESULTS_DIR = "results"
 """单次 eval run 产物根目录名（相对 cwd）：report、outcome、后处理指标。"""
 
