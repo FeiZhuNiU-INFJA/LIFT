@@ -131,6 +131,35 @@ docker run --rm --entrypoint sh "$DELTA" -c '
 
 > **A' 与 A / B / C 的关系**:A / B / C 是"计数在不在",A' 是"内容对不对"。跑完 A / B / C 全绿 **且** A' 抽样合理,才算"新 runtime 接入完备";否则就算 4 项绿灯,后续 benchmark 数据仍然可能是伪造。
 
+### A'.6 多轮续接哨兵(runtime thread 是否真的生效)
+
+`session_id=user-*` 出现在日志 / Langfuse 里,只说明观测链路能按 LIFT session
+拼 trace,**不等于 runtime 自己的 conversation thread 已经续接**。某些 runtime
+会把观测 `session_id` 与真实对话 `thread_id` / `--resume` 分成两个概念。
+
+新 runtime 跑 `integration_check.json` 时必须抽一条 judge 反馈后的下一轮 work
+回复,看它是否在上一轮答案上修改:
+
+```bash
+LOG=logs/<run_id>.log
+
+# 找同一个 user-* 的连续 prompt/result,确认第二轮不是从零开始
+grep -E "User Prompt|Agent result|captured thread_id|Thread .* not found" "$LOG" | head -120
+```
+
+通过标准:
+
+- 同一个 `user-*` 在 judge 反馈后继续围绕上一版输出修改。
+- 日志没有 `Thread '<id>' not found` / `SESSION_EXPIRED` / resume 失败信号。
+- agent 不应在"改一下 / 补进去 / 加上这个"后索要文件路径,除非任务本身就是文件编辑。
+
+如果失败,回 [adapter-quartet](./adapter-quartet.md) §2.4.0:
+
+- 查上游 CLI help / API schema / 源码,确认真实多轮字段。
+- 首轮捕获 runtime 自己生成的 thread id,后续传回。
+- thread id 绑定在每个 `ChatAgent` 实例上;不要用容器全局变量或查询
+  `sessions.db` 的最新 thread,并发 warmup 会串 task。
+
 ---
 
 ## 证据 B:Langfuse —— trace 写入 & 后处理拼装

@@ -1,7 +1,7 @@
 # EvoScientist runtime image (`agent-runtimes/evoscientist`)
 
 LIFT 评测用的 [EvoScientist](https://github.com/EvoScientist/EvoScientist) 镜像。
-LIFT (`src`) 在每题独立容器内通过 **`docker exec … EvoSci -p <prompt> --output-format stream-json --auto-mode --session-id <sid>`** 调起 EvoScientist 完成一轮 chat。
+LIFT (`src`) 在每题独立容器内通过 **`docker exec … EvoSci -p <prompt> --output-format stream-json --auto-mode [--resume <thread>]`** 调起 EvoScientist 完成一轮 chat。每个 work / judge agent 实例会保存自己的 EvoScientist thread id，用于多轮对话续接。
 
 ## Layout
 
@@ -21,7 +21,9 @@ agent-runtimes/evoscientist/
 bash agent-runtimes/evoscientist/build-image.sh
 ```
 
-产出 `lift-evoscientist:latest`，对应 LIFT `-r evoscientist`。
+产出 `lift-evoscientist:latest`，对应 LIFT `-r evoscientist` 和
+`-r evoscientist_active_evolve`（active 变体复用同一镜像，只改变 host 侧
+adapter 的 warmup 后 evolve hook）。
 
 内网构建：`APT_MIRROR=... PIP_INDEX_URL=... UV_INDEX_URL=... bash agent-runtimes/evoscientist/build-image.sh`（`build-image.sh` 会把变量透传到 `docker build --build-arg`）。
 
@@ -60,9 +62,50 @@ warmup 结束后 `docker commit` 覆盖以下目录（EvoScientist 在容器内�
 trace name 白名单：`evoscientist-plugin`（在 [`src/models.py::LANGFUSE_PLUGIN_TRACE_NAMES`](../../src/models.py) 中登记）。
 
 流程：
-1. LIFT 侧 `chat_agent.py` 起 pre-chat span（`work_agent` 或 `judge_agent`），把 `session_id` 写进 `LIFT_EVOSCI_SESSION_ID` 环境变量传进容器。
+1. LIFT 侧 `chat_agent.py` 起 pre-chat span（`work_agent` 或 `judge_agent`），把 `session_id` 写进 `LIFT_EVOSCI_SESSION_ID` 环境变量传进容器。该 id 只用于 Langfuse 观测关联，不是 EvoScientist 的 conversation thread id。
 2. 容器内 `langfuse_tracing_overlay.py` 通过 `sitecustomize.py` + `site-packages/lift_evoscientist_overlay.py` 拿到 hook 权：包装 EvoScientist `stream.events.stream_agent_events`，把 `session_id` 覆盖到 langfuse trace 根，trace name 强制为 `evoscientist-plugin`，并透传 `**extra_kwargs`（关键：upstream 的 `events: ToolSelectionView | None` 参数必须在 wrapper 签名中显式列出，否则 CLI 会以 `Goodbye!` 早退，详见 [common-pitfalls.md](../../skill/lift-integrate-agent-runtime/docs/common-pitfalls.md)）。
 3. post-process `trace_backfill` 按 tag `lift-runid-<run_id>` + 白名单拼接三段 trace。
+
+## Conversation threading
+
+EvoScientist 的多轮上下文由 CLI thread 维护，不由 `LIFT_EVOSCI_SESSION_ID` 维护。LIFT 的 adapter 行为：
+
+1. 每个 `EvoScientistContainerAgent` 实例首轮不传 `--resume`，让 EvoScientist 创建新 thread。
+2. 首轮结束后从当前进程 stderr 的 resume hint（`EvoSci --resume <short_id>`）解析 thread id。
+3. 后续同一 work / judge agent 实例调用时追加 `--resume <short_id>`。
+
+thread id 绑定在 agent 实例上，而不是容器全局上。因此 warmup `parallel_single` 下多个 task 可在同一容器内并发，各自维护独立 work / judge conversation thread。不要通过 `sessions.db` 的“最新 thread”反查；并发时会串到别的 task。
+
+## Active Evolve: AutoSkills
+
+`evoscientist_active_evolve` 是 EvoScientist 的显式进化 runtime。它继承
+baseline 的容器、chat、delta commit 逻辑，只在
+[`evolve_after_warmup`](../../src/lift/adapters/evoscientist_active_evolve/adapter.py)
+里额外触发 EvoScientist 自带的 EvoMemory AutoSkills 机制：
+
+1. 所有 warmup tasks 完成后，warmup 容器仍保持运行。
+2. adapter 在容器内调用 AutoSkills backing API，而不是把
+   `/autoskills run` 发送给 `EvoSci -p`。
+3. hook 将 `memory_skill_synthesis_enabled=true`、
+   `memory_skill_synthesis_mode=auto` 写入 EvoScientist config。
+4. hook 调用 `ensure_langgraph_dev(...)`，再通过
+   `run_autoskill_now(...)` 启动 `evomemory-autoskills` graph。
+5. hook 使用 LangGraph SDK `runs.join(thread_id, run_id)` 等待后台 run 完成。
+6. 正常返回后，LIFT 才执行 `docker commit`，把 `/root/.evoscientist`
+   中的 memories、autoskills proposals、approved global skills 固化进 delta。
+
+不要使用 `EvoSci -p "/autoskills run"` 作为 evolve 入口；实测它会被当作普通
+用户 prompt 发给主 agent，不会执行 slash command manager。交互 CLI 里
+`/autoskills run` 是公开命令，但它只启动后台 run，不同步等待完成；LIFT
+adapter 因此直接使用同一套公开模块背后的 AutoSkills API，并显式等待 run
+完成后再 commit。
+
+AutoSkills 不保证每次 warmup 都会生成/批准 skill。若候选 observation 不足，
+hook 会正常完成但日志会 warning `approved no proposals`；这表示主动 evolve
+机制执行了，只是本轮没有高置信度可蒸馏产物。验收时应同时查看
+`delta_diff_*.txt`、`/root/.evoscientist/memories`、
+`/root/.evoscientist/autoskills`、`/root/.evoscientist/skills` 以及 holdout
+的 turns / tokens / latency 变化。
 
 ## Token 5 字段
 
@@ -81,11 +124,13 @@ EvoScientist 的 `custom-openai` provider 经 `EvoScientist/llm/models.py::_OPEN
 
 ## LIFT integration (`src`)
 
-- Registry：[`src/lift/adapters/registry.py`](../../src/lift/adapters/registry.py) 注册 `evoscientist`
+- Registry：[`src/lift/adapters/registry.py`](../../src/lift/adapters/registry.py) 注册 `evoscientist` / `evoscientist_active_evolve`
 - Adapter：[`src/lift/adapters/evoscientist/`](../../src/lift/adapters/evoscientist)
   - `session.py`：容器生命周期、Langfuse host 重写、delta commit 覆盖 `/root/.evoscientist/`
-  - `chat_agent.py`：`docker exec EvoSci -p ...` 调用；PATH 修复；`LIFT_EVOSCI_SESSION_ID` 注入
+  - `chat_agent.py`：`docker exec EvoSci -p ... [--resume ...]` 调用；PATH 修复；`LIFT_EVOSCI_SESSION_ID` 注入；按 agent 实例维护 EvoScientist thread
   - `run_before_load.py` / `run_after_load.py`：baseline / evolved 阶段脚手架
+- Active evolve adapter：[`src/lift/adapters/evoscientist_active_evolve/`](../../src/lift/adapters/evoscientist_active_evolve)
+  - `autoskills.py`：容器内触发 AutoSkills graph、等待 LangGraph run 完成、解析产物摘要
 - Chat 超时：`CHAT_EXEC_TIMEOUT_SECONDS=1000`（超时按 provider 错误重试）
 
 ## Known limitation: stream-json whitespace
@@ -137,6 +182,11 @@ print('_astream patched:', getattr(BaseChatOpenAI._astream, '_lift_patched', Fal
 python -m src.cli.lift_main -r evoscientist \
   --benchmark_dir assets/benchmarks_demo --suite hello.json \
   --run_id evosci-smoke --max-parallel-suites 1 --max-concurrent-tasks 1
+
+# 4. active evolve smoke
+python -m src.cli.lift_main -r evoscientist_active_evolve \
+  --benchmark_dir assets/benchmarks_demo --suite integration_check.json \
+  --run_id evosci-active-smoke --max-parallel-suites 1 --max-concurrent-tasks 1
 ```
 
 跑完检查 `results/lift-runid-evosci-smoke/lift-runid-evosci-smoke_comparison_metrics.csv` 里 `input_tokens` / `output_tokens` / `cache_read_tokens` / `reasoning_tokens` 均非 NaN。

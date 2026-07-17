@@ -16,6 +16,7 @@ description: "LIFT 评测框架接入新 agent runtime 的端到端清单:镜像
 > **两个反例警示**(在集成过程中主动验证,别只信"跑通了 hello.json"):
 > 1. **进化产物不进 delta 镜像**([docs/evolve-artifact-contract.md](./docs/evolve-artifact-contract.md)) —— warmup 阶段 agent 写的 memory / skills 如果落进 bind mount,`docker commit` 不会捕获,evolved 与 baseline 完全一致,improvement 恒为 0
 > 2. **hello.json 走通 ≠ evolve 生效 ≠ token 5 字段落库**([docs/three-layer-verification.md](./docs/three-layer-verification.md)) —— 必须跑一个会让 agent 有话可记的复杂 suite 并做 Log × Langfuse × Layer 三层证据交叉验证,同时审计 5 字段 token 落库
+> 3. **观测 session_id ≠ runtime conversation thread**([docs/adapter-quartet.md](./docs/adapter-quartet.md) §2.4.0) —— 接入前先查上游文档 / CLI help / 源码确认多轮续接字段,再用 2 轮口令探针验证;不要只因为 Langfuse session 拼上了就认为 work-judge 多轮上下文也续上了
 
 ---
 
@@ -102,6 +103,10 @@ description: "LIFT 评测框架接入新 agent runtime 的端到端清单:镜像
 - `session.py`:`start_baseline_container` / `start_evolved_container` / `task_volume_binds` / `env_vars`
 - `container_exec.py`:与容器内 agent 通信(HTTP gateway 或 `docker exec` + 文件 I/O)
 - `chat_agent.py`:实现 `WorkerJudgerPair`,session_id 前缀走 `user-` / `judge-`
+
+⚠ **先做多轮续接协议审计**:确认 runtime 的真实 conversation thread 是不是
+LIFT `session_id`;若不是,在每个 `ChatAgent` 实例上维护 runtime 自己的
+`thread_id` / `--resume` 句柄。见 [docs/adapter-quartet.md §2.4.0](./docs/adapter-quartet.md)。
 
 CLI 注册:
 - [`registry.py::SUPPORTED_RUNTIMES`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/registry.py#L12) 补一行
