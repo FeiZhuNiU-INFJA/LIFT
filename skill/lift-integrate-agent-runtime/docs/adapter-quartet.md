@@ -80,6 +80,34 @@ src/lift/adapters/<runtime>/
 
 **核心**:实现 `ChatAgent.chat(message, *, session_id) -> str`。
 
+### 2.4.0 多轮对话续接协议先验审计 ⚠️
+
+写 `chat_agent.py` 前先查上游文档 / CLI help / 源码,确认 **LIFT 的
+`session_id` 是否真的等于 runtime 的 conversation thread id**。不要想当然地
+认为"传了 `session_id` env / trace session 就等于多轮续上了"。
+
+必须回答这 4 个问题:
+
+1. runtime 用什么字段续接多轮? 例:`--session-id` / `--thread-id` /
+   `--resume` / HTTP `thread_id` / 文件 I/O 目录 / 长连接进程内历史。
+2. 首轮 thread id 是 LIFT 生成并传入,还是 runtime 自己生成? 如果 runtime 自己
+   生成,后续如何拿到它(stdout JSONL / stderr resume hint / API response)?
+3. warmup `parallel_single` 下多个 task 会在同一容器并发。thread id 是否绑定在
+   **每个 ChatAgent 实例** 上,而不是容器全局变量或 "sessions.db latest"?
+4. `LIFT_<RUNTIME>_SESSION_ID` 只用于 Langfuse 观测时,是否已在 README 中写清
+   它不等于 runtime conversation thread?
+
+验收探针:
+
+```text
+turn 1: 请记住一个临时口令: lift-thread-probe-<随机数>
+turn 2: 我刚才让你记住的口令是什么? 请只回答口令。
+```
+
+第二轮必须不借助外部 memory / 文件检索就答出同一口令。否则 work-judge loop
+里 judge 的"改一下 / 补进去"反馈会被 runtime 当成全新任务,常见表现是索要文件
+路径、重新生成不相关内容、或只声明"已记住"但不修改上一轮输出。
+
 三种主流 transport:
 - **HTTP REST gateway**(OpenClaw):post 到容器内 gateway,response 直接拿 turn 输出。
 - **HTTP JSON-RPC**(OpenHuman):`POST http://127.0.0.1:{host_port}/rpc`,body 是 `{"jsonrpc":"2.0","id":1,"method":"<runtime>.agent_chat","params":{"message":..., "thread_id":session_id}}`;response 里取 `result.result`。参考 [`src/lift/adapters/openhuman/chat_agent.py`](../../../src/lift/adapters/openhuman/chat_agent.py)。
@@ -88,6 +116,9 @@ src/lift/adapters/<runtime>/
 **统一约束**:
 - `WorkerJudgerPairFactory.__call__(task)` 每次 **新建 work / judge 各一个 ChatAgent 实例**,互相隔离。
 - `work_session_id = f"user-{short_id()}"`、`judge_session_id = f"judge-{short_id()}"` — 这俩前缀被 `langfuse_trace_stitch` 当作分类信号,**不要改前缀**。
+- 如果 runtime 的 conversation thread id 与 LIFT `session_id` 不是同一个概念,在
+  ChatAgent 实例上维护 runtime 自己的 `_thread_id`。首轮创建 / 捕获,后续传回。
+  **不要**用容器级全局 thread,也不要查"最新 thread";并发 warmup 会串 task。
 - 单轮 wall-clock 上限统一 1000s(`CHAT_EXEC_TIMEOUT_SECONDS = 1000.0`),超时返回 `CHAT_EXEC_TIMEOUT_MARKER` 前缀字符串走 LIFT 的 provider error 重试通道。
 
 ---

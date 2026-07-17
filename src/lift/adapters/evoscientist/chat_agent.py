@@ -8,37 +8,30 @@ EvoScientist CLI 协议：
       [--resume <thread_id>]
 
 单发模型：每次 chat 都是一次独立进程调用，通过 ``--resume <thread_id>``
-串起同一个 session 的多轮对话。stdout 是 JSONL 事件流：
+串起同一个 work / judge agent 的多轮对话。stdout 是 JSONL 事件流：
 ``text`` / ``thinking`` / ``tool_call`` / ``tool_result`` / ``usage_stats`` /
 ``done`` / ``error``（见 ``EvoScientist/stream/emitter.py``）；LIFT 消费
 ``done.response`` 作为该轮 assistant 回复。
 
 关键约定：
-- ``thread_id`` LIFT 侧生成（``short_id()``），首轮不传 ``--resume``，等
-  EvoScientist 自建 thread；从 stderr / dashboard 无法可靠反解 thread_id，
-  因此**直接把 LIFT 生成的 id 作为 ``--resume`` 首轮值**——``resolve_thread``
-  找不到时 EvoScientist 会创建新 thread 并以该 id 作为 thread_id。此处
-  依赖 EvoScientist 版本行为，若上游变更需要在 chat 首轮先起一个空 turn
-  拿到 thread_id 再喂 message，M1 baseline 先按简单方案实现。
-  → 实际实现：首轮通过 ``docker exec ... env EVOSCI_FORCE_THREAD_ID=<id>``
-    注入到 config metadata 里，session.py 用 build 期 secrets bake，chat
-    侧不再依赖首轮的 --resume 行为，改用 CLI 侧的 UUID：让 EvoScientist 自
-    分配 thread_id 后从 stderr resume-hint 抓取。
-  → M1 简化：不追求跨轮，每题 chat 各自独立 thread。work↔judge 多轮内
-    LIFT 通过 EvoScientist thread 保持上下文——首轮不传 ``--resume``，从
-    stream JSON 里没有 thread_id 事件，转而在 ``done`` 后跑一次
-    ``EvoSci threads list --limit 1`` 反查最新 thread_id。此实现对 M1 冗余，
-    baseline 先不加多轮 resume；work agent 每轮各自新起 thread（work↔judge
-    多轮的记忆通过 EvoScientist 内部 memory 保持，thread 隔离不影响记忆学习）。
+- ``thread_id`` 由 EvoScientist CLI 生成。首轮不传 ``--resume``，运行结束后
+  从当前进程 stderr 的 ``EvoSci --resume <short_id>`` hint 解析并保存在当前
+  ``EvoScientistContainerAgent`` 实例上；后续轮对同一个实例追加
+  ``--resume <short_id>``。
+- 不从 ``sessions.db`` 或“最新 thread”反查，避免 warmup ``parallel_single`` 下
+  多个 task 在同一容器并发时串线。
 
 会话隔离：每题都传一个不同的 ``LIFT_EVOSCI_SESSION_ID`` env（对应 Langfuse
-session_id），overlay 侧 root trace 会带上该 id 作为 session_id + tag。
+session_id），overlay 侧 root trace 会带上该 id 作为 session_id + tag。注意
+这个 LIFT session_id 只用于观测关联，不等同于 EvoScientist conversation
+thread_id。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shlex
 from pathlib import Path
 
@@ -59,9 +52,9 @@ class EvoScientistContainerAgent(ChatAgent):
     """一个 EvoScientist chat transport 实例，绑定单个 (container, thread_id)。
 
     ``chat`` 每次调用都会 spawn 一个新的 ``EvoSci`` 进程。首轮不传 ``--resume``，
-    EvoScientist 会自建 thread；后续轮仍不传 ``--resume``（M1 baseline 简化），
-    每轮各自独立 thread。EvoScientist 的跨会话记忆走 ``/root/.evoscientist/memories``
-    与 ``.../skills``，不依赖 thread 一致性即可累积。
+    EvoScientist 会自建 thread；后续轮传回首轮 stderr resume hint 中的 short
+    thread id。该状态存在 agent 实例上，因此同一 warmup 容器内多个 task 并发
+    时不会共享 conversation thread。
     """
 
     def __init__(
@@ -76,6 +69,7 @@ class EvoScientistContainerAgent(ChatAgent):
         self._agent_name = agent_name
         self._workspace_dir = workspace_dir
         self._role = role  # work / judge —— 目前仅用于日志
+        self._thread_id: str | None = None
 
     @property
     def agent_name(self) -> str:
@@ -97,12 +91,18 @@ class EvoScientistContainerAgent(ChatAgent):
         # 注意：``bash -lc`` 在 root 用户下会走 /etc/profile 重置 PATH，丢掉
         # 官方镜像 ENV 里的 ``/opt/venv/bin``，导致 ``EvoSci: command not found``。
         # 用 ``bash -c``（非 login shell）保留 Dockerfile ENV PATH。
+        resume_arg = (
+            f"--resume {shlex.quote(self._thread_id)} "
+            if self._thread_id
+            else ""
+        )
         remote_shell = (
             "cd /workspace/task && "
             "EvoSci "
             f"--workdir /workspace/task "
             "--output-format stream-json "
             "--auto-mode "
+            f"{resume_arg}"
             f"-p {shlex.quote(message)}"
         )
         cmd = [
@@ -147,17 +147,59 @@ class EvoScientistContainerAgent(ChatAgent):
                 f"{self._container.container_name}: {err_tail}"
             )
 
+        stderr_text = (stderr or b"").decode(errors="replace")
+        resume_thread_id = _parse_resume_thread_id(stderr_text)
+        if resume_thread_id:
+            if self._thread_id is None:
+                LOGGER.info(
+                    "[evoscientist chat] captured thread_id=%s container=%s role=%s session=%s",
+                    resume_thread_id,
+                    self._container.container_name,
+                    self._role,
+                    session_id,
+                )
+            self._thread_id = resume_thread_id
+
         response = _extract_done_response(stdout.decode(errors="replace"))
         if response is None:
             # 没拿到 done 事件（罕见），把 stderr 尾部作为诊断塞回去，让 judge
             # 层能看到错误而不是空字符串。
-            err_tail = (stderr or b"").decode(errors="replace")[-500:]
+            err_tail = stderr_text[-500:]
             LOGGER.warning(
                 "[evoscientist chat] no done event stdout_head=%r stderr_tail=%r",
                 stdout[:300], err_tail,
             )
             return f"[EvoScientist stream produced no `done` event]\n{err_tail}"
         return response
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_RESUME_RE = re.compile(r"\bEvoSci\s+--resume\s+([A-Za-z0-9_-]+)")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
+
+
+def _parse_resume_thread_id(stderr_text: str) -> str | None:
+    """Parse EvoScientist's stderr resume hint.
+
+    In ``--output-format stream-json`` mode stdout is reserved for JSONL, while
+    Rich human-facing output is redirected to stderr. Upstream prints a hint at
+    process exit:
+
+        EvoSci --resume <short_thread_id>
+
+    The short id is accepted by EvoScientist as a thread prefix. Parsing the
+    current process stderr is concurrency-safe for warmup ``parallel_single``;
+    querying the newest row in ``sessions.db`` is not.
+    """
+    if not stderr_text:
+        return None
+    match = _RESUME_RE.search(_strip_ansi(stderr_text))
+    if not match:
+        return None
+    return match.group(1)
 
 
 def _extract_done_response(jsonl_text: str) -> str | None:

@@ -10,8 +10,8 @@
   自然带入 evolved 镜像。
 - ``evolve_paths`` 白名单声明为 ``/root/.evoscientist``，供 delta preflight 输出
   evolve-only 摘要，负向判定 warmup 是否真的产出了进化产物。
-- M2 ``evoscientist_with_evolve`` 变体会 override ``evolve_after_warmup`` 显式
-  调用 ``EvoSci autoskill run`` / 通过 langgraph 端点触发 AutoSkills 蒸馏。
+- ``evoscientist_active_evolve`` 变体会 override ``evolve_after_warmup``，通过
+  EvoScientist 的 AutoSkills backing API 触发并等待 EvoMemory AutoSkills graph。
 """
 
 from __future__ import annotations
