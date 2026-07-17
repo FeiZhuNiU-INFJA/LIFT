@@ -37,7 +37,7 @@ from src.lift.adapters.evoscientist.container_exec import EvoScientistContainerC
 from src.models import SuiteTask
 from src.paths import EVOSCIENTIST_WORKSPACE_SEED_DIR
 
-_CONTAINER_PREFIX = "evolve-evoscientist"
+_CONTAINER_PREFIX = "lift-evoscientist"
 CONTAINER_WORKSPACE_SEED_DIR = "/opt/lift/workspace_seed"
 WORKSPACE_READY_MARKER = ".lift-workspace-ready"
 

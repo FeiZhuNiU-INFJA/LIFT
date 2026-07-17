@@ -462,7 +462,7 @@ flowchart LR
 
 | 参数 | 作用 |
 |------|------|
-| `-r` / `--agent-runtime` | **必填**；当前支持 `openclaw`、`multi_user_openclaw`（OpenClaw + 群体记忆） |
+| `-r` / `--agent-runtime` | **必填**；当前支持 `openclaw`、`openclaw_with_evolve`、`multi_user_openclaw`、`genericagent`、`genericagent_active_evolve`、`hermes`、`openhuman`、`evoscientist`、`evoscientist_active_evolve` |
 | `--benchmark_dir` | suite JSON 目录（默认 `assets/benchmarks`） |
 | `--suite` | 逗号分隔 suite 文件名，或 `all` |
 | `--run_id` | 自定义 eval run 后缀 |
@@ -473,7 +473,7 @@ flowchart LR
 | `--holdout-phase-policy` | 单 task 内 baseline / evolved 顺序（`parallel` / `serial`，默认 `parallel`），见 [§4.4](#44-并发模型与限制) |
 | `--max-parallel-suites` | suites × repeats 矩阵 cell 级并发上限（默认 `3`；`1` 串行；`<=0` 无上限），见 [§4.4](#44-并发模型与限制) |
 | `--max-concurrent-tasks` | 单 phase 内题级并发容器数上限（默认无上限），见 [§4.4](#44-并发模型与限制) |
-| `--max-conversation-turns` | 单 task 内 work→judge 最大对话轮数（默认 `5`，替代旧的 `EVAL_MAX_TURNS` 环境变量） |
+| `--max-conversation-turns` | 单 task 内 work→judge 最大对话轮数（默认 `30`，替代旧的 `EVAL_MAX_TURNS` 环境变量） |
 | `--container-memory` | 单容器内存上限，透传 `docker run --memory`（**默认不限制**；设过小会触发 `CONSTRAINT_MEMCG` OOM），见 [§4.5](#45-容器资源约束与运维colima--docker-vm) |
 | `--container-cpus` | 单容器 CPU 上限，透传 `docker run --cpus`（默认不限制），见 [§4.5](#45-容器资源约束与运维colima--docker-vm) |
 | `--tui` | 启动终端 TUI 实时状态面板（`rich.Live`），见 [§12.8](#128-运行状态可视化--tui----dashboard) |
@@ -650,7 +650,7 @@ class GroupMemoryAdapterMixin:
 | 来源 | 写入方 | trace `name` | 主要 payload |
 |------|--------|--------------|--------------|
 | eval 框架（宿主机） | `emit_pre_chat_state` | `work_agent` / `judge_agent`（以 `_agent` 结尾） | run、task、content_score、是否 final / evolve 等（`CustomTags`） |
-| agent runtime（容器内） | `langfuse-tracer` 等插件 | `openclaw-plugin`（OpenClaw）或 `Hermes turn`（Hermes） | prompt、回复、`metadata.messages`、token、工具统计 |
+| agent runtime（容器内） | `langfuse-tracer` / overlay / transcript push | `openclaw-plugin`、`Hermes turn`、`genericagent-plugin`、`openhuman-plugin`、`evoscientist-plugin` | prompt、回复、`metadata.messages`、token、工具统计 |
 
 实现入口：`stitch_phase_langfuse_traces`（[`src/report/langfuse_trace_stitch.py`](../src/report/langfuse_trace_stitch.py)）→ `pair_session_traces_to_agent_turns`（[`src/report/langfuse_trace_merge.py`](../src/report/langfuse_trace_merge.py)）。
 
@@ -659,9 +659,9 @@ class GroupMemoryAdapterMixin:
 **runtime 插件须满足 4 条**：
 
 1. **同 Langfuse 项目**：宿主机与容器使用相同 `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST`（容器在 Linux 上需 `host.docker.internal:host-gateway`，仓库根 `.env` 通过 `--env-file` 挂入）。
-2. **`session_id` 必须一致**（最关键）：LIFT 为 work / judge 各生成独立 session id，同时用于 `propagate_attributes(session_id=…)`（pre-chat）与 `openclaw agent --session-id …`（容器侧）。插件优先取 hook `ctx.sessionId`，若回退到 `ctx.sessionKey` 与 `--session-id` 分叉，**配对会断裂**。
-3. **trace name 须符合约定**：pre-chat 以 `_agent` 结尾（[`is_agent_trace`](../src/report/langfuse_trace_parse.py)）；plugin 为 `openclaw-plugin` / `Hermes turn`（`LANGFUSE_PLUGIN_TRACE_NAMES`）。
-4. **`agent_end` 必须成功触发**：OpenClaw 须在 `openclaw.json` 为 `langfuse-tracer` 配置 `hooks.allowConversationAccess: true`，否则 plugin trace 缺失、pre-chat 变孤儿。
+2. **`session_id` 必须能关联**（最关键）：LIFT 为 work / judge 各生成独立 session id，并用于 `propagate_attributes(session_id=…)`（pre-chat）。OpenClaw / GenericAgent / OpenHuman / EvoScientist 等 runtime 的 plugin trace 直接写同一个 `session_id`；Hermes 因上游限制走 tags 关联。注意这只是观测关联 ID，未必等于 runtime 自己的 conversation thread（EvoScientist 还需要 `--resume <thread_id>`）。
+3. **trace name 须符合约定**：pre-chat 以 `_agent` 结尾（[`is_agent_trace`](../src/report/langfuse_trace_parse.py)）；plugin name 必须在 `LANGFUSE_PLUGIN_TRACE_NAMES` 中（如 `openclaw-plugin` / `Hermes turn` / `genericagent-plugin` / `openhuman-plugin` / `evoscientist-plugin`）。
+4. **runtime 侧 trace 必须成功闭合并 flush**：OpenClaw 须在 `openclaw.json` 为 `langfuse-tracer` 配置 `hooks.allowConversationAccess: true`；overlay 型 runtime 要保证每轮 chat 都同步结束 root observation，不能依赖容器退出钩子。
 
 **backfill 检索路径**（OpenClaw 模式）：`tags=run_id`（pre-chat span） + `session_id=work/judge_session_id`（双侧 trace） + `tags=session_id`（兜底）。OpenClaw 容器启动时注入 `LIFT_EVAL_RUN_TAG=run_id` 写入 plugin tags 便于按 run 过滤；插件**不强制**带 run tag，主要靠 `session_id`。
 
@@ -674,6 +674,8 @@ class GroupMemoryAdapterMixin:
 > **一句话**：插件与 pre-chat 配上的条件 = **同 Langfuse 项目** + **同 `session_id`** + plugin name 在 `LANGFUSE_PLUGIN_TRACE_NAMES` 中 + **`agent_end` 成功上报** + 时间晚于对应 `*_agent`。脆弱点：OpenClaw 升级后若 ctx 字段分叉，需在容器内查 `langfuse-tracer-plugin.log` 或设 `LANGFUSE_TRACER_DEBUG_MESSAGES=1` 核对。
 
 **Hermes 差异**：`Hermes turn` 的 `session_id` 为内部 task id（与外部 work/judge session 不一致），但 tags 中带外部 session id；配对走 [`pair_hermes_traces_to_agent_turns`](../src/report/langfuse_trace_merge.py)。
+
+**EvoScientist 差异**：`LIFT_EVOSCI_SESSION_ID` 只用于 Langfuse / 日志观测；多轮对话续接依赖 EvoScientist 自己的 `--resume <thread_id>`。adapter 首轮从 stderr 捕获 thread id，后续同一 `ChatAgent` 实例自动追加 `--resume`，避免 warmup 并发时串线。
 
 #### 12.5.3 Provider 错误重试 × 扩展贪心配对（跨 runtime 通用）
 
@@ -703,7 +705,9 @@ worker / judge 对 LLM provider 错误（超时 / 限流）原地用同一 promp
 
 ### 12.6 Agent 模型配置契约（LIFT ↔ 容器运行时）
 
-LIFT 在容器内通过 `agents add --model …` 注册 work / judge agent。OpenClaw 只接受已在容器 `openclaw.json` 中**登记过**的 `provider/model_id` 字符串。因此镜像构建与运行时 `.env` 之间存在固定契约——**当前由 OpenClaw 实现**，未来其他容器 runtime 亦应遵守同等「能力在镜像、选用在宿主」分层。
+不同 runtime 对模型配置的注入点不同，但都遵守同一原则：`.env` 是宿主侧唯一入口，容器内 runtime 必须在启动前拿到 OpenAI-compatible endpoint、key 和 provider-native model id。
+
+OpenClaw 在容器内通过 `agents add --model …` 注册 work / judge agent。OpenClaw 只接受已在容器 `openclaw.json` 中**登记过**的 `provider/model_id` 字符串。因此镜像构建与运行时 `.env` 之间存在固定契约。
 
 **provider 固定为 `custom`**：OpenClaw 的 `models.fragment.json` 只登记一个名为 `custom` 的 provider（`baseUrl` 硬编码，`apiKey` 由构建期注入）。因此 `MODEL_NAME` 恒为 `custom/<model_id>` 形式，`.env` 里换模型只需改斜杠后的 model id，无需新增 provider。
 
@@ -727,6 +731,17 @@ LIFT 在容器内通过 `agents add --model …` 注册 work / judge agent。Ope
 | 换 work LLM 端点/密钥 | 改 `.env` 的 `WORK_OPENAI_API_KEY`（`baseUrl` 在 `models.fragment.json` 硬编码，如需改端点直接改 fragment）→ 重建镜像 |
 
 代码入口：[`chat_agent.py`](../src/lift/adapters/openclaw/chat_agent.py)（`agents add --model`）；配置加载：[`config.py`](../src/config.py)（`MODEL_NAME`）。OpenClaw 镜像构建细节见 [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)。
+
+EvoScientist 使用 `custom-openai` provider 直连 Ark / OpenAI-compatible endpoint：`agent-runtimes/evoscientist/build-image.sh` 读取 `.env`，把 `MODEL_NAME=custom/<model_id>` 剥成 provider-native `<model_id>`，再由 `install-in-image.sh` 写入 EvoScientist `config.yaml`：
+
+```yaml
+provider: custom-openai
+model: <model_id>
+custom_openai_api_key: ${WORK_OPENAI_API_KEY}
+custom_openai_base_url: ${WORK_OPENAI_BASE_URL}
+```
+
+`evoscientist` 与 `evoscientist_active_evolve` 复用同一个 `lift-evoscientist:latest` 镜像；active 变体只改变 host adapter 的 `evolve_after_warmup` hook。
 
 ### 12.7 当前实现映射
 

@@ -268,9 +268,9 @@ column -t -s, results/$RUN/${RUN}_comparison_metrics.csv | grep -E "input_tokens
 [`commit_delta_image`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/container/delta.py) 在 `docker commit` 之前自动打:
 
 ```
-INFO Delta preflight diff (full dump) [evolve-<runtime>-...]: -> /root/.../results/lift-runid-<run_id>/delta_diff_evolve-<runtime>-...txt
-INFO Delta preflight diff (full) [evolve-<runtime>-...]: +2038A ~14C -0D across 17 paths (top: /usr/local/lib x1800, /opt/<runtime>/memory x9, ...)
-INFO Delta preflight diff (evolve-only) [evolve-<runtime>-...]: +9A ~2C -0D across 1 paths (top: /opt/<runtime>/memory x11)
+INFO Delta preflight diff (full dump) [lift-<runtime>-...]: -> /root/.../results/lift-runid-<run_id>/delta_diff_lift-<runtime>-...txt
+INFO Delta preflight diff (full) [lift-<runtime>-...]: +2038A ~14C -0D across 17 paths (top: /usr/local/lib x1800, /opt/<runtime>/memory x9, ...)
+INFO Delta preflight diff (evolve-only) [lift-<runtime>-...]: +9A ~2C -0D across 1 paths (top: /opt/<runtime>/memory x11)
 ```
 
 含义速查:

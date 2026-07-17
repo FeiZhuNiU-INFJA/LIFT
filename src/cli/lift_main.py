@@ -135,7 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Max work->judge conversation turns per task: when the judge rejects, the "
             "task retries with the judge's reason as the next prompt, up to this many "
-            "turns (default: 5). Replaces the former EVAL_MAX_TURNS env var."
+            "turns (default: 30). Replaces the former EVAL_MAX_TURNS env var."
         ),
     )
     parser.add_argument(

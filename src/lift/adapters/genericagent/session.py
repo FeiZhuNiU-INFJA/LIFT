@@ -33,7 +33,7 @@ from src.lift.adapters.genericagent.container_exec import GenericAgentContainerC
 from src.models import SuiteTask
 from src.paths import GENERICAGENT_WORKSPACE_SEED_DIR
 
-_CONTAINER_PREFIX = "evolve-genericagent"
+_CONTAINER_PREFIX = "lift-genericagent"
 CONTAINER_WORKSPACE_SEED_DIR = "/opt/lift/workspace_seed"
 WORKSPACE_READY_MARKER = ".lift-workspace-ready"
 

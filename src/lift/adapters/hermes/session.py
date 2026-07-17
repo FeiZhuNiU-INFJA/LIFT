@@ -30,7 +30,7 @@ from src.lift.adapters.container.volumes import default_volume_binds, task_volum
 from src.lift.adapters.hermes.container_exec import HERMES_TASK_CWD
 from src.models import SuiteTask
 
-_CONTAINER_PREFIX = "evolve-hermes"
+_CONTAINER_PREFIX = "lift-hermes"
 
 
 def _container_reclaim_ownership_script(uid: int, gid: int) -> str:

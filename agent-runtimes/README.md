@@ -10,10 +10,14 @@
 | [`openclaw/`](openclaw/) | `lift-openclaw-base:latest`（基础，构建时 `INSTALL_SELF_EVOLVING=false`） | `openclaw`、`multi_user_openclaw` |
 | [`openclaw/`](openclaw/) | `lift-openclaw-with-evolve:latest`（带 `self-evolving-plugin-pro`） | `openclaw_with_evolve` |
 | [`genericagent/`](genericagent/) | `lift-genericagent:latest` | `genericagent`、`genericagent_active_evolve` |
+| [`hermes/`](hermes/) | `lift-hermes:latest` | `hermes` |
+| [`openhuman/`](openhuman/) | `lift-openhuman:latest` | `openhuman` |
+| [`evoscientist/`](evoscientist/) | `lift-evoscientist:latest` | `evoscientist`、`evoscientist_active_evolve` |
 
-> 注：`*_with_evolve` / `*_active_evolve` 等"带进化"变体共享同一个镜像
-> ——区别在于 adapter 侧的 `evolve_after_warmup` 钩子是否实际触发学习；
-> 镜像层不需要重新构建。
+> 注：`*_active_evolve` 这类 host-side 变体通常共享 baseline 镜像，只在 adapter
+> 侧覆写 `evolve_after_warmup`；`*_with_evolve` 是否使用独立镜像取决于 runtime
+> 本身。OpenClaw 的 `openclaw_with_evolve` 使用 `lift-openclaw-with-evolve:latest`，
+> EvoScientist 的 `evoscientist_active_evolve` 复用 `lift-evoscientist:latest`。
 
 | CLI `-r` 取值 | Adapter 类 | 简述 |
 |---|---|---|
@@ -22,5 +26,9 @@
 | `multi_user_openclaw` | [`MultiUserOpenClawAdapter`](../src/lift/adapters/openclaw_multi_user/adapter.py) | 多容器 warmup + 外部群体记忆；`materialize_delta` 不做 commit |
 | `genericagent` | [`GenericAgentAdapter`](../src/lift/adapters/genericagent/adapter.py) | GA `agentmain.py --task` 文件 I/O，无显式 evolve hook |
 | `genericagent_active_evolve` | [`GenericAgentActiveEvolveAdapter`](../src/lift/adapters/genericagent_active_evolve/adapter.py) | per-task + suite 收尾各发一次 reflection chat |
+| `hermes` | [`HermesAdapter`](../src/lift/adapters/hermes/adapter.py) | 容器空转 + `hermes_runner.py`；Hermes review 流程写 `/opt/hermes-state` |
+| `openhuman` | [`OpenHumanAdapter`](../src/lift/adapters/openhuman/adapter.py) | `openhuman-core serve` + HTTP JSON-RPC `agent.chat` |
+| `evoscientist` | [`EvoScientistAdapter`](../src/lift/adapters/evoscientist/adapter.py) | `EvoSci -p ... --output-format stream-json`；warmup 自然写入的 memories/skills 由 commit 携带 |
+| `evoscientist_active_evolve` | [`EvoScientistActiveEvolveAdapter`](../src/lift/adapters/evoscientist_active_evolve/adapter.py) | warmup 后调用 EvoMemory AutoSkills graph，等待完成后 commit `/root/.evoscientist` |
 
 新增 runtime 的步骤见 skill [`lift-integrate-agent-runtime`](../skill/lift-integrate-agent-runtime/SKILL.md)。

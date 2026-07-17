@@ -39,7 +39,7 @@ from src.lift.adapters.openhuman.container_exec import OpenHumanContainerContext
 from src.models import SuiteTask
 from src.paths import OPENHUMAN_WORKSPACE_SEED_DIR
 
-_CONTAINER_PREFIX = "evolve-openhuman"
+_CONTAINER_PREFIX = "lift-openhuman"
 _RPC_CONTAINER_PORT = 7788  # openhuman-core serve 默认监听
 CONTAINER_WORKSPACE_SEED_DIR = "/opt/lift/workspace_seed"
 WORKSPACE_READY_MARKER = ".lift-workspace-ready"

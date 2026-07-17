@@ -8,7 +8,7 @@
 
 现有 Agent 评测体系——无论是 AgentBench 类通用 benchmark、SWE-bench / GAIA 类任务 benchmark，还是 SkillsBench / EvolveTool-Bench 类产物 benchmark——大多停留在"看 Agent 在某个静态任务集上的最终通过率"这一层。对"加载产物 vs 不加载产物"的因果对照、"训练任务和测试任务的分离"的归因控制以及"运行时环境的可复现隔离"三件事处理得都不充分。
 
-我们提出 **LIFT（Loaded Impact on Final Task）** 评测框架：以 holdout final task 上的 *Base vs Loaded* 对照为唯一科学问题，以容器快照（docker commit → delta 镜像）作为产物固化与回放载体，以 *work agent + judge agent* 的 review loop 作为单题评分内核，以 *adapter / pipeline / eval kernel* 三层解耦支持多种 Agent runtime（OpenClaw、带进化插件的 OpenClaw、群体记忆 OpenClaw 等），并在工程层支持 repeat / suite / phase 的多级并发与可观测性（Langfuse trace backfill）。配套的 benchmark 套件按 *warmup_tasks / holdout_tasks* 两段式组织，对应训练/测试分离的实验设计。
+我们提出 **LIFT（Loaded Impact on Final Task）** 评测框架：以 holdout final task 上的 *Base vs Loaded* 对照为唯一科学问题，以容器快照（docker commit → delta 镜像）作为产物固化与回放载体，以 *work agent + judge agent* 的 review loop 作为单题评分内核，以 *adapter / pipeline / eval kernel* 三层解耦支持多种 Agent runtime（OpenClaw、带进化插件的 OpenClaw、群体记忆 OpenClaw、GenericAgent、Hermes、OpenHuman、EvoScientist 等），并在工程层支持 repeat / suite / phase 的多级并发与可观测性（Langfuse trace backfill）。配套的 benchmark 套件按 *warmup_tasks / holdout_tasks* 两段式组织，对应训练/测试分离的实验设计。
 
 ---
 
@@ -157,13 +157,17 @@ AgentRuntimeAdapter      ← 容器、产物固化、chat 怎么调（不知道 
 lift/eval (work + judge) ← 单题 review loop（不知道 Docker 是什么）
 ```
 
-这样切的直接好处是**接入新 runtime 几乎零成本**。当前已注册三种 runtime：
+这样切的直接好处是**接入新 runtime 几乎零成本**。当前已注册多种 runtime：
 
 | runtime | 镜像 | evolve 行为 |
 |---|---|---|
 | `openclaw` | base 镜像，不带进化插件 | warmup 后 no-op，仅 docker commit |
 | `openclaw_with_evolve` | with-evolve 镜像 | warmup 后容器内 `openclaw learn review`，再 commit |
 | `multi_user_openclaw` | base 镜像 + GroupMemoryMixin | 多容器 warmup（模拟多用户），产物落到外部群体记忆系统 |
+| `genericagent` / `genericagent_active_evolve` | `lift-genericagent:latest` | baseline 文件 I/O；active 变体通过 reflection chat 主动复盘 |
+| `hermes` | `lift-hermes:latest` | Hermes review 流程写入 `/opt/hermes-state` 后 commit |
+| `openhuman` | `lift-openhuman:latest` | Rust JSON-RPC runtime，长期记忆 / wiki 路径进入 delta |
+| `evoscientist` / `evoscientist_active_evolve` | `lift-evoscientist:latest` | baseline 捕获自然状态变化；active 变体触发 EvoMemory AutoSkills 后 commit |
 
 新接 runtime 只需实现 4 个钩子：`resolve_docker_image` / `start_container` / `worker_judger_factory` / `evolve_after_warmup`。整个 docker commit / holdout 编排逻辑在父类 `ContainerAgentRuntimeAdapter` 里复用。
 
@@ -329,7 +333,7 @@ LIFT 协议要求 benchmark 满足以下最小契约：
 - **6.1 同一 Agent 的 Base vs Loaded**：跨 11 套场景的 DownstreamPassDelta 主表
 - **6.2 OpenClaw 不开插件 vs 开插件**：进化插件本身的增量
 - **6.3 同一数据集 ×3 次 repeat**：delta 方差稳定性
-- **6.4 跨 runtime 横向**：同一 benchmark 上 OpenClaw / Hermes / 可选其他主流 Agent 的裸基线和 Loaded delta
+- **6.4 跨 runtime 横向**：同一 benchmark 上 OpenClaw / Hermes / OpenHuman / EvoScientist 等 runtime 的裸基线和 Loaded delta
 - **6.5 跨场景迁移**（A 场景产物 → B 场景任务）的 ablation
 - **6.6 成本视角**：TotalTokens / EvolutionROI
 

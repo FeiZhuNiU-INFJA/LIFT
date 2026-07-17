@@ -32,7 +32,7 @@
 
 | runtime transcript 里 usage 的 key 集合 | 处理方式 |
 |---|---|
-| 含 `totalTokens`(OpenClaw、Hermes、GA — 因为 overlay 是 LIFT 自己写的,会强制拉齐 schema) | 复用 `_make_row_openclaw`,无需新增 |
+| 含 `totalTokens`(OpenClaw、Hermes、GA、EvoScientist — 因为 overlay 是 LIFT 自己写的,会强制拉齐 schema) | 复用 `_make_row_openclaw`,无需新增 |
 | 不含 `totalTokens`(例:OpenHuman `{input, output, cached_input}`;上游用 OpenAI SDK 原生 usage schema `{prompt_tokens, completion_tokens, total_tokens}`) | 必须新增 `_make_row_<runtime>`,从 `global_stats.total_tokens` 取(由 Langfuse GENERATION observation `usage_details` 累加得到),不能依赖 messages 里的字段 |
 
 **症状**:CSV / dashboard 里所有 phase `total_tokens=0`,但 `*_backfilled.json` 里 `work_analytics.global_stats.total_tokens` 有值。
@@ -74,7 +74,7 @@ LANGFUSE_PLUGIN_TRACE_NAMES: tuple[str, ...] = (
 ### 5.2 `src/report/langfuse_trace_stitch.py` 加 dispatch
 
 `stitch_phase_langfuse_traces` 末尾按 `agent_source` 选 `_stitch_openclaw` / `_stitch_hermes`:
-- 走 **OpenClaw 拼装**(基于 `session_id` 直接 list trace):runtime 输出 trace 已经写了 `session_id` = `user-*` / `judge-*` → 加进 `if agent_source in ("openclaw", ..., "<runtime>"): return _stitch_openclaw(...)`。GA 走这条。
+- 走 **OpenClaw 拼装**(基于 `session_id` 直接 list trace):runtime 输出 trace 已经写了 `session_id` = `user-*` / `judge-*` → 加进 `if agent_source in ("openclaw", ..., "<runtime>"): return _stitch_openclaw(...)`。GA / OpenHuman / EvoScientist 走这条。
 - 走 **Hermes 拼装**(基于 `eval_run_tag` + 后置匹配 sid in tags):runtime 自身 SDK 不支持设 session_id,只能写 tag → 走 `_stitch_hermes`。
 
 > **判断标准**:你的 `langfuse_tracing_overlay.py` 是否能在 root span 上设 `session_id`。能 → OpenClaw 路线(推荐,简单);不能 → Hermes 路线。
@@ -167,5 +167,4 @@ hook 位点、异步 push 骨架、验收命令等**全部细节**已下沉到
 - tool observation 挂 `as_type='tool'`(不是 `'default'`)
 - **配套** §4.1:新增 `_make_row_<runtime>`,从 `global_stats.total_tokens` 累加
   (transcript-push 路线通常伴随非 `totalTokens` 的原始 schema)
-
 

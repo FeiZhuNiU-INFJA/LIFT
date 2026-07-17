@@ -5,11 +5,11 @@ description: "LIFT 评测框架接入新 agent runtime 的端到端清单:镜像
 
 # LIFT: 集成新 Agent Runtime
 
-把一个 agent(OpenClaw / GenericAgent / Hermes / OpenHuman 之类)接入 LIFT 评测流水线,需要同步五个层面:
+把一个 agent(OpenClaw / GenericAgent / Hermes / OpenHuman / EvoScientist 之类)接入 LIFT 评测流水线,需要同步五个层面:
 
 **镜像脚手架** → **adapter 三件套** → **CLI 注册** → **后处理类型同步** → **Langfuse trace 拼装 + 5 字段 token 落库**
 
-这份 skill 把三次成功集成(OpenClaw + GenericAgent + Hermes + OpenHuman)+ 一次全面 token 观测治理沉淀出来的所有 touchpoint 固化成清单,减少漏改。**观测(token 5 字段)是接入的内建步骤,不是事后排障**——[docs/token-observability.md](./docs/token-observability.md) 是必读章节之一。
+这份 skill 把多次成功集成(OpenClaw + GenericAgent + Hermes + OpenHuman + EvoScientist)+ 一次全面 token 观测治理沉淀出来的所有 touchpoint 固化成清单,减少漏改。**观测(token 5 字段)是接入的内建步骤,不是事后排障**——[docs/token-observability.md](./docs/token-observability.md) 是必读章节之一。
 
 > **原则**:先把 baseline 跑通(hello.json sanity → integration_check.json 验收),再考虑 `_with_evolve` / `_active_evolve` 之类衍生 runtime。衍生只是在 baseline adapter 上叠 `evolve_after_warmup` 钩子或镜像 tag。
 
@@ -40,7 +40,9 @@ description: "LIFT 评测框架接入新 agent runtime 的端到端清单:镜像
 参考实现速查:
 - 容器型简单样板:[`src/lift/adapters/genericagent/`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/genericagent)(无 gateway / 无 evolve 钩子,最干净)
 - 容器型完整样板:[`src/lift/adapters/openclaw/`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/openclaw)(有 HTTP gateway / readiness check / token)
-- 镜像脚手架:[`agent-runtimes/genericagent/`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent)、[`agent-runtimes/openclaw/`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openclaw)
+- CLI/stream-json 样板:[`src/lift/adapters/evoscientist/`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/evoscientist)(`docker exec EvoSci -p ...`,实例级 `--resume` 多轮续接)
+- 衍生 active evolve 样板:[`src/lift/adapters/evoscientist_active_evolve/`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/evoscientist_active_evolve)(baseline adapter 上叠 suite-level AutoSkills hook)
+- 镜像脚手架:[`agent-runtimes/genericagent/`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/genericagent)、[`agent-runtimes/openclaw/`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openclaw)、[`agent-runtimes/evoscientist/`](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/evoscientist)
 
 ---
 

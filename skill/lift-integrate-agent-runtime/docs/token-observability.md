@@ -217,7 +217,7 @@ fresh, cw, cr, out_t, reasoning = _usage_breakdown(usage_payload)
 | Hermes | ⚠️ 依赖 LIFT overlay | 上游 `normalize_usage` 在 Ark 路径丢字段;overlay 与 upstream 失同步会**静默变 0** | [hermes/README.md#token-5-fields](../../../agent-runtimes/hermes/README.md#token-5-fields) |
 | GenericAgent / GA active evolve | ✅ 全 5 字段齐 | overlay wrap `_record_usage` 公共汇聚点(而非各 parser);改动后必须 rebuild 镜像 | [genericagent/README.md#token-5-fields](../../../agent-runtimes/genericagent/README.md#token-5-fields) |
 | OpenHuman | ⚠️ `reasoning=0` 合规 | 上游 `MessageUsage` schema 无独立 reasoning 字段,已隐式并入 output | [openhuman/README.md#token-5-fields](../../../agent-runtimes/openhuman/README.md#token-5-fields) |
-| EvoScientist / with-evolve | ✅ 全 5 字段齐 | `custom-openai` 走原生 langchain-openai `ChatOpenAI` + otel autoinstrumentation,原生已能吐 usage_metadata;overlay `_should_stream_usage`/`_astream` 双管齐下强制 `stream_options.include_usage=True`,把 judge / 短 turn 的 usage 覆盖率从 44% 拉满到 100% | [evoscientist/README.md#token-5-fields](../../../agent-runtimes/evoscientist/README.md#token-5-fields) |
+| EvoScientist / active evolve | ✅ 全 5 字段齐 | `custom-openai` 走原生 langchain-openai `ChatOpenAI` + otel autoinstrumentation,原生已能吐 usage_metadata;overlay `_should_stream_usage`/`_astream` 双管齐下强制 `stream_options.include_usage=True`,把 judge / 短 turn 的 usage 覆盖率从 44% 拉满到 100%;active 变体复用同一镜像和 overlay,只额外触发 AutoSkills evolve hook | [evoscientist/README.md#token-5-fields](../../../agent-runtimes/evoscientist/README.md#token-5-fields) |
 
 排障时:先按 §2 断层图定位在 A/B/C 哪一层,再按 §3-§5 通用修法尝试;若怀疑
 runtime 特定问题,再翻对应 README 的历史病史。

@@ -71,6 +71,9 @@ lift/eval (src/lift/eval)
 | Group memory mixin | `src/lift/adapters/group_memory/` + `openclaw_multi_user/` | Multi-container warmup, evolve writes to external memory service, delta reuses base image |
 | GenericAgent | `src/lift/adapters/genericagent[_active_evolve]/` | File-I/O-style agent; `_active_evolve` variant adds active reflection per task / suite |
 | Task evaluation | `src/lift/eval/run_task.py` | work↔judge multi-turn + provider retry + judge JSON parse retry |
+| Hermes | `src/lift/adapters/hermes/` | Docker exec runner; review-driven implicit evolution under `/opt/hermes-state` |
+| OpenHuman | `src/lift/adapters/openhuman/` | Rust core JSON-RPC runtime; transcript push to Langfuse |
+| EvoScientist | `src/lift/adapters/evoscientist[_active_evolve]/` | `EvoSci -p ... --output-format stream-json`; `_active_evolve` runs EvoMemory AutoSkills after warmup |
 | Data models | `src/models.py` | `Suite` / `EvalReport` / `PhaseRun` / `CustomTags` / Langfuse trace schema |
 | Status bus | `src/lift/status/` | Event bus + state aggregator + TUI / HTTP dashboard + replay |
 | Post-processing | `src/postprocess/run_post_process.py` | trace backfill, metric extraction, trajectory judge, CSV / HTML reports |
@@ -82,6 +85,8 @@ Supported runtimes (`-r` values, see `src/lift/adapters/registry.py`):
 - `genericagent` / `genericagent_active_evolve` — file-I/O-style agent; the latter performs an extra active-reflection pass
 - `hermes` — Hermes runner via `docker exec`; warmup **must** use `serial_single` (concurrent writes to `/opt/hermes-state` race the review process)
 - `openhuman` — Rust core `serve` with JSON-RPC over HTTP; chat goes through `agent.chat`; `reasoning_tokens` is folded into `output_tokens` by upstream schema and reported as `null(counted_into_output)`
+- `evoscientist` — EvoScientist CLI headless runtime (`EvoSci -p ... --output-format stream-json`); runtime conversation continuity uses captured `--resume <thread_id>`, not LIFT observability `session_id`
+- `evoscientist_active_evolve` — EvoScientist + explicit EvoMemory AutoSkills hook after warmup; reuses `lift-evoscientist:latest`, waits for LangGraph run completion, then commits `/root/.evoscientist`
 
 ### Evaluation Flow
 
@@ -176,7 +181,7 @@ TOS_SECRET_KEY=your_secret_key
 - **Langfuse correlation contract**:
   - Same Langfuse project (host and container share keys / host)
   - Same `session_id` (pre-chat span and in-container plugin trace share it)
-  - Plugin trace name ∈ `{"openclaw-plugin", "Hermes turn", "genericagent-plugin", "openhuman-plugin"}` (see `LANGFUSE_PLUGIN_TRACE_NAMES` in `src/models.py`)
+  - Plugin trace name ∈ `{"openclaw-plugin", "Hermes turn", "genericagent-plugin", "openhuman-plugin", "evoscientist-plugin"}` (see `LANGFUSE_PLUGIN_TRACE_NAMES` in `src/models.py`)
   - Retries do **not** emit a new `*_agent` pre-chat span; post-process consumes multiple plugin traces via an extended greedy pairing
 - **Workspace seed**: `agent-runtimes/openclaw/workspace_seed/` is `COPY`'d into `/root/.openclaw/workspace` at build time. It contains `SOUL.md` / `IDENTITY.md` / `USER.md` / `AGENTS.md` / `TOOLS.md` / `HEARTBEAT.md`. The old host-side copy logic has been removed.
 
@@ -205,4 +210,5 @@ TOS_SECRET_KEY=your_secret_key
 - Chinese protocol deep-dive (preferred long-form): `docs/lift-framework-guide-cn.md`
 - Flow / data / post-process details: `docs/eval-flow.md`
 - OpenClaw image build: `agent-runtimes/openclaw/README.md`
+- EvoScientist image build / AutoSkills active evolve: `agent-runtimes/evoscientist/README.md`
 - Cross-module change narratives: `docs/release-notes/`

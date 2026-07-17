@@ -23,7 +23,7 @@ from src.models import SuiteTask
 
 _GATEWAY_CONTAINER_PORT = 18789  # 容器内 gateway 端口（agent --local 连此）
 _FASTAPI_CONTAINER_PORT = 18090  # 容器内 self-evolving plugin HTTP 端口
-_CONTAINER_PREFIX = "evolve-openclaw"  # docker 容器名前缀
+_CONTAINER_PREFIX = "lift-openclaw"  # docker 容器名前缀
 
 _FALLBACK_CONTAINER_LANGFUSE_BASE_URL = "http://host.docker.internal:3000"  # 未配 LANGFUSE_BASE_URL 时容器内使用的默认
 CONTAINER_AGENT_WORKSPACE = "/root/.openclaw/workspace"  # 与 agents.fragment.json 对齐

@@ -169,6 +169,9 @@ sequenceDiagram
 | `openclaw_with_evolve/evolve.py` | warmup 后的`openclaw learn review`                                              |
 | `openclaw/json_output.py`        | 解析`--json` stdout                                                             |
 | `agent-runtimes/openclaw/`       | 镜像构建：self-evolving 插件、langfuse-tracer、gateway 配置、baked workspace 种子 |
+| `evoscientist/`                  | `EvoSci -p ... --output-format stream-json`，实例级 `--resume` 多轮续接          |
+| `evoscientist_active_evolve/`    | warmup 后触发 EvoMemory AutoSkills graph，完成后再 commit `/root/.evoscientist` |
+| `agent-runtimes/evoscientist/`   | EvoScientist 官方镜像 overlay：Ark `custom-openai` 配置、Firecrawl MCP、Langfuse overlay |
 
 **新开发只走 src 这条线**。
 
@@ -310,6 +313,7 @@ A：容器内 root 写的文件；新跑会自动 chown，历史残留用 `bash 
 | 英文 README                                     | [src/lift/README.md](../src/lift/README.md)                                  |
 | 单元测试（理解行为）                            | `src/lift/tests/`                                                       |
 | OpenClaw 镜像（含字节内网构建）                 | [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md)    |
+| EvoScientist 镜像与 active evolve               | [agent-runtimes/evoscientist/README.md](../agent-runtimes/evoscientist/README.md) |
 
 ### 完整目录地图（阅读代码时用）
 

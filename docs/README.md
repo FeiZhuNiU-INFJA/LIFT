@@ -15,3 +15,7 @@
 - [src/lift/README.md](../src/lift/README.md) — LIFT 实现速查与测试命令
 - [assets/suite_requirement.md](../assets/suite_requirement.md) — Benchmark 收集规范
 - [agent-runtimes/openclaw/README.md](../agent-runtimes/openclaw/README.md) — OpenClaw 镜像构建
+- [agent-runtimes/genericagent/README.md](../agent-runtimes/genericagent/README.md) — GenericAgent 镜像构建
+- [agent-runtimes/hermes/README.md](../agent-runtimes/hermes/README.md) — Hermes 镜像构建
+- [agent-runtimes/openhuman/README.md](../agent-runtimes/openhuman/README.md) — OpenHuman 镜像构建
+- [agent-runtimes/evoscientist/README.md](../agent-runtimes/evoscientist/README.md) — EvoScientist 镜像与 AutoSkills active evolve
