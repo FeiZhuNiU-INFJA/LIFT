@@ -13,7 +13,7 @@ from typing import Any
 from langfuse import Langfuse, get_client
 
 from src.config import LOGGER
-from src.models import EvalReport, PhaseRun
+from src.models import EvalReport, PhaseLangfuseBundle, PhaseRun
 from src.postprocess.extract import AgentSource
 from src.report.langfuse_trace_stitch import RunTraceIndex, stitch_phase_langfuse_traces
 
@@ -87,16 +87,36 @@ def backfill_phase(
         )
         return phase
     update: dict[str, Any] = {"langfuse": bundle}
-    # tool_calls 兜底：runtime 主链路没填 PhaseRun.tool_calls 时（如 GA 没有
-    # trajectory.jsonl），用 langfuse work_analytics 的 tool_observation_count 代替——
-    # 它就是 ``type=TOOL`` observation 的总数，runtime overlay 给每次工具调用挂
-    # ``as_type='tool'`` span 即可。OpenClaw 主链路读 trajectory.jsonl 拿到精确值
-    # 后已经写入了 PhaseRun.tool_calls，这里跳过避免覆盖。
-    if phase.tool_calls is None and bundle.work_analytics is not None:
-        observation_count = bundle.work_analytics.global_stats.tool_observation_count
-        if observation_count > 0:
-            update["tool_calls"] = observation_count
+    fallback = fallback_tool_calls(phase.tool_calls, bundle)
+    if fallback is not None:
+        update["tool_calls"] = fallback
     return phase.model_copy(update=update)
+
+
+def fallback_tool_calls(
+    current_tool_calls: int | None,
+    bundle: PhaseLangfuseBundle,
+) -> int | None:
+    """从 langfuse work_analytics 兜底 ``PhaseRun.tool_calls``；不需要兜底时返回 None。
+
+    Runtime 主链路没填 ``PhaseRun.tool_calls`` 时（如 GA / EvoScientist 没有本地
+    trajectory.jsonl），按可信度取两条口径的 max：
+
+    - ``tool_observation_count``：``type=TOOL`` observation 总数（overlay 每次工具调用
+      挂 ``as_type='tool'`` 时才有值，如 GA overlay）。
+    - ``tool_call_blocks``：plugin trace ``metadata.toolCallBlocks`` 累加（EvoScientist
+      overlay 只挂 root + generation 时靠这个字段，来自 stream 里的 ``tool_call`` 事件）。
+
+    OpenClaw 主链路读 trajectory.jsonl 拿到精确值后已经写入了 ``PhaseRun.tool_calls``，
+    ``current_tool_calls is not None`` 直接短路，兜底不会覆盖。
+    """
+    if current_tool_calls is not None:
+        return None
+    if bundle.work_analytics is None:
+        return None
+    gs = bundle.work_analytics.global_stats
+    candidate = max(gs.tool_observation_count, gs.tool_call_blocks)
+    return candidate if candidate > 0 else None
 
 
 def _resolve_backfill_workers() -> int:

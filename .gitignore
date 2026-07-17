@@ -148,3 +148,4 @@ nohup.out
 !docs/assets/
 !docs/assets/**
 *.bak
+logs/

@@ -17,6 +17,7 @@ SUPPORTED_RUNTIMES = (
     "genericagent_active_evolve",
     "hermes",
     "openhuman",
+    "evoscientist",
 )  # CLI 可选的运行时标识
 
 
@@ -60,5 +61,11 @@ def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
         from src.lift.adapters.openhuman.adapter import OpenHumanAdapter
 
         return OpenHumanAdapter(options)
+    if normalized == "evoscientist":
+        # EvoScientist baseline：EvoSci -p ... --output-format stream-json （headless）；
+        # 无显式 evolve 触发，warmup 期自然写入的 memories/skills 由 docker commit 携带。
+        from src.lift.adapters.evoscientist.adapter import EvoScientistAdapter
+
+        return EvoScientistAdapter(options)
     supported = ", ".join(SUPPORTED_RUNTIMES)
     raise ValueError(f"Unknown runtime {runtime!r}; supported: {supported}")
