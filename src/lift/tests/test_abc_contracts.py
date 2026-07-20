@@ -11,6 +11,9 @@ from src.lift.adapters.base import AgentRuntimeAdapter
 from src.lift.eval.chat_agent import ChatAgent
 from src.lift.adapters.container.adapter import ContainerAgentRuntimeAdapter
 from src.lift.adapters.openclaw.adapter import OpenClawAdapter
+from src.lift.adapters.openclaw_with_openspace.adapter import OpenClawWithOpenSpaceAdapter
+from src.lift.adapters.hermes_with_openspace.adapter import HermesWithOpenSpaceAdapter
+from src.lift.adapters.registry import SUPPORTED_RUNTIMES
 from src.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src.lift.runtime.disposable import Disposable
 from src.models import SuiteTask
@@ -48,6 +51,45 @@ def test_openclaw_resolve_docker_image_override() -> None:
     验证 ``resolve_docker_image`` 接受显式 override 标签。
     """
     assert OpenClawAdapter.resolve_docker_image(override="custom:tag") == "custom:tag"
+
+
+def test_openclaw_with_openspace_resolve_docker_image() -> None:
+    """Verify OpenClaw+OpenSpace adapter binds the with-openspace image tag.
+
+    验证 OpenClaw+OpenSpace adapter 绑定 with-openspace 镜像 tag，且尊重 override。
+    """
+    assert (
+        OpenClawWithOpenSpaceAdapter.resolve_docker_image()
+        == "lift-openclaw-with-openspace:latest"
+    )
+    assert (
+        OpenClawWithOpenSpaceAdapter.resolve_docker_image(override="custom:tag")
+        == "custom:tag"
+    )
+
+
+def test_hermes_with_openspace_resolve_docker_image() -> None:
+    """Verify Hermes+OpenSpace adapter binds the with-openspace image tag.
+
+    验证 Hermes+OpenSpace adapter 绑定 with-openspace 镜像 tag，且尊重 override。
+    """
+    assert (
+        HermesWithOpenSpaceAdapter.resolve_docker_image()
+        == "lift-hermes-with-openspace:latest"
+    )
+    assert (
+        HermesWithOpenSpaceAdapter.resolve_docker_image(override="custom:tag")
+        == "custom:tag"
+    )
+
+
+def test_openspace_runtimes_registered() -> None:
+    """Verify the new OpenSpace runtime keys are in ``SUPPORTED_RUNTIMES``.
+
+    验证新增的 OpenSpace runtime key 已注册进 ``SUPPORTED_RUNTIMES``。
+    """
+    assert "openclaw_with_openspace" in SUPPORTED_RUNTIMES
+    assert "hermes_with_openspace" in SUPPORTED_RUNTIMES
 
 
 def test_artifact_policy_cannot_instantiate_without_impl() -> None:

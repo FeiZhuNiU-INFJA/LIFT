@@ -52,6 +52,19 @@ COPY patch_hermes_config.py /opt/lift/patch_hermes_config.py
 ARG FIRECRAWL_API_KEY=
 ENV FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
 
+# OpenSpace（基于 MCP 的 quality-first skill hub）。默认不装；--with-openspace 时置 true。
+# install-in-image.sh 据此 git clone OpenSpace、装进独立 Python 3.12 venv、软链
+# openspace-mcp，并拷 host skills 到 Hermes 状态根 skills 目录。OPENSPACE_ENABLED
+# 作为运行期信号，让 patch_hermes_config.py 在 entrypoint 阶段把 mcp_servers.openspace
+# upsert 进 config.yaml（构建期无可靠 runtime HOME，走 config patch 而非 hermes mcp add）。
+ARG INSTALL_OPENSPACE=false
+ENV INSTALL_OPENSPACE=${INSTALL_OPENSPACE} \
+    OPENSPACE_ENABLED=${INSTALL_OPENSPACE}
+ARG OPENSPACE_GIT_URL=https://github.com/HKUDS/OpenSpace.git
+ENV OPENSPACE_GIT_URL=${OPENSPACE_GIT_URL}
+ARG OPENSPACE_GIT_REF=main
+ENV OPENSPACE_GIT_REF=${OPENSPACE_GIT_REF}
+
 # 1) Install langfuse + overlay plugin + firecrawl, then init the Hermes state
 #    root at /opt/hermes-state in ONE RUN layer (VOLUME /opt/data writes would be
 #    dropped by docker commit). Bootstrap seeds dirs + bundled skills at build.

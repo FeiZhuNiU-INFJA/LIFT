@@ -159,6 +159,29 @@ def main() -> int:
 
     from run_agent import AIAgent
 
+    # 注册 MCP servers（如 config.yaml 的 mcp_servers.openspace）到全局 tools.registry，
+    # 使 AIAgent 起来后能把 MCP 工具（如 mcp_openspace_execute_task）当原生工具调用。
+    #
+    # 为什么必须在这里显式调：Hermes 只在 CLI / gateway / TUI 等进程入口调用
+    # discover_mcp_tools()（见 hermes_cli/main.py），而 LIFT 用 run_agent.AIAgent 直连驱动，
+    # 绕开了那条路径 —— 不补这一步，mcp_servers 配了也不会注册，模型看不到 MCP 工具，
+    # 只能退化成猜一个 shell 命令（如 `openspace execute_task` → command not found）。
+    # discover_mcp_tools 幂等、mcp 包缺失时返回空、无 event loop 时 inline 安全；base 镜像
+    # config.yaml 无 mcp_servers 时读到空配置直接返回，对不带 OpenSpace 的变体无副作用。
+    try:
+        from tools.mcp_tool import discover_mcp_tools
+
+        _mcp_tool_names = discover_mcp_tools()
+        if _mcp_tool_names:
+            sys.stderr.write(
+                f"[hermes_runner] registered {len(_mcp_tool_names)} MCP tool(s): "
+                f"{', '.join(_mcp_tool_names)}\n"
+            )
+            sys.stderr.flush()
+    except Exception as exc:  # noqa: BLE001
+        sys.stderr.write(f"[hermes_runner] MCP tool discovery skipped/failed: {exc!r}\n")
+        sys.stderr.flush()
+
     # ``--reasoning-effort`` → ``reasoning_config``：与 hermes CLI 的 ``_parse_reasoning_config``
     # 语义一致（``hermes_constants.parse_reasoning_effort``）。空字符串保持 Hermes 默认
     # 行为（None → OpenRouter/兼容路径下默认 medium；非白名单路径下静默丢弃）。

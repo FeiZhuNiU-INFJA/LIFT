@@ -28,29 +28,41 @@ fi
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-h|--help]
+Usage: $(basename "$0") [--with-openspace] [-h|--help]
 
 Build lift-hermes:latest from the upstream Hermes image.
 
+Options:
+  --with-openspace  构建带 OpenSpace MCP 插件的镜像（默认不带；产物 lift-hermes-with-openspace:latest）
+  -h, --help        显示本帮助
+
 Override via env:
-  HERMES_IMAGE            产物 tag，默认 lift-hermes:latest
+  HERMES_IMAGE            产物 tag，默认 lift-hermes:latest（--with-openspace 时 lift-hermes-with-openspace:latest）
   HERMES_BASE_IMAGE_REPO  上游镜像仓库，默认 nousresearch/hermes-agent
   HERMES_BASE_IMAGE_TAG   上游镜像 tag，默认 v2026.5.16
   HERMES_BASE_IMAGE       直接指定完整上游镜像（优先于 REPO:TAG 拼接）
   PIP_INDEX_URL           内网构建时切换 PyPI 源
+  OPENSPACE_GIT_URL       OpenSpace 源（默认 https://github.com/HKUDS/OpenSpace.git）
+  OPENSPACE_GIT_REF       OpenSpace ref（默认 main）
   DOCKER_BUILD_NETWORK    docker build 网络模式，默认 host（构建期复用宿主机
                           DNS/路由/代理，规避 BuildKit 沙箱 DNS 解析失败）；
                           设为空可回退 Docker 默认 bridge
 EOF
 }
+INSTALL_OPENSPACE="false"
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --with-openspace) INSTALL_OPENSPACE="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-TAG="${HERMES_IMAGE:-lift-hermes:latest}"
+if [[ "${INSTALL_OPENSPACE}" == "true" ]]; then
+  TAG="${HERMES_IMAGE:-lift-hermes-with-openspace:latest}"
+else
+  TAG="${HERMES_IMAGE:-lift-hermes:latest}"
+fi
 BASE_IMAGE_REPO="${HERMES_BASE_IMAGE_REPO:-nousresearch/hermes-agent}"
 BASE_IMAGE_TAG="${HERMES_BASE_IMAGE_TAG:-v2026.5.16}"
 BASE_IMAGE="${HERMES_BASE_IMAGE:-${BASE_IMAGE_REPO}:${BASE_IMAGE_TAG}}"
@@ -59,6 +71,12 @@ echo "==> Pulling base image (if needed): ${BASE_IMAGE}"
 docker pull "${BASE_IMAGE}" || echo "WARN: docker pull failed; using local image if available"
 
 BUILD_ARGS=(--build-arg "HERMES_BASE_IMAGE=${BASE_IMAGE}")
+BUILD_ARGS+=(--build-arg "INSTALL_OPENSPACE=${INSTALL_OPENSPACE}")
+if [[ "${INSTALL_OPENSPACE}" == "true" ]]; then
+  [[ -n "${OPENSPACE_GIT_URL:-}" ]] && BUILD_ARGS+=(--build-arg "OPENSPACE_GIT_URL=${OPENSPACE_GIT_URL}")
+  [[ -n "${OPENSPACE_GIT_REF:-}" ]] && BUILD_ARGS+=(--build-arg "OPENSPACE_GIT_REF=${OPENSPACE_GIT_REF}")
+  echo "==> OpenSpace MCP plugin enabled (git ${OPENSPACE_GIT_URL:-default}@${OPENSPACE_GIT_REF:-main})"
+fi
 if [[ -n "${PIP_INDEX_URL:-}" ]]; then
   BUILD_ARGS+=(--build-arg "PIP_INDEX_URL=${PIP_INDEX_URL}")
   echo "==> Using pip index URL: ${PIP_INDEX_URL}"

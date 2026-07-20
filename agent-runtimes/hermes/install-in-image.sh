@@ -262,6 +262,70 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 6c) OpenSpace（基于 MCP 的 quality-first skill hub，README「Path A: For Your Agent」）。
+#     默认不装（INSTALL_OPENSPACE=false）。装的话：
+#       - git clone 到 /opt/OpenSpace（sparse 跳过 assets/）。
+#       - 独立 Python 3.12 venv（Hermes venv 由 uv 造、无 pip 且很可能 <3.12，不能复用）。
+#       - openspace-mcp 软链到 /usr/local/bin。
+#       - 拷 host skills 到 Hermes 状态根 skills 目录（随 docker commit 落 delta）。
+#     mcp_servers.openspace 的 config.yaml 注册在 entrypoint 阶段由 patch_hermes_config.py
+#     完成（OPENSPACE_ENABLED=true 触发），这里只负责装好 openspace-mcp。
+# ---------------------------------------------------------------------------
+INSTALL_OPENSPACE="${INSTALL_OPENSPACE:-false}"
+if [[ "${INSTALL_OPENSPACE}" == "true" ]]; then
+  OPENSPACE_GIT_URL="${OPENSPACE_GIT_URL:-https://github.com/HKUDS/OpenSpace.git}"
+  OPENSPACE_GIT_REF="${OPENSPACE_GIT_REF:-main}"
+  OPENSPACE_REPO="/opt/OpenSpace"
+  OPENSPACE_VENV="/opt/openspace-venv"
+  OS_HERMES_HOME="${HERMES_HOME:-/opt/hermes-state}"
+  PIP_IDX="${PIP_INDEX_URL:-https://pypi.org/simple/}"
+
+  log "Installing OpenSpace from ${OPENSPACE_GIT_URL}@${OPENSPACE_GIT_REF}"
+  if command -v git >/dev/null 2>&1; then
+    git clone --filter=blob:none --sparse "${OPENSPACE_GIT_URL}" "${OPENSPACE_REPO}"
+    git -C "${OPENSPACE_REPO}" sparse-checkout set --no-cone '/*' '!/assets/'
+    git -C "${OPENSPACE_REPO}" checkout "${OPENSPACE_GIT_REF}" || true
+  else
+    log "ERROR: git not found; cannot clone OpenSpace." >&2
+    exit 1
+  fi
+
+  # 独立 uv 3.12 venv（uv 已在 Hermes 构建可用，见上文 install_deps 的探测）。
+  if command -v uv >/dev/null 2>&1; then
+    uv venv --python 3.12 "${OPENSPACE_VENV}"
+    uv pip install --python "${OPENSPACE_VENV}/bin/python" --index-url "${PIP_IDX}" -e "${OPENSPACE_REPO}"
+  else
+    log "ERROR: uv not on PATH; cannot create OpenSpace 3.12 venv." >&2
+    exit 1
+  fi
+
+  ln -sf "${OPENSPACE_VENV}/bin/openspace-mcp" /usr/local/bin/openspace-mcp
+  for extra in openspace-cloud-auth openspace-download-skill openspace-upload-skill; do
+    [[ -x "${OPENSPACE_VENV}/bin/${extra}" ]] && ln -sf "${OPENSPACE_VENV}/bin/${extra}" "/usr/local/bin/${extra}" || true
+  done
+
+  # 拷 host skills（bootstrap.sh 会再 mkdir skills，这里先建保证顺序无关）。
+  mkdir -p "${OS_HERMES_HOME}/skills"
+  OPENSPACE_HOST_SKILLS="${OPENSPACE_REPO}/openspace/host_skills"
+  for hs in delegate-task skill-discovery; do
+    if [[ -d "${OPENSPACE_HOST_SKILLS}/${hs}" ]]; then
+      cp -r "${OPENSPACE_HOST_SKILLS}/${hs}" "${OS_HERMES_HOME}/skills/${hs}"
+    else
+      log "WARN: OpenSpace host skill missing: ${OPENSPACE_HOST_SKILLS}/${hs}" >&2
+    fi
+  done
+
+  log "Verifying openspace-mcp..."
+  if openspace-mcp --help >/dev/null 2>&1; then
+    log "OK: openspace-mcp importable"
+  else
+    log "WARN: 'openspace-mcp --help' failed; check OpenSpace install." >&2
+  fi
+else
+  log "INSTALL_OPENSPACE=${INSTALL_OPENSPACE}: skip OpenSpace MCP plugin install"
+fi
+
+# ---------------------------------------------------------------------------
 # 7) Persist discovered paths for entrypoint / adapter
 # ---------------------------------------------------------------------------
 {

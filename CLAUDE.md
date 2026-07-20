@@ -19,6 +19,10 @@ Agents are hosted in Docker containers (OpenClaw and other runtimes); the pipeli
 # Default builds the base image; pass --with-evolve to include the evolution plugin
 bash agent-runtimes/openclaw/build-image.sh                # → lift-openclaw-base:latest
 bash agent-runtimes/openclaw/build-image.sh --with-evolve  # → lift-openclaw-with-evolve:latest
+# OpenSpace MCP plugin (quality-first skill hub); mutually exclusive with --with-evolve (pick one)
+bash agent-runtimes/openclaw/build-image.sh --with-openspace                # → lift-openclaw-with-openspace:latest
+# Hermes OpenSpace variant
+bash agent-runtimes/hermes/build-image.sh --with-openspace  # → lift-hermes-with-openspace:latest
 
 # ByteDance intranet build (defaults go through public mirrors; switch via env vars)
 APT_MIRROR=http://mirrors.byted.org \
@@ -81,12 +85,16 @@ lift/eval (src/lift/eval)
 Supported runtimes (`-r` values, see `src/lift/adapters/registry.py`):
 - `openclaw` — base image with no explicit evolve; OpenClaw's natural skill/memory changes during warmup are carried into the delta via `docker commit`
 - `openclaw_with_evolve` — evolution plugin variant; runs `openclaw learn review` after warmup
+- `openclaw_with_openspace` — OpenClaw + OpenSpace MCP plugin (skill hub); reuses base warmup/evolve/commit flow (`INSTALL_OPENSPACE=true`, image `lift-openclaw-with-openspace`)
 - `multi_user_openclaw` — OpenClaw + group memory mixin; multi-container warmup (`parallel_multi`), evolve writes to external memory service
 - `genericagent` / `genericagent_active_evolve` — file-I/O-style agent; the latter performs an extra active-reflection pass
 - `hermes` — Hermes runner via `docker exec`; warmup **must** use `serial_single` (concurrent writes to `/opt/hermes-state` race the review process)
+- `hermes_with_openspace` — Hermes + OpenSpace MCP plugin (registered as `mcp_servers.openspace` in `config.yaml`); reuses Hermes review/commit flow (image `lift-hermes-with-openspace`)
 - `openhuman` — Rust core `serve` with JSON-RPC over HTTP; chat goes through `agent.chat`; `reasoning_tokens` is folded into `output_tokens` by upstream schema and reported as `null(counted_into_output)`
 - `evoscientist` — EvoScientist CLI headless runtime (`EvoSci -p ... --output-format stream-json`); runtime conversation continuity uses captured `--resume <thread_id>`, not LIFT observability `session_id`
 - `evoscientist_active_evolve` — EvoScientist + explicit EvoMemory AutoSkills hook after warmup; reuses `lift-evoscientist:latest`, waits for LangGraph run completion, then commits `/root/.evoscientist`
+
+> MCP support: OpenSpace is only added to MCP-capable runtimes (OpenClaw, Hermes). GenericAgent (fixed atomic tools) and OpenHuman (no `mcp_servers`) are not MCP clients, so they get no OpenSpace variant.
 
 ### Evaluation Flow
 

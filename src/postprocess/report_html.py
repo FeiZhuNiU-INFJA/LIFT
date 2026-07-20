@@ -31,7 +31,7 @@ _HTML_HIDDEN_METRICS_HERMES = _HTML_HIDDEN_METRICS_BASE | {
 
 def _hidden_metrics(agent_source: AgentSource) -> set[str]:
     """Return the set of metric column names to omit from HTML for *agent_source*."""
-    if agent_source == "hermes":
+    if agent_source in ("hermes", "hermes_with_openspace"):
         return _HTML_HIDDEN_METRICS_HERMES
     return _HTML_HIDDEN_METRICS_BASE
 

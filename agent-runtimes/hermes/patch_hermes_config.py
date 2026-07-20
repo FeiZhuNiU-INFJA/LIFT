@@ -71,7 +71,106 @@ def _model_block() -> dict:
     }
 
 
-def _patch_with_yaml(model_block: dict) -> bool:
+def _openspace_enabled() -> bool:
+    """OpenSpace MCP server 是否需要注册进 config.yaml。
+
+    由镜像 ENV ``OPENSPACE_ENABLED``（Dockerfile 在 INSTALL_OPENSPACE=true 时置 true）
+    驱动；作为兜底，若 /opt/openspace-venv 存在也视为启用。
+    """
+    flag = os.environ.get("OPENSPACE_ENABLED", "").strip().lower()
+    if flag in {"1", "true", "yes"}:
+        return True
+    if flag in {"0", "false", "no"}:
+        return False
+    return Path("/opt/openspace-venv/bin/openspace-mcp").exists()
+
+
+def _openspace_model() -> str:
+    """``OPENSPACE_MODEL``：把 ``MODEL_NAME`` 的 ``custom/`` 前缀重映射为 ``openai/``。
+
+    OpenSpace 用 **litellm** 路由模型，而 litellm 不认 ``custom`` 这个 provider——
+    实测 ``model=custom/ep-xxx`` 会让 litellm 无法正确应用 api_key/api_base，触发
+    ``AuthenticationError: API key or AK/SK ... missing or invalid``，进而 agent 误
+    以为要走 OpenSpace cloud 登录。本项目 ``custom/`` 约定表示"OpenAI 兼容自定义端点"
+    （provider 恒为 custom，见 config.py），对 litellm 而言等价于 ``openai/<model_id>``
+    + 显式 api_base + api_key。因此这里把 ``custom/`` 换成 ``openai/``。
+
+    - 显式 ``OPENSPACE_MODEL`` 优先，且**原样透传**（用户若要指定 litellm 原生 provider
+      前缀，如 ``volcengine/`` / ``openrouter/``，直接设 ``OPENSPACE_MODEL`` 即可）。
+    - ``MODEL_NAME=custom/<id>`` → 返回 ``openai/<id>``。
+    - 其它非 ``custom/`` 前缀（已是 litellm 可识别 provider）原样返回。
+    """
+    explicit = os.environ.get("OPENSPACE_MODEL", "").strip()
+    if explicit:
+        return explicit
+    model_name = os.environ.get("MODEL_NAME", "").strip()
+    if not model_name:
+        return ""
+    if model_name.startswith("custom/") and len(model_name) > len("custom/"):
+        return "openai/" + model_name[len("custom/"):]
+    return model_name
+
+
+def _openspace_env() -> dict[str, str]:
+    """构造 ``mcp_servers.openspace.env``：workspace / skill dirs + LLM 凭据。
+
+    MCP stdio 子进程**不会**继承容器任意环境变量（python ``mcp`` SDK 只透传
+    ``PATH``/``HOME`` 等安全白名单 + 本 ``env`` 块），因此 OpenSpace 需要的 LLM 配置
+    必须显式写进这里：
+
+    - ``OPENSPACE_MODEL``    ← ``MODEL_NAME``（保留 ``custom/`` 前缀）
+    - ``OPENSPACE_LLM_API_KEY``  ← ``WORK_OPENAI_API_KEY``
+    - ``OPENSPACE_LLM_API_BASE`` ← ``WORK_OPENAI_BASE_URL``
+
+    仅注入非空值：留空时 OpenSpace 自行走其默认解析（provider-native env / 宿主
+    agent config / ``openspace/.env`` 兜底），不写入空串污染其解析优先级。
+    """
+    hermes_home = os.environ.get("HERMES_HOME", "/opt/hermes-state").strip() or "/opt/hermes-state"
+    workspace = os.environ.get("OPENSPACE_WORKSPACE", "/opt/OpenSpace").strip() or "/opt/OpenSpace"
+    skill_dirs = os.environ.get("OPENSPACE_HOST_SKILL_DIRS", f"{hermes_home}/skills").strip()
+    env: dict[str, str] = {
+        "OPENSPACE_WORKSPACE": workspace,
+        "OPENSPACE_HOST_SKILL_DIRS": skill_dirs,
+    }
+    model = _openspace_model()
+    if model:
+        env["OPENSPACE_MODEL"] = model
+    api_key = _api_key()
+    if api_key:
+        env["OPENSPACE_LLM_API_KEY"] = api_key
+    api_base = _base_url()
+    if api_base:
+        env["OPENSPACE_LLM_API_BASE"] = api_base
+    return env
+
+
+def _openspace_server_block() -> dict:
+    """``mcp_servers.openspace`` 的内容（stdio transport，见 OpenSpace host_skills/README）。"""
+    return {
+        "command": "openspace-mcp",
+        "env": _openspace_env(),
+    }
+
+
+def _patch_openspace_with_yaml(data: dict) -> None:
+    """把 ``mcp_servers.openspace`` upsert 进已加载的 config dict（原地改）。
+
+    保留 mcp_servers 下其它 server 与 openspace 里未覆盖的既有键。
+    """
+    servers = data.get("mcp_servers")
+    if not isinstance(servers, dict):
+        servers = {}
+    existing = servers.get("openspace")
+    block = _openspace_server_block()
+    if isinstance(existing, dict):
+        existing.update(block)
+        servers["openspace"] = existing
+    else:
+        servers["openspace"] = block
+    data["mcp_servers"] = servers
+
+
+def _patch_with_yaml(model_block: dict, add_openspace: bool = False) -> bool:
     try:
         import yaml  # type: ignore
     except Exception:
@@ -92,6 +191,9 @@ def _patch_with_yaml(model_block: dict) -> bool:
         data["model"] = existing
     else:
         data["model"] = model_block
+
+    if add_openspace:
+        _patch_openspace_with_yaml(data)
 
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(
@@ -163,6 +265,40 @@ def _patch_plaintext(model_block: dict) -> None:
     print(f"[patch-hermes-config] fallback(no-yaml): replaced model block in {CONFIG_PATH} (other keys preserved)")
 
 
+def _render_openspace_block() -> str:
+    """Render a top-level ``mcp_servers:`` block containing only ``openspace``.
+
+    Used only in the PyYAML-unavailable fallback. Appended when no ``mcp_servers:``
+    block exists; if one already exists we leave it alone (degraded path only), to
+    avoid corrupting a hand-authored multi-server block without a YAML parser.
+    """
+    block = _openspace_server_block()
+    lines = ["mcp_servers:", "  openspace:", f"    command: {block['command']}", "    env:"]
+    for key, value in block["env"].items():
+        lines.append(f"      {key}: {value}")
+    return "\n".join(lines) + "\n"
+
+
+def _patch_openspace_plaintext() -> None:
+    """Fallback OpenSpace registration when PyYAML is unavailable.
+
+    Only appends a ``mcp_servers:`` block if none exists. If ``mcp_servers:`` is
+    already present, skip (can't safely merge without a parser) and warn.
+    """
+    if not CONFIG_PATH.exists():
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_PATH.write_text(_render_openspace_block(), encoding="utf-8")
+        print(f"[patch-hermes-config] fallback(no-yaml): created {CONFIG_PATH} with mcp_servers.openspace")
+        return
+    original = CONFIG_PATH.read_text(encoding="utf-8")
+    if re.search(r"^mcp_servers\s*:", original, flags=re.MULTILINE):
+        print("[patch-hermes-config] fallback(no-yaml): mcp_servers already present; skip OpenSpace append (install PyYAML to merge).")
+        return
+    sep = "" if original.endswith("\n") or original == "" else "\n"
+    CONFIG_PATH.write_text(original + sep + _render_openspace_block(), encoding="utf-8")
+    print(f"[patch-hermes-config] fallback(no-yaml): appended mcp_servers.openspace to {CONFIG_PATH}")
+
+
 def main() -> None:
     model_block = _model_block()
     if not model_block["default"]:
@@ -172,16 +308,39 @@ def main() -> None:
     if not model_block["base_url"]:
         print("[patch-hermes-config] WARN: WORK_OPENAI_BASE_URL empty; Hermes has no base_url.")
 
-    if _patch_with_yaml(model_block):
+    add_openspace = _openspace_enabled()
+
+    if _patch_with_yaml(model_block, add_openspace=add_openspace):
         print(f"[patch-hermes-config] patched model block via PyYAML in {CONFIG_PATH}")
+        if add_openspace:
+            print("[patch-hermes-config] registered mcp_servers.openspace via PyYAML")
     else:
         print("[patch-hermes-config] WARN: PyYAML unavailable in this interpreter; using plaintext fallback.")
         _patch_plaintext(model_block)
+        if add_openspace:
+            _patch_openspace_plaintext()
 
     print(f"[patch-hermes-config] model block now in {CONFIG_PATH}:")
     for key, value in model_block.items():
         shown = value if key != "api_key" else ("<set>" if value else "<empty>")
         print(f"    {key}: {shown}")
+    if add_openspace:
+        print("[patch-hermes-config] OpenSpace MCP server 'openspace' registered (command: openspace-mcp)")
+        os_env = _openspace_env()
+        for key in ("OPENSPACE_MODEL", "OPENSPACE_LLM_API_KEY", "OPENSPACE_LLM_API_BASE",
+                    "OPENSPACE_WORKSPACE", "OPENSPACE_HOST_SKILL_DIRS"):
+            value = os_env.get(key)
+            if value is None:
+                shown = "<empty>"
+            elif key == "OPENSPACE_LLM_API_KEY":
+                shown = "<set>"
+            else:
+                shown = value
+            print(f"    openspace.env.{key}: {shown}")
+        if "OPENSPACE_MODEL" not in os_env:
+            print("[patch-hermes-config] WARN: OPENSPACE_MODEL empty (MODEL_NAME unset); OpenSpace falls back to its default model.")
+        if "OPENSPACE_LLM_API_KEY" not in os_env:
+            print("[patch-hermes-config] WARN: OPENSPACE_LLM_API_KEY empty; OpenSpace will try provider-native / host-config credentials.")
 
 
 if __name__ == "__main__":

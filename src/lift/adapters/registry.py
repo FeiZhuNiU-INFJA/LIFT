@@ -12,10 +12,12 @@ if TYPE_CHECKING:
 SUPPORTED_RUNTIMES = (
     "openclaw",
     "openclaw_with_evolve",
+    "openclaw_with_openspace",
     "multi_user_openclaw",
     "genericagent",
     "genericagent_active_evolve",
     "hermes",
+    "hermes_with_openspace",
     "openhuman",
     "evoscientist",
     "evoscientist_active_evolve",
@@ -35,6 +37,11 @@ def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
         from src.lift.adapters.openclaw_with_evolve.adapter import OpenClawWithEvolveAdapter
 
         return OpenClawWithEvolveAdapter(options)
+    if normalized == "openclaw_with_openspace":
+        # OpenClaw + OpenSpace MCP 插件：with-openspace 镜像，复用基础 warmup/evolve/commit 流程
+        from src.lift.adapters.openclaw_with_openspace.adapter import OpenClawWithOpenSpaceAdapter
+
+        return OpenClawWithOpenSpaceAdapter(options)
     if normalized == "multi_user_openclaw":
         # OpenClaw + 群体记忆 Mixin（多容器 warmup，evolve 落到外部记忆系统）
         from src.lift.adapters.openclaw_multi_user.adapter import MultiUserOpenClawAdapter
@@ -57,6 +64,11 @@ def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
         from src.lift.adapters.hermes.adapter import HermesAdapter
 
         return HermesAdapter(options)
+    if normalized == "hermes_with_openspace":
+        # Hermes + OpenSpace MCP 插件：with-openspace 镜像，复用基础 review/commit 流程
+        from src.lift.adapters.hermes_with_openspace.adapter import HermesWithOpenSpaceAdapter
+
+        return HermesWithOpenSpaceAdapter(options)
     if normalized == "openhuman":
         # OpenHuman baseline：Rust core serve 暴露 JSON-RPC，chat 走 HTTP agent.chat
         from src.lift.adapters.openhuman.adapter import OpenHumanAdapter
