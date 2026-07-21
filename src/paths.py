@@ -18,6 +18,13 @@ OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE = "lift-openclaw-with-evolve:latest"
 """带 self-evolving-plugin-pro 进化插件的 OpenClaw 镜像（``OpenClawWithEvolveAdapter`` 使用；
 ``build-image.sh`` 默认 tag，对应 ``INSTALL_SELF_EVOLVING=true``）。"""
 
+OPENCLAW_WITH_OPENSPACE_DOCKER_IMAGE = "lift-openclaw-with-openspace:latest"
+"""带 OpenSpace MCP 插件的 OpenClaw 镜像（``OpenClawWithOpenSpaceAdapter`` 使用；
+``build-image.sh --with-openspace`` 构建，对应 ``INSTALL_OPENSPACE=true``）。
+
+注意：``--with-openspace`` 与 ``--with-evolve`` 互斥（两种进化插件二选一），
+因此不存在 ``lift-openclaw-with-evolve-openspace`` 这样的叠加镜像。"""
+
 GENERICAGENT_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "genericagent"
 """GenericAgent 镜像与容器配置目录（``agent-runtimes/genericagent/``）。"""
 
@@ -34,6 +41,10 @@ HERMES_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "hermes"
 HERMES_DOCKER_IMAGE = "lift-hermes:latest"
 """Hermes 评测镜像（``HermesAdapter`` 使用；``agent-runtimes/hermes/build-image.sh`` 构建，
 默认基于上游 ``nousresearch/hermes-agent:v2026.5.16``）。"""
+
+HERMES_WITH_OPENSPACE_DOCKER_IMAGE = "lift-hermes-with-openspace:latest"
+"""带 OpenSpace MCP 插件的 Hermes 镜像（``HermesWithOpenSpaceAdapter`` 使用；
+``agent-runtimes/hermes/build-image.sh --with-openspace`` 构建，对应 ``INSTALL_OPENSPACE=true``）。"""
 
 HERMES_WORKSPACE_SEED_DIR = HERMES_AGENT_DIR / "workspace_seed"
 """宿主机 Hermes eval workspace seed 源目录（可选；默认 Hermes 状态 baked 在镜像内 /opt/hermes-state）。""" 

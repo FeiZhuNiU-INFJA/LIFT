@@ -114,8 +114,8 @@ def process_report_to_outputs(
     scored_df = attach_trajectory_scores(extracted_df)
     validate_pairs(scored_df)
     comparison_df = build_comparison_dataframe(scored_df)
-    summary_df = build_summary_dataframe(comparison_df, scored_df)
     trajectory_map = build_trajectory_map(scored_df)
+    summary_df = build_summary_dataframe(comparison_df, scored_df)
 
     if backfilled_json is not None:
         backfilled_json.parent.mkdir(parents=True, exist_ok=True)

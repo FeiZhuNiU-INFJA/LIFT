@@ -37,6 +37,22 @@ bash agent-runtimes/hermes/build-image.sh
 
 默认产出 `lift-hermes:latest`，基于上游 `nousresearch/hermes-agent:v2026.5.16`。
 
+### 带 OpenSpace MCP 插件的变体
+
+```bash
+bash agent-runtimes/hermes/build-image.sh --with-openspace
+# 产出 lift-hermes-with-openspace:latest
+```
+
+OpenSpace（基于 MCP 的 quality-first skill hub）在构建期由 `install-in-image.sh` git clone
+到 `/opt/OpenSpace`（sparse-checkout 跳过 `assets/`），装进独立 Python 3.12 venv（`/opt/openspace-venv`；
+Hermes 自带 venv 无 pip 且很可能 <3.12，不能复用），软链 `openspace-mcp` 到 `/usr/local/bin`，
+并把 `delegate-task` / `skill-discovery` 两个 host skill 拷进 `/opt/hermes-state/skills`。
+`mcp_servers.openspace` 的注册在容器启动时由 `patch_hermes_config.py` upsert 进 `config.yaml`
+（由 `ENV OPENSPACE_ENABLED=true` 触发，走 config patch 而非构建期 `hermes mcp add`）。
+源可用 env `OPENSPACE_GIT_URL` / `OPENSPACE_GIT_REF` 覆盖。对应 LIFT `-r hermes_with_openspace`
+（常量 `HERMES_WITH_OPENSPACE_DOCKER_IMAGE`）。
+
 ### 基础镜像 tag / 源切换
 
 | 变量 | 默认 | 说明 |

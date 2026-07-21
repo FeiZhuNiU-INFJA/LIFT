@@ -203,7 +203,7 @@ def make_row(
     agent_input = extract_last_agent_input(side)
     work_analytics = extract_work_analytics(side)
 
-    if agent_source == "hermes":
+    if agent_source in ("hermes", "hermes_with_openspace"):
         metric_row = _make_row_hermes(side, work_analytics)
     elif agent_source == "openhuman":
         metric_row = _make_row_openhuman(side, work_analytics)

@@ -97,4 +97,105 @@ fi
 echo "Plugins installed under ${OPENCLAW_STATE_DIR}/extensions:"
 ls -la "${OPENCLAW_STATE_DIR}/extensions" || true
 
+# 6) OpenSpace（基于 MCP 的 quality-first skill hub，README「Path A: For Your Agent」）。
+#    默认不装（INSTALL_OPENSPACE=false）。装的话：
+#      - git clone 到 /opt（不能落 /tmp：运行期 -v /tmp:/tmp 会遮蔽），sparse 跳过 assets/。
+#      - 独立 Python 3.12 venv（镜像系统 python3 是 Debian bookworm 3.11，不满足 OpenSpace >=3.12）。
+#      - openspace-mcp 软链到 /usr/local/bin，注册名为 openspace 的 stdio MCP server。
+#      - 拷 host skills（delegate-task / skill-discovery）进 agent skills 目录，随 docker commit 落 delta。
+INSTALL_OPENSPACE="${INSTALL_OPENSPACE:-false}"
+if [[ "${INSTALL_OPENSPACE}" == "true" ]]; then
+  OPENSPACE_GIT_URL="${OPENSPACE_GIT_URL:-https://github.com/HKUDS/OpenSpace.git}"
+  OPENSPACE_GIT_REF="${OPENSPACE_GIT_REF:-main}"
+  OPENSPACE_REPO="/opt/OpenSpace"
+  OPENSPACE_VENV="/opt/openspace-venv"
+
+  echo "==> Installing OpenSpace from ${OPENSPACE_GIT_URL}@${OPENSPACE_GIT_REF}"
+  # sparse-checkout：跳过 assets/（~50MB 图片），只留代码 + 打包所需资源。
+  git clone --filter=blob:none --sparse "${OPENSPACE_GIT_URL}" "${OPENSPACE_REPO}"
+  git -C "${OPENSPACE_REPO}" sparse-checkout set --no-cone '/*' '!/assets/'
+  git -C "${OPENSPACE_REPO}" checkout "${OPENSPACE_GIT_REF}" || true
+
+  # 确保 uv 可用：OpenClaw 镜像里的 uv 由 self-evolving 插件安装脚本带进来
+  # （PATH 中的 /root/.openclaw/uv-bin）。只传 --with-openspace 时该步被跳过，uv 不存在，
+  # 故这里缺失就用 pip3 补装（base 镜像已装 python3-pip，PIP_BREAK_SYSTEM_PACKAGES=1）。
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "==> uv not on PATH; installing uv via pip3"
+    pip3 install --no-cache-dir uv || python3 -m pip install --no-cache-dir uv
+  fi
+
+  # 独立 uv 管理的 Python 3.12 venv（uv 会按需下载 3.12 解释器）。
+  uv venv --python 3.12 "${OPENSPACE_VENV}"
+  uv pip install --python "${OPENSPACE_VENV}/bin/python" -e "${OPENSPACE_REPO}"
+
+  # 暴露 CLI 到 PATH（openspace-mcp 为 MCP server 入口；其余 cloud CLI 可选）。
+  ln -sf "${OPENSPACE_VENV}/bin/openspace-mcp" /usr/local/bin/openspace-mcp
+  for extra in openspace-cloud-auth openspace-download-skill openspace-upload-skill; do
+    [[ -x "${OPENSPACE_VENV}/bin/${extra}" ]] && ln -sf "${OPENSPACE_VENV}/bin/${extra}" "/usr/local/bin/${extra}" || true
+  done
+
+  # 拷 host skills（教 agent 何时/如何调用 OpenSpace）。skills 目录随 docker commit 落 delta。
+  OPENSPACE_HOST_SKILLS="${OPENSPACE_REPO}/openspace/host_skills"
+  for hs in delegate-task skill-discovery; do
+    if [[ -d "${OPENSPACE_HOST_SKILLS}/${hs}" ]]; then
+      cp -r "${OPENSPACE_HOST_SKILLS}/${hs}" "${OPENCLAW_STATE_DIR}/skills/${hs}"
+    else
+      echo "WARN: OpenSpace host skill missing: ${OPENSPACE_HOST_SKILLS}/${hs}" >&2
+    fi
+  done
+
+  # 注册 stdio MCP server（README §Setup for openclaw / Path A）。toolTimeout=600 是
+  # execute_task 长任务的硬性要求。OPENSPACE_WORKSPACE 指 repo 根；OPENSPACE_HOST_SKILL_DIRS
+  # 指 agent skills 目录（OpenSpace 从这里 discover 本地 skill）。
+  #
+  # LLM 凭据必须进 MCP server 的 env 块：mcporter/MCP TS SDK 只把 PATH/HOME 等安全白名单
+  # 合并进 env 块后传给 stdio 子进程，不继承容器任意环境变量，故仅靠 docker run -e 注入的
+  # OPENSPACE_* 到不了 openspace-mcp 进程。这里从构建期 env bake 进 env 块（与
+  # models.fragment.json 已 bake WORK_OPENAI_API_KEY 的做法一致）：
+  #   - OPENSPACE_MODEL       ← MODEL_NAME，但把 custom/ 前缀重映射为 openai/（见下）
+  #   - OPENSPACE_LLM_API_KEY ← WORK_OPENAI_API_KEY
+  #   - OPENSPACE_LLM_API_BASE← WORK_OPENAI_BASE_URL
+  #
+  # 为何 custom/ → openai/：OpenSpace 用 litellm 路由模型，litellm 不认 custom 这个
+  # provider（实测 model=custom/ep-xxx 会 AuthenticationError: API key/AK/SK missing
+  # or invalid，进而误触发 OpenSpace cloud 登录）。本项目 custom/ 约定 = "OpenAI 兼容
+  # 自定义端点"，对 litellm 等价于 openai/<model_id> + 显式 api_base + api_key。OpenClaw
+  # 自身仍用 custom/（models.fragment.json 注册了 custom provider），二者互不影响。
+  # 仅注入非空值；用 node JSON.stringify 安全转义（key/url 可能含特殊字符）。当前 OpenClaw
+  # 版本若不认 `openclaw mcp set` 语法，容错打印诊断，不阻断构建。
+  OPENSPACE_MODEL_VAL="${MODEL_NAME}"
+  if [[ "${OPENSPACE_MODEL_VAL}" == custom/* ]]; then
+    OPENSPACE_MODEL_VAL="openai/${OPENSPACE_MODEL_VAL#custom/}"
+  fi
+  if [[ -z "${WORK_OPENAI_BASE_URL:-}" ]]; then
+    echo "WARN: WORK_OPENAI_BASE_URL empty; OpenSpace MCP env will omit OPENSPACE_LLM_API_BASE." >&2
+  fi
+  OPENSPACE_MCP_JSON="$(
+    OPENSPACE_REPO="${OPENSPACE_REPO}" \
+    OPENSPACE_SKILL_DIRS="${OPENCLAW_STATE_DIR}/skills" \
+    OPENSPACE_MODEL_VAL="${OPENSPACE_MODEL_VAL}" \
+    OPENSPACE_KEY_VAL="${WORK_OPENAI_API_KEY:-}" \
+    OPENSPACE_BASE_VAL="${WORK_OPENAI_BASE_URL:-}" \
+    node -e '
+const env = {
+  OPENSPACE_WORKSPACE: process.env.OPENSPACE_REPO,
+  OPENSPACE_HOST_SKILL_DIRS: process.env.OPENSPACE_SKILL_DIRS,
+};
+if (process.env.OPENSPACE_MODEL_VAL) env.OPENSPACE_MODEL = process.env.OPENSPACE_MODEL_VAL;
+if (process.env.OPENSPACE_KEY_VAL) env.OPENSPACE_LLM_API_KEY = process.env.OPENSPACE_KEY_VAL;
+if (process.env.OPENSPACE_BASE_VAL) env.OPENSPACE_LLM_API_BASE = process.env.OPENSPACE_BASE_VAL;
+process.stdout.write(JSON.stringify({ command: "openspace-mcp", toolTimeout: 600, env }));
+'
+  )"
+  openclaw mcp set openspace "${OPENSPACE_MCP_JSON}" 2>&1 \
+    || echo "WARN: 'openclaw mcp set openspace' failed; verify OpenClaw MCP CLI syntax." >&2
+
+  echo "==> Verifying openspace-mcp:"
+  openspace-mcp --help >/dev/null 2>&1 \
+    && echo "OK: openspace-mcp importable" \
+    || echo "WARN: 'openspace-mcp --help' failed; check OpenSpace install." >&2
+else
+  echo "INSTALL_OPENSPACE=${INSTALL_OPENSPACE}: skip OpenSpace MCP plugin install"
+fi
+
 openclaw plugins list 2>/dev/null || true

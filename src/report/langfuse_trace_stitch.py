@@ -350,15 +350,16 @@ def stitch_phase_langfuse_traces(
     ``index`` 若给出，则跳过 per-phase 4 路 ``trace.list``，改由 index 本地查询。
     索引由上层（如 ``backfill_report``）在整个 run 开始前构造一次即可。
     """
-    if agent_source == "hermes":
-        return _stitch_by_tags(
-            client,
-            eval_run_tag=eval_run_tag,
-            work_session_id=work_session_id,
-            judge_session_id=judge_session_id,
-            page_limit=page_limit,
-            index=index,
-        )
+    # hermes 目前也是用session-id-base实现的了
+    # if agent_source in ("hermes", "hermes_with_openspace"):
+    #     return _stitch_by_tags(
+    #         client,
+    #         eval_run_tag=eval_run_tag,
+    #         work_session_id=work_session_id,
+    #         judge_session_id=judge_session_id,
+    #         page_limit=page_limit,
+    #         index=index,
+    #     )
     # 其余 runtime 都复用默认 sid-only trace layout（``*_agent`` + plugin trace 按
     # ``session_id`` 配对）。合法 runtime 名以 ``SUPPORTED_RUNTIMES`` 为唯一事实源，
     # 新增 runtime 只要落到该 tuple 里就自动纳入这条分支。

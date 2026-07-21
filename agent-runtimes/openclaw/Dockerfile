@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     curl \
     ca-certificates \
+    git \
     libsqlite3-dev \
     python3 \
     python3-pip \
@@ -56,6 +57,12 @@ COPY workspace_seed /root/.openclaw/workspace
 ARG WORK_OPENAI_API_KEY=
 ENV WORK_OPENAI_API_KEY=${WORK_OPENAI_API_KEY}
 
+# OpenSpace LLM base URL（对应本项目 WORK_OPENAI_BASE_URL）。仅 OpenSpace MCP env 块使用
+# （install-plugins-in-image.sh 写入 OPENSPACE_LLM_API_BASE）；OpenClaw 自身模型的 baseUrl
+# 仍由 models.fragment.json 决定，二者互不影响。默认空串时 OpenSpace 走其默认解析。
+ARG WORK_OPENAI_BASE_URL=
+ENV WORK_OPENAI_BASE_URL=${WORK_OPENAI_BASE_URL}
+
 # 运行模型选用（provider/model_id 格式，provider 约定固定为 custom）。install-plugins-in-image.sh
 # 据此渲染 models.fragment（斜杠后作 model.id）与 agents.fragment（整串作 primary/models key）。
 ARG MODEL_NAME=
@@ -65,6 +72,25 @@ ENV MODEL_NAME=${MODEL_NAME}
 # 设为 false 构建不带进化插件的 raw 镜像（仍保留 langfuse-tracer / firecrawl）。
 ARG INSTALL_SELF_EVOLVING=true
 ENV INSTALL_SELF_EVOLVING=${INSTALL_SELF_EVOLVING}
+
+# 是否安装 OpenSpace（基于 MCP 的 quality-first skill hub）。默认 false；设为 true 时
+# install-plugins-in-image.sh 会 git clone OpenSpace、在独立 Python 3.12 venv 里
+# pip install -e，注册名为 openspace 的 stdio MCP server，并拷入 host skills。
+# OPENSPACE_GIT_URL / OPENSPACE_GIT_REF 允许切换上游（内网可指镜像/反代）。
+ARG INSTALL_OPENSPACE=false
+ENV INSTALL_OPENSPACE=${INSTALL_OPENSPACE}
+ARG OPENSPACE_GIT_URL=https://github.com/HKUDS/OpenSpace.git
+ENV OPENSPACE_GIT_URL=${OPENSPACE_GIT_URL}
+ARG OPENSPACE_GIT_REF=main
+ENV OPENSPACE_GIT_REF=${OPENSPACE_GIT_REF}
+
+# 互斥保证：self-evolving-plugin-pro 与 OpenSpace 两种进化插件只能二选一，不允许叠加。
+# build-image.sh 已在脚本层拦截；这里再加一道 Dockerfile 层守卫，防止有人直接
+# docker build --build-arg INSTALL_SELF_EVOLVING=true --build-arg INSTALL_OPENSPACE=true 绕过脚本。
+RUN if [ "${INSTALL_SELF_EVOLVING}" = "true" ] && [ "${INSTALL_OPENSPACE}" = "true" ]; then \
+      echo "ERROR: INSTALL_SELF_EVOLVING 与 INSTALL_OPENSPACE 互斥，只能二选一。" >&2; \
+      exit 2; \
+    fi
 # Python 包索引：默认 https://pypi.org/simple/（公网官方源）。在公网拉取不稳定时，可通过
 # --build-arg PIP_INDEX_URL=<url> 指定镜像源（uv / pip 均生效）。
 # 例：字节内网：PIP_INDEX_URL=https://bytedpypi.byted.org/simple/

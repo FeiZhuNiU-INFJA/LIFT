@@ -35,6 +35,23 @@ bash agent-runtimes/openclaw/build-image.sh --with-evolve
 # 产出 lift-openclaw-with-evolve:latest
 ```
 
+带 **OpenSpace**（基于 MCP 的 quality-first skill hub）插件的变体：
+
+```bash
+bash agent-runtimes/openclaw/build-image.sh --with-openspace
+# 产出 lift-openclaw-with-openspace:latest
+```
+
+> ⚠️ `--with-evolve` 与 `--with-openspace` **互斥**，只能二选一（两种进化插件不可叠加）。
+> 同时传两者会报错退出；构建脚本与 Dockerfile 均有守卫。
+
+OpenSpace 源默认 `git clone https://github.com/HKUDS/OpenSpace.git@main`（sparse-checkout 跳过 `assets/`），
+可用 env `OPENSPACE_GIT_URL` / `OPENSPACE_GIT_REF` 覆盖（内网可指镜像 / 反代）。安装逻辑见
+[install-plugins-in-image.sh](install-plugins-in-image.sh) 第 6 步：git clone 到 `/opt/OpenSpace`、
+在独立 Python 3.12 venv（`/opt/openspace-venv`）里 `pip install -e`、软链 `openspace-mcp` 到
+`/usr/local/bin`、`openclaw mcp set openspace`（stdio，`toolTimeout=600`），并把 `delegate-task` /
+`skill-discovery` 两个 host skill 拷进 `/root/.openclaw/skills`（随 `docker commit` 落 delta）。
+
 种子文件直接位于**镜像内**的 `/root/.openclaw/workspace`，也是 agent 真正的工作目录；因此 warmup 期间 agent 生成的 SOUL / MEMORY / 日常记忆都会被 `docker commit` 一并打进 delta 镜像（详见下文 *Workspace 布局*）。
 
 ### 字节内网构建（推荐复制即用）
@@ -152,6 +169,7 @@ Benchmark 任务可在 `requirements.extra_skills_dir` 中提供额外 skill 目
 | `langfuse-tracer` | repo 内 `plugins/langfuse-tracer` | `LANGFUSE_*` env | LIFT trace 写入 |
 | `self-evolving-plugin-pro` | repo 内 `plugins/self-evolving-plugin-pro-*.zip` | 仅 with-evolve 镜像装 | warmup→evolve 阶段 `openclaw learn review` |
 | `firecrawl` (`@openclaw/firecrawl-plugin`) | npm（构建期 `openclaw plugins install` 拉取） | `FIRECRAWL_API_KEY` env | 提供 `web_search` / `scrape` / `browser` 工具 |
+| `openspace`（MCP server） | 构建期 `git clone` OpenSpace 到 `/opt/OpenSpace` | 仅 `--with-openspace` 镜像装；独立 3.12 venv | 基于 MCP 的 skill hub：`execute_task` / `search_skills` / `cloud_browse_skills` 等；stdio `command: openspace-mcp` |
 
 **注意 firecrawl 的来源会随 OpenClaw 大版本飘移**：
 
@@ -207,6 +225,7 @@ python -m src.cli.lift_main -r openclaw_with_evolve --benchmark_dir assets/bench
 
 - `-r openclaw` → `lift-openclaw-base:latest`（不带进化插件，常量 `OPENCLAW_BASE_DOCKER_IMAGE`）
 - `-r openclaw_with_evolve` → `lift-openclaw-with-evolve:latest`（带 self-evolving-plugin-pro，常量 `OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE`）
+- `-r openclaw_with_openspace` → `lift-openclaw-with-openspace:latest`（带 OpenSpace MCP 插件，常量 `OPENCLAW_WITH_OPENSPACE_DOCKER_IMAGE`）
 
 均定义于 `src/paths.py`。
 
