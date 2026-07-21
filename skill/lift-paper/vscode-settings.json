@@ -1,0 +1,35 @@
+{
+  "// See": "skill/lift-paper/SKILL.md Chapter 3b",
+  "// Copy into": ".vscode/settings.json (per-user, gitignored)",
+
+  "latex-workshop.latex.tools": [
+    {
+      "name": "tectonic",
+      "command": "tectonic",
+      "args": [
+        "-X", "compile", "%DOC%.tex",
+        "--outdir", "%OUTDIR%",
+        "--keep-logs",
+        "--synctex"
+      ],
+      "env": {}
+    }
+  ],
+  "latex-workshop.latex.recipes": [
+    { "name": "tectonic", "tools": ["tectonic"] }
+  ],
+  "latex-workshop.latex.recipe.default": "tectonic",
+
+  "latex-workshop.latex.autoBuild.run": "onSave",
+  "latex-workshop.view.pdf.viewer": "tab",
+
+  "latex-workshop.latex.outDir": "%DIR%",
+
+  "latex-workshop.latex.autoClean.run": "onBuilt",
+  "latex-workshop.latex.clean.fileTypes": [
+    "*.aux", "*.bbl", "*.blg", "*.log", "*.out",
+    "*.toc", "*.fls", "*.fdb_latexmk", "*.synctex.gz"
+  ],
+
+  "files.associations": { "*.tex": "latex", "*.bib": "bibtex" }
+}

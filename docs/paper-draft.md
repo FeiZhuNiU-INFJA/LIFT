@@ -80,7 +80,7 @@ LifeLongAgentBench、SEA-Eval 提供了 FWT / BWT / RecoveryRate 等学习曲线
 
 ### 2.4 评测方法论
 
-ABC Checklist、Agent-as-a-Judge、MAJ-Eval 回答"评测怎么评才靠谱"。LIFT 的 review loop 设计借鉴了 Agent-as-a-Judge 的"工具增强验证"思想；规则评分 0.7 + LLM rubric 0.3 的混合策略是对其偏差缓解建议的具体落地。
+ABC Checklist、Agent-as-a-Judge、MAJ-Eval 回答"评测怎么评才靠谱"。LIFT 的 review loop 设计借鉴了 Agent-as-a-Judge 的"工具增强验证"思想；judge 以"用户本人"身份对照 `content_reqs` checklist 逐条判定，输出单一 `score = 满足要求数 / 总要求数`（success 时为 1），是对其偏差缓解建议的具体落地。
 
 ### 2.5 评测 SDK
 
@@ -276,7 +276,7 @@ LIFT 的报告分两次写：
 
 落地到指标表：
 
-- **必报**：`DownstreamPassDelta = PassRate(Loaded) − PassRate(Base)`、FirstRoundPassRate、FinalPassRate、AvgAttempts、`Outcome_i = 0.7·RuleScore + 0.3·LLMRubricScore`、TotalTokens（含 Judge）、TotalLatency
+- **必报**：`DownstreamPassDelta = PassRate(Loaded) − PassRate(Base)`、FirstRoundPassRate、FinalPassRate、AvgAttempts、`Outcome_i = score`（judge 输出的单一完成率 = 满足要求数 / 总要求数，success 时为 1）、TotalTokens（含 Judge）、TotalLatency
 - **序列必报**：Pass@k、RecoveryRate
 - **进化专属（可选）**：归因三组 *No-Evo / Only-Products / Evo-On*，曲线诊断 FWT / BWT
 - **横切**：静态 DistillateConflictRate / SafetyConcernCount，动态 SafetyRegression，成本 ColdStartTTV / EvolutionROI
@@ -307,7 +307,7 @@ LIFT 协议要求 benchmark 满足以下最小契约：
 1. **两段式 schema**：`warmup_tasks[]` 和 `holdout_tasks[]` 显式分开，每条任务含 `query` / `requirements` / `expected_result.{content_reqs, trajectory_reqs}`；
 2. **judge-friendly**：`content_reqs` 必须是 judge agent 能机器化判定的 checklist（确定性要求用规则，开放部分用 LLM rubric）；
 3. **跨 runtime 中立**：query 不绑定特定 Agent 的工具命名，避免给某个 runtime 送分；
-4. **场景多样性**：当前已就绪 11 套数据集，涵盖团建 / 销售运营 / 写作 / 代码等场景。
+4. **场景多样性**：当前已就绪 14 套数据集，涵盖团建 / 销售运营 / 写作 / 代码 / 数据分析 / 信息检索等场景。
 
 最小冒烟集 `assets/benchmarks_demo/hello.json` 提供 1 道 warmup（Q1：「回复一下你好」）+ 1 道 holdout（Q2：「自我介绍一下你自己」），用于框架级回归测试。
 
@@ -320,7 +320,8 @@ LIFT 协议要求 benchmark 满足以下最小契约：
 | 主题 | 关键文件 | 一句话 |
 |---|---|---|
 | Pipeline 编排 | `src/lift/pipeline/lift_pipeline.py` | repeat × suite × phase 多级并发 |
-| 适配器契约 | `src/lift/adapters/base.py` | 4 钩子 + 默认 docker commit |
+| 适配器契约 | `src/lift/adapters/base.py` | 抽象基类 `AgentRuntimeAdapter`：`worker_judger_factory` / `evolve_after_warmup` 等钩子 |
+| 容器编排复用 | `src/lift/adapters/container/adapter.py` | `ContainerAgentRuntimeAdapter`：`resolve_docker_image` / `start_container` 4 钩子 + 默认 docker commit |
 | 单题内核 | `src/lift/eval/run_task.py` | work + judge review loop |
 | 容器策略 | `src/lift/policies/container.py` | warmup / holdout 三种编排 |
 | 状态可视化 | `src/lift/status/` | TUI（rich） + HTTP dashboard |
@@ -333,7 +334,7 @@ LIFT 协议要求 benchmark 满足以下最小契约：
 
 待补。规划如下：
 
-- **6.1 同一 Agent 的 Base vs Loaded**：跨 11 套场景的 DownstreamPassDelta 主表
+- **6.1 同一 Agent 的 Base vs Loaded**：跨 14 套场景的 DownstreamPassDelta 主表
 - **6.2 OpenClaw 不开插件 vs 开插件**：进化插件本身的增量
 - **6.3 同一数据集 ×3 次 repeat**：delta 方差稳定性
 - **6.4 跨 runtime 横向**：同一 benchmark 上 OpenClaw / Hermes / OpenHuman / EvoScientist 等 runtime 的裸基线和 Loaded delta
@@ -349,7 +350,7 @@ LIFT 不解决但需要明确的几件事：
 1. **Benchmark 数据污染**：LIFT 协议无法防止 Gold 集被 LLM 训练数据污染，靠 ABC Checklist 类工具在 benchmark 设计阶段把关；
 2. **跨 Agent 直接对比**：我们刻意**不**支持 *OpenClaw+插件 vs Hermes* 的直接横向比较，因为变量太多结论不可归因；正确做法是各自做 Base vs Loaded，再比 delta 幅度；
 3. **进化 ≠ 产物**：LIFT 协议默认产物来源无关。如果要单独证明"进化机制本身有价值"，需要走归因三组（No-Evo / Only-Products / Evo-On），这是可选附录而非必报；
-4. **Judge 偏差**：work 和 judge 都用 LLM 时存在 self-preference 风险。当前缓解策略是规则评分占 0.7、LLM rubric 占 0.3，并要求 rubric 版本号、温度 0、固定模型；
+4. **Judge 偏差**：work 和 judge 都用 LLM 时存在 self-preference 风险。当前缓解策略是让 judge 以"用户本人"身份、对照 `content_reqs` checklist 逐条判定并输出单一完成率 score，且要求 rubric 版本号、温度 0、固定模型；把确定性要求做成机器可判定的 checklist 项、进一步降低主观空间是后续工作；
 5. **环境保真**：容器仍是 *受控 Linux 环境*，与桌面 GUI Agent / 浏览器 Agent 的真实环境保真度有差距，未来工作；
 6. **进化成本归属**：evolve_after_warmup 的 token 属于训练成本，不应算到 Loaded 推理成本里，否则 EvolutionROI 会被低估。这一点在指标计算时严格分账。
 
