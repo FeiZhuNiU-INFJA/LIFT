@@ -1,0 +1,653 @@
+% NeurIPS 2027 submission draft (Evaluations and Datasets Track). English,
+% submission-ready structure. Experimental numbers are placeholders marked
+% [TODO-DATA] pending the full run. This document is self-contained: it merges
+% the evaluation protocol (framework) and the benchmark suite into a single
+% paper. Working subtitle / acronym anchor: LIFT = Loaded Impact on Final Task.
+
+\documentclass{article}
+
+
+\usepackage[preprint]{neurips_2023}
+
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{graphicx}       % graphics
+\usepackage{amsmath}        % math
+\usepackage{listings}       % code listings
+\usepackage{xcolor}         % colors
+\usepackage[htt]{hyphenat}  % allow hyphenation/breaking inside \texttt
+\usepackage{seqsplit}       % break long monospace tokens char-by-char
+
+% allow line breaks inside long monospace tokens (long file paths / runtime names)
+\newcommand{\brk}[1]{\texttt{\seqsplit{#1}}}
+
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible,
+}
+
+
+\title{LIFT: A Counterfactual Framework and Benchmark for Disentangling Genuine Self-Evolution in LLM Agents}
+
+
+\author{%
+  Zhou \\
+  Anonymous Institution \\
+  \texttt{zhou@example.com} \\
+}
+
+
+\begin{document}
+
+
+\maketitle
+
+
+\begin{abstract}
+Self-evolving LLM agents continuously accumulate reusable experience \emph{artifacts} --- skills, memories, standard operating procedures (SOPs), tool boxes, personas --- produced during interaction and reloaded on later tasks. Yet mainstream evaluation cannot separate \emph{genuine} capability generalization from \emph{pseudo} performance growth introduced by evaluation confounds: training-memory leakage (the agent replaying an earlier task's output into the next), cross-session context pollution, grader self-preference, and non-reproducible runtimes. As a result, ``the agent evolved a pile of artifacts'' is routinely mistaken for ``the artifacts help downstream.''
+
+We present \textbf{LIFT (Loaded Impact on Final Task)}, a counterfactual evaluation framework that makes the \emph{Base vs. Loaded} contrast on held-out tasks its single scientific question. LIFT operationalizes this contrast with three mechanisms: (i) \textbf{paired A/B runs} of the same held-out task with and without consolidated artifacts; (ii) \textbf{strict separation} of warmup (training) tasks from holdout (unseen) tasks; and (iii) \textbf{Docker container snapshots} (\texttt{docker commit} $\rightarrow$ delta image) that solidify the runtime agent state as an artifact-agnostic, cross-machine-reproducible carrier. Together these isolate the confounds above, so that a positive delta on an unseen task is \emph{attributable to the artifacts} rather than to leakage, context pollution, or environment drift. A \textbf{three-layer decoupling} (pipeline / runtime adapter / evaluation kernel) hosts eleven heterogeneous agent runtimes behind four hooks; a \textbf{work-agent + judge-agent review loop} scores each task; and multi-level concurrency plus Langfuse trace backfill make every run auditable in both \emph{conclusion} and \emph{process}. We release a self-contained \textbf{benchmark of 14 scenes (84 tasks)} built on a two-phase schema with a deliberate $\sim$75\%/25\% train-test requirement overlap designed to expose over-fitting to literal training requirements. LIFT provides a standardized, attributable pipeline for empirical research on self-evolving agents and makes precise the methodological gaps in existing agent benchmarks. Code is released at \url{https://github.com/FeiZhuNiU-INFJA/LIFT} and the benchmark at \url{https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE}.
+\end{abstract}
+
+
+\section{Introduction}
+
+\subsection{From model evaluation to agent evaluation}
+
+LLM evaluation began as ``feed a prompt, check the output.'' Agents shattered that: a single task becomes a long chain of \emph{planning $\rightarrow$ tool calls $\rightarrow$ file-system operations $\rightarrow$ multi-turn feedback $\rightarrow$ final deliverable}, and the model is only one node. An agent that appears to ``answer correctly'' may do so because (i) the task itself is flawed (the ABC Checklist~\citep{zhu2025abc} reports overestimation of up to 100\% on ill-posed items), (ii) it \emph{replays} the previous task's output into the next task (pseudo-evolution), (iii) the grader is the same model family (self-preference bias), or (iv) environment fidelity is too low (a safety-benchmark taxonomy~\citep{fu2025raseval} reports Kendall's \emph{W} $\approx 0.10$ --- near-random cross-benchmark safety rankings).
+
+\subsection{Self-evolving agents magnify the problem}
+
+Over the past year, self-evolving agents accumulate reloadable artifacts --- skills, memories, SOPs, MCP boxes, personas --- during interaction. Commercially, ``an agent that keeps learning'' is the headline; academically, the four-component loop (System Inputs $\rightarrow$ Agent System $\rightarrow$ Environment $\rightarrow$ Optimisers) has crystallized. But a blunt empirical fact stands out: on SkillsBench's 86 tasks~\citep{li2026skillsbench}, \emph{curated} skills yield $+16.2$pp on average, while \emph{self-generated} skills are on average useless or harmful. Hence:
+
+\begin{quote}
+``The agent evolved a pile of artifacts'' $\neq$ ``the artifacts help downstream.''
+\end{quote}
+
+These must be evaluated separately, and the method must be a \textbf{causal contrast} --- not how high the evolved agent scores in absolute terms, but the score difference on \emph{the same task, same agent, same tool set, artifacts loaded vs. not}.
+
+\subsection{Three fault lines in current evaluation}
+
+Surveying 32 open-source works (surveys / benchmarks / SDKs) along the axis ``can it answer \emph{do the artifacts help?}'', we find three shared fault lines:
+
+\begin{table}[h]
+\centering
+\caption{Three shared fault lines in current agent evaluation.}
+\label{tab:fault-lines}
+\begin{tabular}{p{0.22\textwidth}p{0.42\textwidth}p{0.28\textwidth}}
+\toprule
+Fault line & Symptom & Representative work \\
+\midrule
+\textbf{No loaded/unloaded contrast} & Benchmarks measure a bare agent's pass rate; no artifact-dimension A/B & AgentBench, GAIA, SWE-bench, REAL, $\tau$-bench \\
+\textbf{Train and test tasks entangled} & Agent learns on Q1..Qn then is tested on the same Q1..Qn --- cannot separate ``learned'' from ``memorized'' & most episodic self-evolution setups \\
+\textbf{Runtime not reproducible / not isolated} & Multi-step FS ops, concurrency, missing trace correlation $\rightarrow$ unstable deltas, huge variance across repeats & most host-machine eval scripts \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The third is the most underrated. Once evaluation must be \emph{run repeatedly} --- for commercial artifact certification, for iterating an evolution mechanism, for comparing runtimes --- reproducibility flips from nice-to-have to hard requirement. REAL~\citep{garg2025real} centered exactly on making deterministic simulation a first-class citizen of web-agent evaluation, evidencing the community's weight on this.
+
+\subsection{Contributions}
+
+We propose \textbf{LIFT}, whose thesis is one sentence:
+
+\begin{quote}
+To evaluate a self-evolving agent, ask ``does it do better on \emph{unseen} tasks after loading its artifacts?'' --- not ``how high does it score after running through all tasks?''
+\end{quote}
+
+Concretely we contribute:
+
+\begin{enumerate}
+\item \textbf{A scientific protocol} --- train/test separation (\texttt{warmup\_tasks} / \texttt{holdout\_tasks}) + same-task paired runs (baseline / evolved) + a work-judge review loop (\S3).
+\item \textbf{An engineering carrier} --- container snapshots (\texttt{docker commit} $\rightarrow$ delta image) as the artifact-agnostic form of evolved state; each holdout task starts an isolated container; runtime / pipeline / evaluation are decoupled into three layers (\S3.3, \S3.5).
+\item \textbf{Repeatability \& observability} --- multi-level concurrency and pre-chat + Langfuse trace backfill, so both conclusion and process are re-queryable (\S3.6--3.7).
+\item \textbf{A self-contained benchmark suite} --- 14 scenes / 84 tasks on a two-phase schema with a deliberate 75\%/25\% train-test requirement overlap (\S4).
+\item \textbf{A release} --- framework code, eleven runtime adapters, container images, and datasets, so the protocol is reusable, criticizable, and comparable.
+\end{enumerate}
+
+
+\section{Related Work}
+
+\textbf{General agent benchmarks.} AgentBench~\citep{liu2023agentbench}, GAIA~\citep{mialon2023gaia}, REAL~\citep{garg2025real}, $\tau$-bench / $\tau^2$-bench~\citep{yao2024taubench,barres2025tau2bench}, SWE-bench~\citep{jimenez2024swebench}, and harness-comparison benchmarks answer ``can the agent do the job on a static task set.'' They are LIFT's \emph{task source}, not its contrast object. Some already do cross-harness comparison and tiered evaluation (script verification / point-wise verification / pairwise comparison), a design we reuse --- but none reach the artifact-dimension causal contrast.
+
+\textbf{Artifact benchmarks.} SkillsBench~\citep{li2026skillsbench}, EvolveTool-Bench~\citep{kaliyev2026evolvetoolbench}, and memory benchmarks (EvoMemBench~\citep{wang2026evomembench}, Evo-Memory~\citep{wei2025evomemory}) begin to probe the artifact dimension but each binds to one artifact form (skill / tool / memory). They provide LIFT's key motivating evidence --- ``self-generated skills are on average ineffective.'' LIFT's \textbf{artifact-source-agnostic} stance abstracts over them: whether the artifact is a skill, a memory, or an SOP, the verification logic is \emph{Base vs. Loaded}.
+
+\textbf{Lifelong / sequential learning.} LifelongAgentBench~\citep{zheng2025lifelongagentbench} and SEA-Eval~\citep{jiang2026seaeval} provide learning-curve metrics (FWT / BWT / RecoveryRate). LIFT positions these as \textbf{evolution-specific diagnostics}: if the Base-vs-Loaded test is conclusive, no curve is needed; when it is not, learning curves help diagnose forgetting vs. non-transfer. This differs from prior work that treats them as primary metrics, and it avoids coupling evolution-mechanism complexity into the main evaluation path.
+
+\textbf{Evaluation methodology.} The ABC Checklist~\citep{zhu2025abc}, Agent-as-a-Judge~\citep{zhuge2024agentasajudge}, and MAJ-Eval~\citep{chen2026majeval} answer ``how do we grade reliably.'' LIFT's review loop borrows Agent-as-a-Judge's \emph{tool-augmented verification}: the judge runs in a separate session of the \emph{same} runtime, so it can call real tools to verify outputs rather than grading on surface text.
+
+\textbf{Evaluation SDKs.} DeepEval~\citep{confidentai_deepeval}, Opik~\citep{cometml_opik}, and Promptfoo~\citep{promptfoo} target LLM-API-layer developer evaluation at the granularity of prompt $\times$ model. LIFT's granularity is \emph{in-container agent $\times$ holdout task $\times$ baseline/evolved} --- a different layer. Langfuse~\citep{langfuse} plays Opik's \emph{trace} role in LIFT --- we use only its trace capability, not its evaluator, because the evaluator role is filled by the work-judge loop.
+
+\textbf{Safety evaluation.} OS-Harm~\citep{kuntz2025osharm} and RAS-Eval~\citep{fu2025raseval} flag that loading artifacts introduces new safety risk. LIFT keeps SafetyRegression as an optional cross-cutting dimension (off by default, to avoid entangling it with functional artifact evaluation); a full safety protocol is orthogonal future work.
+
+
+\section{The LIFT Framework}
+
+LIFT = \textbf{L}oaded \textbf{I}mpact on \textbf{F}inal \textbf{T}ask. The scientific question: \textbf{after loading artifacts, is there positive impact on the final (holdout) task?}
+
+\subsection{Design principles}
+
+We treat the survey conclusions as hard constraints that all engineering must obey:
+
+\begin{table}[h]
+\centering
+\caption{Design principles P1--P5 that all LIFT engineering must obey.}
+\label{tab:principles}
+\begin{tabular}{p{0.32\textwidth}p{0.6\textwidth}}
+\toprule
+Principle & Meaning \\
+\midrule
+\textbf{P1 Single causal contrast} & The only variable under test is ``loaded vs. not''; everything else held constant \\
+\textbf{P2 Train/test separation} & The tasks used to evolve (warmup) and the tasks used to test (holdout) must not overlap \\
+\textbf{P3 Artifact-source agnostic} & Whether the artifact is a skill / memory / SOP / MCP box, the evaluation logic is identical \\
+\textbf{P4 Reproducible runtime} & The same \texttt{run\_id} re-run on any machine should produce a consistent structure (including traces) \\
+\textbf{P5 Optional evolution diagnostics} & Learning curves (FWT / BWT) are used only when P1 is inconclusive \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Protocol layer: what a ``LIFT run'' is}
+
+A \textbf{Suite} consists of two task groups --- this is P2 enforced at the data-structure level:
+
+\begin{lstlisting}
+SuiteSpec
+|-- warmup_tasks[]   <- trigger artifact production (learn / evolve)
+`-- holdout_tasks[]  <- final tasks, the tasks under test
+\end{lstlisting}
+
+warmup and holdout are \textbf{explicit} separate fields in the suite JSON; the runtime no longer slices by question index.
+
+\textbf{Control groups.} Each holdout task is run twice, forming one TaskRun:
+
+\begin{lstlisting}
+TaskRun
+|-- baseline   PhaseRun  <- clean container from base image, no artifacts
+`-- evolved    PhaseRun  <- clean container from delta image, with artifacts
+\end{lstlisting}
+
+\textbf{Key engineering trade-offs.}
+
+\begin{itemize}
+\item \textbf{Warmup container orchestration is configurable.} In a single-agent evolution scenario, all warmup tasks share one container by default (\texttt{parallel\_single}; continuous file-system state is a natural requirement of the evolution plugin). In multi-user / group-memory scenarios (\texttt{multi\_user\_openclaw}), it switches to \texttt{parallel\_multi}: each task gets its own container, artifacts land in an external group-memory service, and the commit degenerates to a no-op. Both forms are transparent to the upper pipeline.
+\item \textbf{Holdout starts a new container per task.} Unlike warmup, this is a protocol-level hard constraint --- baseline must be an \emph{uncontaminated} environment, and per-task workspaces must be isolated. Hence \texttt{HoldoutContainerPolicy} (\texttt{src/lift/policies/container.py}) offers only \texttt{SERIAL\_MULTI} / \texttt{PARALLEL\_MULTI} ``multi-container'' forms, with no single-container option.
+\item \textbf{All holdout tasks share one delta.} The artifact is a suite-level constant and must not vary across holdout tasks.
+\end{itemize}
+
+\textbf{Report hierarchy.}
+
+\begin{lstlisting}
+EvalReport
+`-- runs[]              <- --repeat iterations
+      `-- suites[]      <- --suite multiple suites
+            `-- tasks[]
+                  |-- baseline: PhaseRun
+                  `-- evolved:  PhaseRun
+\end{lstlisting}
+
+\subsection{Abstraction layer: runtime / pipeline / eval decoupling}
+
+LIFT's code follows three abstraction layers, each with a single concern:
+
+\begin{lstlisting}
+CLI / Pipeline           <- slice tasks, loop, concurrency, write report (doesn't know what OpenClaw is)
+        |
+        v
+AgentRuntimeAdapter      <- container, artifact materialization, how to chat (doesn't know what holdout / repeat is)
+        |
+        v
+lift/eval (work + judge) <- per-task review loop (doesn't know what Docker is)
+\end{lstlisting}
+
+The direct payoff: \textbf{integrating a new runtime is near-zero-cost.} Registered runtimes include:
+
+\begin{table}[h]
+\centering
+\small
+\caption{Registered runtimes and their evolve behavior after warmup.}
+\label{tab:runtimes}
+\begin{tabular}{p{0.26\textwidth}p{0.26\textwidth}p{0.40\textwidth}}
+\toprule
+runtime & image & evolve behavior \\
+\midrule
+\texttt{openclaw} & base image, no evolution plugin & no-op after warmup; only \texttt{docker commit} \\
+\texttt{openclaw\_with\_evolve} & with-evolve image & runs \texttt{openclaw learn review} in-container after warmup, then commit \\
+\texttt{openclaw\_with\_openspace} & with-openspace image (OpenSpace MCP skill hub) & reuses base warmup / commit flow; MCP-side skill hub is exercised during warmup \\
+\texttt{multi\_user\_openclaw} & base image + GroupMemoryMixin & multi-container warmup (simulated multi-user); artifacts to external group memory \\
+\texttt{genericagent} / \texttt{genericagent\_active\_evolve} & \texttt{lift-genericagent:latest} & baseline file I/O; active variant does reflection chat \\
+\texttt{hermes} & \texttt{lift-hermes:latest} & Hermes review flow writes \texttt{/opt/hermes-state}, then commit \\
+\texttt{hermes\_with\_openspace} & \texttt{lift-hermes-with-openspace:latest} & Hermes review flow + OpenSpace MCP registered in \texttt{config.yaml}; commit \\
+\texttt{openhuman} & \texttt{lift-openhuman:latest} & Rust JSON-RPC runtime; long-term memory / wiki paths enter the delta \\
+\texttt{evoscientist} / \texttt{evoscientist\_active\_evolve} & \texttt{lift-evoscientist:latest} & baseline captures natural state change; active variant triggers EvoMemory AutoSkills, then commit \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{MCP note.} OpenSpace variants are only added to MCP-capable runtimes (OpenClaw, Hermes). GenericAgent (fixed atomic tools) and OpenHuman (no \texttt{mcp\_servers} field) are not MCP clients, so they do not receive an OpenSpace variant.
+
+A new runtime implements four hooks --- \texttt{resolve\_docker\_image} / \texttt{start\_container} / \texttt{worker\_judger\_factory} / \texttt{evolve\_after\_warmup} --- on the container base class \texttt{ContainerAgentRuntimeAdapter} (\texttt{src/lift/adapters/container/adapter.py}), which reuses the entire \texttt{docker commit} / holdout-orchestration logic. This directly realizes P3: different runtimes place artifacts in the image / group memory / file system, all transparent to the pipeline.
+
+\textbf{Counter-example (design origin).} An early host-machine implementation bound OpenClaw directly into the eval script. When we tried to integrate a second runtime (Hermes), the whole pipeline had to be rewritten --- the direct motivation for the current three-layer abstraction.
+
+\subsection{Per-task kernel: the work + judge review loop}
+
+The single task is LIFT's minimal scoring unit. We use an \emph{execute $\rightarrow$ review $\rightarrow$ feedback $\rightarrow$ retry} loop:
+
+\begin{lstlisting}
+run_task:
+  while turn < max_conversation_turns:
+      work_result   = work_agent.chat(current_prompt)
+      judge_result  = judge_agent.chat(...) -> JSON {success, reason, score}
+      if judge_result.success: return True
+      current_prompt = judge_result.reason      # disclose the top unmet requirement, human-style
+  return False
+\end{lstlisting}
+
+Design decisions:
+
+\begin{enumerate}
+\item \textbf{The judge is a separate session of the same runtime} --- simulating a real user reviewing, introducing no cross-model bias, and able to call real tools to verify outputs (Agent-as-a-Judge's \emph{executable verification}).
+\item \textbf{First-round and final pass rates are reported separately} --- FirstRoundPassRate reflects ``artifacts let the agent get it right in one shot''; FinalPassRate reflects ``artifacts + feedback loop.'' Good artifacts show up mainly in the former.
+\item \textbf{baseline and evolved must share \texttt{max\_turns}} --- otherwise evolved wins by getting two more feedback rounds, not by artifact merit.
+\item \textbf{Tokens include the judge's consumption} --- if Loaded retries less, the judge's token savings count toward the artifact's contribution.
+\end{enumerate}
+
+\textbf{Scoring.} The judge, role-playing ``the user,'' compares the deliverable against the hidden \texttt{content\_reqs} checklist and returns a single scalar $\text{score} = (\text{satisfied requirements}) / (\text{total requirements})$ (\texttt{score = 1} on success), together with \texttt{success} and a natural-language \texttt{reason}. There is no rule/rubric weighted blend --- the score is one judge call. Content requirements and trajectory requirements are scored on two separate lines (\S4.2).
+
+\subsection{Artifact materialization: why \texttt{docker commit}}
+
+The carrier form of the artifact is an engineering choice that \emph{looks incidental but determines reproducibility}. We considered three options:
+
+\begin{table}[h]
+\centering
+\caption{Three candidate artifact carriers and why LIFT chooses container snapshots.}
+\label{tab:carrier}
+\begin{tabular}{p{0.28\textwidth}p{0.26\textwidth}p{0.4\textwidth}}
+\toprule
+Option & Pro & Fatal con \\
+\midrule
+Host-machine toggle load & simple & state depends on host FS; concurrency cross-contaminates; not replayable across machines \\
+Structured export (YAML/JSON artifact pack) & readable, versionable & hard to cover FS-level evolution (OpenClaw's entire \texttt{\textasciitilde/.openclaw/} tree) \\
+\textbf{Container snapshot (\texttt{docker commit})} $\checkmark$ & full FS capture; naturally cross-machine replayable; naturally concurrency-isolated & delta images have size; need cleanup \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+LIFT chooses \texttt{docker commit}. A full run's timeline:
+
+\begin{lstlisting}
+Pipeline -> Adapter: warmup tasks (Q1..Qn-1)
+Adapter  -> Warmup container: start one container, run tasks continuously (default parallel_single)
+Warmup container: evolve_after_warmup (in-container learn review)
+Warmup container: docker commit -> delta image
+Adapter: delete warmup container
+
+for each holdout task:
+    Pipeline -> Adapter: baseline  -> new container from BASE image  -> run + score
+    Pipeline -> Adapter: evolved   -> new container from DELTA image -> run + score
+
+Pipeline: write report.json; on suite end, docker rmi the delta
+\end{lstlisting}
+
+Implicit constraints:
+
+\begin{itemize}
+\item \textbf{Delta is a suite-level temporary artifact} --- \texttt{docker rmi}'d when the suite finishes, never polluting the local image list.
+\item \textbf{Holdout workspace must be explicitly seeded} --- to avoid a first-run agent asking for a name/emoji and confusing scoring.
+\item \textbf{Group-memory runtimes} use the same interface \texttt{DeltaRef(image\_tag=base\_image, owned=False)} (\texttt{owned=False} skips \texttt{docker rmi}), unifying ``artifacts live externally'' under one abstraction.
+\end{itemize}
+
+\subsection{Concurrency \& isolation: making ``run it repeatedly'' cheap}
+
+As evaluation goes from ``produce one report'' $\rightarrow$ ``iterate continuously'' $\rightarrow$ ``commercial artifact certification,'' the cost of repeated runs becomes increasingly sensitive. LIFT adds concurrency + isolation at three levels:
+
+\begin{table}[h]
+\centering
+\caption{Concurrency and isolation levels with their flags and defaults.}
+\label{tab:concurrency}
+\begin{tabular}{p{0.42\textwidth}p{0.3\textwidth}p{0.2\textwidth}}
+\toprule
+Level & Flag & Default \\
+\midrule
+Between matrix cells (repeat $\times$ suite Cartesian product) & \texttt{--max-parallel-suites} & 3 \\
+Between tasks (within a phase) & \texttt{--max-concurrent-tasks} & no cap \\
+Between phases (within a task) & \texttt{--holdout-phase-policy} & parallel \\
+Warmup container policy & \texttt{--warmup-container-policy} & parallel\_single \\
+Holdout container policy & \texttt{--holdout-container-policy} & parallel\_multi \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each level of concurrency rests on container isolation: every holdout task gets its own container, workspace subdirectory, and ephemeral port; cleanup is centrally tracked by a \texttt{SuiteRunResources} registry. Failure isolation prevents cascades; first-pass failed cells are retried once globally, phases/tasks retry once each, and the chat layer retries provider errors 5$\times$ / judge-JSON parse 8$\times$.
+
+\subsection{Observability: an execution-time + post-processing dual chain}
+
+LIFT writes its report in two passes:
+
+\begin{table}[h]
+\centering
+\caption{The dual-chain report writing: execution-time and post-process passes.}
+\label{tab:observability}
+\begin{tabular}{p{0.16\textwidth}p{0.44\textwidth}p{0.34\textwidth}}
+\toprule
+Phase & Content & File \\
+\midrule
+Execution & conclusion: success, score, session, workspace paths & \texttt{report.json} \\
+Post-process & Langfuse trace backfill, comparison CSV, trajectory judging, HTML report & \texttt{*\_backfilled.json}, \texttt{*\_comparison\_metrics.csv} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Why two passes: at execution time, traces are still in the Langfuse worker queue --- synchronously waiting would slow the main path; and post-processing can be re-run independently (\texttt{--evaluate-only}) to diagnose or add new metrics. Execution-time \texttt{emit\_pre\_chat\_state} stamps \texttt{session\_id} and phase metadata before each chat; post-processing \texttt{stitch\_phase\_langfuse\_traces} merges the agent's \texttt{*\_agent} trace with the plugin trace by \texttt{session\_id} + time window into \texttt{PhaseRun.langfuse}. This contract guarantees \textbf{the report can open the trace} to show what actually happened on that task.
+
+\subsection{Metric system}
+
+\begin{itemize}
+\item \textbf{Required}: $\text{DownstreamPassDelta} = \text{PassRate}(\text{Loaded}) - \text{PassRate}(\text{Base})$, FirstRoundPassRate, FinalPassRate, AvgAttempts, $\text{Outcome}_i = \text{score}$ (the judge's single completion ratio = satisfied/total, 1 on success), TotalTokens (incl. judge), TotalLatency.
+\item \textbf{Efficiency (primary for evolution)}: $\text{impr\_metric} = \text{evolved\_metric} / \text{baseline\_metric} \times 100\%$ over \{attempts, tool calls, tokens\} --- an evolution that reaches the user's requirements in fewer interactions on similar tasks is beneficial; the greater the reduction, the better the mechanism.
+\item \textbf{Sequential}: Pass@k, RecoveryRate.
+\item \textbf{Evolution-specific (optional)}: attribution triplet \emph{No-Evo / Only-Products / Evo-On}; curve diagnostics FWT / BWT.
+\item \textbf{Cross-cutting}: static DistillateConflictRate / SafetyConcernCount, dynamic SafetyRegression, cost ColdStartTTV / EvolutionROI.
+\end{itemize}
+
+LIFT itself only emits a \textbf{structured execution record (Pydantic)}; which metrics are \emph{required} is decided by the benchmark --- hence the benchmark is described as a distinct component, orthogonal to the protocol.
+
+\subsection{Contrast with replay mode}
+
+An early replay mode (all-suite baseline $\rightarrow$ one evolve $\rightarrow$ all-suite evolved) is not the main path; it fits only as an ablation:
+
+\begin{table}[h]
+\centering
+\caption{LIFT's holdout-extrapolation protocol versus the diagnostic replay mode.}
+\label{tab:replay}
+\begin{tabular}{p{0.14\textwidth}p{0.42\textwidth}p{0.38\textwidth}}
+\toprule
+ & LIFT (this paper) & replay \\
+\midrule
+Focus & loaded contrast on holdout final & run all tasks once before and once after evolution \\
+Artifact stage & warmup $\rightarrow$ $\Delta$ image, then test & evolve once after all-suite baseline \\
+Risk & none & Q5 baseline may be polluted by Q1..Q4 state; Q5 evolved may directly reuse Q1..Q4 outputs \\
+Scientific question & do artifacts help on \emph{unseen} tasks (\textbf{extrapolation}) & per-task evolution magnitude (\textbf{interpolation}, diagnostic) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+LIFT picks extrapolation as the \textbf{main} protocol precisely to exclude the second fault line of \S1.3.
+
+
+\section{The LIFT Benchmark Suite}
+
+\begin{quote}
+This section is self-contained: the benchmark design (schema, task-authoring principles, rubric design, the 14 scenes) is described here rather than deferred to a companion paper.
+\end{quote}
+
+\subsection{Three-layer structure}
+
+The dataset is organized in three layers --- \textbf{total dataset $\rightarrow$ scene datasets $\rightarrow$ train/test tasks} --- stored human-readably as folders + task markdowns and compiled by \texttt{python -m src.cli.preprocess} into machine-readable suite JSON (\texttt{Suite} in \texttt{src/models.py}):
+
+\begin{lstlisting}
+<scene>/
+|-- train/                    # warmup tasks (artifact evolution)
+|   |-- q1_<shortname>/{q1_<shortname>.md, q1_materials/}
+|   `-- ...                   # 4 tasks
+|-- test/                     # final / holdout tasks (LIFT paired contrast)
+|   |-- q5_<shortname>/ ...
+|   `-- q6_<shortname>/       # 2 tasks
+`-- skills/                   # optional, scene-level skill
+\end{lstlisting}
+
+The compiled \texttt{Suite} explicitly separates \texttt{warmup\_tasks[]} ($\leftarrow$ \texttt{train/}) from \texttt{holdout\_tasks[]} ($\leftarrow$ \texttt{test/}), the data-structure enforcement of P2.
+
+\subsection{Task anatomy: query / requirements / trajectory requirements}
+
+Each task reconstructs a real interaction where the user \emph{first asks vaguely, then gradually clarifies, and silently inspects the process}. It has three parts:
+
+\begin{enumerate}
+\item \textbf{query} --- a colloquial, deliberately under-specified first instruction, carrying only entry info essential to start (which \texttt{qN\_materials} to use; where to save the deliverable, \texttt{result/result\_qN}). It simulates a user who has not yet worked out the details.
+\item \textbf{requirements (\texttt{content\_reqs})} --- the true acceptance checklist the user reveals after seeing an unsatisfactory draft: content, format, fields, organization, business rules, personalized preferences. Each item must be \textbf{independently verifiable} and at the \textbf{same level} (no nested sub-requirements); a scene carries \textbf{$\geq 12$} items. This is the main signal for both the judge and the agent's evolution.
+\item \textbf{trajectory requirements (\texttt{trajectory\_reqs})} --- constrains/inspects the execution path (tool-call validity and efficiency, allowed information sources, allowed tools/skills; catching hallucination such as fabricating instead of searching). Trajectory requirements are derived \emph{only} from the requirements and must not contradict them.
+\end{enumerate}
+
+Content and trajectory are \textbf{scored on two separate lines}. Because the judge discloses only the top unmet requirement(s) per turn (\S3.4), the query alone is sent to the agent; the checklist stays hidden, reconstructing the ``user suddenly remembers one more thing'' dynamic.
+
+\textbf{Concrete example} (travel scene, warmup Q1, translated): the \emph{query} is one sentence --- ``Plan a same-day round-trip family itinerary from Hangzhou to Fuyang on 2026-06-01, two adults + one child, no budget limit; save the plan to \texttt{result/result\_q1}.'' The 12 \emph{requirements} are the hidden checklist (local weather in a basics module; round-trip transport in a transport module; itinerary split by date and morning/afternoon/evening; child-friendly items flagged; walking distance shown separately and $\leq 3$ km/day; all facts date-verified with sources shown; \dots). The 4 \emph{trajectory requirements} constrain the path (facts must come from authoritative web search, not fabricated; search destination content before planning; save to the specified folder).
+
+\subsection{The 75\% / 25\% train-test overlap}
+
+For the test set we deliberately require \textbf{$\sim$75\%} of requirements to match the train set and \textbf{$\sim$25\%} to be \emph{variants of} or \emph{contradictions to} train requirements. This ratio is not arbitrary: the highly-overlapping part checks whether the agent applies distilled experience \textbf{in the right place}; the 25\% variant/contradiction part acts as a mirror that exposes (i) over-fitting to the \emph{literal} train requirements, (ii) mistaking a temporary preference for a universal rule, and (iii) failure to override old experience under a new constraint.
+
+Example: a train requirement ``on trips, visit more cultural/historical sites'' has, in the test set, a \textbf{variant} ``when planning routes, add more scenic natural spots'' and a \textbf{contradiction} ``do not include any cultural/historical site visits --- I don't like them.'' Non-generalizable ``noise'' requirements are strictly confined to appearing sparingly in the \textbf{train} set only, so that pseudo-experience is not retroactively rationalized by the test set --- preserving the purity of the evolution-ability measurement.
+
+\subsection{Rubric design and grading}
+
+Requirements are engineered for \textbf{verifiability, not product quality}, to minimize the judge's randomness on the attempt-count metric. Deterministic requirements are phrased for rule-checkable judgment (fixed headings, fixed CSV columns, fixed metric formulas, numeric thresholds); open-ended parts are graded by the LLM judge against the checklist. The judge is pinned (temperature 0, fixed model, versioned rubric). Cross-runtime neutrality is required: a \texttt{query} must not bind to a specific agent's tool naming, to avoid gifting points to any one runtime.
+
+\subsection{Suite statistics}
+
+The released suite has \textbf{14 scenes}, each with \textbf{4 warmup + 2 holdout = 6 tasks}, totaling \textbf{56 warmup + 28 holdout = 84 tasks}, thematically spanning:
+
+\begin{table}[h]
+\centering
+\caption{The 14 benchmark scenes grouped by thematic category.}
+\label{tab:scenes}
+\begin{tabular}{p{0.4\textwidth}p{0.55\textwidth}}
+\toprule
+Category & Scenes \\
+\midrule
+Travel \& trip planning & Travel Planning, Business Travel \\
+Shopping / consumer \& finance decisions & Healthy-Snack Guide, Cat-Food Guide, Stock Investment Decisions \\
+Data analysis & data\_analysis, Sales-Ops Weekly Analytics \\
+Content creation \& document/deck authoring & Xiaohongshu Product Ops, PPT Creation, Startup BP / Investor Roadshow \\
+Workplace reporting \& ops planning & Weekly-Report Auto-Generation, Team-Building Planning \\
+Information retrieval \& research & information\_search\_gathering \\
+Learning / education & English-Grammar Learning Guide \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A minimal smoke suite \texttt{assets/benchmarks\_demo/hello.json} (1 warmup ``Reply with a greeting'' + 1 holdout ``Introduce yourself'') is shipped for framework-level regression testing. Full benchmarks are compiled from external markdown sources via \texttt{python -m src.cli.preprocess}.
+
+\subsection{The minimal contract (for third-party benchmarks)}
+
+Any benchmark plugged into LIFT must satisfy: (1) \textbf{two-phase schema} --- explicit \texttt{warmup\_tasks[]} / \texttt{holdout\_tasks[]}, each task carrying \texttt{query} / \texttt{requirements} / \texttt{expected\_result.\{content\_reqs, trajectory\_reqs\}}; (2) \textbf{judge-friendly} --- \texttt{content\_reqs} must be a machine-adjudicable checklist (rules for deterministic parts, LLM rubric for open parts); (3) \textbf{cross-runtime neutral} --- no tool-name binding; (4) \textbf{scenario diversity}.
+
+
+\section{Implementation}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Key implementation files and their one-line responsibilities.}
+\label{tab:implementation}
+\begin{tabular}{p{0.24\textwidth}p{0.34\textwidth}p{0.36\textwidth}}
+\toprule
+Topic & Key file & One-liner \\
+\midrule
+Pipeline orchestration & \texttt{src/lift/pipeline/lift\_pipeline.py} & repeat $\times$ suite $\times$ phase multi-level concurrency \\
+Adapter contract (base) & \texttt{src/lift/adapters/base.py} & abstract \texttt{AgentRuntimeAdapter}: \texttt{worker\_judger\_factory} / \texttt{evolve\_after\_warmup} hooks \\
+Container orchestration & \brk{src/lift/adapters/container/adapter.py} & \brk{ContainerAgentRuntimeAdapter}: \texttt{resolve\_docker\_image} / \texttt{start\_container} + default \texttt{docker commit} \\
+Per-task kernel & \texttt{src/lift/eval/run\_task.py} & work + judge review loop \\
+Container policies & \texttt{src/lift/policies/container.py} & warmup / holdout / phase orchestration enums \\
+Status visualization & \texttt{src/lift/status/} & TUI (rich) + HTTP dashboard \\
+Trace backfill & \texttt{src/postprocess/trace\_backfill.py} & \texttt{session\_id} correlation (calls \texttt{stitch\_phase\_langfuse\_traces}) \\
+Data models & \texttt{src/models.py} & \texttt{Suite} / \texttt{EvalReport} / \texttt{PhaseRun} / Langfuse trace schema \\
+Image build & \brk{agent-runtimes/openclaw/build-image.sh} & base / with-evolve dual artifacts \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Token accounting.} LIFT enforces a fixed 5-field token schema across all runtimes: \texttt{input\_tokens} (excl. cache), \texttt{cache\_write\_tokens}, \texttt{cache\_read\_tokens}, \texttt{output\_tokens} (incl. \texttt{reasoning\_tokens} as a subset), \texttt{reasoning\_tokens} ($\subset$ output). $\text{total\_tokens} = \text{input} + \text{cache\_write} + \text{cache\_read} + \text{output}$ --- reasoning is not added again. Evolution cost (\texttt{evolve\_after\_warmup} tokens) is booked as \emph{training} cost, not Loaded inference cost, so EvolutionROI is not under-counted.
+
+
+\section{Experiments}
+
+\begin{quote}
+\texttt{[TODO-DATA]} All numbers in this section are pending the full run. Structure and research questions are fixed; tables are placeholders.
+\end{quote}
+
+We fix the agent model, work/judge endpoints, \texttt{max\_conversation\_turns}, and container resource passthrough across all cells; the only manipulated variable is Base vs. Loaded (P1). Unless noted, \texttt{--repeat 5}, \texttt{--max-parallel-suites 20}. We report mean $\pm$ std across repeats.
+
+\subsection{Interaction-efficiency leaderboard}
+\label{sec:leaderboard}
+
+On EALE the \texttt{content\_score} is close to saturation for most scenes (deterministic checklists, capable underlying LLM), so absolute pass rate is a low-resolution signal of \emph{self-evolution}. What genuinely improves as an agent internalizes artifacts is \textbf{the interaction cost of completing the same task}: fewer conversation turns and fewer tool invocations for the same score. The leaderboard therefore ranks runtimes on \emph{interaction-cost reduction}, not on absolute score.
+
+\textbf{Metrics.} Let $B$ / $E$ denote the baseline / evolved phase means (averaged over holdout tasks $\times$ \texttt{--repeat}). Define:
+\[
+\Delta\text{Turns\%} = \frac{E_{\text{turns}} - B_{\text{turns}}}{B_{\text{turns}}}, \qquad
+\Delta\text{Tools\%} = \frac{E_{\text{tools}} - B_{\text{tools}}}{B_{\text{tools}}},
+\]
+\[
+\text{Composite} = 0.8 \cdot \Delta\text{Turns\%} + 0.2 \cdot \Delta\text{Tools\%}.
+\]
+Lower (more negative) is stronger; turns dominate the composite because they map most directly to user-perceived latency. Both baseline and evolved \texttt{content\_score} are reported alongside for transparency but do \emph{not} participate in ranking; no pass-rate gate is applied, so regressions (positive $\Delta$) surface directly in the composite. Turns and tool-call counts are sourced from the postprocess CSV columns \texttt{trials} / \texttt{tool\_use\_num} (Langfuse-derived), aggregated per-runtime.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\caption{\textbf{[MOCK TABLE --- illustrative structure only; all numbers are placeholders pending the full \texttt{--repeat 5} run.]} Interaction-Efficiency Leaderboard across the nine runtimes reported in the paper. Ranked by Composite $\uparrow$ (lower is stronger). Categories: \emph{Implicit} = natural state accumulation during warmup, no explicit evolve hook; \emph{Augmented} = explicit reflection / skill hub / AutoSkills after warmup.}
+\label{tab:leaderboard}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{clllccrccrr}
+\toprule
+Rank & Runtime & Category & Score (B / E) & Turns B & Turns E & $\Delta$Turns\% & Tools B & Tools E & $\Delta$Tools\% & Composite \\
+\midrule
+1 & \texttt{[TODO]} & Augmented & -- / -- & -- & -- & -- & -- & -- & -- & -- \\
+2 & \texttt{[TODO]} & Augmented & -- / -- & -- & -- & -- & -- & -- & -- & -- \\
+3 & \texttt{[TODO]} & Augmented & -- / -- & -- & -- & -- & -- & -- & -- & -- \\
+4 & \texttt{[TODO]} & Augmented & -- / -- & -- & -- & -- & -- & -- & -- & -- \\
+\midrule
+5 & \texttt{[TODO]} & Implicit & -- / -- & -- & -- & -- & -- & -- & -- & -- \\
+6 & \texttt{[TODO]} & Implicit & -- / -- & -- & -- & -- & -- & -- & -- & -- \\
+7 & \texttt{[TODO]} & Implicit & -- / -- & -- & -- & -- & -- & -- & -- & -- \\
+8 & \texttt{[TODO]} & Implicit & -- / -- & -- & -- & -- & -- & -- & -- & -- \\
+9 & \texttt{[TODO]} & Implicit & -- / -- & -- & -- & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Runtimes entering the leaderboard: \emph{Implicit} --- \texttt{openclaw}, \texttt{genericagent}, \texttt{hermes}, \texttt{openhuman}, \texttt{evoscientist}; \emph{Augmented} --- \texttt{openclaw\_with\_openspace}, \texttt{genericagent\_active\_evolve}, \texttt{hermes\_with\_openspace}, \texttt{evoscientist\_active\_evolve}. \texttt{openclaw\_with\_evolve} and \texttt{multi\_user\_openclaw} are excluded from this main leaderboard (they remain part of the registry and are discussed under RQ2 and RQ4 respectively).
+
+\textbf{Caveat.} Tool-call counts for runtimes without a native counter (EvoScientist, OpenHuman) are populated via Langfuse \texttt{trace\_backfill}; if the trace overlay is unavailable, the cell is annotated \texttt{n/a} and that runtime is scored on $\Delta$Turns\% alone.
+
+\textbf{RQ1 --- Do evolved artifacts help on unseen tasks?} Base vs. Loaded across the 14 scenes.
+
+\begin{table}[h]
+\centering
+\small
+\caption{RQ1: Base vs. Loaded pass rates and DownstreamPassDelta across the 14 scenes.}
+\label{tab:rq1}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccccc}
+\toprule
+Scene & Base FinalPassRate & Loaded FinalPassRate & DownstreamPassDelta & Base FirstRound & Loaded FirstRound \\
+\midrule
+(14 rows) & \texttt{[TODO-DATA]} & \texttt{[TODO-DATA]} & \texttt{[TODO-DATA]} & \texttt{[TODO-DATA]} & \texttt{[TODO-DATA]} \\
+\textbf{Macro-avg} & \texttt{[TODO-DATA]} & \texttt{[TODO-DATA]} & \texttt{[TODO-DATA]} & \texttt{[TODO-DATA]} & \texttt{[TODO-DATA]} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\textbf{RQ2 --- Does the evolution plugin itself add value?} \texttt{openclaw} (no plugin) vs. \texttt{openclaw\_with\_evolve}, on identical suites. \texttt{[TODO-DATA]}
+
+\textbf{RQ3 --- Is the delta stable across repeats?} Variance of DownstreamPassDelta over \texttt{--repeat} on one suite; report std and CI. \texttt{[TODO-DATA]}
+
+\textbf{RQ4 --- Cross-runtime bare baseline and Loaded delta.} On the same benchmark, per-runtime (\texttt{openclaw}, \texttt{hermes}, \texttt{openhuman}, \texttt{evoscientist}, \dots) bare baseline and Loaded delta. Per \S7, we do \textbf{not} compare runtimes head-to-head; each is its own Base-vs-Loaded, and we compare \emph{delta magnitudes}. \texttt{[TODO-DATA]}
+
+\textbf{RQ5 --- Cross-scene transfer (ablation).} Artifacts evolved on scene A applied to scene B tasks. \texttt{[TODO-DATA]}
+
+\textbf{RQ6 --- Cost view.} TotalTokens and EvolutionROI; \texttt{impr\_metric} on \{attempts, tool calls, tokens\}. \texttt{[TODO-DATA]}
+
+\textbf{Efficiency observation (preliminary, single-suite integration runs).} In integration-check runs on the \texttt{evoscientist\_active\_evolve} runtime, evolved reached the same 100\% pass rate as baseline while reducing tokens, latency, and conversation turns --- consistent with LIFT's efficiency-first hypothesis. Full-suite numbers are \texttt{[TODO-DATA]}.
+
+
+\section{Discussion and Limitations}
+
+\begin{enumerate}
+\item \textbf{Benchmark data contamination.} LIFT cannot prevent the gold set from being contaminated by LLM training data; ABC-Checklist-style tools~\citep{zhu2025abc} must gate this at benchmark-design time.
+\item \textbf{No direct cross-agent comparison.} We deliberately do \textbf{not} support head-to-head \emph{OpenClaw+plugin vs. Hermes} comparison --- too many confounds make conclusions non-attributable. The correct move is per-agent Base vs. Loaded, then compare delta magnitudes.
+\item \textbf{Evolution $\neq$ artifacts.} LIFT is artifact-source-agnostic by default. To isolate ``the evolution \emph{mechanism} has value,'' use the attribution triplet (No-Evo / Only-Products / Evo-On) --- an optional appendix, not a required metric.
+\item \textbf{Judge bias.} When both work and judge are LLMs, self-preference is a risk. Current mitigation: the judge role-plays ``the user,'' adjudicates the \texttt{content\_reqs} checklist item-by-item into a single completion ratio, and is pinned (temperature 0, fixed model, versioned rubric). Making deterministic requirements fully machine-checkable --- shrinking the subjective surface further --- is future work.
+\item \textbf{Environment fidelity.} The container is still a \emph{controlled Linux environment}; fidelity gaps remain versus desktop-GUI / browser agents --- future work.
+\item \textbf{Evolution-cost attribution.} \texttt{evolve\_after\_warmup} tokens are training cost, not Loaded inference cost; LIFT books them separately so EvolutionROI is not under-counted.
+\end{enumerate}
+
+
+\section{Conclusion}
+
+Our stance in one sentence: \textbf{evaluating a self-evolving agent is not about how much better it gets on tasks it has already seen, but how much better it gets on \emph{unseen} tasks by virtue of its distilled artifacts.} LIFT realizes this with train/test separation + same-task paired runs + container snapshots + a three-layer abstraction + multi-level concurrency + trace backfill, and ships a self-contained 14-scene / 84-task benchmark. We hope to provide a reusable, criticizable, comparable base for evaluation infrastructure.
+
+
+\section*{Reproducibility \& Release}
+
+\begin{itemize}
+\item \textbf{Code}: framework, eleven runtime adapters, status dashboard, post-processing --- released at \url{https://github.com/FeiZhuNiU-INFJA/LIFT}.
+\item \textbf{Images}: \texttt{lift-openclaw-base} / \texttt{lift-openclaw-with-evolve} and \texttt{lift-\{genericagent,hermes,openhuman,evoscientist\}:latest} build scripts.
+\item \textbf{Data}: 14-scene benchmark (EALE) hosted at \url{https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE} under \textbf{CC BY 4.0}, with a dataset card and Croissant metadata (Appendix C summarizes the datasheet); plus the demo smoke suite in-repo. EALE is file-structured (per-task folders + materials), so it is consumed by cloning the repository tree rather than via a single-table \texttt{load\_dataset}.
+\item \textbf{Entry points}: \texttt{python -m src.cli.lift\_main -r <runtime> --benchmark\_dir <dir> --suite <name>.json --run\_id <id>}; \texttt{--evaluate-only} for post-process replay.
+\end{itemize}
+
+
+\appendix
+
+\section{Surveyed open-source works (by type)}
+
+We group the works surveyed along the axis ``can it answer \emph{do the artifacts help?}''. Methods / judge: ABC Checklist~\citep{zhu2025abc}, Agent-as-a-Judge~\citep{zhuge2024agentasajudge}, MAJ-Eval~\citep{chen2026majeval}, AgentDistill~\citep{qiu2025agentdistill}. Evolution / artifact benchmarks: SEA-Eval~\citep{jiang2026seaeval}, EvolveTool-Bench~\citep{kaliyev2026evolvetoolbench}, SkillsBench~\citep{li2026skillsbench}, EvoMemBench~\citep{wang2026evomembench}, Evo-Memory~\citep{wei2025evomemory}. Lifelong / sequential: LifelongAgentBench~\citep{zheng2025lifelongagentbench}. General task benchmarks: REAL~\citep{garg2025real}, MLR-Bench~\citep{chen2025mlrbench}, AgentIF~\citep{qi2025agentif}, $\tau$-bench / $\tau^2$-bench~\citep{yao2024taubench,barres2025tau2bench}, AgentBench~\citep{liu2023agentbench}, GAIA~\citep{mialon2023gaia}, SWE-bench~\citep{jimenez2024swebench}, and harness-comparison benchmarks. Safety: OS-Harm~\citep{kuntz2025osharm}, RAS-Eval~\citep{fu2025raseval}, MultiBreak~\citep{song2026multibreak}. Evaluation SDKs: DeepEval~\citep{confidentai_deepeval}, Opik~\citep{cometml_opik}, Promptfoo~\citep{promptfoo}, with Langfuse~\citep{langfuse} used for tracing.
+
+\section{LIFT vs. existing work (relation matrix)}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Relation matrix contrasting LIFT's stance with existing work along nine dimensions.}
+\label{tab:relation}
+\begin{tabular}{p{0.2\textwidth}p{0.36\textwidth}p{0.38\textwidth}}
+\toprule
+Dimension & LIFT's stance & Direct contrast \\
+\midrule
+Artifact source & source-agnostic; test whether the artifact itself helps & SkillsBench empirically shows self-generated skills often useless; LIFT provides the infrastructure to test this \\
+Causal contrast & Base vs. Loaded, same-task paired & most benchmarks lack this control group \\
+Train / test & explicit separation (warmup/holdout) & most self-evolution papers mix them \\
+Per-task scoring & work + judge review loop & borrows Agent-as-a-Judge tool-augmented verification \\
+Artifact materialization & \texttt{docker commit} $\rightarrow$ delta image & more reproducible than toggle-load, more complete than structured export \\
+Learning curves & evolution-specific diagnostic (optional) & LifelongAgentBench makes FWT/BWT primary; LIFT makes them diagnostic \\
+Cross-agent comparison & per-agent Base-vs-Loaded, compare deltas; no head-to-head & harness-comparison benchmarks compare bare agents \\
+Safety & cross-cutting, optional & OS-Harm / RAS-Eval provide dedicated safety benchmarks; LIFT does not redo them \\
+Trace & Langfuse backfill & like Opik, but trace-only, no evaluator \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\section{Datasheet summary (EALE)}
+
+Following \emph{Datasheets for Datasets}~\citep{gebru2021datasheets}, we summarize EALE here; the full datasheet ships with the dataset release.
+
+\begin{itemize}
+\item \textbf{Motivation.} Measure whether a self-evolving agent genuinely improves on \emph{unseen} tasks after consolidating artifacts from warmup tasks, isolating genuine generalization from pseudo growth (leakage, context pollution, grader self-preference, non-reproducible runtimes).
+\item \textbf{Composition.} 14 scenes $\times$ (4 warmup + 2 holdout) $=$ 84 tasks. Each instance is a per-task folder: a markdown spec (query + hidden requirements checklist, $\geq 12$ verifiable items + trajectory requirements) plus synthetic input materials (CSV/documents). No real personal data.
+\item \textbf{Splits.} Load-bearing \texttt{train/} (warmup, drives evolution) vs. \texttt{test/} (holdout, paired Base-vs-Loaded contrast); requirements overlap $\sim$75\%/25\% by design.
+\item \textbf{Collection.} Expert-authored against an authoring contract (\texttt{assets/suite\_requirement.md}); materials synthesized per task; produced during 2026 framework development. No human subjects.
+\item \textbf{Preprocessing.} Human-readable markdown compiled into machine-readable suite JSON (\texttt{Suite}) by \texttt{python -m src.cli.preprocess}; raw source retained as the released artifact.
+\item \textbf{Uses.} Benchmarking agent memory / skill acquisition / SOP distillation and continual-learning diagnostics under the Base-vs-Loaded protocol. \emph{Not} a raw one-shot capability leaderboard; several scenes are locale-specific and should not be over-generalized.
+\item \textbf{Distribution \& maintenance.} Public Hugging Face repository (ModelScope mirror) under \textbf{CC BY 4.0}; Croissant metadata~\citep{akhtar2024croissant} is auto-generated (\texttt{conformsTo: mlcommons/croissant 1.1}), with the authoritative file structure documented in the dataset card since EALE is file-structured rather than a single table. Versioned updates and corrections are released via the repository git history.
+\end{itemize}
+
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+
+\end{document}

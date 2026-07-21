@@ -1,0 +1,279 @@
+% =====================================================================
+% refs.bib for "LIFT: A Counterfactual Framework and Benchmark for
+% Disentangling Genuine Self-Evolution in LLM Agents"
+%
+% Every entry below was verified via web search (arXiv abstract page or
+% official GitHub) before inclusion. Style: @misc + eprint/archivePrefix/
+% primaryClass for arXiv preprints; @misc + howpublished for software
+% tools; @inproceedings for the one work with a confirmed proceedings.
+%
+% Any name that could NOT be confidently verified is listed, commented
+% out, in the "% UNVERIFIED" section at the bottom.
+% =====================================================================
+
+% ---- Agent / LLM evaluation benchmarks -----------------------------
+
+@misc{liu2023agentbench,
+  title         = {AgentBench: Evaluating LLMs as Agents},
+  author        = {Liu, Xiao and Yu, Hao and Zhang, Hanchen and others},
+  year          = {2023},
+  eprint        = {2308.03688},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI},
+  note          = {ICLR 2024}
+}
+
+@misc{mialon2023gaia,
+  title         = {GAIA: A Benchmark for General AI Assistants},
+  author        = {Mialon, Gr\'egoire and Fourrier, Cl\'ementine and Swift, Craig and Wolf, Thomas and LeCun, Yann and Scialom, Thomas},
+  year          = {2023},
+  eprint        = {2311.12983},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL}
+}
+
+@misc{jimenez2024swebench,
+  title         = {SWE-bench: Can Language Models Resolve Real-World GitHub Issues?},
+  author        = {Jimenez, Carlos E. and Yang, John and Wettig, Alexander and others},
+  year          = {2023},
+  eprint        = {2310.06770},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+  note          = {ICLR 2024}
+}
+
+@misc{yao2024taubench,
+  title         = {{$\tau$}-bench: A Benchmark for Tool-Agent-User Interaction in Real-World Domains},
+  author        = {Yao, Shunyu and Shinn, Noah and Razavi, Pedram and Narasimhan, Karthik},
+  year          = {2024},
+  eprint        = {2406.12045},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+@misc{barres2025tau2bench,
+  title         = {{$\tau^2$}-Bench: Evaluating Conversational Agents in a Dual-Control Environment},
+  author        = {Barres, Victor and Dong, Honghua and Ray, Soham and Si, Xujie and Narasimhan, Karthik},
+  year          = {2025},
+  eprint        = {2506.07982},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+@misc{garg2025real,
+  title         = {REAL: Benchmarking Autonomous Agents on Deterministic Simulations of Real Websites},
+  author        = {Garg, Divyansh and VanWeelden, Shaun and Caples, Diego and others},
+  year          = {2025},
+  eprint        = {2504.11543},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  note          = {NeurIPS 2025 (poster)}
+}
+
+@misc{zhuge2024agentasajudge,
+  title         = {Agent-as-a-Judge: Evaluate Agents with Agents},
+  author        = {Zhuge, Mingchen and Zhao, Changsheng and others},
+  year          = {2024},
+  eprint        = {2410.10934},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+% ---- LLM eval / observability tooling (software) -------------------
+
+@misc{confidentai_deepeval,
+  title        = {DeepEval: The LLM Evaluation Framework},
+  author       = {{Confident AI}},
+  year         = {2025},
+  howpublished = {\url{https://github.com/confident-ai/deepeval}},
+  note         = {GitHub repository}
+}
+
+@misc{cometml_opik,
+  title        = {Opik: Open-Source LLM Evaluation and Observability Platform},
+  author       = {{Comet ML}},
+  year         = {2025},
+  howpublished = {\url{https://github.com/comet-ml/opik}},
+  note         = {GitHub repository}
+}
+
+@misc{promptfoo,
+  title        = {Promptfoo: Test and Evaluate LLM Outputs},
+  author       = {{Promptfoo}},
+  year         = {2025},
+  howpublished = {\url{https://github.com/promptfoo/promptfoo}},
+  note         = {GitHub repository}
+}
+
+@misc{langfuse,
+  title        = {Langfuse: Open-Source LLM Engineering Platform},
+  author       = {{Langfuse}},
+  year         = {2025},
+  howpublished = {\url{https://github.com/langfuse/langfuse}},
+  note         = {GitHub repository}
+}
+
+% ---- Agentic-benchmark rigor / checklist ---------------------------
+
+@misc{zhu2025abc,
+  title         = {Establishing Best Practices for Building Rigorous Agentic Benchmarks},
+  author        = {Zhu, Yuxuan and Jin, Tengjun and Pruksachatkun, Yada and others},
+  year          = {2025},
+  eprint        = {2507.02825},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI},
+  note          = {Introduces the Agentic Benchmark Checklist (ABC)}
+}
+
+% ---- LLM-as-judge / multi-agent evaluation -------------------------
+
+@inproceedings{chen2026majeval,
+  title     = {Multi-Agent-as-Judge: Aligning LLM-Agent-Based Automated Evaluation with Multi-Dimensional Human Evaluation},
+  author    = {Chen, Jiaju and Lu, Yuxuan and Wang, Xiaojie and Zeng, Huimin and Huang, Jing and Gesi, Jiri and Xu, Ying and Yao, Bingsheng and Wang, Dakuo},
+  booktitle = {Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (ACL)},
+  pages     = {17389--17416},
+  year      = {2026},
+  note      = {ACL 2026 Long Papers; also known as MAJ-Eval}
+}
+
+% ---- Self-evolving agents / skills / tools / memory ----------------
+
+@misc{qiu2025agentdistill,
+  title         = {AgentDistill: Training-Free Agent Distillation with Generalizable MCP Boxes},
+  author        = {Qiu, Jiahao and Juan, Xinzhe and Wang, Yimin and others},
+  year          = {2025},
+  eprint        = {2506.14728},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+@misc{jiang2026seaeval,
+  title         = {SEA-Eval: A Benchmark for Evaluating Self-Evolving Agents Beyond Episodic Assessment},
+  author        = {Jiang, Sihang and Ma, Lipeng and Hong, Zhonghua and others},
+  year          = {2026},
+  eprint        = {2604.08988},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+@misc{kaliyev2026evolvetoolbench,
+  title         = {Beyond Task Completion: A Verification-vs.-Conformance Gap in Tool-Evolving Agents},
+  author        = {Kaliyev, Alibek T. and Maryanskyy, Artem},
+  year          = {2026},
+  eprint        = {2604.00392},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.SE},
+  note          = {Introduces the EvolveTool-Bench diagnostic benchmark}
+}
+
+@misc{li2026skillsbench,
+  title         = {SkillsBench: Benchmarking How Well Agent Skills Work Across Diverse Tasks},
+  author        = {Li, Xiangyi and Chen, Wenbo and others},
+  year          = {2026},
+  eprint        = {2602.12670},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+@misc{wang2026evomembench,
+  title         = {EvoMemBench: Benchmarking Agent Memory from a Self-Evolving Perspective},
+  author        = {Wang, Yuyao and Zhang, Zhongjian and Chi, Mo and others},
+  year          = {2026},
+  eprint        = {2605.18421},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL}
+}
+
+@misc{wei2025evomemory,
+  title         = {Evo-Memory: Benchmarking LLM Agent Test-time Learning with Self-Evolving Memory},
+  author        = {Wei, Tianxin and Sachdeva, Noveen and Coleman, Benjamin and others},
+  year          = {2025},
+  eprint        = {2511.20857},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL}
+}
+
+@misc{zheng2025lifelongagentbench,
+  title         = {LifelongAgentBench: Evaluating LLM Agents as Lifelong Learners},
+  author        = {Zheng, Junhao and Cai, Xidi and Li, Qiuke and others},
+  year          = {2025},
+  eprint        = {2505.11942},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+@misc{qi2025agentif,
+  title         = {AgentIF: Benchmarking Instruction Following of Large Language Models in Agentic Scenarios},
+  author        = {Qi, Yunjia and Peng, Hao and Wang, Xiaozhi and others},
+  year          = {2025},
+  eprint        = {2505.16944},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL}
+}
+
+@misc{chen2025mlrbench,
+  title         = {MLR-Bench: Evaluating AI Agents on Open-Ended Machine Learning Research},
+  author        = {Chen, Hui and Xiong, Miao and Lu, Yujie and others},
+  year          = {2025},
+  eprint        = {2505.19955},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI}
+}
+
+% ---- Agent safety / security benchmarks ----------------------------
+
+@misc{kuntz2025osharm,
+  title         = {OS-Harm: A Benchmark for Measuring Safety of Computer Use Agents},
+  author        = {Kuntz, Thomas and Duzan, Agatha and Zhao, Hao and others},
+  year          = {2025},
+  eprint        = {2506.14866},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI},
+  note          = {NeurIPS 2025 Datasets and Benchmarks Track}
+}
+
+@misc{fu2025raseval,
+  title         = {RAS-Eval: A Comprehensive Benchmark for Security Evaluation of LLM Agents in Real-World Environments},
+  author        = {Fu, Yuchuan and Yuan, Xiaohan and Wang, Dongxia},
+  year          = {2025},
+  eprint        = {2506.15253},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CR}
+}
+
+@misc{song2026multibreak,
+  title         = {MultiBreak: A Scalable and Diverse Multi-turn Jailbreak Benchmark for Evaluating LLM Safety},
+  author        = {Song, Jialin and Liu, Xiaodong and Yang, Weiwei and others},
+  year          = {2026},
+  eprint        = {2605.01687},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL}
+}
+
+% ---- Dataset metadata standard -------------------------------------
+
+@inproceedings{akhtar2024croissant,
+  title     = {Croissant: A Metadata Format for ML-Ready Datasets},
+  author    = {Akhtar, Mubashara and Benjelloun, Omar and Conforti, Costanza and others},
+  booktitle = {Proceedings of the Eighth Workshop on Data Management for End-to-End Machine Learning (DEEM)},
+  year      = {2024},
+  doi       = {10.1145/3650203.3663326},
+  eprint    = {2403.19546},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.LG}
+}
+
+@misc{gebru2021datasheets,
+  title         = {Datasheets for Datasets},
+  author        = {Gebru, Timnit and Morgenstern, Jamie and Vecchione, Briana and Vaughan, Jennifer Wortman and Wallach, Hanna and Daum{\'e} III, Hal and Crawford, Kate},
+  year          = {2021},
+  eprint        = {1803.09010},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.DB},
+  note          = {Communications of the ACM, 64(12)}
+}
+
+% =====================================================================
+% UNVERIFIED - do not cite until confirmed:
+% (none — all 27 requested works were verified via web search)
+% =====================================================================
