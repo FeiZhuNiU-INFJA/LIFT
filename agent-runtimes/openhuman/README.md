@@ -38,6 +38,29 @@ bash agent-runtimes/openhuman/build-image.sh
    的 OpenAI-兼容直连模式（`inference_url` + `api_key` + `default_model` 三字段
    配套，绕开 OpenHuman backend；见 upstream `Config.inference_url` 字段注释）
 
+### 带 agentmemory backend 的变体
+
+```bash
+bash agent-runtimes/openhuman/build-image.sh --with-agentmemory
+# 产出 lift-openhuman-with-agentmemory:latest；对应 LIFT -r openhuman_with_agentmemory
+```
+
+agentmemory（官方 wiki config.toml backend 切换）采用**纯本地**模式：`all-MiniLM-L6-v2` 嵌入 +
+BM25 + 知识图，**零 API Key、离线**（构建期预热 iii-engine 与嵌入模型进镜像）。构建期
+`install-in-image.sh` 在 `config.toml` 追加 `[memory] backend = "agentmemory"`，装 Node ≥20 +
+`@agentmemory/agentmemory`；`openhuman-core` 启动时旁路自家 SQLite，把 Memory trait 调用代理到
+容器内 agentmemory server（`:3111`）。镜像 ENTRYPOINT 包装脚本
+`scripts/openhuman-agentmemory-entrypoint.sh` 在 `openhuman-core` 启动**前**先拉起并等待 `:3111`
+就绪（OpenHuman 的 agentmemory backend **无自动回退 SQLite**，daemon 不可达会报错）。记忆落在容器内
+`/root/.agentmemory`，随 `docker commit` 进 delta 镜像。源可用 env `AGENTMEMORY_GIT_URL` /
+`AGENTMEMORY_GIT_REF` 覆盖，Node 主版本用 `NODE_MAJOR`（默认 20），npm registry 用 `NPM_CONFIG_REGISTRY`。
+
+> ⚠️ **端口与网络**：agentmemory server 每容器绑定 `:3111`。该变体在 adapter 层**强制 bridge 网络**
+> （`force_bridge_network=True`），忽略全局 `CONTAINER_NETWORK_MODE`（若设为 `host` 会打 WARNING 并
+> 回退 bridge），避免同一宿主并发容器抢同一端口冲突。对应常量 `OPENHUMAN_WITH_AGENTMEMORY_DOCKER_IMAGE`。
+>
+> 验证时留意 `openhuman-core` 日志出现 `[memory::factory] using agentmemory backend at <url>`。
+
 ### 内网/外网构建（APT 镜像）
 
 ```bash

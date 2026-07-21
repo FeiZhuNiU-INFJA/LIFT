@@ -167,6 +167,7 @@ class ContainerSession(Disposable):
         metadata: dict[str, Any] | None = None,
         viz_repeat_index: int | None = None,
         viz_suite_name: str | None = None,
+        force_bridge_network: bool = False,
     ) -> ContainerSession:
         """组装 ``docker run -d`` 命令并启动容器，可选 readiness 与 post-start 钩子。
 
@@ -174,6 +175,11 @@ class ContainerSession(Disposable):
         随机分配（生成 ``-p <container_port>``，避免确定性 hash 端口的碰撞与占用
         冲突）。容器启动后通过 ``docker inspect`` 读取真实端口，回填到
         ``session.published_ports``（key 为容器内端口）。
+
+        ``force_bridge_network`` 为 True 时强制走 Docker bridge 网络，忽略全局
+        ``CONTAINER_NETWORK_MODE``（若其非 bridge 会打 WARNING）。用于容器内自带
+        绑定固定端口服务（如 agentmemory server 的 :3111）的 runtime——host 网络下
+        并发容器会抢同一宿主端口冲突。
         """
         safe_id = sanitize_container_id(instance_id)
         container_name = f"{container_name_prefix}-{safe_id}"[:128]
@@ -195,8 +201,19 @@ class ContainerSession(Disposable):
         # 全 runtime 通用的容器网络模式（CONTAINER_NETWORK_MODE）。默认不设=Docker 默认
         # bridge；在 bridge 容器无法出网的宿主机（如纯 IPv6/NAT64）上设为 host 复用宿主
         # 网络栈。放在通用 start 里，openclaw/genericagent/hermes 一并生效。
-        if CONFIG.container_network_mode:
-            cmd.extend(["--network", CONFIG.container_network_mode])
+        network_mode = CONFIG.container_network_mode
+        if force_bridge_network:
+            # 变体自带绑定固定端口的服务（如 agentmemory :3111），host 网络下并发容器会
+            # 抢同一宿主端口冲突——强制 bridge，忽略全局 CONTAINER_NETWORK_MODE。
+            if network_mode and network_mode != "bridge":
+                LOGGER.warning(
+                    "force_bridge_network: overriding CONTAINER_NETWORK_MODE=%s with bridge "
+                    "(container-local server binds a fixed port; host net would collide).",
+                    network_mode,
+                )
+            network_mode = "bridge"
+        if network_mode:
+            cmd.extend(["--network", network_mode])
         if extra_docker_args:
             cmd.extend(extra_docker_args)
         for host_port, container_port in port_mappings:

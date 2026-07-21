@@ -53,6 +53,28 @@ Hermes 自带 venv 无 pip 且很可能 <3.12，不能复用），软链 `opensp
 源可用 env `OPENSPACE_GIT_URL` / `OPENSPACE_GIT_REF` 覆盖。对应 LIFT `-r hermes_with_openspace`
 （常量 `HERMES_WITH_OPENSPACE_DOCKER_IMAGE`）。
 
+### 带 agentmemory memory provider plugin 的变体
+
+```bash
+bash agent-runtimes/hermes/build-image.sh --with-agentmemory
+# 产出 lift-hermes-with-agentmemory:latest；对应 LIFT -r hermes_with_agentmemory
+```
+
+agentmemory（跨会话持久记忆，README「Option 2: Memory provider plugin」深度集成）采用**纯本地**模式：
+`all-MiniLM-L6-v2` 嵌入 + BM25 + 知识图，**零 API Key、离线**（构建期预热 iii-engine 与嵌入模型进镜像）。
+构建期由 `install-in-image.sh` 装 Node ≥20 + `@agentmemory/agentmemory`，把 `integrations/hermes`
+拷进 `/opt/hermes-state/plugins/agentmemory`；容器启动时 `patch_hermes_config.py` 把
+`memory.provider: agentmemory` upsert 进 `config.yaml`，`hermes-entrypoint.sh` 后台拉起 agentmemory
+server（`:3111`）。chat 走 `docker exec hermes_runner.py`（同容器同网络命名空间），runner 直连的
+`AIAgent`（`skip_memory=False`）通过 `localhost:3111` 访问 server；runner 会在 `AGENTMEMORY_ENABLED=true`
+时向 stderr 打印实际挂载的 memory provider 名以便核验。记忆落在容器内 `/root/.agentmemory`，随
+`docker commit` 进 delta 镜像。与 `--with-openspace` **互斥**。源可用 env
+`AGENTMEMORY_GIT_URL` / `AGENTMEMORY_GIT_REF` 覆盖，npm registry 用 `NPM_CONFIG_REGISTRY`。
+
+> ⚠️ **端口与网络**：agentmemory server 每容器绑定 `:3111`。该变体在 adapter 层**强制 bridge 网络**
+> （`force_bridge_network=True`），忽略全局 `CONTAINER_NETWORK_MODE`（若设为 `host` 会打 WARNING 并
+> 回退 bridge），避免同一宿主并发容器抢同一端口冲突。对应常量 `HERMES_WITH_AGENTMEMORY_DOCKER_IMAGE`。
+
 ### 基础镜像 tag / 源切换
 
 | 变量 | 默认 | 说明 |

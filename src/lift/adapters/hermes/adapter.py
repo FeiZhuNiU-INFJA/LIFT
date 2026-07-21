@@ -93,6 +93,7 @@ class HermesAdapter(ContainerAgentRuntimeAdapter):
             task=task,
             container_memory=self._options.container_memory,
             container_cpus=self._options.container_cpus,
+            force_bridge_network=self.force_bridge_network,
         )
         venv_py, src_dir = await read_hermes_paths(session.container_name)
         session.metadata["hermes_venv_py"] = venv_py

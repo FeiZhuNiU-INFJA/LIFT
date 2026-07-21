@@ -13,12 +13,15 @@ SUPPORTED_RUNTIMES = (
     "openclaw",
     "openclaw_with_evolve",
     "openclaw_with_openspace",
+    "openclaw_with_agentmemory",
     "multi_user_openclaw",
     "genericagent",
     "genericagent_active_evolve",
     "hermes",
     "hermes_with_openspace",
+    "hermes_with_agentmemory",
     "openhuman",
+    "openhuman_with_agentmemory",
     "evoscientist",
     "evoscientist_active_evolve",
 )  # CLI 可选的运行时标识
@@ -42,6 +45,14 @@ def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
         from src.lift.adapters.openclaw_with_openspace.adapter import OpenClawWithOpenSpaceAdapter
 
         return OpenClawWithOpenSpaceAdapter(options)
+    if normalized == "openclaw_with_agentmemory":
+        # OpenClaw + agentmemory memory plugin：with-agentmemory 镜像；容器内起 :3111
+        # agentmemory server（离线本地嵌入），强制 bridge 网络，复用基础 warmup/commit 流程
+        from src.lift.adapters.openclaw_with_agentmemory.adapter import (
+            OpenClawWithAgentMemoryAdapter,
+        )
+
+        return OpenClawWithAgentMemoryAdapter(options)
     if normalized == "multi_user_openclaw":
         # OpenClaw + 群体记忆 Mixin（多容器 warmup，evolve 落到外部记忆系统）
         from src.lift.adapters.openclaw_multi_user.adapter import MultiUserOpenClawAdapter
@@ -69,11 +80,29 @@ def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
         from src.lift.adapters.hermes_with_openspace.adapter import HermesWithOpenSpaceAdapter
 
         return HermesWithOpenSpaceAdapter(options)
+    if normalized == "hermes_with_agentmemory":
+        # Hermes + agentmemory memory provider plugin：with-agentmemory 镜像；容器内起 :3111
+        # agentmemory server（离线本地嵌入），config.yaml memory.provider=agentmemory，
+        # 强制 bridge 网络，复用基础 review/commit 流程
+        from src.lift.adapters.hermes_with_agentmemory.adapter import (
+            HermesWithAgentMemoryAdapter,
+        )
+
+        return HermesWithAgentMemoryAdapter(options)
     if normalized == "openhuman":
         # OpenHuman baseline：Rust core serve 暴露 JSON-RPC，chat 走 HTTP agent.chat
         from src.lift.adapters.openhuman.adapter import OpenHumanAdapter
 
         return OpenHumanAdapter(options)
+    if normalized == "openhuman_with_agentmemory":
+        # OpenHuman + agentmemory backend：with-agentmemory 镜像；config.toml
+        # [memory] backend=agentmemory 旁路自家 SQLite，代理到容器内 :3111 server
+        # （离线本地嵌入），强制 bridge 网络，复用基础 commit 流程
+        from src.lift.adapters.openhuman_with_agentmemory.adapter import (
+            OpenHumanWithAgentMemoryAdapter,
+        )
+
+        return OpenHumanWithAgentMemoryAdapter(options)
     if normalized == "evoscientist":
         # EvoScientist baseline：EvoSci -p ... --output-format stream-json （headless）；
         # 无显式 evolve 触发，warmup 期自然写入的 memories/skills 由 docker commit 携带。

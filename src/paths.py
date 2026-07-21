@@ -25,6 +25,14 @@ OPENCLAW_WITH_OPENSPACE_DOCKER_IMAGE = "lift-openclaw-with-openspace:latest"
 注意：``--with-openspace`` 与 ``--with-evolve`` 互斥（两种进化插件二选一），
 因此不存在 ``lift-openclaw-with-evolve-openspace`` 这样的叠加镜像。"""
 
+OPENCLAW_WITH_AGENTMEMORY_DOCKER_IMAGE = "lift-openclaw-with-agentmemory:latest"
+"""带 agentmemory memory plugin 的 OpenClaw 镜像（``OpenClawWithAgentMemoryAdapter`` 使用；
+``build-image.sh --with-agentmemory`` 构建，对应 ``INSTALL_AGENTMEMORY=true``）。
+
+agentmemory server（:3111，纯本地 all-MiniLM-L6-v2 嵌入 + BM25，离线）在容器内随
+prelaunch 脚本后台启动；``--with-agentmemory`` 与 ``--with-evolve`` / ``--with-openspace``
+三方互斥。该变体强制 bridge 网络（见 ``force_bridge_network``），避免并发容器抢 :3111。"""
+
 GENERICAGENT_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "genericagent"
 """GenericAgent 镜像与容器配置目录（``agent-runtimes/genericagent/``）。"""
 
@@ -46,6 +54,14 @@ HERMES_WITH_OPENSPACE_DOCKER_IMAGE = "lift-hermes-with-openspace:latest"
 """带 OpenSpace MCP 插件的 Hermes 镜像（``HermesWithOpenSpaceAdapter`` 使用；
 ``agent-runtimes/hermes/build-image.sh --with-openspace`` 构建，对应 ``INSTALL_OPENSPACE=true``）。"""
 
+HERMES_WITH_AGENTMEMORY_DOCKER_IMAGE = "lift-hermes-with-agentmemory:latest"
+"""带 agentmemory memory provider plugin 的 Hermes 镜像（``HermesWithAgentMemoryAdapter`` 使用；
+``agent-runtimes/hermes/build-image.sh --with-agentmemory`` 构建，对应 ``INSTALL_AGENTMEMORY=true``）。
+
+agentmemory server（:3111，离线本地嵌入）由 ``hermes-entrypoint.sh`` 后台启动；config.yaml
+的 ``memory.provider`` 由 ``patch_hermes_config.py`` 置为 agentmemory。与 ``--with-openspace``
+互斥。该变体强制 bridge 网络（``force_bridge_network``）。"""
+
 HERMES_WORKSPACE_SEED_DIR = HERMES_AGENT_DIR / "workspace_seed"
 """宿主机 Hermes eval workspace seed 源目录（可选；默认 Hermes 状态 baked 在镜像内 /opt/hermes-state）。""" 
 
@@ -55,6 +71,15 @@ OPENHUMAN_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "openhuman"
 OPENHUMAN_DOCKER_IMAGE = "lift-openhuman:latest"
 """OpenHuman baseline 镜像（``OpenHumanAdapter`` 使用；
 ``agent-runtimes/openhuman/build-image.sh`` 构建）。"""
+
+OPENHUMAN_WITH_AGENTMEMORY_DOCKER_IMAGE = "lift-openhuman-with-agentmemory:latest"
+"""带 agentmemory backend 的 OpenHuman 镜像（``OpenHumanWithAgentMemoryAdapter`` 使用；
+``agent-runtimes/openhuman/build-image.sh --with-agentmemory`` 构建，对应 ``INSTALL_AGENTMEMORY=true``）。
+
+config.toml 的 ``[memory] backend = "agentmemory"`` 让 openhuman-core 旁路自家 SQLite，
+把记忆 trait 调用代理到容器内的 agentmemory server（:3111，离线本地嵌入）；server 由
+``openhuman-agentmemory-entrypoint.sh`` 在 openhuman-core 启动前拉起。强制 bridge 网络
+（``force_bridge_network``）。"""
 
 OPENHUMAN_WORKSPACE_SEED_DIR = OPENHUMAN_AGENT_DIR / "workspace_seed"
 """宿主机 OpenHuman eval workspace seed 源目录。"""

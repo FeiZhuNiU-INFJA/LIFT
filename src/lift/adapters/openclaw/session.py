@@ -216,6 +216,8 @@ async def start_openclaw_container(
     task: SuiteTask | None = None,
     container_memory: str | None = None,
     container_cpus: str | None = None,
+    force_bridge_network: bool = False,
+    agentmemory_prelaunch: bool = False,
 ) -> ContainerSession:
     """启动 OpenClaw gateway 容器：端口、token、volume、readiness 与 workspace bridge。
 
@@ -269,11 +271,19 @@ async def start_openclaw_container(
     if task is not None:
         post_start_hooks.append(_install_extra_skills)  # 注册 workspace skills 到 OpenClaw state
 
+    # gateway 启动命令。agentmemory 变体在其前置一个 prelaunch 包装脚本：先在容器内
+    # 后台起 agentmemory server（:3111，离线本地嵌入），再 exec 原 gateway 命令。
+    gateway_cmd = ["openclaw", "gateway", "run", "--bind", "lan"]
+    if agentmemory_prelaunch:
+        entrypoint_cmd = ["/opt/lift/openclaw-agentmemory-prelaunch.sh", *gateway_cmd]
+    else:
+        entrypoint_cmd = gateway_cmd
+
     return await ContainerSession.start(
         instance_id=instance_id,
         container_name_prefix=_CONTAINER_PREFIX,
         image=image,
-        entrypoint_cmd=["openclaw", "gateway", "run", "--bind", "lan"],
+        entrypoint_cmd=entrypoint_cmd,
         port_mappings=[
             (None, _GATEWAY_CONTAINER_PORT),  # docker 自选宿主机端口
             (None, _FASTAPI_CONTAINER_PORT),
@@ -290,6 +300,7 @@ async def start_openclaw_container(
         },
         viz_repeat_index=ctx.repeat_index,
         viz_suite_name=ctx.suite_name,
+        force_bridge_network=force_bridge_network,
     )
 
 

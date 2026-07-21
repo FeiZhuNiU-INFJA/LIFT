@@ -52,6 +52,7 @@ COPY plugins/self-evolving-plugin-pro-2026.4.23.zip /tmp/self-evolving-plugin-pr
 COPY config /tmp/config
 COPY merge-openclaw-config.mjs /tmp/merge-openclaw-config.mjs
 COPY install-plugins-in-image.sh /tmp/install-plugins-in-image.sh
+COPY scripts/openclaw-agentmemory-prelaunch.sh /opt/lift/openclaw-agentmemory-prelaunch.sh
 COPY workspace_seed /root/.openclaw/workspace
 
 ARG WORK_OPENAI_API_KEY=
@@ -84,11 +85,33 @@ ENV OPENSPACE_GIT_URL=${OPENSPACE_GIT_URL}
 ARG OPENSPACE_GIT_REF=main
 ENV OPENSPACE_GIT_REF=${OPENSPACE_GIT_REF}
 
-# 互斥保证：self-evolving-plugin-pro 与 OpenSpace 两种进化插件只能二选一，不允许叠加。
+# 是否安装 agentmemory memory plugin（README「Option 2: OpenClaw memory plugin」深度集成）。
+# 默认 false；设为 true 时 install-plugins-in-image.sh 会 npm 装 @agentmemory/agentmemory、
+# 预热离线引擎/嵌入模型、git clone integrations/openclaw 到 extensions/agentmemory，并 merge
+# agentmemory.fragment.json（claim plugins.slots.memory = agentmemory）。运行期由
+# openclaw-agentmemory-prelaunch.sh 在 gateway 启动前后台拉起 :3111 server（离线本地嵌入）。
+# AGENTMEMORY_ENABLED 作为运行期信号（当前 prelaunch 脚本无条件起 server，仅由 adapter 决定
+# 是否把它设为 entrypoint；保留 ENV 便于诊断与未来条件化）。
+ARG INSTALL_AGENTMEMORY=false
+ENV INSTALL_AGENTMEMORY=${INSTALL_AGENTMEMORY} \
+    AGENTMEMORY_ENABLED=${INSTALL_AGENTMEMORY}
+ARG AGENTMEMORY_GIT_URL=https://github.com/rohitg00/agentmemory.git
+ENV AGENTMEMORY_GIT_URL=${AGENTMEMORY_GIT_URL}
+ARG AGENTMEMORY_GIT_REF=main
+ENV AGENTMEMORY_GIT_REF=${AGENTMEMORY_GIT_REF}
+# npm registry（内网可覆盖；默认公网）。install-plugins-in-image.sh 读取后 export 给 npm。
+ARG NPM_CONFIG_REGISTRY=
+ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
+
+# 互斥保证：self-evolving-plugin-pro / OpenSpace / agentmemory 三种插件只能三选一，不允许叠加。
 # build-image.sh 已在脚本层拦截；这里再加一道 Dockerfile 层守卫，防止有人直接
-# docker build --build-arg INSTALL_SELF_EVOLVING=true --build-arg INSTALL_OPENSPACE=true 绕过脚本。
-RUN if [ "${INSTALL_SELF_EVOLVING}" = "true" ] && [ "${INSTALL_OPENSPACE}" = "true" ]; then \
-      echo "ERROR: INSTALL_SELF_EVOLVING 与 INSTALL_OPENSPACE 互斥，只能二选一。" >&2; \
+# docker build --build-arg 同时置多个 true 绕过脚本。
+RUN _n=0; \
+    [ "${INSTALL_SELF_EVOLVING}" = "true" ] && _n=$((_n+1)); \
+    [ "${INSTALL_OPENSPACE}" = "true" ] && _n=$((_n+1)); \
+    [ "${INSTALL_AGENTMEMORY}" = "true" ] && _n=$((_n+1)); \
+    if [ "${_n}" -gt 1 ]; then \
+      echo "ERROR: INSTALL_SELF_EVOLVING / INSTALL_OPENSPACE / INSTALL_AGENTMEMORY 三方互斥，只能三选一。" >&2; \
       exit 2; \
     fi
 # Python 包索引：默认 https://pypi.org/simple/（公网官方源）。在公网拉取不稳定时，可通过
@@ -118,7 +141,7 @@ RUN pip3 install --no-cache-dir \
         tabulate \
         Pillow
 
-RUN chmod +x /tmp/install-plugins-in-image.sh \
+RUN chmod +x /tmp/install-plugins-in-image.sh /opt/lift/openclaw-agentmemory-prelaunch.sh \
     && bash /tmp/install-plugins-in-image.sh
 
 WORKDIR /workspace

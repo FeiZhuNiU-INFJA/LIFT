@@ -94,15 +94,38 @@ ENV ARK_API_KEY=${API_KEY} \
 #   bypassing app-session gate for custom provider" 分支，直连 OpenAI 兼容端点。
 #   我们把它当作 headless custom provider，指到 ARK OpenAI 兼容 URL 与 endpoint id。
 
+# agentmemory backend（官方 wiki config.toml backend 切换）。默认不装；--with-agentmemory
+# 时置 true。install-in-image.sh 据此在 config.toml 追加 [memory] backend=agentmemory，并装
+# Node>=20 + npm 装 @agentmemory/agentmemory、预热离线引擎/嵌入模型。AGENTMEMORY_ENABLED
+# 作为运行期信号：openhuman-agentmemory-entrypoint.sh 在 openhuman-core 启动前先拉起 :3111
+# server（OH agentmemory backend 无自动回退 SQLite，daemon 不可达会报错）。
+ARG INSTALL_AGENTMEMORY=false
+ENV INSTALL_AGENTMEMORY=${INSTALL_AGENTMEMORY} \
+    AGENTMEMORY_ENABLED=${INSTALL_AGENTMEMORY}
+ARG AGENTMEMORY_GIT_URL=https://github.com/rohitg00/agentmemory.git
+ENV AGENTMEMORY_GIT_URL=${AGENTMEMORY_GIT_URL}
+ARG AGENTMEMORY_GIT_REF=main
+ENV AGENTMEMORY_GIT_REF=${AGENTMEMORY_GIT_REF}
+ARG NODE_MAJOR=20
+ENV NODE_MAJOR=${NODE_MAJOR}
+ARG NPM_CONFIG_REGISTRY=
+ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
+
 COPY config.toml.template /tmp/config.toml.template
 COPY install-in-image.sh /tmp/install-in-image.sh
+COPY scripts/openhuman-agentmemory-entrypoint.sh /opt/lift/openhuman-agentmemory-entrypoint.sh
 COPY workspace_seed /opt/lift/workspace_seed
 
-RUN chmod +x /tmp/install-in-image.sh \
+RUN chmod +x /tmp/install-in-image.sh /opt/lift/openhuman-agentmemory-entrypoint.sh \
     && API_KEY="${API_KEY}" \
        API_URL="${API_URL}" \
        INFERENCE_URL="${INFERENCE_URL}" \
        DEFAULT_MODEL="${DEFAULT_MODEL}" \
+       INSTALL_AGENTMEMORY="${INSTALL_AGENTMEMORY}" \
+       AGENTMEMORY_GIT_URL="${AGENTMEMORY_GIT_URL}" \
+       AGENTMEMORY_GIT_REF="${AGENTMEMORY_GIT_REF}" \
+       NODE_MAJOR="${NODE_MAJOR}" \
+       NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY}" \
        bash /tmp/install-in-image.sh
 
 # 3) Workspace 目录（LIFT bind mount `/workspace/task`）
@@ -112,6 +135,8 @@ WORKDIR /workspace/task
 
 ENV LIFT_EVAL_RUN_TAG=""
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
+# base 镜像：直接 tini -- openhuman-core。agentmemory 变体：tini -- wrapper -- openhuman-core，
+# wrapper 在 AGENTMEMORY_ENABLED=true 时先后台拉起 :3111 server 再 exec CMD；否则透明 exec。
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/lift/openhuman-agentmemory-entrypoint.sh"]
 # `run` = `serve`，启动 HTTP/JSON-RPC。--host 0.0.0.0 让宿主机端口映射能连到。
 CMD ["/usr/local/bin/openhuman-core", "run", "--host", "0.0.0.0", "--port", "7788"]

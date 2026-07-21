@@ -79,6 +79,7 @@ class OpenHumanAdapter(ContainerAgentRuntimeAdapter):
             task=task,
             container_memory=self._options.container_memory,
             container_cpus=self._options.container_cpus,
+            force_bridge_network=self.force_bridge_network,
         )
 
     @override

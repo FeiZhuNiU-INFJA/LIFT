@@ -36,6 +36,13 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
     #: delta 的 runtime 有意义，因此定义在容器 adapter 层，非容器 runtime 不背这个字段。
     evolve_paths: tuple[str, ...] = ()
 
+    #: 是否强制该 runtime 的容器走 Docker bridge 网络（忽略全局
+    #: ``CONTAINER_NETWORK_MODE``）。默认 False（沿用全局设置）。当 runtime 在容器内
+    #: 自带绑定固定端口的常驻服务（如 agentmemory server 的 :3111）时置 True——host
+    #: 网络下同一宿主并发的多个容器会抢同一端口冲突。子类覆盖此属性即生效；各 runtime
+    #: 的 ``start_container`` 会把它透传给 ``ContainerSession.start(force_bridge_network=...)``。
+    force_bridge_network: bool = False
+
     def __init__(self, options: RunOptions) -> None:
         """解析 base 镜像并缓存到 ``_docker_image``。"""
         super().__init__(options)

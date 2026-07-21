@@ -42,8 +42,26 @@ bash agent-runtimes/openclaw/build-image.sh --with-openspace
 # 产出 lift-openclaw-with-openspace:latest
 ```
 
-> ⚠️ `--with-evolve` 与 `--with-openspace` **互斥**，只能二选一（两种进化插件不可叠加）。
-> 同时传两者会报错退出；构建脚本与 Dockerfile 均有守卫。
+带 **agentmemory**（跨会话持久记忆，README「Option 2: OpenClaw memory plugin」深度集成）的变体：
+
+```bash
+bash agent-runtimes/openclaw/build-image.sh --with-agentmemory
+# 产出 lift-openclaw-with-agentmemory:latest；对应 LIFT -r openclaw_with_agentmemory
+```
+
+> agentmemory 采用**纯本地**模式：`all-MiniLM-L6-v2` 嵌入 + BM25 + 知识图，**零 API Key、离线**
+> （构建期预热 iii-engine 二进制与嵌入模型进镜像，运行期不需出网）。插件装进
+> `/root/.openclaw/extensions/agentmemory` 并 claim `plugins.slots.memory = "agentmemory"`；容器启动时
+> 由 `scripts/openclaw-agentmemory-prelaunch.sh` 在 gateway 前后台拉起 agentmemory server（`:3111`）。
+> 记忆落在容器内 `/root/.agentmemory`，随 `docker commit` 进 delta 镜像。
+> 源可用 env `AGENTMEMORY_GIT_URL` / `AGENTMEMORY_GIT_REF` 覆盖，npm registry 用 `NPM_CONFIG_REGISTRY`。
+>
+> ⚠️ **端口与网络**：agentmemory server 每容器绑定 `:3111`（+3112/3113/49134）。该变体在
+> adapter 层**强制 bridge 网络**（`force_bridge_network=True`），忽略全局 `CONTAINER_NETWORK_MODE`
+> （若设为 `host` 会打 WARNING 并回退 bridge），避免同一宿主并发容器抢同一端口冲突。
+
+> ⚠️ `--with-evolve` / `--with-openspace` / `--with-agentmemory` **三方互斥**，只能三选一。
+> 同时传多个会报错退出；构建脚本与 Dockerfile 均有守卫。
 
 OpenSpace 源默认 `git clone https://github.com/HKUDS/OpenSpace.git@main`（sparse-checkout 跳过 `assets/`），
 可用 env `OPENSPACE_GIT_URL` / `OPENSPACE_GIT_REF` 覆盖（内网可指镜像 / 反代）。安装逻辑见

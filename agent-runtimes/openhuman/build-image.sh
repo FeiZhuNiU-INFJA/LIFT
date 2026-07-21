@@ -35,31 +35,47 @@ fi
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-h|--help]
+Usage: $(basename "$0") [--with-agentmemory] [-h|--help]
 
 Build lift-openhuman:latest by downloading the upstream
 openhuman-core headless binary tarball (same-release sibling of the CEF
 GUI .deb) into a slim Debian image, then baking ARK credentials from
 repo root .env into ~/.openhuman/config.toml.
 
+Options:
+  --with-agentmemory  构建带 agentmemory backend 的镜像（默认不带；产物 lift-openhuman-with-agentmemory:latest；
+                      config.toml 设 [memory] backend=agentmemory，离线本地嵌入）
+  -h, --help          显示本帮助
+
 Override via env:
-  OPENHUMAN_IMAGE           默认 lift-openhuman:latest
+  OPENHUMAN_IMAGE           默认 lift-openhuman:latest（--with-agentmemory → lift-openhuman-with-agentmemory:latest）
   OPENHUMAN_VERSION         指定 upstream release 版本（如 0.58.7）；留空则宿主探测 latest
+  OPENHUMAN_ARCH            .deb 架构（保留兼容；tarball 走 OPENHUMAN_CORE_TRIPLE）
   OPENHUMAN_CORE_TRIPLE     Rust target triple（默认 x86_64-unknown-linux-gnu；arm64 host 用 aarch64-unknown-linux-gnu）
   OPENHUMAN_CORE_URL        显式指向 openhuman-core-<ver>-<triple>.tar.gz 下载 URL，跳过 mirror 拼接
   OPENHUMAN_GITHUB_MIRROR   github 反代前缀（默认 https://ghfast.top/；设 "" 走直连）
+  AGENTMEMORY_GIT_URL       agentmemory 源（默认 https://github.com/rohitg00/agentmemory.git）
+  AGENTMEMORY_GIT_REF       agentmemory ref（默认 main）
+  NODE_MAJOR                agentmemory 所需 Node 主版本（默认 20）
+  NPM_CONFIG_REGISTRY       npm registry（内网可覆盖；默认公网）
   APT_MIRROR                内网构建时切上游（脚本会自动探测字节内网）
   LIFT_INTRANET_AUTODETECT  设 0 关闭内网自动探测
 EOF
 }
+INSTALL_AGENTMEMORY="false"
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --with-agentmemory) INSTALL_AGENTMEMORY="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-TAG="${OPENHUMAN_IMAGE:-lift-openhuman:latest}"
+if [[ "${INSTALL_AGENTMEMORY}" == "true" ]]; then
+  TAG="${OPENHUMAN_IMAGE:-lift-openhuman-with-agentmemory:latest}"
+else
+  TAG="${OPENHUMAN_IMAGE:-lift-openhuman:latest}"
+fi
 VERSION="${OPENHUMAN_VERSION:-}"
 CORE_TRIPLE="${OPENHUMAN_CORE_TRIPLE:-x86_64-unknown-linux-gnu}"
 CORE_URL="${OPENHUMAN_CORE_URL:-}"
@@ -119,7 +135,16 @@ BUILD_ARGS=(
   --build-arg "DEFAULT_MODEL=${MODEL_NAME_RESOLVED}"
   --build-arg "OPENHUMAN_CORE_TRIPLE=${CORE_TRIPLE}"
   --build-arg "OPENHUMAN_GITHUB_MIRROR=${GITHUB_MIRROR}"
+  --build-arg "INSTALL_AGENTMEMORY=${INSTALL_AGENTMEMORY}"
 )
+
+if [[ "${INSTALL_AGENTMEMORY}" == "true" ]]; then
+  [[ -n "${AGENTMEMORY_GIT_URL:-}" ]] && BUILD_ARGS+=(--build-arg "AGENTMEMORY_GIT_URL=${AGENTMEMORY_GIT_URL}")
+  [[ -n "${AGENTMEMORY_GIT_REF:-}" ]] && BUILD_ARGS+=(--build-arg "AGENTMEMORY_GIT_REF=${AGENTMEMORY_GIT_REF}")
+  [[ -n "${NODE_MAJOR:-}" ]] && BUILD_ARGS+=(--build-arg "NODE_MAJOR=${NODE_MAJOR}")
+  [[ -n "${NPM_CONFIG_REGISTRY:-}" ]] && BUILD_ARGS+=(--build-arg "NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}")
+  echo "==> agentmemory backend enabled (git ${AGENTMEMORY_GIT_URL:-default}@${AGENTMEMORY_GIT_REF:-main}; offline local embeddings)"
+fi
 
 if [[ -n "${GITHUB_MIRROR}" ]]; then
   echo "==> Using GitHub mirror: ${GITHUB_MIRROR}"

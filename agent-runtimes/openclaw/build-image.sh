@@ -39,24 +39,31 @@ INSTALL_SELF_EVOLVING="false"
 # 是否安装 OpenSpace（基于 MCP 的 skill hub）。默认 false；传 --with-openspace 启用。
 # 与 --with-evolve 互斥（两种进化插件二选一，不可叠加）。
 INSTALL_OPENSPACE="false"
+# 是否安装 agentmemory memory plugin。默认 false；传 --with-agentmemory 启用。
+# 与 --with-evolve / --with-openspace 三方互斥。
+INSTALL_AGENTMEMORY="false"
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [--with-evolve | --with-openspace] [-h|--help]
+Usage: $(basename "$0") [--with-evolve | --with-openspace | --with-agentmemory] [-h|--help]
 
 Options:
-  --with-evolve     构建带 self-evolving-plugin-pro 的镜像（默认不带）
-  --with-openspace  构建带 OpenSpace MCP 插件的镜像（默认不带）
-  -h, --help        显示本帮助
+  --with-evolve       构建带 self-evolving-plugin-pro 的镜像（默认不带）
+  --with-openspace    构建带 OpenSpace MCP 插件的镜像（默认不带）
+  --with-agentmemory  构建带 agentmemory memory plugin 的镜像（默认不带；离线本地嵌入）
+  -h, --help          显示本帮助
 
-注意：--with-evolve 与 --with-openspace 互斥，只能二选一（不能同时传）。
+注意：--with-evolve / --with-openspace / --with-agentmemory 三方互斥，只能三选一（不能同时传）。
 
 Tag 规则（OPENCLAW_IMAGE 覆盖优先）：
-  (无)              → lift-openclaw-base:latest
-  --with-evolve     → lift-openclaw-with-evolve:latest
-  --with-openspace  → lift-openclaw-with-openspace:latest
+  (无)                → lift-openclaw-base:latest
+  --with-evolve       → lift-openclaw-with-evolve:latest
+  --with-openspace    → lift-openclaw-with-openspace:latest
+  --with-agentmemory  → lift-openclaw-with-agentmemory:latest
 
 OpenSpace 源可用 env 覆盖：OPENSPACE_GIT_URL（默认 https://github.com/HKUDS/OpenSpace.git）、
 OPENSPACE_GIT_REF（默认 main）。
+agentmemory 源可用 env 覆盖：AGENTMEMORY_GIT_URL（默认 https://github.com/rohitg00/agentmemory.git）、
+AGENTMEMORY_GIT_REF（默认 main）；npm registry 可用 NPM_CONFIG_REGISTRY 覆盖（默认公网）。
 EOF
 }
 while [[ $# -gt 0 ]]; do
@@ -67,6 +74,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --with-openspace)
       INSTALL_OPENSPACE="true"
+      shift
+      ;;
+    --with-agentmemory)
+      INSTALL_AGENTMEMORY="true"
       shift
       ;;
     -h|--help)
@@ -81,22 +92,28 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# --with-evolve 与 --with-openspace 互斥：两种进化插件二选一，不允许叠加。
-if [[ "${INSTALL_SELF_EVOLVING}" == "true" && "${INSTALL_OPENSPACE}" == "true" ]]; then
-  echo "ERROR: --with-evolve 与 --with-openspace 互斥，只能二选一（不能同时传）。" >&2
+# --with-evolve / --with-openspace / --with-agentmemory 三方互斥：三种插件三选一，不允许叠加。
+_variant_count=0
+[[ "${INSTALL_SELF_EVOLVING}" == "true" ]] && _variant_count=$((_variant_count + 1))
+[[ "${INSTALL_OPENSPACE}" == "true" ]] && _variant_count=$((_variant_count + 1))
+[[ "${INSTALL_AGENTMEMORY}" == "true" ]] && _variant_count=$((_variant_count + 1))
+if [[ "${_variant_count}" -gt 1 ]]; then
+  echo "ERROR: --with-evolve / --with-openspace / --with-agentmemory 三方互斥，只能三选一（不能同时传）。" >&2
   usage >&2
   exit 2
 fi
 
 # 默认走官方 ghcr.io；国内拉取慢时可设 OPENCLAW_BASE_IMAGE=ghcr.milu.moe/openclaw/openclaw:latest 切到加速源
 BASE_IMAGE="${OPENCLAW_BASE_IMAGE:-ghcr.io/openclaw/openclaw:latest}"
-# tag 由二选一的插件决定；OPENCLAW_IMAGE 显式覆盖优先。
+# tag 由三选一的插件决定；OPENCLAW_IMAGE 显式覆盖优先。
 if [[ -n "${OPENCLAW_IMAGE:-}" ]]; then
   TAG="${OPENCLAW_IMAGE}"
 elif [[ "${INSTALL_SELF_EVOLVING}" == "true" ]]; then
   TAG="lift-openclaw-with-evolve:latest"
 elif [[ "${INSTALL_OPENSPACE}" == "true" ]]; then
   TAG="lift-openclaw-with-openspace:latest"
+elif [[ "${INSTALL_AGENTMEMORY}" == "true" ]]; then
+  TAG="lift-openclaw-with-agentmemory:latest"
 else
   TAG="lift-openclaw-base:latest"
 fi
@@ -124,6 +141,13 @@ if [[ "${INSTALL_OPENSPACE}" == "true" ]]; then
   [[ -n "${OPENSPACE_GIT_URL:-}" ]] && BUILD_ARGS+=(--build-arg "OPENSPACE_GIT_URL=${OPENSPACE_GIT_URL}")
   [[ -n "${OPENSPACE_GIT_REF:-}" ]] && BUILD_ARGS+=(--build-arg "OPENSPACE_GIT_REF=${OPENSPACE_GIT_REF}")
   echo "==> OpenSpace MCP plugin enabled (git ${OPENSPACE_GIT_URL:-default}@${OPENSPACE_GIT_REF:-main})"
+fi
+BUILD_ARGS+=(--build-arg "INSTALL_AGENTMEMORY=${INSTALL_AGENTMEMORY}")
+if [[ "${INSTALL_AGENTMEMORY}" == "true" ]]; then
+  [[ -n "${AGENTMEMORY_GIT_URL:-}" ]] && BUILD_ARGS+=(--build-arg "AGENTMEMORY_GIT_URL=${AGENTMEMORY_GIT_URL}")
+  [[ -n "${AGENTMEMORY_GIT_REF:-}" ]] && BUILD_ARGS+=(--build-arg "AGENTMEMORY_GIT_REF=${AGENTMEMORY_GIT_REF}")
+  [[ -n "${NPM_CONFIG_REGISTRY:-}" ]] && BUILD_ARGS+=(--build-arg "NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}")
+  echo "==> agentmemory memory plugin enabled (git ${AGENTMEMORY_GIT_URL:-default}@${AGENTMEMORY_GIT_REF:-main}; offline local embeddings)"
 fi
 BUILD_ARGS+=(--build-arg "MODEL_NAME=${MODEL_NAME}")
 if [[ -n "${WORK_OPENAI_API_KEY}" ]]; then
