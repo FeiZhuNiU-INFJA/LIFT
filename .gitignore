@@ -149,3 +149,15 @@ nohup.out
 !docs/assets/**
 *.bak
 logs/
+
+# LaTeX build byproducts (main.pdf is committed on purpose)
+docs/neurips/*.aux
+docs/neurips/*.bbl
+docs/neurips/*.blg
+docs/neurips/*.out
+docs/neurips/*.toc
+docs/neurips/*.fls
+docs/neurips/*.fdb_latexmk
+docs/neurips/*.synctex.gz
+docs/neurips/lift-overleaf.zip
+docs/neurips/main.pdf
