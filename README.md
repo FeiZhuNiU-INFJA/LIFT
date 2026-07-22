@@ -204,6 +204,7 @@ python -m src.cli.lift_main -r hermes \
 | GenericAgent 镜像构建细节 | [agent-runtimes/genericagent/README.md](./agent-runtimes/genericagent/README.md) |
 | EvoScientist 镜像与 AutoSkills active evolve | [agent-runtimes/evoscientist/README.md](./agent-runtimes/evoscientist/README.md) |
 | 从零搭环境 | skill: [setup-lift-env](./skill/setup-lift-env/SKILL.md) |
+| 所有 runtime 镜像 build 命令（SSoT） | [docs/build-images.md](./docs/build-images.md) + [scripts/build-all-images.sh](./scripts/build-all-images.sh) |
 | 清理评测残留容器/镜像 | [lift-integrate-agent-runtime/docs/environment-cleanup.md](./skill/lift-integrate-agent-runtime/docs/environment-cleanup.md) |
 | 接入新的 agent runtime | skill: [lift-integrate-agent-runtime](./skill/lift-integrate-agent-runtime/SKILL.md) |
 | 历次重要改动复盘 | [docs/release-notes/](./docs/release-notes/README.md) |
