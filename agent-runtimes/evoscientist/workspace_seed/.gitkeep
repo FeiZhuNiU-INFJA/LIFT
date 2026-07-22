@@ -1,0 +1,9 @@
+# Placeholder to make `workspace_seed/` tracked by git.
+#
+# EvoScientist doesn't yet need any workspace seed files, but the Dockerfile's
+# `COPY workspace_seed /opt/lift/workspace_seed` (see agent-runtimes/evoscientist/Dockerfile)
+# needs the source directory to exist at build time. Empty directories are not
+# tracked by git; without this file, a fresh clone would fail to build.
+#
+# When real seed files (e.g. AGENTS.md, SOUL.md) get added here, this .gitkeep
+# can be removed.
