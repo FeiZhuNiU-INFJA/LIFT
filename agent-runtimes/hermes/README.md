@@ -1,7 +1,8 @@
 # Hermes agent (`agent-runtimes/hermes`)
 
 LIFT 评测用的 [Hermes](https://hermes-agent.nousresearch.com) 镜像。与 OpenClaw /
-GenericAgent 一样，LIFT（`src`）在每题独立容器里通过 **`docker exec`** 驱动 agent；
+GenericAgent 一样，LIFT（`src`）在每个 phase 的 work 容器里通过 **`docker exec`** 驱动 agent；
+judge agent 运行在同镜像、同 workspace、同 load_state 的 sibling 容器中。
 Hermes 的驱动入口是容器内常驻的 **`hermes_runner.py`**（stdin/stdout sentinel 协议），
 而不是 `gateway run`。
 
@@ -52,6 +53,28 @@ Hermes 自带 venv 无 pip 且很可能 <3.12，不能复用），软链 `opensp
 （由 `ENV OPENSPACE_ENABLED=true` 触发，走 config patch 而非构建期 `hermes mcp add`）。
 源可用 env `OPENSPACE_GIT_URL` / `OPENSPACE_GIT_REF` 覆盖。对应 LIFT `-r hermes_with_openspace`
 （常量 `HERMES_WITH_OPENSPACE_DOCKER_IMAGE`）。
+
+### 带 agentmemory memory provider plugin 的变体
+
+```bash
+bash agent-runtimes/hermes/build-image.sh --with-agentmemory
+# 产出 lift-hermes-with-agentmemory:latest；对应 LIFT -r hermes_with_agentmemory
+```
+
+agentmemory（跨会话持久记忆，README「Option 2: Memory provider plugin」深度集成）采用**纯本地**模式：
+`all-MiniLM-L6-v2` 嵌入 + BM25 + 知识图，**零 API Key、离线**（构建期预热 iii-engine 与嵌入模型进镜像）。
+构建期由 `install-in-image.sh` 装 Node ≥20 + `@agentmemory/agentmemory`，把 `integrations/hermes`
+拷进 `/opt/hermes-state/plugins/agentmemory`；容器启动时 `patch_hermes_config.py` 把
+`memory.provider: agentmemory` upsert 进 `config.yaml`，`hermes-entrypoint.sh` 后台拉起 agentmemory
+server（`:3111`）。chat 走 `docker exec hermes_runner.py`（同容器同网络命名空间），runner 直连的
+`AIAgent`（`skip_memory=False`）通过 `localhost:3111` 访问 server；runner 会在 `AGENTMEMORY_ENABLED=true`
+时向 stderr 打印实际挂载的 memory provider 名以便核验。work 容器中的记忆落在 `/root/.agentmemory`，
+随 `docker commit` 进 delta 镜像；judge sibling 容器只负责验收，不参与 commit。与 `--with-openspace` **互斥**。源可用 env
+`AGENTMEMORY_GIT_URL` / `AGENTMEMORY_GIT_REF` 覆盖，npm registry 用 `NPM_CONFIG_REGISTRY`。
+
+> ⚠️ **端口与网络**：agentmemory server 每容器绑定 `:3111`。该变体在 adapter 层**强制 bridge 网络**
+> （`force_bridge_network=True`），忽略全局 `CONTAINER_NETWORK_MODE`（若设为 `host` 会打 WARNING 并
+> 回退 bridge），避免同一宿主并发容器抢同一端口冲突。对应常量 `HERMES_WITH_AGENTMEMORY_DOCKER_IMAGE`。
 
 ### 基础镜像 tag / 源切换
 
@@ -141,10 +164,10 @@ python -m src.cli.lift_main -r hermes --benchmark_dir assets/benchmarks_demo \
 ### warmup 并发策略（重要）
 
 Hermes 的演化是"每题 work session 结束触发 background review，写入共享
-`/opt/hermes-state`"。框架默认 `--warmup-container-policy parallel_single`（单容器内多题
-并发），此时多个 review 进程会**并发写同一 memory 存储，存在竞态**。
+`/opt/hermes-state`"。框架默认 `--warmup-container-policy parallel_single`（同一个 work 容器内多题
+并发，另有 sibling judge 容器评分），此时多个 review 进程会**并发写同一 memory 存储，存在竞态**。
 
-**推荐 Hermes warmup 显式用 `serial_single`**（单容器逐题串行，review 也串行），
+**推荐 Hermes warmup 显式用 `serial_single`**（同一个 work 容器逐题串行，review 也串行），
 与 Hermes suite 内串行评测语义一致；跨 suite/repeat 的并发仍由 `--max-parallel-suites`
 提供：
 
@@ -155,7 +178,7 @@ python -m src.cli.lift_main -r hermes --benchmark_dir assets/benchmarks_demo \
 ```
 
 > 若未加该参数、仍用 `parallel_single`，`HermesAdapter` 会在启动时打一条
-> LOGGER.warning 提示竞态风险，但不阻断运行。holdout 阶段每题独立容器、无 review，
+> LOGGER.warning 提示竞态风险，但不阻断运行。holdout 阶段每题每 phase 独立 work+judge 容器对、无 review，
 > 不受此影响，与 OpenClaw 完全一致。
 
 ## 本机 smoke/debug 注意

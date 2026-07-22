@@ -185,6 +185,7 @@ async def start_openhuman_container(
     task: SuiteTask | None = None,
     container_memory: str | None = None,
     container_cpus: str | None = None,
+    force_bridge_network: bool = False,
 ) -> ContainerSession:
     """启动 OpenHuman 评测容器：端口分配、readiness、workspace seed。
 
@@ -282,4 +283,5 @@ async def start_openhuman_container(
         metadata={"rpc_token": rpc_token},
         viz_repeat_index=ctx.repeat_index,
         viz_suite_name=ctx.suite_name,
+        force_bridge_network=force_bridge_network,
     )

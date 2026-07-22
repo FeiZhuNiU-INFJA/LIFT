@@ -65,6 +65,22 @@ ENV OPENSPACE_GIT_URL=${OPENSPACE_GIT_URL}
 ARG OPENSPACE_GIT_REF=main
 ENV OPENSPACE_GIT_REF=${OPENSPACE_GIT_REF}
 
+# agentmemory memory provider plugin（README「Option 2: Memory provider plugin」深度集成）。
+# 默认不装；--with-agentmemory 时置 true。install-in-image.sh 据此装 Node>=20 + npm 装
+# @agentmemory/agentmemory、预热离线引擎/嵌入模型、git clone integrations/hermes 到
+# $HERMES_HOME/plugins/agentmemory。AGENTMEMORY_ENABLED 作为运行期信号：
+#   - patch_hermes_config.py 在 entrypoint 阶段把 memory.provider=agentmemory upsert 进 config.yaml；
+#   - hermes-entrypoint.sh 在 exec 前后台拉起 :3111 server（离线本地嵌入）。
+ARG INSTALL_AGENTMEMORY=false
+ENV INSTALL_AGENTMEMORY=${INSTALL_AGENTMEMORY} \
+    AGENTMEMORY_ENABLED=${INSTALL_AGENTMEMORY}
+ARG AGENTMEMORY_GIT_URL=https://github.com/rohitg00/agentmemory.git
+ENV AGENTMEMORY_GIT_URL=${AGENTMEMORY_GIT_URL}
+ARG AGENTMEMORY_GIT_REF=main
+ENV AGENTMEMORY_GIT_REF=${AGENTMEMORY_GIT_REF}
+ARG NPM_CONFIG_REGISTRY=
+ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
+
 # 1) Install langfuse + overlay plugin + firecrawl, then init the Hermes state
 #    root at /opt/hermes-state in ONE RUN layer (VOLUME /opt/data writes would be
 #    dropped by docker commit). Bootstrap seeds dirs + bundled skills at build.

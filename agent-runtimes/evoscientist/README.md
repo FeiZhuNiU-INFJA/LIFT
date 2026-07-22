@@ -1,7 +1,7 @@
 # EvoScientist runtime image (`agent-runtimes/evoscientist`)
 
 LIFT 评测用的 [EvoScientist](https://github.com/EvoScientist/EvoScientist) 镜像。
-LIFT (`src`) 在每题独立容器内通过 **`docker exec … EvoSci -p <prompt> --output-format stream-json --auto-mode [--resume <thread>]`** 调起 EvoScientist 完成一轮 chat。每个 work / judge agent 实例会保存自己的 EvoScientist thread id，用于多轮对话续接。
+LIFT (`src`) 在每个 phase 的 work 容器内通过 **`docker exec … EvoSci -p <prompt> --output-format stream-json --auto-mode [--resume <thread>]`** 调起 EvoScientist 完成一轮 chat；judge agent 运行在同镜像、同 workspace、同 load_state 的 sibling 容器中。每个 work / judge agent 实例会保存自己的 EvoScientist thread id，用于多轮对话续接。
 
 ## Layout
 
@@ -74,7 +74,7 @@ EvoScientist 的多轮上下文由 CLI thread 维护，不由 `LIFT_EVOSCI_SESSI
 2. 首轮结束后从当前进程 stderr 的 resume hint（`EvoSci --resume <short_id>`）解析 thread id。
 3. 后续同一 work / judge agent 实例调用时追加 `--resume <short_id>`。
 
-thread id 绑定在 agent 实例上，而不是容器全局上。因此 warmup `parallel_single` 下多个 task 可在同一容器内并发，各自维护独立 work / judge conversation thread。不要通过 `sessions.db` 的“最新 thread”反查；并发时会串到别的 task。
+thread id 绑定在 agent 实例上，而不是容器全局上。因此 warmup `parallel_single` 下多个 task 可在同一 work 容器内并发，各自维护独立 work conversation thread；judge agent 在 sibling judge 容器内维护自己的 thread。不要通过 `sessions.db` 的“最新 thread”反查；并发时会串到别的 task。
 
 ## Active Evolve: AutoSkills
 
@@ -83,7 +83,7 @@ baseline 的容器、chat、delta commit 逻辑，只在
 [`evolve_after_warmup`](../../src/lift/adapters/evoscientist_active_evolve/adapter.py)
 里额外触发 EvoScientist 自带的 EvoMemory AutoSkills 机制：
 
-1. 所有 warmup tasks 完成后，warmup 容器仍保持运行。
+1. 所有 warmup tasks 完成后，warmup work 容器仍保持运行。
 2. adapter 在容器内调用 AutoSkills backing API，而不是把
    `/autoskills run` 发送给 `EvoSci -p`。
 3. hook 将 `memory_skill_synthesis_enabled=true`、
@@ -91,7 +91,7 @@ baseline 的容器、chat、delta commit 逻辑，只在
 4. hook 调用 `ensure_langgraph_dev(...)`，再通过
    `run_autoskill_now(...)` 启动 `evomemory-autoskills` graph。
 5. hook 使用 LangGraph SDK `runs.join(thread_id, run_id)` 等待后台 run 完成。
-6. 正常返回后，LIFT 才执行 `docker commit`，把 `/root/.evoscientist`
+6. 正常返回后，LIFT 才对 warmup work 容器执行 `docker commit`，把 `/root/.evoscientist`
    中的 memories、autoskills proposals、approved global skills 固化进 delta。
 
 不要使用 `EvoSci -p "/autoskills run"` 作为 evolve 入口；实测它会被当作普通

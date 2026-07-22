@@ -106,4 +106,28 @@ else
   echo "[hermes-entrypoint] WARN: hermes CLI not found (HERMES_VENV_PY='${HERMES_VENV_PY:-}'); langfuse plugin enable skipped." >&2
 fi
 
+# agentmemory 变体：在容器空转前后台拉起 agentmemory server（:3111，离线本地嵌入）。
+# chat 走 docker exec hermes_runner.py（同容器同网络命名空间），runner 内的 AIAgent 通过
+# localhost:3111 访问该 server。CI=1 跳过所有交互 prompt；日志落 bind mount 便于诊断。
+if [[ "${AGENTMEMORY_ENABLED:-false}" == "true" ]]; then
+  export CI=1
+  export HOME="${HOME:-/root}"
+  _am_log="/workspace/task/agentmemory-server.log"
+  mkdir -p /workspace/task 2>/dev/null || true
+  if command -v agentmemory >/dev/null 2>&1; then
+    echo "[hermes-entrypoint] starting agentmemory server on :3111 ..."
+    ( agentmemory >"${_am_log}" 2>&1 & ) || echo "[hermes-entrypoint] WARN: failed to spawn agentmemory server" >&2
+    for _i in $(seq 1 30); do
+      if curl -fsS http://localhost:3111/agentmemory/livez >/dev/null 2>&1 \
+         || curl -fsS http://localhost:3111/agentmemory/health >/dev/null 2>&1; then
+        echo "[hermes-entrypoint] agentmemory server ready on :3111"
+        break
+      fi
+      sleep 1
+    done
+  else
+    echo "[hermes-entrypoint] WARN: AGENTMEMORY_ENABLED=true but 'agentmemory' not on PATH; skipping server start." >&2
+  fi
+fi
+
 exec "$@"

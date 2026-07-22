@@ -79,6 +79,7 @@ class OpenHumanAdapter(ContainerAgentRuntimeAdapter):
             task=task,
             container_memory=self._options.container_memory,
             container_cpus=self._options.container_cpus,
+            force_bridge_network=self.force_bridge_network,
         )
 
     @override
@@ -97,8 +98,10 @@ class OpenHumanAdapter(ContainerAgentRuntimeAdapter):
         """
         session: ContainerSession = env.handle
         _ = run_phase
+        judge_session = env.judge_handle or env.handle
         return OpenHumanWorkerJudgerPairFactory(
             container=openhuman_context(session),
+            judge_container=openhuman_context(judge_session),
             workspace_dir=workspace_dir,
             run_tag=ctx.run_id,
         )

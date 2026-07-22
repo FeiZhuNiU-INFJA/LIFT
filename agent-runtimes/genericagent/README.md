@@ -1,8 +1,8 @@
 # GenericAgent runtime image (`agent-runtimes/genericagent`)
 
 LIFT 评测用的 [GenericAgent](https://github.com/lsdefine/GenericAgent) 镜像。
-LIFT (`src`) 在每题独立容器内通过 **`docker exec … python /opt/GenericAgent/agentmain.py
---task <iodir>`** 调起 GA 完成一轮 chat。
+LIFT (`src`) 在每个 phase 的 work 容器内通过 **`docker exec … python /opt/GenericAgent/agentmain.py
+--task <iodir>`** 调起 GA 完成一轮 chat；judge agent 运行在同镜像、同 workspace、同 load_state 的 sibling 容器中。
 
 ## Layout
 

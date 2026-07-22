@@ -326,6 +326,137 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 6d) agentmemory memory provider plugin（README「Option 2: Memory provider plugin」）。
+#     默认不装（INSTALL_AGENTMEMORY=false）。装的话：
+#       - 装 Node >= 20（Hermes 基镜像自带 Node 偏旧，用 nvm 升级；与 firecrawl 段同款）。
+#       - npm -g 装 @agentmemory/agentmemory。
+#       - 构建期预热离线引擎 + 本地嵌入模型，然后清空记忆状态（保留 bin/ 与模型缓存）。
+#       - git clone agentmemory，把 integrations/hermes 拷进 $HERMES_HOME/plugins/agentmemory
+#         （随 docker commit 落 delta）。
+#     config.yaml 的 memory.provider=agentmemory 由 entrypoint 阶段 patch_hermes_config.py
+#     写入（AGENTMEMORY_ENABLED=true 触发）；:3111 server 由 hermes-entrypoint.sh 后台拉起。
+# ---------------------------------------------------------------------------
+INSTALL_AGENTMEMORY="${INSTALL_AGENTMEMORY:-false}"
+if [[ "${INSTALL_AGENTMEMORY}" == "true" ]]; then
+  AGENTMEMORY_GIT_URL="${AGENTMEMORY_GIT_URL:-https://github.com/rohitg00/agentmemory.git}"
+  AGENTMEMORY_GIT_REF="${AGENTMEMORY_GIT_REF:-main}"
+  AGENTMEMORY_SRC="/opt/agentmemory-src"
+  AM_HERMES_HOME="${HERMES_HOME:-/opt/hermes-state}"
+  export HOME="${HOME:-/root}"
+  [[ -n "${NPM_CONFIG_REGISTRY:-}" ]] && export NPM_CONFIG_REGISTRY
+
+  log "Installing agentmemory memory provider plugin (offline local embeddings)"
+
+  # 6d-1) Node >= 20：若当前 node 缺失或 <20，用 nvm 升级（与 firecrawl 段同款反代逻辑）。
+  _need_node="true"
+  if command -v node >/dev/null 2>&1; then
+    _cur_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+    [[ "${_cur_major}" -ge 20 ]] && _need_node="false"
+  fi
+  if [[ "${_need_node}" == "true" ]]; then
+    GH_PREFIX="${GITHUB_PROXY_PREFIX-https://ghfast.top/}"
+    NVM_VERSION="${NVM_VERSION:-v0.40.5}"
+    NODE_MAJOR="${NODE_MAJOR:-20}"
+    NVM_INSTALL_URL="${GH_PREFIX}https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh"
+    log "Installing Node ${NODE_MAJOR} via nvm ${NVM_VERSION} for agentmemory..."
+    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+    if curl -fsSL -o- "$NVM_INSTALL_URL" | bash; then
+      # shellcheck disable=SC1091
+      \. "$NVM_DIR/nvm.sh"
+      if nvm install "$NODE_MAJOR"; then
+        nvm use "$NODE_MAJOR" >/dev/null 2>&1 || true
+        nvm alias default "$NODE_MAJOR" >/dev/null 2>&1 || true
+        NODE_BIN_DIR="$(dirname "$(nvm which "$NODE_MAJOR" 2>/dev/null || command -v node)")"
+        export PATH="$NODE_BIN_DIR:$PATH"
+        log "Node upgraded: $(node -v 2>/dev/null || echo '?'), npm $(npm -v 2>/dev/null || echo '?')"
+      else
+        log "ERROR: 'nvm install ${NODE_MAJOR}' failed; cannot install agentmemory." >&2
+        exit 1
+      fi
+    else
+      log "ERROR: nvm install failed (${NVM_INSTALL_URL}); cannot install agentmemory." >&2
+      exit 1
+    fi
+  else
+    log "Node $(node -v) already >= 20; skipping nvm upgrade."
+  fi
+
+  # 6d-2) 装 agentmemory server + CLI。
+  npm install -g @agentmemory/agentmemory
+
+  # 6d-2b) 把 agentmemory / node 软链到 /usr/local/bin（始终在 PATH 上）。
+  # nvm 装的 bin 只在 login shell 的 PATH 里；容器 entrypoint（非 login，set -e）与
+  # docker exec 的 hermes_runner 看不到，导致运行期起不了 :3111 server。软链固定暴露。
+  AM_BIN="$(command -v agentmemory || true)"
+  if [[ -z "${AM_BIN}" ]]; then
+    AM_BIN="$(ls /root/.nvm/versions/node/*/bin/agentmemory 2>/dev/null | head -1 || true)"
+  fi
+  if [[ -n "${AM_BIN}" ]]; then
+    ln -sf "${AM_BIN}" /usr/local/bin/agentmemory
+    log "Symlinked agentmemory -> /usr/local/bin/agentmemory (source: ${AM_BIN})"
+  else
+    log "ERROR: agentmemory CLI not found after npm install; cannot expose on PATH." >&2
+    exit 1
+  fi
+  NODE_BIN="$(command -v node || true)"
+  if [[ -n "${NODE_BIN}" && ! -x /usr/local/bin/node ]]; then
+    ln -sf "${NODE_BIN}" /usr/local/bin/node || true
+  fi
+
+  # 6d-3) 构建期预热引擎 + 本地嵌入模型，然后清空记忆状态（保留引擎/模型缓存）。
+  log "Warming up agentmemory engine + local embedding model (build-time, networked)"
+  export CI=1
+  ( agentmemory >/tmp/agentmemory-warmup.log 2>&1 & )
+  _am_ready="false"
+  for _i in $(seq 1 60); do
+    if curl -fsS http://localhost:3111/agentmemory/livez >/dev/null 2>&1 \
+       || curl -fsS http://localhost:3111/agentmemory/health >/dev/null 2>&1; then
+      _am_ready="true"; break
+    fi
+    sleep 1
+  done
+  if [[ "${_am_ready}" == "true" ]]; then
+    log "agentmemory warmup server ready; triggering demo to fetch engine/model, then reset"
+    agentmemory demo >/tmp/agentmemory-demo.log 2>&1 || log "WARN: agentmemory demo returned non-zero (non-fatal)"
+  else
+    log "WARN: agentmemory warmup server not ready in time; engine/model may fetch at first runtime start."
+    cat /tmp/agentmemory-warmup.log 2>/dev/null || true
+  fi
+  pkill -f agentmemory 2>/dev/null || true
+  sleep 2
+  if [[ -d "${HOME}/.agentmemory" ]]; then
+    find "${HOME}/.agentmemory" -maxdepth 1 -mindepth 1 \
+      ! -name bin \
+      ! -name models \
+      ! -name model-cache \
+      ! -name '.cache' \
+      -exec rm -rf {} + 2>/dev/null || true
+    log "Reset agentmemory memory state (kept engine binary + model cache)"
+  fi
+
+  # 6d-4) 落插件：git clone，sparse 仅取 integrations/hermes，拷进 $HERMES_HOME/plugins/agentmemory。
+  if command -v git >/dev/null 2>&1; then
+    git clone --filter=blob:none --sparse "${AGENTMEMORY_GIT_URL}" "${AGENTMEMORY_SRC}"
+    git -C "${AGENTMEMORY_SRC}" sparse-checkout set --no-cone '/integrations/hermes'
+    git -C "${AGENTMEMORY_SRC}" checkout "${AGENTMEMORY_GIT_REF}" || true
+  else
+    log "ERROR: git not found; cannot clone agentmemory." >&2
+    exit 1
+  fi
+  AM_PLUGIN_SRC="${AGENTMEMORY_SRC}/integrations/hermes"
+  if [[ ! -d "${AM_PLUGIN_SRC}" ]]; then
+    log "ERROR: agentmemory integrations/hermes not found after clone (${AM_PLUGIN_SRC})." >&2
+    exit 1
+  fi
+  mkdir -p "${AM_HERMES_HOME}/plugins"
+  rm -rf "${AM_HERMES_HOME}/plugins/agentmemory"
+  cp -r "${AM_PLUGIN_SRC}" "${AM_HERMES_HOME}/plugins/agentmemory"
+  log "agentmemory plugin installed under ${AM_HERMES_HOME}/plugins/agentmemory"
+else
+  log "INSTALL_AGENTMEMORY=${INSTALL_AGENTMEMORY}: skip agentmemory memory provider plugin install"
+fi
+
+# ---------------------------------------------------------------------------
 # 7) Persist discovered paths for entrypoint / adapter
 # ---------------------------------------------------------------------------
 {

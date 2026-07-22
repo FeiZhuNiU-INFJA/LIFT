@@ -2173,7 +2173,7 @@ other_agent.<span class="v">??</span>()
           <div class="benefit-name">对照组隔离</div>
           <div class="benefit-pain">warmup / holdout <span class="cross">悄悄串题</span>，"记答案"式作弊</div>
           <div class="benefit-arrow">→</div>
-          <div class="benefit-lift">题库<b>强制分离</b>、baseline / evolved <b>独立镜像 + 独立容器</b></div>
+          <div class="benefit-lift">题库<b>强制分离</b>、baseline / evolved <b>独立镜像 + work/judge 容器对</b></div>
         </div>
         <div class="benefit-row">
           <div class="benefit-name">抖动吸收</div>
@@ -2193,7 +2193,7 @@ other_agent.<span class="v">??</span>()
         接入方只写 <b>Adapter</b> · 其它 8 件事 LIFT 全部免费送
       </div>
 
-      <aside class="notes">仍旧是站在接入方的视角，夸一夸LIFT<br>附送了哪些权益<br>1. 并发调度不用管了，repeat维度怎么并发，suite维度怎么并发，task维度怎么并发，baseline和evolved怎么并发？<br>2. dashboard不用管了，<br>3. trace不用管了，其实框架还干了一件很脏的事：怎么把trajectory和task关联起来，最后才能做分析<br>4. 接入的skill就不说了，太舒服了<br>5. delta体检：不用担心进化产物是不是真的落进delta镜像了，产物为空的话日志会原地报警<br>6. 复杂的环境隔离管理：大量并发的时候会同时运行上百个容器 每个容器的端口管理也不用管了<br>7. 抖动吸收：任务报错了怎么办，也不用管了，LIFT在pipeline各个维度做了完善的重试机制<br>8. 所有日志留痕，这也是LIFT可以反复迭代自己的根本依据<br><br>以上都是工程上的难点，也是LIFT提供的免费福利，让所有的事情像呼吸一样简单<br>---------<br>
+      <aside class="notes">仍旧是站在接入方的视角，夸一夸LIFT<br>附送了哪些权益<br>1. 并发调度不用管了，repeat维度怎么并发，suite维度怎么并发，task维度怎么并发，baseline和evolved怎么并发？<br>2. dashboard不用管了，<br>3. trace不用管了，其实框架还干了一件很脏的事：怎么把trajectory和task关联起来，最后才能做分析<br>4. 接入的skill就不说了，太舒服了<br>5. delta体检：不用担心进化产物是不是真的落进delta镜像了，产物为空的话日志会原地报警<br>6. 复杂的环境隔离管理：work/judge 分容器后，大量并发时会同时运行数十到上百个容器；每个容器的端口管理也不用管了<br>7. 抖动吸收：任务报错了怎么办，也不用管了，LIFT在pipeline各个维度做了完善的重试机制<br>8. 所有日志留痕，这也是LIFT可以反复迭代自己的根本依据<br><br>以上都是工程上的难点，也是LIFT提供的免费福利，让所有的事情像呼吸一样简单<br>---------<br>
        一句话收：<b>接入方只写 Adapter，其它 8 件事 LIFT 全部免费送。</b></aside>
     </section>
 
@@ -2207,25 +2207,29 @@ sequenceDiagram
     participant P as Pipeline
     participant A as Adapter
     participant E as Judge Loop（阅卷）
-    participant W as Warmup 容器（base 镜像）
-    participant Hb as Baseline 容器（base 镜像）
-    participant He as Evolved 容器（delta 镜像）
+    participant W as Warmup work 容器（base 镜像）
+    participant J as Warmup judge 容器（base 镜像）
+    participant Hb as Baseline work+judge 容器对（base 镜像）
+    participant He as Evolved work+judge 容器对（delta 镜像）
 
     P->>A: warmup 题（如 Q1..Q4）
-    A->>W: 起一个容器
-    E->>W: work↔judge 多轮（agent 边做边学）
+    A->>W: 起 work 容器
+    A->>J: 起 sibling judge 容器
+    E->>W: work 多轮（agent 边做边学）
+    E->>J: judge 评分反馈
     W->>W: evolve
     W->>W: 固化进化产物 → delta 镜像
-    A->>W: 销毁 warmup 容器
+    A->>W: 销毁 warmup work 容器
+    A->>J: 销毁 warmup judge 容器
 
     loop 每道 holdout 题（如 Q5, Q6）
         P->>A: baseline
-        A->>Hb: 起容器
-        E->>Hb: work↔judge 多轮 → 打分
+        A->>Hb: 起 work+judge 容器对
+        E->>Hb: work/judge 多轮 → 打分
         A->>Hb: 销毁
         P->>A: evolved
-        A->>He: 起容器
-        E->>He: work↔judge 多轮 → 打分
+        A->>He: 起 work+judge 容器对
+        E->>He: work/judge 多轮 → 打分
         A->>He: 销毁
     end
 

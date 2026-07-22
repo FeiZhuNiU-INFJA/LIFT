@@ -198,4 +198,101 @@ else
   echo "INSTALL_OPENSPACE=${INSTALL_OPENSPACE}: skip OpenSpace MCP plugin install"
 fi
 
+# 7) agentmemory memory plugin（README「Option 2: OpenClaw memory plugin，deeper integration」）。
+#    默认不装（INSTALL_AGENTMEMORY=false）。装的话：
+#      - 校验 Node >= 20（OpenClaw 基镜像本身是 Node 应用，通常已满足；加断言防版本漂移）。
+#      - npm -g 装 @agentmemory/agentmemory（server + CLI）。
+#      - 构建期预热：后台起 server 把 iii-engine 二进制拉进 ~/.agentmemory/bin、把本地嵌入
+#        模型 all-MiniLM-L6-v2 拉进缓存，随后清空记忆状态（保留 bin/ 与模型缓存），保证运行期
+#        离线可用且 baseline 从空记忆开始（不污染评测）。
+#      - git clone agentmemory，把 integrations/openclaw 拷进 extensions/agentmemory。
+#      - merge agentmemory.fragment.json（claim plugins.slots.memory = agentmemory）。
+INSTALL_AGENTMEMORY="${INSTALL_AGENTMEMORY:-false}"
+if [[ "${INSTALL_AGENTMEMORY}" == "true" ]]; then
+  AGENTMEMORY_GIT_URL="${AGENTMEMORY_GIT_URL:-https://github.com/rohitg00/agentmemory.git}"
+  AGENTMEMORY_GIT_REF="${AGENTMEMORY_GIT_REF:-main}"
+  AGENTMEMORY_SRC="/opt/agentmemory-src"
+  [[ -n "${NPM_CONFIG_REGISTRY:-}" ]] && export NPM_CONFIG_REGISTRY
+
+  echo "==> Installing agentmemory memory plugin (offline local embeddings)"
+
+  # 7a) Node >= 20 断言。
+  if ! command -v node >/dev/null 2>&1; then
+    echo "ERROR: node not found on PATH; agentmemory requires Node.js >= 20." >&2
+    exit 1
+  fi
+  NODE_MAJOR_VER="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+  if [[ "${NODE_MAJOR_VER}" -lt 20 ]]; then
+    echo "ERROR: Node.js >= 20 required for agentmemory; got $(node -v 2>/dev/null)." >&2
+    exit 1
+  fi
+  echo "==> Node $(node -v) OK (>= 20)"
+
+  # 7b) 装 agentmemory server + CLI。
+  npm install -g @agentmemory/agentmemory
+
+  # 7c) 构建期预热引擎 + 本地嵌入模型，然后清空记忆状态（保留引擎/模型缓存）。
+  echo "==> Warming up agentmemory engine + local embedding model (build-time, networked)"
+  export CI=1
+  export HOME="${HOME:-/root}"
+  ( agentmemory >/tmp/agentmemory-warmup.log 2>&1 & )
+  _am_ready="false"
+  for _i in $(seq 1 60); do
+    if curl -fsS http://localhost:3111/agentmemory/livez >/dev/null 2>&1 \
+       || curl -fsS http://localhost:3111/agentmemory/health >/dev/null 2>&1; then
+      _am_ready="true"; break
+    fi
+    sleep 1
+  done
+  if [[ "${_am_ready}" == "true" ]]; then
+    echo "==> agentmemory warmup server ready; triggering demo to fetch engine/model, then reset"
+    # demo 会拉起完整栈并做一次真实检索，确保 iii-engine 二进制 + 嵌入模型落地缓存。
+    agentmemory demo >/tmp/agentmemory-demo.log 2>&1 || echo "WARN: agentmemory demo returned non-zero (non-fatal)" >&2
+  else
+    echo "WARN: agentmemory warmup server not ready in time; engine/model may fetch at first runtime start." >&2
+    cat /tmp/agentmemory-warmup.log 2>/dev/null || true
+  fi
+  # 停掉后台 server（best-effort），随后清记忆状态。
+  pkill -f agentmemory 2>/dev/null || true
+  sleep 2
+  # 清空记忆数据但保留引擎二进制（bin/）与模型缓存：删除 ~/.agentmemory 下除 bin/ 与 models
+  # 缓存以外的状态（DB / observations / logs）。精确目录随版本可能变化，采用保守白名单删法。
+  if [[ -d "${HOME}/.agentmemory" ]]; then
+    find "${HOME}/.agentmemory" -maxdepth 1 -mindepth 1 \
+      ! -name bin \
+      ! -name models \
+      ! -name model-cache \
+      ! -name '.cache' \
+      -exec rm -rf {} + 2>/dev/null || true
+    echo "==> Reset agentmemory memory state (kept engine binary + model cache)"
+  fi
+
+  # 7d) 落插件：git clone，sparse 仅取 integrations/openclaw，拷进 extensions/agentmemory。
+  git clone --filter=blob:none --sparse "${AGENTMEMORY_GIT_URL}" "${AGENTMEMORY_SRC}"
+  git -C "${AGENTMEMORY_SRC}" sparse-checkout set --no-cone '/integrations/openclaw'
+  git -C "${AGENTMEMORY_SRC}" checkout "${AGENTMEMORY_GIT_REF}" || true
+  AM_PLUGIN_SRC="${AGENTMEMORY_SRC}/integrations/openclaw"
+  if [[ ! -d "${AM_PLUGIN_SRC}" ]]; then
+    echo "ERROR: agentmemory integrations/openclaw not found after clone (${AM_PLUGIN_SRC})." >&2
+    exit 1
+  fi
+  rm -rf "${OPENCLAW_STATE_DIR}/extensions/agentmemory"
+  cp -r "${AM_PLUGIN_SRC}" "${OPENCLAW_STATE_DIR}/extensions/agentmemory"
+  # 校验插件必需文件。
+  for f in package.json openclaw.plugin.json plugin.mjs; do
+    if [[ ! -f "${OPENCLAW_STATE_DIR}/extensions/agentmemory/${f}" ]]; then
+      echo "WARN: agentmemory plugin missing ${f}; plugin may fail to load." >&2
+    fi
+  done
+
+  # 7e) merge fragment：claim plugins.slots.memory = agentmemory（在 models fragment 之后）。
+  node /tmp/merge-openclaw-config.mjs "${TARGET}" "${CONFIG_DIR}/agentmemory.fragment.json"
+  # 把 agentmemory 并入 plugins.allow（merge 脚本对数组是"替换"语义，故用 node 做并集，
+  # 避免覆盖既有 langfuse-tracer / firecrawl 等 allowlist 项）。
+  node -e "const fs=require('fs');const p='${TARGET}';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.plugins=j.plugins||{};const a=Array.isArray(j.plugins.allow)?j.plugins.allow:[];if(!a.includes('agentmemory'))a.push('agentmemory');j.plugins.allow=a;fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
+  echo "==> agentmemory plugin installed under ${OPENCLAW_STATE_DIR}/extensions/agentmemory"
+else
+  echo "INSTALL_AGENTMEMORY=${INSTALL_AGENTMEMORY}: skip agentmemory memory plugin install"
+fi
+
 openclaw plugins list 2>/dev/null || true

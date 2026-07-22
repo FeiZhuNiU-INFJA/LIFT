@@ -91,17 +91,17 @@ final @ after-load（treatment） → PhaseRun  → report.evolved
 
 - **写入 report**：每个 **holdout_tasks** 题各一条 `TaskRun`（`baseline` + `evolved` 两个 `PhaseRun`）。warmup / holdout 在 suite JSON 中由 `warmup_tasks` / `holdout_tasks` 显式给出（对应 benchmark ``train/`` / ``test/``）。
 - **warmup 结果**：`Q1..Q_{n-1}` 用于产生产物，一般**不进 report**（仅日志）；产物固化进 **delta 镜像**（`docker commit`）。
-- **final 的 before-load**：干净 base 镜像起**新容器**（无 Δ）。
-- **final 的 after-load**：从 warmup 后 commit 的 **Δ 镜像**起**新容器**；多道 holdout **共用 Δ、workspace 按题隔离**。
+- **final 的 before-load**：干净 base 镜像起**新 work+judge 容器对**（无 Δ）。
+- **final 的 after-load**：从 warmup 后 commit 的 **Δ 镜像**起**新 work+judge 容器对**；多道 holdout **共用 Δ、workspace 按题隔离**。
 - **清理**：每个 suite 评测结束 `SuiteRunResources.cleanup()` 删除容器与 Δ 镜像。
 
 ### 4.1 环境模型（`src/lift/`）
 
 ```text
-warmup（默认 parallel_single：同容器并发；可切 serial_single / parallel_multi）→ evolve → docker commit → DeltaRef (Δ 镜像)
+warmup（默认 parallel_single：同 work 容器并发，另有同 workspace 的 judge 容器；可切 serial_single / parallel_multi）→ evolve → docker commit work 容器 → DeltaRef (Δ 镜像)
 对每个 holdout 题 Q_h：
-  before-load: docker run base_image + workspace_h → PhaseRun → destroy
-  after-load:  docker run Δ_image + workspace_h   → PhaseRun → destroy
+  before-load: docker run base_image + workspace_h → work+judge 容器对 → PhaseRun → destroy
+  after-load:  docker run Δ_image + workspace_h   → work+judge 容器对 → PhaseRun → destroy
 repeat 之间默认并行；每 suite 独立 Δ 与 `SuiteRunResources` 登记簿。
 ```
 
@@ -121,19 +121,21 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 
 | 枚举值 | 容器数 | 题级并发 | 适用 adapter 形态 |
 |--------|--------|----------|--------------------|
-| `serial_single` | 1（共享） | 否（顺序） | 单容器 commit 镜像类（`ContainerAgentRuntimeAdapter` 默认） |
-| `parallel_single`（默认） | 1（共享） | 是（同容器 `asyncio.gather`） | 同上；适合 runtime 可并发处理多 session 的场景 |
-| `parallel_multi` | N（每题一个） | 是 | 群体记忆 / 外部产物类（`GroupMemoryAdapterMixin`） |
+| `serial_single` | 1 个 work + 1 个 judge（共享） | 否（顺序） | work 容器 commit 镜像类（`ContainerAgentRuntimeAdapter` 默认） |
+| `parallel_single`（默认） | 1 个 work + 1 个 judge（共享） | 是（同容器对内 `asyncio.gather`） | 同上；适合 runtime 可并发处理多 session 的场景 |
+| `parallel_multi` | N 个 work + N 个 judge（每题一对） | 是 | 群体记忆 / 外部产物类（`GroupMemoryAdapterMixin`） |
 
 **delta 形态由 adapter 决定，不由本枚举决定：**
 
 ```text
 ContainerAgentRuntimeAdapter（serial_single / parallel_single）：
-  warmup（共享容器，多题串行或并发）→ evolve_after_warmup（容器内）→ docker commit → DeltaRef(owned=True)
+  warmup（共享 work 容器 + sibling judge 容器，多题串行或并发）
+    → evolve_after_warmup（work 容器内）→ docker commit work 容器 → DeltaRef(owned=True)
   holdout evolved：docker run delta_image
 
 GroupMemoryAdapterMixin（必须 parallel_multi）：
-  warmup（多容器并行，每题一个，模拟多用户）→ evolve_after_task per-container（默认 no-op）
+  warmup（多容器并行，每题一对 work+judge 容器，模拟多用户）
+                                              → evolve_after_task per-work-container（默认 no-op）
                                               → DeltaRef(image_tag=base_image, owned=False)
   holdout evolved：docker run base_image，runtime 在 load_state=EVOLVED 时注入群体记忆配置
 ```
@@ -146,18 +148,18 @@ GroupMemoryAdapterMixin（必须 parallel_multi）：
 
 ### 4.3 Holdout 容器策略（`HoldoutContainerPolicy`）
 
-holdout 与 warmup 的容器维度不同：每道 holdout 题必须用独立容器（baseline 与 evolved 镜像分裂、避免状态污染），所以本枚举不提供"单容器"形态，只决定**多题之间是否并发**。
+holdout 与 warmup 的容器维度不同：每道 holdout 题、每个 phase 都必须用独立 work+judge 容器对（baseline 与 evolved 镜像分裂、work 与 judge 记忆隔离、题间避免状态污染），所以本枚举不提供"单容器"形态，只决定**多题之间是否并发**。
 
 | 枚举值 | 容器数 | 题级并发 | 适用场景 |
 |--------|--------|----------|----------|
-| `serial_multi` | N（每题独立） | 否（顺序） | 调试单题、严格按题顺序产出 trace |
-| `parallel_multi`（默认） | N（每题独立） | 是（`asyncio.gather`） | 加速大量 holdout 题；docker / runtime 资源足够时建议默认 |
+| `serial_multi` | N 个 work + N 个 judge（每题每 phase 一对） | 否（顺序） | 调试单题、严格按题顺序产出 trace |
+| `parallel_multi`（默认） | N 个 work + N 个 judge（每题每 phase 一对） | 是（`asyncio.gather`） | 加速大量 holdout 题；docker / runtime 资源足够时建议默认 |
 
 **与 warmup 的差别**：
 
 - warmup 关心"产物如何累积"，所以容器维度有 single / multi 之分；
-- holdout 只做对照评估，每题镜像分裂强制多容器，没有共享意义；
-- 同题内 baseline / evolved 默认 **并行** 执行（两者镜像/workspace 子目录互不依赖），可用 `--holdout-phase-policy serial` 退回串行；本枚举只控制**多题之间**。
+- holdout 只做对照评估，每题镜像分裂、work/judge 分容器强制多容器，没有共享意义；
+- 同题内 baseline / evolved 默认 **并行** 执行（两者镜像/workspace 子目录互不依赖），可用 `--holdout-phase-policy serial` 退回串行；本枚举只控制**多题之间**。默认并行时，同一道 holdout 题会同时存活 baseline work、baseline judge、evolved work、evolved judge 四个容器。
 
 **实现位置**：[`LIFTPipeline._run_holdout_tasks`](../src/lift/pipeline/lift_pipeline.py)。
 
@@ -168,23 +170,23 @@ LIFT 在多个维度可以并行；下表汇总**默认行为、控制方式与�
 | 维度 | 默认 | 控制方式 | 备注 |
 |------|------|----------|------|
 | suites × repeats 矩阵 cell | **并行（默认上限 3）** | `--max-parallel-suites`（默认 `3`；`1` 串行；`<=0` 无上限） | 一个 cell = 一个 `(repeat_index, suite_index)` 对，对应一次 warmup+holdout；repeat × suite 笛卡尔积铺平后用单一 limit 限流。每个 cell 独立 `SuiteRunResources`（容器 + delta 镜像），互不干扰；失败隔离见下文 |
-| warmup 题 | 并行（同容器） | `--warmup-container-policy`（见 §4.2）；`--max-concurrent-tasks` | 容器形态由 policy 决定 |
-| holdout 多题之间 | 并行（多容器） | `--holdout-container-policy serial_multi` 串行（见 §4.3）；`--max-concurrent-tasks` | 每题独立容器强制 |
-| 单 holdout task 内 baseline ↔ evolved | **并行（默认）** | `--holdout-phase-policy serial` 退回串行 | 两 phase 镜像/workspace 子目录互不依赖；并行后单 task 内同时存活 2 容器 |
-| 同 task 内 work agent ↔ judge agent | 看 runtime | — | 由 `worker_judger_factory` 实现细节决定 |
+| warmup 题 | 并行（同 work+judge 容器对） | `--warmup-container-policy`（见 §4.2）；`--max-concurrent-tasks` | 容器形态由 policy 决定；commit/evolve 只作用于 work 容器 |
+| holdout 多题之间 | 并行（多容器对） | `--holdout-container-policy serial_multi` 串行（见 §4.3）；`--max-concurrent-tasks` | 每题每 phase 独立 work+judge 容器对 |
+| 单 holdout task 内 baseline ↔ evolved | **并行（默认）** | `--holdout-phase-policy serial` 退回串行 | 两 phase 镜像/workspace 子目录互不依赖；并行后单 task 内同时存活 4 容器 |
+| 同 task 内 work agent ↔ judge agent | 分容器（强制） | — | `ExecutionEnvironment.handle` 是 work 容器，`judge_handle` 是 sibling judge 容器；二者同镜像、同 workspace、同 `load_state` |
 
 **`--max-concurrent-tasks` 作用域**：
 
 - 限制的是**单个 phase 内并发执行的 task 数**（asyncio Semaphore），由 [`bounded_gather`](../src/lift/eval/task_exec.py) 实现。
 - warmup 阶段与 holdout 阶段**各自持有一个独立的 Semaphore**，不是跨阶段全局上限。
-- **不限制单个 task 内部启动的容器数**——例如 `parallel_multi` 下每个 warmup task 起 1 个容器、`max_concurrent_tasks=4` 时同时存活上限是 4 个 warmup 容器。
+- **不限制单个 task 内部启动的容器数**——例如 `parallel_multi` 下每个 warmup task 起 1 个 work 容器 + 1 个 judge 容器，`max_concurrent_tasks=4` 时同时存活上限是 8 个 warmup 容器。
 - **不跨 cell 共享**——多个 cell 并发执行时，每个 cell 各自的 phase 独立计数。
 
 **已知限制**（如需突破再做扩展）：
 
-1. **`--max-concurrent-tasks` 仅在 phase 级生效**：默认 `--holdout-phase-policy parallel` 下，单 task 内会同时启 baseline + evolved 两容器，但 Semaphore 只在 task 维度计数；`max_concurrent_tasks=4` 时 holdout 容器数最高可达 8，需要硬上限请配合 `--holdout-phase-policy serial` 或下调 `--max-concurrent-tasks`。
+1. **`--max-concurrent-tasks` 仅在 phase 级生效**：默认 `--holdout-phase-policy parallel` 下，单 task 内会同时启 baseline + evolved 两个 phase，每个 phase 又是 work+judge 两容器；Semaphore 只在 task 维度计数。`max_concurrent_tasks=4` 时 holdout 容器数最高可达 16，需要硬上限请配合 `--holdout-phase-policy serial` 或下调 `--max-concurrent-tasks`。
 2. **warmup → holdout 之间被 `evolve_after_warmup` 阻塞**：holdout 必须等 evolve 完成才能起容器，期间宿主机资源闲置。
-3. **跨 cell 没有容器级全局上限**：`--max-parallel-suites` 限的是 cell 协程数，不是容器数；总峰值容器数 ≈ `并发 cell 数 × max_concurrent_tasks × (phase 并行?2:1)`。例如 `repeat=4 × suites=3` 共 12 个 cell，`--max-parallel-suites=12 × max_concurrent_tasks=4 × holdout-phase-policy=parallel` 同时跑，宿主机可见容器数会非常大，需结合 §4.5 资源约束与并发上限一起设。
+3. **跨 cell 没有容器级全局上限**：`--max-parallel-suites` 限的是 cell 协程数，不是容器数；holdout 总峰值容器数 ≈ `并发 cell 数 × max_concurrent_tasks × (phase 并行?2:1) × 2 roles(work+judge)`。例如 `repeat=4 × suites=3` 共 12 个 cell，`--max-parallel-suites=12 × max_concurrent_tasks=4 × holdout-phase-policy=parallel` 同时跑，理论峰值可到 `12×4×2×2=192` 个 holdout 容器，需结合 §4.5 资源约束与并发上限一起设。
 4. **OpenClaw 容器宿主机端口**：现已改为 `docker run -p <container_port>` 由 docker 在临时端口段自动分配，启动后通过 `docker inspect` 把真实端口回填到 `ContainerSession.published_ports`；旧的 instance_id hash slot 方案已废弃，避免并行容器端口碰撞。
 
 **cell 级失败隔离与重跑**（[`_run_cells`](../src/lift/pipeline/lift_pipeline.py)）：
@@ -218,10 +220,10 @@ LIFT 框架在不同层级对异常采取**就地重试一次 + 同级隔离**�
 | **chat** | judge 返回非 JSON / 解析失败 | **8 次**用 retry prompt 重发；判 provider 错误优先（避免误判） | — | 抛 `ValueError("Judge response is not valid JSON")` | `_judge_with_retry`（[run_task.py](../src/lift/eval/run_task.py)） |
 | **turn** | `judge.success=False` | run_task 内 work↔judge 多轮（`--max-conversation-turns`，默认 5）；judge fail **不抛异常** | — | 跑满后 `success=False` + 最后一轮 score 正常返回，**不视为失败** | `run_task`（[run_task.py L297-L343](../src/lift/eval/run_task.py#L297-L343)） |
 | **task（单题）** | `execute_task` 抛异常（如容器崩、agent runtime 异常） | **原地重试 1 次**（重新拿 factory、重新 run_task） | 由调用方决定 | 二次仍失败抛出，进入上层 phase / warmup 路径 | `execute_tasks` 的 `retry_each=True`（[task_exec.py L153-L194](../src/lift/eval/task_exec.py#L153-L194)） |
-| **phase（baseline / evolved）** | holdout 单 phase 抛异常（`run_before_load` / `run_after_load`） | **原地重试 1 次**（重新起 holdout 容器） | `parallel` 时 `asyncio.gather(return_exceptions=True)` ⇒ baseline ↔ evolved 互不连坐 | 二次仍失败 → task 标 failed | `_run_phase` / `_one_task`（[lift_pipeline.py L404-L477](../src/lift/pipeline/lift_pipeline.py#L404-L477)） |
+| **phase（baseline / evolved）** | holdout 单 phase 抛异常（`run_before_load` / `run_after_load`） | **原地重试 1 次**（重新起 holdout work+judge 容器对） | `parallel` 时 `asyncio.gather(return_exceptions=True)` ⇒ baseline ↔ evolved 互不连坐 | 二次仍失败 → task 标 failed | `_run_phase` / `_one_task`（[lift_pipeline.py L404-L477](../src/lift/pipeline/lift_pipeline.py#L404-L477)） |
 | **task（holdout）** | 单题最终失败（baseline 或 evolved 二次失败） | — | `tasks_parallel`：`bounded_gather(return_exceptions=True)`；串行：`try/except` 跳过 | 该 task 不写入 `suite_run.tasks[]`，其余 task 正常落盘 | `_run_holdout_tasks`（[lift_pipeline.py L515-L532](../src/lift/pipeline/lift_pipeline.py#L515-L532)） |
 | **task（warmup，base 路径）** | 单题最终失败 | task 层已 `retry_each` 一次 | `bounded_gather(return_exceptions=True)`，单题失败不取消兄弟题 | 该 warmup 题被跳过；不影响后续 evolve_after_warmup / commit delta | `execute_tasks(tasks_isolated=True)`（[base.py L100-L113](../src/lift/adapters/base.py#L100-L113)） |
-| **task（warmup，GroupMemory 路径）** | 单题独立容器抛异常 | **原地重试 1 次**（重启容器、重跑该题） | `bounded_gather(return_exceptions=True)`，题间隔离 | 该 warmup 题被跳过；其余题独立容器照常运行 | `_run_warmup_in_isolated_container`（[mixin.py L126-L174](../src/lift/adapters/group_memory/mixin.py#L126-L174)） |
+| **task（warmup，GroupMemory 路径）** | 单题独立容器对抛异常 | **原地重试 1 次**（重启 work+judge 容器对、重跑该题） | `bounded_gather(return_exceptions=True)`，题间隔离 | 该 warmup 题被跳过；其余题独立容器对照常运行 | `_run_warmup_in_isolated_container`（[mixin.py L126-L174](../src/lift/adapters/group_memory/mixin.py#L126-L174)） |
 | **suite** | 单 suite 抛异常（warmup / holdout / produce_delta 任一阶段未捕获的失败） | **首轮失败队尾重跑 1 次** | 同 repeat 内并发 suite 用 `bounded_gather(return_exceptions=True)`，单 suite 失败不取消其它 suite | 二次仍失败 → 报告里该 suite 对应位置保留 `None` 占位（其它 suite 完整落盘） | `_attempt` + 队尾重跑（[lift_pipeline.py L167-L220](../src/lift/pipeline/lift_pipeline.py#L167-L220)） |
 | **repeat** | 单 repeat 抛异常 | — | repeat 之间默认并行（`bounded_gather` 默认 `return_exceptions=False`，**未启用隔离**） | 当前会 fail-fast 取消其他 repeat | `LIFTPipeline.run`（[lift_pipeline.py L99-L114](../src/lift/pipeline/lift_pipeline.py#L99-L114)） |
 
@@ -472,7 +474,7 @@ flowchart LR
 | `--holdout-container-policy` | holdout 容器编排策略（`serial_multi` / `parallel_multi`，默认 `parallel_multi`），见 [§4.3](#43-holdout-容器策略holdoutcontainerpolicy) |
 | `--holdout-phase-policy` | 单 task 内 baseline / evolved 顺序（`parallel` / `serial`，默认 `parallel`），见 [§4.4](#44-并发模型与限制) |
 | `--max-parallel-suites` | suites × repeats 矩阵 cell 级并发上限（默认 `3`；`1` 串行；`<=0` 无上限），见 [§4.4](#44-并发模型与限制) |
-| `--max-concurrent-tasks` | 单 phase 内题级并发容器数上限（默认无上限），见 [§4.4](#44-并发模型与限制) |
+| `--max-concurrent-tasks` | 单 phase 内题级并发上限（默认无上限；raw 容器数还会乘以 work/judge 角色与 phase 并行倍数），见 [§4.4](#44-并发模型与限制) |
 | `--max-conversation-turns` | 单 task 内 work→judge 最大对话轮数（默认 `30`，替代旧的 `EVAL_MAX_TURNS` 环境变量） |
 | `--container-memory` | 单容器内存上限，透传 `docker run --memory`（**默认不限制**；设过小会触发 `CONSTRAINT_MEMCG` OOM），见 [§4.5](#45-容器资源约束与运维colima--docker-vm) |
 | `--container-cpus` | 单容器 CPU 上限，透传 `docker run --cpus`（默认不限制），见 [§4.5](#45-容器资源约束与运维colima--docker-vm) |
@@ -573,7 +575,7 @@ class DeltaRef(BaseModel, Disposable):
 ```text
 worker_judger_factory()           # ChatAgent 工厂
 start_warmup_environment()        # before 产物积累
-start_holdout_environment(..., load_state)  # per-task 隔离容器；load_state 区分 baseline/evolved
+start_holdout_environment(..., load_state)  # per-task work+judge 隔离容器对；load_state 区分 baseline/evolved
 evolve_after_task()               # 每题完成后钩子（默认 no-op；群体记忆方案常用）
 evolve_after_warmup()             # 所有 warmup 完成后钩子（OpenClaw=learn review；外部记忆方案可 no-op）
 materialize_delta()               # 默认 docker commit（Container 层）；非镜像方案返回 owned=False 占位
@@ -597,9 +599,9 @@ baseline_image()                  # before-load 运行时标识
 
 | `WarmupContainerPolicy` | `evolve_after_task` 调用 | 调用所在容器 | `evolve_after_warmup` 调用 | 调用所在容器 |
 |---|---|---|---|---|
-| `SERIAL_SINGLE` | N 次（顺序，每题后） | **同一**共享容器 | 1 次 | 同一共享容器 |
-| `PARALLEL_SINGLE` | N 次（并发，每题协程槽位内） | **同一**共享容器（⚠️ 并发调用） | 1 次 | 同一共享容器 |
-| `PARALLEL_MULTI`（GroupMemoryAdapterMixin） | N 次（并发） | **各自独立**容器（每题一个） | 1 次（**Mixin 默认 no-op**，因为 Mixin 不走 base `produce_delta`） | — |
+| `SERIAL_SINGLE` | N 次（顺序，每题后） | **同一**共享 work 容器（另有 sibling judge 容器） | 1 次 | 同一共享 work 容器 |
+| `PARALLEL_SINGLE` | N 次（并发，每题协程槽位内） | **同一**共享 work 容器（⚠️ 并发调用；另有 sibling judge 容器） | 1 次 | 同一共享 work 容器 |
+| `PARALLEL_MULTI`（GroupMemoryAdapterMixin） | N 次（并发） | **各自独立** work 容器（每题另有 sibling judge 容器） | 1 次（**Mixin 默认 no-op**，因为 Mixin 不走 base `produce_delta`） | — |
 
 **关键约束**
 
@@ -607,11 +609,11 @@ baseline_image()                  # before-load 运行时标识
 
 2. **`evolve_after_task` 默认 no-op**：基类 [`AgentRuntimeAdapter`](../src/lift/adapters/base.py) 提供默认空实现；子类只在需要"每题立刻 evolve"时覆写。
 
-3. **并发竞态警告**：`PARALLEL_SINGLE` 模式下，多个 `evolve_after_task` 协程**共享同一容器**并发执行——若 evolve 操作非原子（如修改容器内同一文件），调用方需自行加锁或选择 `SERIAL_SINGLE`。`PARALLEL_MULTI` 各题独立容器，无此问题。
+3. **并发竞态警告**：`PARALLEL_SINGLE` 模式下，多个 `evolve_after_task` 协程**共享同一 work 容器**并发执行——若 evolve 操作非原子（如修改容器内同一文件），调用方需自行加锁或选择 `SERIAL_SINGLE`。`PARALLEL_MULTI` 各题独立 work 容器，无此问题。judge 容器只承载评分对话，不参与 evolve / commit。
 
 4. **`evolve_after_task` 钩子由谁触发**：
    - base 路径（`SERIAL_SINGLE` / `PARALLEL_SINGLE`）：由 `execute_tasks` 的 `on_task_done` 参数自动调用，见 [`base.py` produce_delta 中 `on_task_done=lambda...`](../src/lift/adapters/base.py)。
-   - Mixin 路径（`PARALLEL_MULTI`）：由 `_run_warmup_in_isolated_container` 在每题容器 `cleanup` 之前显式调用，见 [`mixin.py`](../src/lift/adapters/group_memory/mixin.py)。
+   - Mixin 路径（`PARALLEL_MULTI`）：由 `_run_warmup_in_isolated_container` 在每题 work+judge 容器对 `cleanup` 之前显式调用，见 [`mixin.py`](../src/lift/adapters/group_memory/mixin.py)。
 
 **子类覆写决策树**
 

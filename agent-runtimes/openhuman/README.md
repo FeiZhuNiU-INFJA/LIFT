@@ -3,7 +3,7 @@
 LIFT 评测用的 [OpenHuman](https://github.com/tinyhumansai/openhuman) 镜像。
 `openhuman-core` 是 Rust 实现的 HTTP JSON-RPC server；LIFT 通过
 **`POST http://127.0.0.1:{host_port}/rpc` (`method: "openhuman.agent_chat"`)** 完成
-一轮对话。
+一轮对话。work agent 与 judge agent 分别运行在同镜像、同 workspace、同 load_state 的 sibling 容器中。
 
 ## Layout
 
@@ -37,6 +37,29 @@ bash agent-runtimes/openhuman/build-image.sh
    `ARK_BASE_URL` 通过 sed 渲染到 `/root/.openhuman/config.toml`，配置 OpenHuman
    的 OpenAI-兼容直连模式（`inference_url` + `api_key` + `default_model` 三字段
    配套，绕开 OpenHuman backend；见 upstream `Config.inference_url` 字段注释）
+
+### 带 agentmemory backend 的变体
+
+```bash
+bash agent-runtimes/openhuman/build-image.sh --with-agentmemory
+# 产出 lift-openhuman-with-agentmemory:latest；对应 LIFT -r openhuman_with_agentmemory
+```
+
+agentmemory（官方 wiki config.toml backend 切换）采用**纯本地**模式：`all-MiniLM-L6-v2` 嵌入 +
+BM25 + 知识图，**零 API Key、离线**（构建期预热 iii-engine 与嵌入模型进镜像）。构建期
+`install-in-image.sh` 在 `config.toml` 追加 `[memory] backend = "agentmemory"`，装 Node ≥20 +
+`@agentmemory/agentmemory`；`openhuman-core` 启动时旁路自家 SQLite，把 Memory trait 调用代理到
+容器内 agentmemory server（`:3111`）。镜像 ENTRYPOINT 包装脚本
+`scripts/openhuman-agentmemory-entrypoint.sh` 在 `openhuman-core` 启动**前**先拉起并等待 `:3111`
+就绪（OpenHuman 的 agentmemory backend **无自动回退 SQLite**，daemon 不可达会报错）。work 容器中的记忆落在
+`/root/.agentmemory`，随 `docker commit` 进 delta 镜像；judge sibling 容器只负责验收，不参与 commit。源可用 env `AGENTMEMORY_GIT_URL` /
+`AGENTMEMORY_GIT_REF` 覆盖，Node 主版本用 `NODE_MAJOR`（默认 20），npm registry 用 `NPM_CONFIG_REGISTRY`。
+
+> ⚠️ **端口与网络**：agentmemory server 每容器绑定 `:3111`。该变体在 adapter 层**强制 bridge 网络**
+> （`force_bridge_network=True`），忽略全局 `CONTAINER_NETWORK_MODE`（若设为 `host` 会打 WARNING 并
+> 回退 bridge），避免同一宿主并发容器抢同一端口冲突。对应常量 `OPENHUMAN_WITH_AGENTMEMORY_DOCKER_IMAGE`。
+>
+> 验证时留意 `openhuman-core` 日志出现 `[memory::factory] using agentmemory backend at <url>`。
 
 ### 内网/外网构建（APT 镜像）
 
@@ -89,13 +112,13 @@ openhuman-core run --host 0.0.0.0 --port 7788
 
 ## Evolve delta
 
-OpenHuman 没有独立的 `evolve` 命令。warmup 阶段 agent 自然写入的：
+OpenHuman 没有独立的 `evolve` 命令。warmup 阶段 work agent 自然写入的：
 
 - `/root/.openhuman/workspace/memory_tree/` — 结构化长期记忆树
 - `/root/.openhuman/workspace/wiki/` — Obsidian 风格的自建知识库
 
 两条路径被 [`OpenHumanAdapter.evolve_paths`](../../src/lift/adapters/openhuman/adapter.py)
-声明为白名单，`docker commit` 把它们随容器 FS 层带入 delta 镜像；delta.py 的
+声明为白名单，`docker commit` 把它们随 work 容器 FS 层带入 delta 镜像；delta.py 的
 "仅演化路径" diff 用来校验真进化 vs 系统噪声。
 
 ## Langfuse
@@ -186,7 +209,7 @@ Langfuse SDK v4:
 [skill/lift-integrate-agent-runtime/docs/postprocess-and-stitching.md §4.1](../../skill/lift-integrate-agent-runtime/docs/postprocess-and-stitching.md#41-usage-schema-分支_make_row_runtime)。
 
 > **成本**：这条路径比 overlay 慢一点（宿主 `docker exec` + push 都是 chat 主
-> 路径同步阻塞），但完全不用改上游。对典型评测规模（并发几十容器）没瓶颈。
+> 路径同步阻塞），但完全不用改上游。work/judge 分容器后并发规模更容易到数十甚至上百容器，瓶颈通常仍在 Docker/VM 资源而不是这段 push 逻辑。
 
 ## LIFT integration
 
@@ -202,6 +225,8 @@ python -m src.cli.lift_main -r openhuman \
 
 - `-r openhuman` → `lift-openhuman:latest`（常量 `OPENHUMAN_DOCKER_IMAGE`，
   定义于 [`src/paths.py`](../../src/paths.py)）
+- `-r openhuman_with_agentmemory` → `lift-openhuman-with-agentmemory:latest`（常量
+  `OPENHUMAN_WITH_AGENTMEMORY_DOCKER_IMAGE`）
 
 ## Manual sanity check
 

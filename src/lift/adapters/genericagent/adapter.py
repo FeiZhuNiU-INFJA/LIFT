@@ -84,8 +84,10 @@ class GenericAgentAdapter(ContainerAgentRuntimeAdapter):
         """绑定 GA 容器，返回 ``GenericAgentWorkerJudgerPairFactory``。"""
         session: ContainerSession = env.handle
         _ = (ctx, run_phase)
+        judge_session = env.judge_handle or env.handle
         return GenericAgentWorkerJudgerPairFactory(
             container=genericagent_context(session),
+            judge_container=genericagent_context(judge_session),
             workspace_dir=workspace_dir,
         )
 

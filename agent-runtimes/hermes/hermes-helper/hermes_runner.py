@@ -214,6 +214,36 @@ def main() -> int:
     agent._print_fn = lambda *a, **k: None
     agent.background_review_callback = None
 
+    # agentmemory 变体诊断（仅 AGENTMEMORY_ENABLED=true 时执行）：确认直连构造的 AIAgent
+    # 确实挂上了 agentmemory memory provider。上游 AIAgent.__init__ 读取
+    # $HERMES_HOME/config.yaml 的 ``memory.provider`` → plugins.memory.load_memory_provider
+    # → MemoryManager.add_provider（当 provider.is_available() 为真时），结果存于
+    # ``agent._memory_manager``（含 .providers 列表）。因此这里读 ``_memory_manager`` 而非
+    # 猜测的 ``memory_provider``。
+    #
+    # 与 discover_mcp_tools 同风格：幂等、缺失时安全跳过、异常吞掉，绝不影响 base / 其它
+    # 变体（该分支只在 AGENTMEMORY_ENABLED=true 时进入）。provider 名为 <none> 说明
+    # is_available() 为假（通常是 :3111 server 未起）——由 smoke test 据此定位。
+    if os.environ.get("AGENTMEMORY_ENABLED", "").strip().lower() in {"1", "true", "yes"}:
+        try:
+            mgr = getattr(agent, "_memory_manager", None)
+            provider_names: list[str] = []
+            if mgr is not None:
+                providers = getattr(mgr, "providers", None) or getattr(mgr, "_providers", None) or []
+                for p in providers:
+                    name = getattr(p, "name", None)
+                    provider_names.append(str(name() if callable(name) else name))
+            sys.stderr.write(
+                "[hermes_runner] AGENTMEMORY_ENABLED: AIAgent memory providers = "
+                f"{provider_names or '<none>'}\n"
+            )
+            sys.stderr.flush()
+        except Exception as exc:  # noqa: BLE001
+            sys.stderr.write(
+                f"[hermes_runner] agentmemory provider diagnostic skipped/failed: {exc!r}\n"
+            )
+            sys.stderr.flush()
+
     # full_history：跨多轮 conversation 累计的完整 message 历史。
     # - 每轮 chat 前作为 ``conversation_history`` 注入，保证多轮记忆。
     # - 每轮 chat 后以 ``result["messages"]``（run_conversation 返回的更新后 transcript）覆盖，

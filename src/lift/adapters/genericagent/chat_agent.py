@@ -229,8 +229,10 @@ class GenericAgentWorkerJudgerPairFactory:
         *,
         container: GenericAgentContainerContext,
         workspace_dir: Path,
+        judge_container: GenericAgentContainerContext | None = None,
     ) -> None:
         self._container = container
+        self._judge_container = judge_container or container
         self._workspace_dir = workspace_dir
 
     async def __call__(self, task: SuiteTask) -> WorkerJudgerPair:
@@ -244,7 +246,7 @@ class GenericAgentWorkerJudgerPairFactory:
             role="work",
         )
         judge_agent = GenericAgentContainerAgent(
-            container=self._container,
+            container=self._judge_container,
             agent_name=f"lift-genericagent-judge-{short_id()}",
             workspace_dir=self._workspace_dir,
             role="judge",

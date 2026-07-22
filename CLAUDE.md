@@ -8,7 +8,7 @@ LIFT (Loaded Impact on Final Task) is an evaluation framework for **agent self-e
 
 **Core paradigm**: every holdout task is run twice — once with a clean baseline image, and once with a delta image committed after warmup + evolve. The diff measures improvement.
 
-Agents are hosted in Docker containers (OpenClaw and other runtimes); the pipeline is a single-process asyncio orchestrator. Container fan-out is `max_parallel_suites × per-cell task parallelism × 2 phases`; with defaults (3 parallel cells, moderate holdout task counts) peak is on the order of a few dozen concurrent containers, and can climb into the hundreds when `--max-parallel-suites` is raised.
+Agents are hosted in Docker containers (OpenClaw and other runtimes); the pipeline is a single-process asyncio orchestrator. Work and judge agents now run in separate sibling containers with the same image/workspace/load state. Holdout container fan-out is `max_parallel_suites × per-cell task parallelism × 2 phases × 2 roles(work+judge)`; with defaults (3 parallel cells, moderate holdout task counts) peak is commonly dozens of concurrent containers, and can climb into the hundreds when `--max-parallel-suites` is raised.
 
 ## Common Commands
 
@@ -21,8 +21,13 @@ bash agent-runtimes/openclaw/build-image.sh                # → lift-openclaw-b
 bash agent-runtimes/openclaw/build-image.sh --with-evolve  # → lift-openclaw-with-evolve:latest
 # OpenSpace MCP plugin (quality-first skill hub); mutually exclusive with --with-evolve (pick one)
 bash agent-runtimes/openclaw/build-image.sh --with-openspace                # → lift-openclaw-with-openspace:latest
+# agentmemory memory plugin; mutually exclusive with --with-evolve / --with-openspace
+bash agent-runtimes/openclaw/build-image.sh --with-agentmemory              # → lift-openclaw-with-agentmemory:latest
 # Hermes OpenSpace variant
 bash agent-runtimes/hermes/build-image.sh --with-openspace  # → lift-hermes-with-openspace:latest
+# Hermes / OpenHuman agentmemory variants
+bash agent-runtimes/hermes/build-image.sh --with-agentmemory    # → lift-hermes-with-agentmemory:latest
+bash agent-runtimes/openhuman/build-image.sh --with-agentmemory # → lift-openhuman-with-agentmemory:latest
 
 # ByteDance intranet build (defaults go through public mirrors; switch via env vars)
 APT_MIRROR=http://mirrors.byted.org \
@@ -86,11 +91,14 @@ Supported runtimes (`-r` values, see `src/lift/adapters/registry.py`):
 - `openclaw` — base image with no explicit evolve; OpenClaw's natural skill/memory changes during warmup are carried into the delta via `docker commit`
 - `openclaw_with_evolve` — evolution plugin variant; runs `openclaw learn review` after warmup
 - `openclaw_with_openspace` — OpenClaw + OpenSpace MCP plugin (skill hub); reuses base warmup/evolve/commit flow (`INSTALL_OPENSPACE=true`, image `lift-openclaw-with-openspace`)
+- `openclaw_with_agentmemory` — OpenClaw + agentmemory memory plugin; starts a container-local `:3111` server, forces bridge networking, and commits `/root/.agentmemory`
 - `multi_user_openclaw` — OpenClaw + group memory mixin; multi-container warmup (`parallel_multi`), evolve writes to external memory service
 - `genericagent` / `genericagent_active_evolve` — file-I/O-style agent; the latter performs an extra active-reflection pass
 - `hermes` — Hermes runner via `docker exec`; warmup **must** use `serial_single` (concurrent writes to `/opt/hermes-state` race the review process)
 - `hermes_with_openspace` — Hermes + OpenSpace MCP plugin (registered as `mcp_servers.openspace` in `config.yaml`); reuses Hermes review/commit flow (image `lift-hermes-with-openspace`)
+- `hermes_with_agentmemory` — Hermes + agentmemory memory provider plugin; starts container-local `:3111`, forces bridge networking, and reuses Hermes review/commit flow
 - `openhuman` — Rust core `serve` with JSON-RPC over HTTP; chat goes through `agent.chat`; `reasoning_tokens` is folded into `output_tokens` by upstream schema and reported as `null(counted_into_output)`
+- `openhuman_with_agentmemory` — OpenHuman + agentmemory backend (`config.toml [memory] backend="agentmemory"`); starts container-local `:3111`, forces bridge networking, and commits `/root/.agentmemory`
 - `evoscientist` — EvoScientist CLI headless runtime (`EvoSci -p ... --output-format stream-json`); runtime conversation continuity uses captured `--resume <thread_id>`, not LIFT observability `session_id`
 - `evoscientist_active_evolve` — EvoScientist + explicit EvoMemory AutoSkills hook after warmup; reuses `lift-evoscientist:latest`, waits for LangGraph run completion, then commits `/root/.evoscientist`
 
@@ -98,10 +106,10 @@ Supported runtimes (`-r` values, see `src/lift/adapters/registry.py`):
 
 ### Evaluation Flow
 
-1. **Warmup**: warmup tasks within a suite run in a shared container (or multiple containers); state accumulates in the container layer
+1. **Warmup**: warmup tasks within a suite run in a shared work container plus a sibling judge container (or per-task work+judge container pairs for multi-container warmup); evolved state accumulates only in the work container layer
 2. **Evolve**: `evolve_after_task` (per-task hook, no-op by default) + `evolve_after_warmup` (post-batch hook; OpenClaw = `learn review`)
 3. **Delta materialization**: `docker commit` to a temporary image `lift-delta:{run_id}-r{repeat}-{suite_name}`; non-image deltas are flagged via `DeltaRef.owned=False`
-4. **Holdout**: each holdout task starts 2 containers for baseline / evolved — baseline from the base image, evolved from the delta image (or same image + `load_state` injection)
+4. **Holdout**: each holdout task starts a work+judge container pair per phase — baseline from the base image, evolved from the delta image (or same image + `load_state` injection). With the default parallel phase policy, baseline/evolved together mean 4 live containers per holdout task.
 5. **Report**: writes `results/{run_id}/report.json` with `success` / `content_score` / `turns` / `tool_calls` / session id, etc.
 6. **Post-process** (default, `-e`): pulls Langfuse traces for backfill, extracts metrics, emits CSV / HTML / static dashboard snapshot
 
@@ -145,10 +153,11 @@ LIFT enforces a fixed 5-field token schema across all runtimes (see `LangfuseTra
   - Workspace seeds (`SOUL.md` / `IDENTITY.md` / `USER.md` etc.) are baked at build time by `COPY workspace_seed /root/.openclaw/workspace` in the Dockerfile — no host-side copy
 - **Holdout workspace isolation**: each holdout task has an isolated directory at `results/{run_id}/outcome/run-{i}/{baseline|evolved}/{category}/{task}/`
 - **Container orchestration policies**:
-  - Warmup: `parallel_single` (default; concurrent inside one container) / `serial_single` / `parallel_multi` (multi-container, group-memory only)
-  - Holdout: `parallel_multi` (default) / `serial_multi` — each task must use its own container
+  - Work/Judge split: all runtime factories receive a work handle and a judge handle; `ExecutionEnvironment.handle` is the state-carrying work container, `judge_handle` is the sibling judge container. Evolve, `docker commit`, result extraction, and tool counting use the work container only.
+  - Warmup: `parallel_single` (default; concurrent inside one work container plus one judge container) / `serial_single` / `parallel_multi` (per-task work+judge pairs, group-memory only)
+  - Holdout: `parallel_multi` (default) / `serial_multi` — each task phase must use its own work+judge container pair
   - Within a task, baseline vs. evolved: `parallel` (default) / `serial`
-- **Concurrency & resources**: `--max-parallel-suites` (default 3) caps cells; `--max-concurrent-tasks` caps per-phase task containers; `--container-memory` / `--container-cpus` pass through to `docker run` — **no per-container cap by default** (OpenClaw peaks can exceed 3g; hard cgroup limits tend to trigger OOM-kill, so overall memory is left to VM kernel + swap)
+- **Concurrency & resources**: `--max-parallel-suites` (default 3) caps cells; `--max-concurrent-tasks` caps per-phase task concurrency, not raw container count; `--container-memory` / `--container-cpus` pass through to each `docker run` — **no per-container cap by default** (OpenClaw peaks can exceed 3g; hard cgroup limits tend to trigger OOM-kill, so overall memory is left to VM kernel + swap)
 - **Failure isolation + auto-retry**: cells are isolated so failures don't cascade; the pipeline collects first-pass failed cells and **retries them once globally**; phases / tasks each retry once at their own layer; the chat layer retries provider errors 5×, judge JSON parse 8×
 - **Port allocation**: containers use `-p 0:N` so Docker picks an ephemeral port; the actual port is recovered via `docker inspect` after startup, avoiding collisions under concurrency
 

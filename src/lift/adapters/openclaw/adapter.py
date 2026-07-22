@@ -78,6 +78,7 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
             task=task,
             container_memory=self._options.container_memory,
             container_cpus=self._options.container_cpus,
+            force_bridge_network=self.force_bridge_network,
         )
 
     @override
@@ -92,8 +93,11 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
         """绑定 OpenClaw 容器上下文，返回 ``OpenClawWorkerJudgerPairFactory``。"""
         session: ContainerSession = env.handle
         _ = (ctx, run_phase)  # factory 按题创建 pair；phase 标签在 execute_task → run_task 传入
+        # judge 跑在独立容器（env.judge_handle）；未拆分时回退与 work 共用。
+        judge_session = env.judge_handle or env.handle
         return OpenClawWorkerJudgerPairFactory(
             container=openclaw_context(session),
+            judge_container=openclaw_context(judge_session),
             workspace_dir=workspace_dir,
         )
 

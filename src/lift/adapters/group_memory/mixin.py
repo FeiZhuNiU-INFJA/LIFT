@@ -29,6 +29,7 @@ from src.lift.adapters.container.session import clip_name_segment
 from src.lift.adapters.environment import ExecutionEnvironment
 from src.lift.eval.stage import SuiteRunPhase
 from src.lift.eval.task_exec import bounded_gather, exc_summary, execute_task
+from src.lift.runtime.disposable import CompositeDisposable
 from src.lift.policies.artifact import ArtifactPolicy, WarmupThenUpdatePolicy
 from src.lift.policies.container import WarmupContainerPolicy
 from src.lift.runtime.delta_ref import DeltaRef
@@ -218,10 +219,23 @@ class GroupMemoryAdapterMixin:
             load_state=None,  # warmup 阶段不区分 baseline/evolved
         )
         resources.track(session)
+        # judge 独立容器：同镜像、同 workspace，仅 instance_id 加 -judge。与主路径一致，
+        # judge agent 与 work 记忆隔离；evolve/记忆 flush 只作用于 work 容器（handle）。
+        judge_session = await self.start_container(  # type: ignore[attr-defined]
+            instance_id=f"{instance_id}-judge",
+            image=self._docker_image,  # type: ignore[attr-defined]
+            ctx=ctx,
+            workspace_dir=workspace,
+            seed_workspace=True,
+            task=None,
+            load_state=None,
+        )
+        resources.track(judge_session)
         env = ExecutionEnvironment(
-            disposable=session,
+            disposable=CompositeDisposable([session, judge_session]),
             workspace_dir=workspace,
             handle=session,
+            judge_handle=judge_session,
         )
         run_phase = SuiteRunPhase.warmup()
         try:
@@ -239,7 +253,7 @@ class GroupMemoryAdapterMixin:
             # 题级 evolve 钩子：默认 no-op；子类可覆盖为外部记忆 flush
             await self._run_evolve_after_task_with_retry(env, task, ctx)
         finally:
-            await session.cleanup()
+            await env.disposable.cleanup()
 
     async def _run_evolve_after_task_with_retry(
         self,

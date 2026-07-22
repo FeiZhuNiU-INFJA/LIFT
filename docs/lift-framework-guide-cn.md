@@ -37,8 +37,8 @@ LIFT 就是为了回答这个问题。
    Agent 的状态分散在文件系统里——SOUL.md、MEMORY.md、技能目录、向量库……如何把进化前和进化后的 Agent **整体**冻结成一个可复现的"快照"？
    👉 我们用 **Docker commit**：进化后的容器直接 `docker commit` 出 delta 镜像，Agent 的所有状态被原子地打包。
 2. **怎么保证「对照」是干净的？**
-   baseline 不能受 evolved 污染，evolved 不能复用 baseline 的环境。题与题之间也必须互不干扰。
-   👉 每道 holdout 题、每一相位（baseline / evolved）都**从镜像起新容器**，workspace 按题隔离。
+   baseline 不能受 evolved 污染，evolved 不能复用 baseline 的环境；work agent 和 judge agent 的记忆也不能互相污染。题与题之间同样必须互不干扰。
+   👉 每道 holdout 题、每一相位（baseline / evolved）都**从镜像起新的 work+judge 容器对**，workspace 按题隔离。
 3. **怎么让框架既支持 OpenClaw，也支持未来的别的 Agent？**
    评测内核（怎么阅卷）不应该绑死在 OpenClaw 上。
    👉 三层架构：**Pipeline 编排 / Adapter 接入运行时 / eval 阅卷**。每一层都不知道下一层的具体实现细节。
@@ -83,21 +83,24 @@ lift/eval               ← 评测内核：单题 work + judge 多轮（跟 Open
 sequenceDiagram
     participant P as Pipeline
     participant A as Adapter
-    participant W as Warmup 容器（base 镜像）
-    participant Hb as Baseline 容器（base 镜像）
-    participant He as Evolved 容器（delta 镜像）
+    participant W as Warmup work 容器（base 镜像）
+    participant J as Warmup judge 容器（base 镜像）
+    participant Hb as Baseline work+judge 容器对（base 镜像）
+    participant He as Evolved work+judge 容器对（delta 镜像）
 
     P->>A: warmup 题（如 Q1..Q4）
-    A->>W: 起一个容器，连续做题
+    A->>W: 起 work 容器，连续做题
+    A->>J: 起 sibling judge 容器，同 workspace 评分
     W->>W: evolve（learn review）
-    W->>W: docker commit → delta 镜像
-    A->>W: 销毁 warmup 容器
+    W->>W: docker commit work 容器 → delta 镜像
+    A->>W: 销毁 warmup work 容器
+    A->>J: 销毁 warmup judge 容器
 
     loop 每道 holdout 题（如 Q5, Q6）
         P->>A: baseline
-        A->>Hb: 起 → 做题打分 → 销毁
+        A->>Hb: 起 work+judge 容器对 → 做题打分 → 销毁
         P->>A: evolved
-        A->>He: 起 → 做题打分 → 销毁
+        A->>He: 起 work+judge 容器对 → 做题打分 → 销毁
     end
 
     P->>P: 写 report.json
@@ -105,12 +108,12 @@ sequenceDiagram
 
 讲到这里把四个设计取舍点出来：
 
-1. **Warmup 共用一个容器**——状态要连续，进化才有意义；
-2. **Holdout baseline 和 evolved 是两个独立容器**——不是同一容器加不加产物，而是分别从 base / delta 镜像新起，对照才干净；
-3. **每道 holdout 题之间也起新容器**——题与题 workspace 互不污染；
+1. **Warmup 共用一个 work 容器**——状态要连续，进化才有意义；judge 运行在 sibling 容器里，只负责验收反馈；
+2. **Holdout baseline 和 evolved 是两个独立容器对**——不是同一容器加不加产物，而是分别从 base / delta 镜像新起 work+judge 对照环境；
+3. **每道 holdout 题之间也起新容器对**——题与题 workspace、work 记忆、judge 记忆都互不污染；
 4. **多道 holdout 共用同一份 delta 镜像**——只换 workspace，不重复进化（进化是昂贵的）。
 
-镜像血缘一句话总结：**base 起两类容器（warmup + holdout baseline），delta 起一类（holdout evolved）**——三类容器实例、两个镜像。
+镜像血缘一句话总结：**base 起两类 work 容器（warmup + holdout baseline），delta 起一类 work 容器（holdout evolved）**；每个 work 容器都有同镜像、同 workspace、同 load_state 的 judge sibling，但只有 work 容器参与 evolve 和 docker commit。
 
 ### 代码入口（不用背目录，知道从哪读就行）
 
@@ -221,11 +224,11 @@ python -m src.cli.lift_main -r openclaw \
 ### 执行时发生了什么（按顺序讲，听众能跟上）
 
 1. **读卷** → `load_lift_suite`：分出 `warmup_tasks`（Q1）+ `holdout_tasks`（Q2）
-2. **Warmup** → 一个容器跑 Q1（work agent 答题，judge 给反馈，可多轮）
+2. **Warmup** → 一个 work 容器跑 Q1，另起一个 sibling judge 容器给反馈（可多轮）
 3. **Evolve** → 容器内 `openclaw learn review`，把进化状态写进文件系统
 4. **Commit** → `docker commit` 得到临时 delta 镜像，删掉 warmup 容器
-5. **Q2 baseline** → 从 **base 镜像**起全新容器，跑题打分
-6. **Q2 evolved** → 从 **delta 镜像**起全新容器，再跑一遍
+5. **Q2 baseline** → 从 **base 镜像**起全新 work+judge 容器对，跑题打分
+6. **Q2 evolved** → 从 **delta 镜像**起全新 work+judge 容器对，再跑一遍
 7. **落盘** → 写 `results/{run_id}/report.json`；默认触发后处理（CSV、HTML）
 
 ### 跑完看哪里
@@ -272,7 +275,7 @@ EvalReport
 
 [实现要点]
        · 记忆要在容器内（baked workspace + bind mount 桥接），才能被 docker commit
-       · baseline / evolved 每相位起新容器，保证对照干净
+       · baseline / evolved 每相位起新 work+judge 容器对，保证对照干净
        · 多道 holdout 共用 delta，省一次进化
 
 [产物] results/{run_id}/
@@ -284,10 +287,13 @@ EvalReport
 ## 附录 A：常被问到的问题
 
 **Q：为什么 warmup 和 holdout 容器策略不一样？**
-A：Warmup 要状态连续才能进化；holdout 要干净对照，每相位必须新容器。本质是两种相反的需求。
+A：Warmup 要 work 状态连续才能进化；holdout 要干净对照，每相位必须新 work+judge 容器对。本质是两种相反的需求。
 
 **Q：Warmup / Holdout 串行还是并行？**
-A：默认都是**多题并行**：warmup `parallel_single`（同容器并发）、holdout `parallel_multi`（每题独立容器）。同题内部 baseline → evolved 顺序执行。所有并发开关与已知限制集中在 [eval-flow.md §4.4](./eval-flow.md#44-并发模型与限制)；策略枚举详情见 [§4.2](./eval-flow.md#42-warmup-容器策略warmupcontainerpolicy) / [§4.3](./eval-flow.md#43-holdout-容器策略holdoutcontainerpolicy)。
+A：默认都是**多题并行**：warmup `parallel_single`（同 work+judge 容器对内并发）、holdout `parallel_multi`（每题每 phase 独立 work+judge 容器对）。同题内部 baseline / evolved 默认并行，可用 `--holdout-phase-policy serial` 改串行。所有并发开关与已知限制集中在 [eval-flow.md §4.4](./eval-flow.md#44-并发模型与限制)；策略枚举详情见 [§4.2](./eval-flow.md#42-warmup-容器策略warmupcontainerpolicy) / [§4.3](./eval-flow.md#43-holdout-容器策略holdoutcontainerpolicy)。
+
+**Q：work agent 和 judge agent 还共用同一容器吗？**
+A：不共用。当前所有 runtime 都通过 `ExecutionEnvironment.handle` / `judge_handle` 拆成两个 sibling 容器：镜像、workspace、任务状态一致，但文件系统记忆隔离。evolve、delta commit、工具统计只看 work 容器；judge 容器只负责验收对话，阶段结束后一并清理。
 
 **Q：轨迹分在哪？**
 A：执行期 `PhaseRun` 记 success / score；轨迹相关指标在后处理结合 Langfuse trace 算（默认 `--evaluate` 开启）。
