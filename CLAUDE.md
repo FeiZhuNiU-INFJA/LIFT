@@ -29,6 +29,11 @@ bash agent-runtimes/hermes/build-image.sh --with-openspace  # → lift-hermes-wi
 bash agent-runtimes/hermes/build-image.sh --with-agentmemory    # → lift-hermes-with-agentmemory:latest
 bash agent-runtimes/openhuman/build-image.sh --with-agentmemory # → lift-openhuman-with-agentmemory:latest
 
+# One-shot: build all runtime images (SSoT for the full command list: docs/build-images.md)
+bash scripts/build-all-images.sh                            # build everything
+bash scripts/build-all-images.sh --only openclaw-base,hermes  # subset
+bash scripts/build-all-images.sh --list                     # list target names
+
 # ByteDance intranet build (defaults go through public mirrors; switch via env vars)
 APT_MIRROR=http://mirrors.byted.org \
 PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \

@@ -9,6 +9,7 @@
 
 | 脚本 | 用途 | 关键依赖 |
 |------|------|---------|
+| [build-all-images.sh](./build-all-images.sh) | 一键 build 所有 runtime Docker 镜像；支持 `--only` / `--skip` / `--list`。SSoT: [`docs/build-images.md`](../docs/build-images.md) | `docker`, `bash` |
 | [cleanup_langfuse_traces.py](./cleanup_langfuse_traces.py) | 清理自部署 Langfuse 中超过 N 天的 trace（含 observations / scores 级联删除） | `httpx`, `python-dotenv`, `LANGFUSE_*` 凭据 |
 | [upload_benchmark_to_hf.py](./upload_benchmark_to_hf.py) | 把 `benchmark_mds.zip` 从 TOS 镜像推到 HuggingFace dataset 仓库（维护者一次性脚本） | `huggingface_hub`, `HF_TOKEN`（写权限） |
 | [screenshot_dashboard.py](./screenshot_dashboard.py) | 用 Playwright 把 LIFT dashboard（HTTP 或静态 HTML）截成 PNG | `playwright`（需另装） |
