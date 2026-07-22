@@ -45,3 +45,16 @@ grep -nE "mkdir.*memory|mkdir.*skill" agent-runtimes/<runtime>/Dockerfile
 - `Delta preflight diff (evolve-only) [<container>]: +NA ~NC -ND at /opt/<runtime>/memory` — 只统计 adapter `evolve_paths` 白名单目录(见 [`adapter-quartet.md` §2.1 evolve_paths](adapter-quartet.md#21-adapterpy-必须-override-的-4-个方法)),evolve-only 计数为 0 时会直接打 WARNING
 
 如果 `full` 显示 `no changes` 或 `evolve-only` 触发 WARNING 就是三点错位。也可以按 [`three-layer-verification.md` C.4](three-layer-verification.md#c4-兜底方案手动保留-delta-镜像做内容级-diff) 跑一个非 hello 的复杂 suite + `--warmup-only` 手动 diff delta 镜像。
+
+## README 必备条款
+
+集成一个 runtime **必须**在 `agent-runtimes/<runtime>/README.md` 里写清默认进化机制,让后续读者不用翻 `adapter.py` docstring 就能回答"这个 runtime 是怎么进化的"。README 至少覆盖以下 4 点:
+
+1. **进化产物路径**:列出所有会进 delta 镜像的容器 FS 绝对路径(与 adapter 的 `evolve_paths` 白名单一致),例如 `/root/.openclaw/workspace/`、`/opt/GenericAgent/memory/`、`/root/.evoscientist/`。若同时存在 bind mount(不进 delta)与镜像 FS 目录(进 delta),用对照表明确"哪个进/哪个不进",避免读者误以为 bind mount 里的产物会被保留。
+2. **触发方式**:说明 baseline runtime 是**被动隐式**(``evolve_after_warmup`` 为 no-op,靠 warmup 期 agent 运行时自主写入 + `docker commit` 捕获),还是**主动显式**(有 `learn review` / AutoSkills / reflection prompt 之类的钩子)。被动隐式的 runtime 需要在 README 明确写出这一点,否则读者会误以为 LIFT 会主动触发。
+3. **跨 session / 跨任务共享方式**:warmup 阶段多个任务(可能属于不同 LIFT session、不同 runtime conversation thread)如何共享同一份 memory / skills — 通过哪个绝对路径、由 agent 上游怎么读到。若上游用相对路径(`./memory` / `../memory`)且 cwd 在 bind mount 之内,必须在 README 描述已做的 patch 与规避方式。
+4. **衍生 runtime 差异**:若存在 `_with_evolve` / `_active_evolve` 等衍生变体,说明它相对 baseline 多了哪些钩子(通常只 override `evolve_after_warmup` 或 `evolve_after_task`)、是否复用同一镜像、以及触发时机。
+
+参考实现:[`agent-runtimes/openclaw/README.md`](../../../agent-runtimes/openclaw/README.md) 的 *Workspace 布局(镜像 FS vs bind mount)* 章节是完整样板 —— 有对照表、有 "为什么要拆成两份" 的解释、有衍生 runtime(`openclaw_with_evolve`)对应钩子的说明。
+
+⚠ **单独在 `adapter.py` docstring 里写不算数**:那份注释只对读源码的人可见,而 README 是 runtime 集成的对外文档,必须自足。

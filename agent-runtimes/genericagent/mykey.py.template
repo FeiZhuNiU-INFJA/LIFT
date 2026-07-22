@@ -13,6 +13,12 @@ native_oai_config = {
     "model": "__MODEL_NAME__",
     "api_mode": "openai-completions",
     "reasoning_effort": "__REASONING_EFFORT__",
+    # LIFT 契约:全 runtime 共用 ``MAX_TOKENS`` 环境变量控制单轮输出上限;GA
+    # ``BaseSession.__init__`` 读 ``cfg.get('max_tokens')`` 后由 ``llmcore.py``
+    # 的 openai-completions / responses 分支透传为 ``max_tokens`` /
+    # ``max_completion_tokens`` / ``max_output_tokens`` 请求字段。未在此声明时
+    # GA 上游 fallback 到 8192,长产出场景会被截断。
+    "max_tokens": __MAX_TOKENS__,
 }
 
 langfuse_config = {

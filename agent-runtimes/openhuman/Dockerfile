@@ -38,7 +38,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libc6 \
       libxdo3 \
       libasound2 \
+      python3 \
     && rm -rf /var/lib/apt/lists/*
+# python3: /opt/lift/max_tokens_proxy.py 依赖 stdlib(http.server + urllib + json)。
+# ⚠️ 不能用 python3-minimal —— Debian 拆包时 json/http.server 都在完整 python3
+# 依赖的 python3-stdlib 包里,python3-minimal 仅有内核模块。
 
 # 1) 下载 openhuman-core headless 二进制。
 #    官方 .deb 是 CEF/Chromium 桌面 GUI 版（400 MB，Tauri 打包），不包含 CLI；
@@ -78,15 +82,27 @@ ARG API_KEY=
 ARG API_URL=
 ARG INFERENCE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARG DEFAULT_MODEL=
+# LIFT max_tokens 代理:openhuman-core 不暴露 max_tokens 覆盖;由 entrypoint 起一个
+# 容器内 127.0.0.1:${LIFT_PROXY_PORT} 上的透明代理注入 max_tokens 后再转发到
+# 真实上游(LIFT_PROXY_UPSTREAM)。config.toml 的 inference_url 被 install-in-image.sh
+# 改指向 http://127.0.0.1:${LIFT_PROXY_PORT}/v3。同 GMI_MAAS_BASE_URL 也改指向代理,
+# 保持 AgentBox mode 请求也经过代理。
+ARG LIFT_MAX_TOKENS_PROXY_ENABLED=true
+ARG LIFT_PROXY_PORT=7787
+ARG MAX_TOKENS=51200
 ENV ARK_API_KEY=${API_KEY} \
     ARK_BASE_URL=${INFERENCE_URL} \
     MODEL_NAME=${DEFAULT_MODEL} \
     OPENHUMAN_CORE_HOST=0.0.0.0 \
     OPENHUMAN_CORE_PORT=7788 \
     OPENHUMAN_AGENTBOX_MODE=1 \
-    GMI_MAAS_BASE_URL=${INFERENCE_URL} \
+    GMI_MAAS_BASE_URL=http://127.0.0.1:${LIFT_PROXY_PORT}/v3 \
     GMI_MAAS_API_KEY=${API_KEY} \
-    GMI_MODELS=${DEFAULT_MODEL}
+    GMI_MODELS=${DEFAULT_MODEL} \
+    LIFT_MAX_TOKENS_PROXY_ENABLED=${LIFT_MAX_TOKENS_PROXY_ENABLED} \
+    LIFT_PROXY_PORT=${LIFT_PROXY_PORT} \
+    LIFT_PROXY_UPSTREAM=${INFERENCE_URL} \
+    MAX_TOKENS=${MAX_TOKENS}
 # ↑ AgentBox / GMI MaaS: openhuman-core 默认要求 backend OAuth (`app-session` JWT) 才能
 #   触发 LLM 推理；未登录时 chat 会立刻返回 `SESSION_EXPIRED: backend session not active`。
 #   官方 headless 通路是 AgentBox marketplace：设 `OPENHUMAN_AGENTBOX_MODE=1` +
@@ -114,13 +130,17 @@ ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
 COPY config.toml.template /tmp/config.toml.template
 COPY install-in-image.sh /tmp/install-in-image.sh
 COPY scripts/openhuman-agentmemory-entrypoint.sh /opt/lift/openhuman-agentmemory-entrypoint.sh
+COPY scripts/max_tokens_proxy.py /opt/lift/max_tokens_proxy.py
 COPY workspace_seed /opt/lift/workspace_seed
 
 RUN chmod +x /tmp/install-in-image.sh /opt/lift/openhuman-agentmemory-entrypoint.sh \
+    && chmod +r /opt/lift/max_tokens_proxy.py \
     && API_KEY="${API_KEY}" \
        API_URL="${API_URL}" \
        INFERENCE_URL="${INFERENCE_URL}" \
        DEFAULT_MODEL="${DEFAULT_MODEL}" \
+       LIFT_MAX_TOKENS_PROXY_ENABLED="${LIFT_MAX_TOKENS_PROXY_ENABLED}" \
+       LIFT_PROXY_PORT="${LIFT_PROXY_PORT}" \
        INSTALL_AGENTMEMORY="${INSTALL_AGENTMEMORY}" \
        AGENTMEMORY_GIT_URL="${AGENTMEMORY_GIT_URL}" \
        AGENTMEMORY_GIT_REF="${AGENTMEMORY_GIT_REF}" \

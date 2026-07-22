@@ -138,6 +138,22 @@ BUILD_ARGS=(
   --build-arg "INSTALL_AGENTMEMORY=${INSTALL_AGENTMEMORY}"
 )
 
+# LIFT max_tokens 代理:openhuman-core (Rust binary) 无任何 max_tokens 覆盖入口,
+# 通过在容器内起透明反向代理注入 MAX_TOKENS 后再转发。build-time 只烧默认值,
+# 运行时 docker run --env-file .env 会用宿主 .env 中的 MAX_TOKENS 覆盖 ENV。
+MAX_TOKENS_RAW="${MAX_TOKENS:-51200}"
+if ! [[ "${MAX_TOKENS_RAW}" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: MAX_TOKENS must be a positive integer; got '${MAX_TOKENS_RAW}'." >&2
+  exit 1
+fi
+BUILD_ARGS+=(--build-arg "MAX_TOKENS=${MAX_TOKENS_RAW}")
+if [[ -n "${LIFT_MAX_TOKENS_PROXY_ENABLED:-}" ]]; then
+  BUILD_ARGS+=(--build-arg "LIFT_MAX_TOKENS_PROXY_ENABLED=${LIFT_MAX_TOKENS_PROXY_ENABLED}")
+fi
+if [[ -n "${LIFT_PROXY_PORT:-}" ]]; then
+  BUILD_ARGS+=(--build-arg "LIFT_PROXY_PORT=${LIFT_PROXY_PORT}")
+fi
+
 if [[ "${INSTALL_AGENTMEMORY}" == "true" ]]; then
   [[ -n "${AGENTMEMORY_GIT_URL:-}" ]] && BUILD_ARGS+=(--build-arg "AGENTMEMORY_GIT_URL=${AGENTMEMORY_GIT_URL}")
   [[ -n "${AGENTMEMORY_GIT_REF:-}" ]] && BUILD_ARGS+=(--build-arg "AGENTMEMORY_GIT_REF=${AGENTMEMORY_GIT_REF}")
@@ -163,8 +179,19 @@ if [[ -n "${APT_MIRROR:-}" ]]; then
   echo "==> Using APT mirror: ${APT_MIRROR}"
 fi
 
+# docker build 网络模式:默认走 docker 默认 bridge。某些出口环境下 bridge NAT 会让
+# github.com / githubusercontent 等的 tarball 下载几乎不可用(strace 显示 recvfrom
+# 长期 EAGAIN),但同一 URL 在宿主 host 网络下秒开。设 DOCKER_BUILD_NETWORK=host
+# 让 build 阶段直接复用宿主网络栈,openhuman-core tarball 拉取速度可从 hang 恢复到 ~8 MB/s。
+# 副作用:build 容器可看到宿主的 loopback 服务,但纯 build 阶段无 daemon 交互,安全。
+DOCKER_BUILD_NET_ARGS=()
+if [[ -n "${DOCKER_BUILD_NETWORK:-}" ]]; then
+  DOCKER_BUILD_NET_ARGS=(--network "${DOCKER_BUILD_NETWORK}")
+  echo "==> Using docker build --network=${DOCKER_BUILD_NETWORK}"
+fi
+
 echo "==> Building ${TAG} (context: ${AGENT_DIR}, triple: ${CORE_TRIPLE})"
-docker build -f "${AGENT_DIR}/Dockerfile" \
+docker build "${DOCKER_BUILD_NET_ARGS[@]}" -f "${AGENT_DIR}/Dockerfile" \
   "${BUILD_ARGS[@]}" \
   -t "${TAG}" \
   "${AGENT_DIR}"

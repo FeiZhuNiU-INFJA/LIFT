@@ -35,13 +35,51 @@ adapter 的 warmup 后 evolve hook）。
 
 Langfuse：`LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST`（LIFT 会把宿主 `http://localhost:3000` 改写成 `http://host.docker.internal:3888` 或对应容器可达地址；见 [session.py::rewrite_langfuse_base_url_for_container](../../src/lift/adapters/evoscientist/session.py)）。
 
-## Delta 物化路径
+## 默认进化机制(baseline `-r evoscientist`)
 
-warmup 结束后 `docker commit` 覆盖以下目录（EvoScientist 在容器内以 root 运行时的实际写入路径）：
+EvoScientist baseline 采用**被动隐式**进化——LIFT 不主动触发任何蒸馏调用,
+[`EvoScientistAdapter.evolve_after_warmup`](../../src/lift/adapters/evoscientist/adapter.py) 就是一个 `return None`。
+真正的进化载体是 `EvoSci --auto-mode` 在处理 warmup 任务过程中自主写入的 memories /
+skills / session db,warmup 结束后由 `ContainerAgentRuntimeAdapter.materialize_delta`
+通过 `docker commit` 一并打进 delta 镜像;holdout evolved 阶段从这份镜像启动即为进化后状态。
 
-- `/root/.evoscientist/`（memories、`sessions.db`、autoskill 蒸馏物等）
+### 进化产物路径
 
-**注意**：EvoScientist 的默认 XDG config 路径是 `/home/evosci/.evoscientist/.config/`，但 LIFT 容器内以 root 启动，实际产物落在 `/root/.evoscientist/` —— M1 baseline 验证时踩过一次坑，见 [common-pitfalls.md](../../skill/lift-integrate-agent-runtime/docs/common-pitfalls.md)。
+`docker commit` 覆盖以下容器 FS 目录(EvoScientist 在容器内以 root 运行时的实际写入路径):
+
+| 容器内路径 | 内容 | 是否被 `docker commit` 持久化 | 说明 |
+|---|---|---|---|
+| `/root/.evoscientist/sessions.db` | SQLite,跨 thread 的会话元数据 | ✅ 是 | conversation thread 骨架,跨 session 记忆的索引 |
+| `/root/.evoscientist/memories/` | 长期记忆片段 | ✅ 是 | `EvoSci --auto-mode` 运行中自主写入 |
+| `/root/.evoscientist/skills/` | Global skills(`GLOBAL_SKILLS_DIR = DATA_DIR/skills`) | ✅ 是 | **注意不是 workspace/skills**,后者是 bind mount 会被吞掉 |
+| `/root/.evoscientist/autoskills/` | AutoSkills 蒸馏候选与批准记录 | ✅ 是 | 仅 `_active_evolve` 变体会产出;baseline 通常为空 |
+| `/home/evosci/.evoscientist/.config/` | EvoScientist 默认 XDG config(MCP 配置等) | 属 image 层 | build 期 baked,不受 `docker commit` 影响 |
+| `/workspace/task/` | 每题 IO 表面(bind mount) | ❌ 否(mount) | task materials / result,**不进 delta** |
+
+adapter 的 `evolve_paths` 白名单声明为 `("/root/.evoscientist",)`,仅作 delta preflight
+"负向判定"(warmup 到底有没有产出),不影响 `docker commit` 实际捕获内容。
+
+> **踩坑记录**:EvoScientist 默认 XDG config 路径是 `/home/evosci/.evoscientist/.config/`,
+> 但 LIFT 容器以 root 启动,实际产物落在 `/root/.evoscientist/` —— M1 baseline 验证时
+> 踩过一次,见 [common-pitfalls.md](../../skill/lift-integrate-agent-runtime/docs/common-pitfalls.md)。
+
+### 跨 session / 跨任务共享
+
+Warmup 多个任务共享同一容器,每题独立 work / judge agent 实例各自维护自己的 EvoScientist
+`thread_id`(见下面 *Conversation threading* 章节);但**所有 thread 都读写同一份**
+`/root/.evoscientist/`——`sessions.db` 是跨 thread 的元数据表,`memories/` 与 `skills/`
+是跨 thread 的知识库。因此前一题积累的记忆会被后一题(不同 LIFT session、不同 EvoScientist
+thread)的 `EvoSci --auto-mode` 进程读到。
+
+Warmup → holdout 之间通过 `docker commit` 把 `/root/.evoscientist/` 冻结进 delta 镜像,
+holdout evolved 容器从这份镜像启动即继承 warmup 阶段积累的记忆与蒸馏产物。
+
+### 与 `_active_evolve` 变体的差异
+
+`-r evoscientist` 是纯"运行时副作用累积";`-r evoscientist_active_evolve` 复用同一镜像,
+只在 [`evolve_after_warmup`](../../src/lift/adapters/evoscientist_active_evolve/adapter.py)
+里额外触发 EvoScientist 自带的 EvoMemory AutoSkills 图,做一次**显式蒸馏**,让积累的
+observation 结构化为可复用 skills 再 commit。详见下面 *Active Evolve: AutoSkills* 章节。
 
 ## Tools (MCP)
 

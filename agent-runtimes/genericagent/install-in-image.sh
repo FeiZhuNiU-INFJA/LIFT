@@ -22,6 +22,17 @@ FIRECRAWL_API_KEY_ESC="$(escape_sed "${FIRECRAWL_API_KEY:-}")"
 # GA ``llmcore.py`` 会把 ``reasoning_effort`` 顶层透传到 OpenAI 兼容请求体，Ark
 # doubao-seed 端点已实测接受该字段；未显式设置则默认 high 与 OpenClaw / Hermes 对齐。
 REASONING_EFFORT_ESC="$(escape_sed "${REASONING_EFFORT:-high}")"
+# LIFT 约定:MAX_TOKENS 控制单轮输出上限,与 .env 共享。GA ``BaseSession`` 读
+# ``native_oai_config['max_tokens']`` 后透传到 openai-completions 请求。未提供时
+# 默认 51200(与 Hermes ``patch_hermes_config.py`` 一致),避免上游 fallback 到 8192
+# 时长产出被截断。**必须为整数字面量**(mykey.py 是 Python 源),非数字会 sed 生成
+# 语法错误的 mykey.py。
+MAX_TOKENS_RAW="${MAX_TOKENS:-51200}"
+if ! [[ "${MAX_TOKENS_RAW}" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: MAX_TOKENS must be a positive integer; got '${MAX_TOKENS_RAW}'." >&2
+  exit 1
+fi
+MAX_TOKENS_ESC="$(escape_sed "${MAX_TOKENS_RAW}")"
 
 sed \
   -e "s/__WORK_OPENAI_API_KEY__/${WORK_OPENAI_API_KEY_ESC}/g" \
@@ -32,6 +43,7 @@ sed \
   -e "s/__LANGFUSE_HOST__/${LANGFUSE_HOST_ESC}/g" \
   -e "s/__FIRECRAWL_API_KEY__/${FIRECRAWL_API_KEY_ESC}/g" \
   -e "s/__REASONING_EFFORT__/${REASONING_EFFORT_ESC}/g" \
+  -e "s/__MAX_TOKENS__/${MAX_TOKENS_ESC}/g" \
   /tmp/mykey.py.template > "${GA_DIR}/mykey.py"
 
 # 2) Overlay langfuse_tracing.py — strict overwrite. GA 自带版本可能在不同 ref 下漂移，

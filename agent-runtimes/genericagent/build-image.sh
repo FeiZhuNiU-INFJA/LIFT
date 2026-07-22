@@ -109,6 +109,13 @@ FIRECRAWL_API_KEY="${FIRECRAWL_API_KEY:-}"
 # LIFT 约定：REASONING_EFFORT 统一控制 seed 模型思维链强度（medium / low / high 等）。
 # 默认与 OpenClaw / Hermes 对齐为 high；空串会 bake 出空占位，运行期 GA 也会跳过。
 REASONING_EFFORT="${REASONING_EFFORT:-high}"
+# LIFT 约定:MAX_TOKENS 统一控制单轮输出上限。GA 上游 fallback 到 8192,不注入
+# 会让长产出被截断;此处默认 51200 与 Hermes / .env.example 对齐。
+MAX_TOKENS="${MAX_TOKENS:-51200}"
+if ! [[ "${MAX_TOKENS}" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: MAX_TOKENS must be a positive integer; got '${MAX_TOKENS}'." >&2
+  exit 1
+fi
 
 if [[ -z "${WORK_OPENAI_API_KEY}" ]]; then
   echo "WARN: WORK_OPENAI_API_KEY is not set; image will bake mykey.py with empty apikey." >&2
@@ -129,6 +136,7 @@ BUILD_ARGS=(
   --build-arg "LANGFUSE_HOST=${LANGFUSE_HOST}"
   --build-arg "FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}"
   --build-arg "REASONING_EFFORT=${REASONING_EFFORT}"
+  --build-arg "MAX_TOKENS=${MAX_TOKENS}"
 )
 
 if [[ -n "${APT_MIRROR:-}" ]]; then
