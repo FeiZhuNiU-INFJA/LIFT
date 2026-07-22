@@ -1,6 +1,6 @@
 ---
 name: "lift-paper"
-description: "One-stop skill for the LIFT NeurIPS paper (docs/neurips/): environment setup (install tectonic without polluting repo root), one-shot builds, live rebuild while editing, VS Code / Trae live-preview configuration, and release publishing. Invoke when a user asks to build main.pdf, preview the paper, set up LaTeX, run `build.sh`, or configure their editor for the paper. Applies only when working with docs/neurips/."
+description: "One-stop skill for the LIFT NeurIPS paper (docs/neurips/): environment setup (install tectonic without polluting repo root), one-shot builds, live rebuild while editing, VS Code / Trae live-preview configuration, milestone PDF release, and the EALE Hugging Face dataset release (README + Datasheet publishing). Invoke when a user asks to build main.pdf, preview the paper, set up LaTeX, run `build.sh`, configure their editor for the paper, or publish/update the EALE dataset card & datasheet on Hugging Face / ModelScope. Applies only when working with docs/neurips/."
 ---
 
 # LIFT paper workflow
@@ -16,6 +16,8 @@ Any of these:
 - "I just cloned the repo, how do I set up LaTeX?"
 - "Configure my editor (VS Code / Trae / Cursor) for the paper."
 - "How do I release the paper PDF?"
+- "How do I publish the EALE dataset card / datasheet to Hugging Face?"
+- "Where do `docs/neurips/dataset-release/README.md` and `DATASHEET.md` get pushed?"
 - Any mention of `tectonic`, `latexmk`, `.tex`, `neurips_2023.sty` **combined with** the LIFT repo.
 
 **Do not** invoke for unrelated LaTeX documents outside `docs/neurips/`.
