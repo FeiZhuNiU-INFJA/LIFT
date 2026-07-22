@@ -54,7 +54,7 @@ LLM 评测最早是"输入一个 prompt，看输出对不对"。Agent 把这件�
 围绕这个论点，LIFT 给出了一组配套设计：
 
 1. **科学协议**：训练/测试分离（warmup_tasks / holdout_tasks） + 同题双跑（baseline / evolved） + work-judge review loop；
-2. **工程载体**：容器快照（docker commit → delta image）作为产物固化形式，每道 holdout 题各起独立容器，runtime / pipeline / eval 三层解耦；
+2. **工程载体**：容器快照（docker commit → delta image）作为产物固化形式，每道 holdout 题各起独立 work+judge 容器对，runtime / pipeline / eval 三层解耦；
 3. **可观测性**：pre-chat 上报 + Langfuse trace backfill，让评测**结论**和**过程**都可回查；
 4. **配套 benchmark**：以 warmup_tasks / holdout_tasks 两段式组织的 suite JSON。
 
@@ -84,7 +84,7 @@ ABC Checklist、Agent-as-a-Judge、MAJ-Eval 回答"评测怎么评才靠谱"。L
 
 ### 2.5 评测 SDK
 
-DeepEval、Opik、Promptfoo 面向 LLM API 层的开发者评测，工作粒度是 prompt × model。LIFT 的工作粒度是 *容器内 Agent × holdout 题 × baseline/evolved*，层级不同。Langfuse 在 LIFT 中扮演 Opik 的 trace 角色——只用 trace 能力，不用 evaluator 能力，因为 evaluator 在我们这里由 work-judge review loop 承担。
+DeepEval、Opik、Promptfoo 面向 LLM API 层的开发者评测，工作粒度是 prompt × model。LIFT 的工作粒度是 *work/judge 容器对 × holdout 题 × baseline/evolved*，层级不同。Langfuse 在 LIFT 中扮演 Opik 的 trace 角色——只用 trace 能力，不用 evaluator 能力，因为 evaluator 在我们这里由 work-judge review loop 承担。
 
 ### 2.6 安全评测
 
@@ -130,8 +130,8 @@ TaskRun
 
 **关键工程取舍**：
 
-- **Warmup 容器编排可选**：单 Agent 进化场景下默认所有 warmup 题共用一个容器（`PARALLEL_SINGLE`，文件系统状态连续是进化插件的天然要求）；多用户/群体记忆场景（`multi_user_openclaw`）下切到 `PARALLEL_MULTI`，每题独立容器、产物落外部群体记忆，commit 行为退化为 no-op。两种形态对上层 pipeline 透明；
-- **Holdout 每题起新容器**：与 warmup 不同，holdout 是协议层硬约束——baseline 必须是"未污染环境"，题与题 workspace 也要隔离，所以 [`HoldoutContainerPolicy`](../src/lift/policies/container.py#L34-L50) 只提供 `SERIAL_MULTI` / `PARALLEL_MULTI` 两种"多容器"形态，没有"单容器"选项；
+- **Warmup 容器编排可选**：单 Agent 进化场景下默认所有 warmup 题共用一个 work 容器（`PARALLEL_SINGLE`，文件系统状态连续是进化插件的天然要求），并配一个同 workspace 的 judge sibling 容器；多用户/群体记忆场景（`multi_user_openclaw`）下切到 `PARALLEL_MULTI`，每题独立 work+judge 容器对、产物落外部群体记忆，commit 行为退化为 no-op。两种形态对上层 pipeline 透明；
+- **Holdout 每题起新容器对**：与 warmup 不同，holdout 是协议层硬约束——baseline 必须是"未污染环境"，work 与 judge 的记忆要隔离，题与题 workspace 也要隔离，所以 [`HoldoutContainerPolicy`](../src/lift/policies/container.py#L34-L50) 只提供 `SERIAL_MULTI` / `PARALLEL_MULTI` 两种"多容器"形态，没有"单容器"选项；
 - **多道 holdout 共用同一份 delta**：产物是 suite 级常量，不应该随 holdout 题变化。
 
 **报告层级**：
@@ -193,7 +193,7 @@ flowchart TD
 
 设计决策：
 
-1. **Judge 用同 runtime 的独立 session**——模拟真实用户审查，不引入跨模型偏差，并且能调用真实工具验证输出（呼应 Agent-as-a-Judge 的"可执行验证"原则）。
+1. **Judge 用同 runtime 的独立容器与独立 session**——模拟真实用户审查，不引入跨模型偏差，同时避免 work 侧记忆/observation 污染 judge，并且能调用真实工具验证输出（呼应 Agent-as-a-Judge 的"可执行验证"原则）。
 2. **首轮通过率与最终通过率分开报**——FirstRoundPassRate 反映"产物让 Agent 一次做对的能力"，FinalPassRate 反映"产物 + 反馈回路"的合力。好的产物主要体现在前者。
 3. **baseline / evolved 的 max_turns 必须一致**——否则 evolved 多给两轮反馈就赢了，不是产物的功劳。
 4. **Token 含 Judge 消耗**——Loaded 如果重试更少，Judge 的 token 节省也算在产物贡献里。
@@ -214,20 +214,23 @@ LIFT 选 docker commit。一次完整 LIFT 的时间线对应：
 sequenceDiagram
   participant P as Pipeline
   participant A as Adapter
-  participant W as Warmup 容器
-  participant H as Holdout 容器
+  participant W as Warmup work 容器
+  participant J as Warmup judge 容器
+  participant H as Holdout work+judge 容器对
 
   P->>A: warmup 题（Q1..Qn-1）
-  A->>W: 起一个容器，连续做题（默认 parallel_single）
+  A->>W: 起 work 容器，连续做题（默认 parallel_single）
+  A->>J: 起 sibling judge 容器，同 workspace 评分
   W->>W: evolve_after_warmup（容器内 learn review）
-  W->>W: docker commit → delta 镜像
-  A->>W: 删掉 warmup 容器
+  W->>W: docker commit work 容器 → delta 镜像
+  A->>W: 删掉 warmup work 容器
+  A->>J: 删掉 warmup judge 容器
 
   loop 每道 holdout 题
     P->>A: baseline
-    A->>H: 从 base 镜像起新容器 → 做题打分
+    A->>H: 从 base 镜像起新 work+judge 容器对 → 做题打分
     P->>A: evolved
-    A->>H: 从 delta 镜像起新容器 → 做题打分
+    A->>H: 从 delta 镜像起新 work+judge 容器对 → 做题打分
   end
 
   P->>P: 写 report.json，suite 结束清理 delta
@@ -251,7 +254,7 @@ sequenceDiagram
 | Warmup 容器策略 | `--warmup-container-policy` | parallel_single |
 | Holdout 容器策略 | `--holdout-container-policy` | parallel_multi |
 
-每层并发都建立在容器隔离之上：每道 holdout 题独立容器、独立 workspace 子目录、独立端口。clean-up 由 SuiteRunResources 登记簿统一管理。
+每层并发都建立在容器隔离之上：每道 holdout 题独立 work+judge 容器对、独立 workspace 子目录、独立端口；work 容器承载可进化状态，judge 容器只负责验收。clean-up 由 `CompositeDisposable` + `SuiteRunResources` 登记簿统一管理。
 
 ### 3.7 可观测性：执行期 + 后处理双链
 

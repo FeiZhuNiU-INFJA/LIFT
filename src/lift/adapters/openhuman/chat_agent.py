@@ -233,8 +233,10 @@ class OpenHumanWorkerJudgerPairFactory:
         container: OpenHumanContainerContext,
         workspace_dir: Path,
         run_tag: str = "",
+        judge_container: OpenHumanContainerContext | None = None,
     ) -> None:
         self._container = container
+        self._judge_container = judge_container or container
         self._workspace_dir = workspace_dir
         self._run_tag = run_tag
 
@@ -250,7 +252,7 @@ class OpenHumanWorkerJudgerPairFactory:
             run_tag=self._run_tag,
         )
         judge_agent = OpenHumanContainerAgent(
-            container=self._container,
+            container=self._judge_container,
             agent_name=f"lift-openhuman-judge-{short_id()}",
             workspace_dir=self._workspace_dir,
             role="judge",

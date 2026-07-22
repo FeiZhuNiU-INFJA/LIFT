@@ -14,6 +14,7 @@ from src.lift.adapters.environment import ExecutionEnvironment
 from src.lift.eval.stage import HoldoutLoadState
 from src.lift.policies.container import WarmupContainerPolicy
 from src.lift.runtime.delta_ref import DeltaRef
+from src.lift.runtime.disposable import CompositeDisposable
 from src.lift.runtime.environment_cleaner import delta_image_tag
 from src.lift.runtime.suite_run_resources import SuiteRunResources
 from src.models import SuiteTask
@@ -92,7 +93,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         resources: SuiteRunResources,
         workspace_dir,
     ) -> ExecutionEnvironment:
-        """warmup 阶段：单容器 + base 镜像。
+        """warmup 阶段：共享 work 容器 + sibling judge 容器，均使用 base 镜像。
 
         ``seed_workspace=True`` 历史上用来在 host workspace 复制 IDENTITY/USER/SOUL
         seed，现在 OpenClaw seed 已 baked 进镜像（``/root/.openclaw/workspace``），
@@ -110,10 +111,23 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
             seed_workspace=True,
             task=None,
         )
+        # judge 独立容器：同镜像、同 workspace、同参数，仅 instance_id 加 -judge 后缀。
+        # judge agent 跑在此容器，与 work 完全隔离（记忆/observation 互不污染）。judge
+        # 容器纯临时——materialize_delta / evolve 只作用于 work 容器（handle），judge
+        # 容器永不 commit，随 CompositeDisposable 在阶段结束时一并清理。
+        judge_session = await self.start_container(
+            instance_id=f"{instance_id}-judge",
+            image=self._docker_image,
+            ctx=ctx,
+            workspace_dir=workspace_dir,
+            seed_workspace=True,
+            task=None,
+        )
         return ExecutionEnvironment(
-            disposable=session,
+            disposable=CompositeDisposable([session, judge_session]),
             workspace_dir=workspace_dir,
             handle=session,
+            judge_handle=judge_session,
         )
 
     @override
@@ -128,7 +142,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         seed_workspace: bool,
         load_state: HoldoutLoadState,
     ) -> ExecutionEnvironment:
-        """holdout 单题：独立容器 + 指定镜像（baseline 或 delta）。
+        """holdout 单题：独立 work+judge 容器对 + 指定镜像（baseline 或 delta）。
 
         ``seed_workspace`` 原样传给 ``start_container``（见该方法的文档）。
         ``load_state`` 透传给 ``start_container``，由 runtime 决定是否注入
@@ -152,10 +166,24 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
             task=task,
             load_state=load_state,
         )
+        # judge 独立容器：同镜像（baseline 或 delta）、同 workspace、同 load_state，
+        # 仅 instance_id 加 -judge 后缀。judge agent 跑此容器，与 work 完全隔离。
+        # count_tool_calls / 结果读取只作用于 work 容器；judge 容器随 CompositeDisposable
+        # 在题末 finally 一并 cleanup。
+        judge_session = await self.start_container(
+            instance_id=f"{instance_id}-judge",
+            image=image,
+            ctx=ctx,
+            workspace_dir=workspace_dir,
+            seed_workspace=seed_workspace,
+            task=task,
+            load_state=load_state,
+        )
         return ExecutionEnvironment(
-            disposable=session,
+            disposable=CompositeDisposable([session, judge_session]),
             workspace_dir=workspace_dir,
             handle=session,
+            judge_handle=judge_session,
         )
 
     @override

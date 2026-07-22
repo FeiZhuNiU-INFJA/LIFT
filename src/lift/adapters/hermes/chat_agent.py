@@ -296,9 +296,19 @@ class HermesWorkerJudgerPairFactory:
         session: ContainerSession,
         run_id: str,
         warmup: bool,
+        judge_container: HermesContainerContext | None = None,
+        judge_session: ContainerSession | None = None,
     ) -> None:
         self._container = container
         self._registry = register_runner_registry(session)
+        # judge 跑在独立容器：用 judge 容器的 context + 其自己的 runner registry
+        # （registry 挂在各自 session.metadata，互不干扰）。未拆分时回退 work 容器。
+        self._judge_container = judge_container or container
+        self._judge_registry = (
+            register_runner_registry(judge_session)
+            if judge_session is not None
+            else self._registry
+        )
         self._run_id = run_id
         self._warmup = warmup
 
@@ -317,12 +327,12 @@ class HermesWorkerJudgerPairFactory:
             registry=self._registry,
         )
         judge_agent = HermesContainerAgent(
-            container=self._container,
+            container=self._judge_container,
             agent_name=f"lift-hermes-judge-{short_id()}",
             run_id=self._run_id,
             params=params,
             enable_review=False,  # 契约：judge 永远不 review
-            registry=self._registry,
+            registry=self._judge_registry,
         )
         await asyncio.gather(work_agent.initialize(), judge_agent.initialize())
         return WorkerJudgerPair(

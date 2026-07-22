@@ -119,12 +119,16 @@ class HermesAdapter(ContainerAgentRuntimeAdapter):
         """绑定 Hermes 容器，返回 ``HermesWorkerJudgerPairFactory``。
 
         warmup 阶段 work agent 带 review；holdout 阶段一律不 review。
+        judge agent 跑在独立容器（env.judge_handle），自带独立 runner registry。
         """
         _ = workspace_dir
         session: ContainerSession = env.handle
+        judge_session: ContainerSession = env.judge_handle or env.handle
         return HermesWorkerJudgerPairFactory(
             container=self._context(session),
             session=session,
+            judge_container=self._context(judge_session),
+            judge_session=judge_session,
             run_id=ctx.run_id,
             warmup=(run_phase.stage == SuiteStage.WARMUP),
         )

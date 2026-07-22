@@ -257,8 +257,10 @@ class EvoScientistWorkerJudgerPairFactory:
         *,
         container: EvoScientistContainerContext,
         workspace_dir: Path,
+        judge_container: EvoScientistContainerContext | None = None,
     ) -> None:
         self._container = container
+        self._judge_container = judge_container or container
         self._workspace_dir = workspace_dir
 
     async def __call__(self, task: SuiteTask) -> WorkerJudgerPair:
@@ -272,7 +274,7 @@ class EvoScientistWorkerJudgerPairFactory:
             role="work",
         )
         judge_agent = EvoScientistContainerAgent(
-            container=self._container,
+            container=self._judge_container,
             agent_name=f"lift-evoscientist-judge-{short_id()}",
             workspace_dir=self._workspace_dir,
             role="judge",

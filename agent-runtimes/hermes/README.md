@@ -1,7 +1,8 @@
 # Hermes agent (`agent-runtimes/hermes`)
 
 LIFT 评测用的 [Hermes](https://hermes-agent.nousresearch.com) 镜像。与 OpenClaw /
-GenericAgent 一样，LIFT（`src`）在每题独立容器里通过 **`docker exec`** 驱动 agent；
+GenericAgent 一样，LIFT（`src`）在每个 phase 的 work 容器里通过 **`docker exec`** 驱动 agent；
+judge agent 运行在同镜像、同 workspace、同 load_state 的 sibling 容器中。
 Hermes 的驱动入口是容器内常驻的 **`hermes_runner.py`**（stdin/stdout sentinel 协议），
 而不是 `gateway run`。
 
@@ -67,8 +68,8 @@ agentmemory（跨会话持久记忆，README「Option 2: Memory provider plugin�
 `memory.provider: agentmemory` upsert 进 `config.yaml`，`hermes-entrypoint.sh` 后台拉起 agentmemory
 server（`:3111`）。chat 走 `docker exec hermes_runner.py`（同容器同网络命名空间），runner 直连的
 `AIAgent`（`skip_memory=False`）通过 `localhost:3111` 访问 server；runner 会在 `AGENTMEMORY_ENABLED=true`
-时向 stderr 打印实际挂载的 memory provider 名以便核验。记忆落在容器内 `/root/.agentmemory`，随
-`docker commit` 进 delta 镜像。与 `--with-openspace` **互斥**。源可用 env
+时向 stderr 打印实际挂载的 memory provider 名以便核验。work 容器中的记忆落在 `/root/.agentmemory`，
+随 `docker commit` 进 delta 镜像；judge sibling 容器只负责验收，不参与 commit。与 `--with-openspace` **互斥**。源可用 env
 `AGENTMEMORY_GIT_URL` / `AGENTMEMORY_GIT_REF` 覆盖，npm registry 用 `NPM_CONFIG_REGISTRY`。
 
 > ⚠️ **端口与网络**：agentmemory server 每容器绑定 `:3111`。该变体在 adapter 层**强制 bridge 网络**
@@ -163,10 +164,10 @@ python -m src.cli.lift_main -r hermes --benchmark_dir assets/benchmarks_demo \
 ### warmup 并发策略（重要）
 
 Hermes 的演化是"每题 work session 结束触发 background review，写入共享
-`/opt/hermes-state`"。框架默认 `--warmup-container-policy parallel_single`（单容器内多题
-并发），此时多个 review 进程会**并发写同一 memory 存储，存在竞态**。
+`/opt/hermes-state`"。框架默认 `--warmup-container-policy parallel_single`（同一个 work 容器内多题
+并发，另有 sibling judge 容器评分），此时多个 review 进程会**并发写同一 memory 存储，存在竞态**。
 
-**推荐 Hermes warmup 显式用 `serial_single`**（单容器逐题串行，review 也串行），
+**推荐 Hermes warmup 显式用 `serial_single`**（同一个 work 容器逐题串行，review 也串行），
 与 Hermes suite 内串行评测语义一致；跨 suite/repeat 的并发仍由 `--max-parallel-suites`
 提供：
 
@@ -177,7 +178,7 @@ python -m src.cli.lift_main -r hermes --benchmark_dir assets/benchmarks_demo \
 ```
 
 > 若未加该参数、仍用 `parallel_single`，`HermesAdapter` 会在启动时打一条
-> LOGGER.warning 提示竞态风险，但不阻断运行。holdout 阶段每题独立容器、无 review，
+> LOGGER.warning 提示竞态风险，但不阻断运行。holdout 阶段每题每 phase 独立 work+judge 容器对、无 review，
 > 不受此影响，与 OpenClaw 完全一致。
 
 ## 本机 smoke/debug 注意

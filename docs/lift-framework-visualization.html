@@ -339,7 +339,7 @@ sequenceDiagram
     participant He as Evolved 容器（delta 镜像）
 
     P->>A: warmup 题（Q1..Q4）
-    A->>W: 起一个容器，连续做题
+    A->>W: 起 work 容器，连续做题；另起 sibling judge 容器评分
     W->>W: evolve（learn review）
     W->>W: docker commit → delta 镜像
     A->>W: 销毁 warmup 容器
@@ -370,7 +370,7 @@ sequenceDiagram
         </div>
       </div>
       <p style="margin-top:.75rem;color:var(--muted);font-size:.85rem;">
-        镜像血缘一句话：<strong style="color:var(--text);">base 起两类容器（warmup + holdout baseline），delta 起一类（holdout evolved）</strong>——三类容器实例、两个镜像。
+        镜像血缘一句话：<strong style="color:var(--text);">base 起两类 work 容器（warmup + holdout baseline），delta 起一类 work 容器（holdout evolved）</strong>；每个 work 容器都有同镜像、同 workspace 的 judge sibling，但只有 work 容器参与 evolve / commit。
       </p>
     </section>
 
@@ -459,7 +459,7 @@ flowchart LR
           </thead>
           <tbody>
             <tr><td>执行</td><td>容器内</td><td>宿主机直跑</td></tr>
-            <tr><td>产物</td><td>delta 镜像 + 每题独立容器</td><td>宿主机 toggle 加载</td></tr>
+            <tr><td>产物</td><td>delta 镜像 + 每题独立 work/judge 容器对</td><td>宿主机 toggle 加载</td></tr>
             <tr><td>入口</td><td><code>lift_main -r openclaw</code></td><td>已移除</td></tr>
           </tbody>
         </table>
@@ -557,7 +557,7 @@ python -m src.cli.lift_main -r openclaw \
       <div class="card">
         <ol class="steps">
           <li><strong>读卷</strong> — Q1 → warmup，Q2 → holdout</li>
-          <li><strong>Warmup</strong> — 一个容器跑 Q1，work + judge 多轮</li>
+          <li><strong>Warmup</strong> — 一个 work 容器跑 Q1，sibling judge 容器给反馈</li>
           <li><strong>Evolve</strong> — <code>openclaw learn review</code></li>
           <li><strong>Commit</strong> — <code>docker commit</code> 得 delta，删 warmup 容器</li>
           <li><strong>Q2 baseline</strong> — base 镜像 + seed workspace</li>
@@ -737,9 +737,9 @@ sequenceDiagram
             <thead><tr><th>层级</th><th>默认</th><th>CLI</th></tr></thead>
             <tbody>
               <tr><td>suites × repeats 矩阵 cell</td><td>并行（默认上限 3）</td><td><code>--max-parallel-suites</code>（默认 <code>3</code>；<code>1</code> 串行；<code>&lt;=0</code> 无上限）</td></tr>
-              <tr><td>warmup 题</td><td>并行（同容器，<code>parallel_single</code>）</td><td><code>--warmup-container-policy</code> 切换形态；<code>--max-concurrent-tasks</code> 限并发</td></tr>
+              <tr><td>warmup 题</td><td>并行（同 work/judge 容器对，<code>parallel_single</code>）</td><td><code>--warmup-container-policy</code> 切换形态；<code>--max-concurrent-tasks</code> 限题级并发</td></tr>
               <tr><td>holdout 多题之间</td><td>并行（多容器，<code>parallel_multi</code>）</td><td><code>--holdout-container-policy=serial_multi</code> 改串行；<code>--max-concurrent-tasks</code> 限并发</td></tr>
-              <tr><td>baseline / evolved（同 task 内）</td><td>并行（<code>parallel</code>）</td><td><code>--holdout-phase-policy=serial</code> 改串行</td></tr>
+              <tr><td>baseline / evolved（同 task 内）</td><td>并行（<code>parallel</code>；默认 4 容器：两 phase × work/judge）</td><td><code>--holdout-phase-policy=serial</code> 改串行</td></tr>
             </tbody>
           </table>
         </div>

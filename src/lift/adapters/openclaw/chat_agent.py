@@ -154,15 +154,21 @@ class OpenClawContainerAgent(ChatAgent):
 
 
 class OpenClawWorkerJudgerPairFactory:
-    """为同一容器内的题目构建 ``WorkerJudgerPair``。"""
+    """为容器内的题目构建 ``WorkerJudgerPair``。
+
+    work agent 跑在 ``container``，judge agent 跑在 ``judge_container``（独立容器，
+    与 work 记忆/observation 隔离）。未拆分场景可传入同一 context 回退共用。
+    """
 
     def __init__(
         self,
         *,
         container: OpenClawContainerContext,
         workspace_dir: Path,
+        judge_container: OpenClawContainerContext | None = None,
     ) -> None:
         self._container = container
+        self._judge_container = judge_container or container
         self._workspace_dir = workspace_dir
 
     async def __call__(self, task: SuiteTask) -> WorkerJudgerPair:
@@ -170,16 +176,15 @@ class OpenClawWorkerJudgerPairFactory:
         work_session_id = f"user-{short_id()}"
         judge_session_id = f"judge-{short_id()}"
 
-        def create_agent(session_role: str) -> OpenClawContainerAgent:
-            _ = session_role  # work/judge 各独立 agent 实例，session 由下方 id 区分
+        def create_agent(container: OpenClawContainerContext) -> OpenClawContainerAgent:
             return OpenClawContainerAgent(
-                container=self._container,
+                container=container,
                 agent_name=f"lift-agent_name-{short_id()}",
                 workspace_dir=self._workspace_dir,
             )
 
-        work_agent = create_agent("work")
-        judge_agent = create_agent("judge")
+        work_agent = create_agent(self._container)
+        judge_agent = create_agent(self._judge_container)
         # 两个 agent 的 initialize 是独立的 docker exec 链路，可以并发跑
         await asyncio.gather(work_agent.initialize(), judge_agent.initialize())
         return WorkerJudgerPair(

@@ -88,8 +88,10 @@ class EvoScientistAdapter(ContainerAgentRuntimeAdapter):
         """绑定 EvoScientist 容器 → ``EvoScientistWorkerJudgerPairFactory``。"""
         session: ContainerSession = env.handle
         _ = (ctx, run_phase)
+        judge_session = env.judge_handle or env.handle
         return EvoScientistWorkerJudgerPairFactory(
             container=evoscientist_context(session),
+            judge_container=evoscientist_context(judge_session),
             workspace_dir=workspace_dir,
         )
 

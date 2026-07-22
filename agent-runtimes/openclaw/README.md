@@ -1,6 +1,6 @@
 # OpenClaw agent（`agent-runtimes/openclaw`）
 
-预装了 **self-evolving-plugin-pro** 与 **langfuse-tracer** 的 gateway 镜像。LIFT（`src`）通过在一次性的"每题独立容器"里执行 **`docker exec … openclaw`** 来驱动 agent。
+预装了 **self-evolving-plugin-pro** 与 **langfuse-tracer** 的 gateway 镜像。LIFT（`src`）通过在一次性的 work 容器里执行 **`docker exec … openclaw`** 来驱动 agent；judge agent 运行在同镜像、同 workspace、同 load_state 的 sibling 容器中，二者文件系统记忆隔离。
 
 ## 目录结构
 
@@ -53,7 +53,7 @@ bash agent-runtimes/openclaw/build-image.sh --with-agentmemory
 > （构建期预热 iii-engine 二进制与嵌入模型进镜像，运行期不需出网）。插件装进
 > `/root/.openclaw/extensions/agentmemory` 并 claim `plugins.slots.memory = "agentmemory"`；容器启动时
 > 由 `scripts/openclaw-agentmemory-prelaunch.sh` 在 gateway 前后台拉起 agentmemory server（`:3111`）。
-> 记忆落在容器内 `/root/.agentmemory`，随 `docker commit` 进 delta 镜像。
+> work 容器中的记忆落在 `/root/.agentmemory`，随 `docker commit` 进 delta 镜像；judge sibling 容器只负责验收，不参与 commit。
 > 源可用 env `AGENTMEMORY_GIT_URL` / `AGENTMEMORY_GIT_REF` 覆盖，npm registry 用 `NPM_CONFIG_REGISTRY`。
 >
 > ⚠️ **端口与网络**：agentmemory server 每容器绑定 `:3111`（+3112/3113/49134）。该变体在
@@ -70,7 +70,7 @@ OpenSpace 源默认 `git clone https://github.com/HKUDS/OpenSpace.git@main`（sp
 `/usr/local/bin`、`openclaw mcp set openspace`（stdio，`toolTimeout=600`），并把 `delegate-task` /
 `skill-discovery` 两个 host skill 拷进 `/root/.openclaw/skills`（随 `docker commit` 落 delta）。
 
-种子文件直接位于**镜像内**的 `/root/.openclaw/workspace`，也是 agent 真正的工作目录；因此 warmup 期间 agent 生成的 SOUL / MEMORY / 日常记忆都会被 `docker commit` 一并打进 delta 镜像（详见下文 *Workspace 布局*）。
+种子文件直接位于**镜像内**的 `/root/.openclaw/workspace`，也是 work agent 真正的工作目录；因此 warmup 期间 work agent 生成的 SOUL / MEMORY / 日常记忆都会被 `docker commit` 一并打进 delta 镜像（详见下文 *Workspace 布局*）。judge 容器使用相同 seed 与 task workspace，但其状态不会被 commit。
 
 ### 字节内网构建（推荐复制即用）
 
@@ -244,6 +244,7 @@ python -m src.cli.lift_main -r openclaw_with_evolve --benchmark_dir assets/bench
 - `-r openclaw` → `lift-openclaw-base:latest`（不带进化插件，常量 `OPENCLAW_BASE_DOCKER_IMAGE`）
 - `-r openclaw_with_evolve` → `lift-openclaw-with-evolve:latest`（带 self-evolving-plugin-pro，常量 `OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE`）
 - `-r openclaw_with_openspace` → `lift-openclaw-with-openspace:latest`（带 OpenSpace MCP 插件，常量 `OPENCLAW_WITH_OPENSPACE_DOCKER_IMAGE`）
+- `-r openclaw_with_agentmemory` → `lift-openclaw-with-agentmemory:latest`（带 agentmemory memory plugin，常量 `OPENCLAW_WITH_AGENTMEMORY_DOCKER_IMAGE`）
 
 均定义于 `src/paths.py`。
 
@@ -255,7 +256,7 @@ eval "$(./agent-runtimes/openclaw/scripts/openclaw-instance.sh env run-a)"
 ./agent-runtimes/openclaw/scripts/openclaw-instance.sh destroy run-a
 ```
 
-把 warmup 容器 commit 成 delta 镜像：
+把 warmup work 容器 commit 成 delta 镜像：
 
 ```bash
 ./agent-runtimes/openclaw/scripts/openclaw-instance.sh commit run-a --tag lift-delta:my-run-r0-suite
