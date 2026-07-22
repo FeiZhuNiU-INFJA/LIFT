@@ -12,6 +12,7 @@
 
 \usepackage[utf8]{inputenc} % allow utf-8 input
 \usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{float}          % enables [H] placement specifier (must load before hyperref)
 \usepackage{hyperref}       % hyperlinks
 \usepackage{url}            % simple URL typesetting
 \usepackage{booktabs}       % professional-quality tables
@@ -24,6 +25,7 @@
 \usepackage{xcolor}         % colors
 \usepackage[htt]{hyphenat}  % allow hyphenation/breaking inside \texttt
 \usepackage{seqsplit}       % break long monospace tokens char-by-char
+\setlength{\tabcolsep}{4pt} % tighter column gutter to prevent p{...} table overfull
 
 % allow line breaks inside long monospace tokens (long file paths / runtime names)
 \newcommand{\brk}[1]{\texttt{\seqsplit{#1}}}
@@ -139,7 +141,7 @@ LIFT = \textbf{L}oaded \textbf{I}mpact on \textbf{F}inal \textbf{T}ask. The scie
 
 We treat the survey conclusions as hard constraints that all engineering must obey:
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
 \caption{Design principles P1--P5 that all LIFT engineering must obey.}
 \label{tab:principles}
@@ -221,14 +223,14 @@ The direct payoff: \textbf{integrating a new runtime is near-zero-cost.} Registe
 runtime & image & evolve behavior \\
 \midrule
 \texttt{openclaw} & base image, no evolution plugin & no-op after warmup; only \texttt{docker commit} \\
-\texttt{openclaw\_with\_evolve} & with-evolve image & runs \texttt{openclaw learn review} in-container after warmup, then commit \\
-\texttt{openclaw\_with\_openspace} & with-openspace image (OpenSpace MCP skill hub) & reuses base warmup / commit flow; MCP-side skill hub is exercised during warmup \\
-\texttt{multi\_user\_openclaw} & base image + GroupMemoryMixin & multi-container warmup (simulated multi-user); artifacts to external group memory \\
-\texttt{genericagent} / \texttt{genericagent\_active\_evolve} & \texttt{lift-genericagent:latest} & baseline file I/O; active variant does reflection chat \\
+\brk{openclaw\_with\_evolve} & with-evolve image & runs \texttt{openclaw learn review} in-container after warmup, then commit \\
+\brk{openclaw\_with\_openspace} & with-openspace image (OpenSpace MCP skill hub) & reuses base warmup / commit flow; MCP-side skill hub is exercised during warmup \\
+\brk{multi\_user\_openclaw} & base image + GroupMemoryMixin & multi-container warmup (simulated multi-user); artifacts to external group memory \\
+\texttt{genericagent} / \brk{genericagent\_active\_evolve} & \brk{lift-genericagent:latest} & baseline file I/O; active variant does reflection chat \\
 \texttt{hermes} & \texttt{lift-hermes:latest} & Hermes review flow writes \texttt{/opt/hermes-state}, then commit \\
-\texttt{hermes\_with\_openspace} & \texttt{lift-hermes-with-openspace:latest} & Hermes review flow + OpenSpace MCP registered in \texttt{config.yaml}; commit \\
+\brk{hermes\_with\_openspace} & \brk{lift-hermes-with-openspace:latest} & Hermes review flow + OpenSpace MCP registered in \texttt{config.yaml}; commit \\
 \texttt{openhuman} & \texttt{lift-openhuman:latest} & Rust JSON-RPC runtime; long-term memory / wiki paths enter the delta \\
-\texttt{evoscientist} / \texttt{evoscientist\_active\_evolve} & \texttt{lift-evoscientist:latest} & baseline captures natural state change; active variant triggers EvoMemory AutoSkills, then commit \\
+\texttt{evoscientist} / \brk{evoscientist\_active\_evolve} & \brk{lift-evoscientist:latest} & baseline captures natural state change; active variant triggers EvoMemory AutoSkills, then commit \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -277,7 +279,7 @@ The carrier form of the artifact is an engineering choice that \emph{looks incid
 Option & Pro & Fatal con \\
 \midrule
 Host-machine toggle load & simple & state depends on host FS; concurrency cross-contaminates; not replayable across machines \\
-Structured export (YAML/JSON artifact pack) & readable, versionable & hard to cover FS-level evolution (OpenClaw's entire \texttt{\textasciitilde/.openclaw/} tree) \\
+Structured export (YAML/JSON artifact pack) & readable, versionable & hard to cover FS-level evolution (OpenClaw's entire \brk{\textasciitilde/.openclaw/} tree) \\
 \textbf{Container snapshot (\texttt{docker commit})} $\checkmark$ & full FS capture; naturally cross-machine replayable; naturally concurrency-isolated & delta images have size; need cleanup \\
 \bottomrule
 \end{tabular}
@@ -343,7 +345,7 @@ LIFT writes its report in two passes:
 Phase & Content & File \\
 \midrule
 Execution & conclusion: success, score, session, workspace paths & \texttt{report.json} \\
-Post-process & Langfuse trace backfill, comparison CSV, trajectory judging, HTML report & \texttt{*\_backfilled.json}, \texttt{*\_comparison\_metrics.csv} \\
+Post-process & Langfuse trace backfill, comparison CSV, trajectory judging, HTML report & \brk{*\_backfilled.json}, \brk{*\_comparison\_metrics.csv} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -376,7 +378,7 @@ An early replay mode (all-suite baseline $\rightarrow$ one evolve $\rightarrow$ 
 \midrule
 Focus & loaded contrast on holdout final & run all tasks once before and once after evolution \\
 Artifact stage & warmup $\rightarrow$ $\Delta$ image, then test & evolve once after all-suite baseline \\
-Risk & none & Q5 baseline may be polluted by Q1..Q4 state; Q5 evolved may directly reuse Q1..Q4 outputs \\
+Risk & none & Q5 baseline may be polluted by \brk{Q1..Q4} state; Q5 evolved may directly reuse \brk{Q1..Q4} outputs \\
 Scientific question & do artifacts help on \emph{unseen} tasks (\textbf{extrapolation}) & per-task evolution magnitude (\textbf{interpolation}, diagnostic) \\
 \bottomrule
 \end{tabular}
@@ -473,13 +475,13 @@ Any benchmark plugged into LIFT must satisfy: (1) \textbf{two-phase schema} --- 
 \toprule
 Topic & Key file & One-liner \\
 \midrule
-Pipeline orchestration & \texttt{src/lift/pipeline/lift\_pipeline.py} & repeat $\times$ suite $\times$ phase multi-level concurrency \\
-Adapter contract (base) & \texttt{src/lift/adapters/base.py} & abstract \texttt{AgentRuntimeAdapter}: \texttt{worker\_judger\_factory} / \texttt{evolve\_after\_warmup} hooks \\
-Container orchestration & \brk{src/lift/adapters/container/adapter.py} & \brk{ContainerAgentRuntimeAdapter}: \texttt{resolve\_docker\_image} / \texttt{start\_container} + default \texttt{docker commit} \\
-Per-task kernel & \texttt{src/lift/eval/run\_task.py} & work + judge review loop \\
-Container policies & \texttt{src/lift/policies/container.py} & warmup / holdout / phase orchestration enums \\
+Pipeline orchestration & \brk{src/lift/pipeline/lift\_pipeline.py} & repeat $\times$ suite $\times$ phase multi-level concurrency \\
+Adapter contract (base) & \brk{src/lift/adapters/base.py} & abstract \texttt{AgentRuntimeAdapter}: \brk{worker\_judger\_factory} / \brk{evolve\_after\_warmup} hooks \\
+Container orchestration & \brk{src/lift/adapters/container/adapter.py} & \brk{ContainerAgentRuntimeAdapter}: \brk{resolve\_docker\_image} / \brk{start\_container} + default \texttt{docker commit} \\
+Per-task kernel & \brk{src/lift/eval/run\_task.py} & work + judge review loop \\
+Container policies & \brk{src/lift/policies/container.py} & warmup / holdout / phase orchestration enums \\
 Status visualization & \texttt{src/lift/status/} & TUI (rich) + HTTP dashboard \\
-Trace backfill & \texttt{src/postprocess/trace\_backfill.py} & \texttt{session\_id} correlation (calls \texttt{stitch\_phase\_langfuse\_traces}) \\
+Trace backfill & \brk{src/postprocess/trace\_backfill.py} & \texttt{session\_id} correlation (calls \brk{stitch\_phase\_langfuse\_traces}) \\
 Data models & \texttt{src/models.py} & \texttt{Suite} / \texttt{EvalReport} / \texttt{PhaseRun} / Langfuse trace schema \\
 Image build & \brk{agent-runtimes/openclaw/build-image.sh} & base / with-evolve dual artifacts \\
 \bottomrule
