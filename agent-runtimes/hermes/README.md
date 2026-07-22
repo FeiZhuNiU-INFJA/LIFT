@@ -150,6 +150,44 @@ model:
 > 状态根在镜像 build 期由 `hermes-bootstrap.sh` 一次性初始化（含 bundled skills 同步），
 > 运行期 entrypoint 不再 seeding，保证 commit 后的 delta 镜像重启时不被覆盖。
 
+## 默认进化机制
+
+Hermes 的进化触发方式与其它 runtime 都不同 —— 它是**每题主动 + suite 收尾被动**:
+
+| 钩子 | Hermes 行为 |
+|---|---|
+| `evolve_after_task` | **每道 warmup 题结束后硬保证**触发 background review:work runner 收到 `task_end` 后跑 review,阻塞到写完 `/opt/hermes-state/memories`、`/opt/hermes-state/skills` 才 `end_session` 返回 `True`。**review 未干净落盘则 raise**,`_run_evolve_after_task_with_retry` 会重试 3 次,仍失败则整个 `produce_delta` 中止,绝不放行未 review 的 delta 到 holdout。见 [`HermesAdapter.evolve_after_task`](../../src/lift/adapters/hermes/adapter.py) L130-184。 |
+| `evolve_after_warmup` | **no-op** —— 所有演化已在每题 review 里完成。 |
+| `materialize_delta` | 基类默认 `docker commit`,把 `/opt/hermes-state/` 整个目录冻结进 delta 镜像。 |
+
+因此 Hermes 与 GA / EvoScientist 的"被动隐式"完全不同:后者 warmup 期完全放任 agent
+自主写入,只在 warmup 结束后 commit;而 Hermes 是**每题都有一次同步的、必须完成的
+review 步骤**,再 commit。这也是为什么 `-r hermes` 只有一个 runtime(没有 `_active_evolve`
+变体) —— 主动 evolve 已经内建在 baseline 的 `evolve_after_task` 里了。
+
+### 进化产物路径
+
+| 容器内路径 | 内容 | 是否在 `evolve_paths` 白名单 | 说明 |
+|---|---|---|---|
+| `/opt/hermes-state/memories/` | `MEMORY.md` / `USER.md` 等长期记忆 | ✅ 是 | background review 蒸馏产物,跨任务共享 |
+| `/opt/hermes-state/skills/` | 蒸馏出的技能包(每个含 `SKILL.md`) | ✅ 是 | 同上,跨任务复用 |
+| `/opt/hermes-state/sessions/` | 每题会话流水 | ❌ 否 | 会随 commit 进 delta,但不作为"进化证据" |
+| `/opt/hermes-state/logs/` | 运行时日志 | ❌ 否 | 同上 |
+| `/opt/hermes-state/config.yaml` | 容器启动时 patch 生成 | ✅ 属镜像 FS | 每次容器重启都会被 entrypoint 重写,不影响 delta |
+
+`evolve_paths` 声明见 [`HermesAdapter.evolve_paths`](../../src/lift/adapters/hermes/adapter.py) L45-48;
+仅作 delta preflight 负向判定,`docker commit` 实际会捕获整个容器 FS。
+
+### 跨 session / 跨任务共享 & 竞态提示
+
+Warmup 多任务共享同一容器,`/opt/hermes-state/memories/` 与 `.../skills/` 就是跨任务
+共享的知识库。但正因 review 是**每题一次的写操作**,一旦 warmup 用 `parallel_single`
+(默认)让多题几乎同时结束,多个 review 进程会并发写同一 memory 存储 → **竞态**。
+
+因此 Hermes **推荐显式加 `--warmup-container-policy serial_single`**(单容器逐题串行,
+review 也串行),详见下面 *warmup 并发策略* 章节。这是 Hermes 集成时唯一必须偏离
+LIFT 默认的地方。
+
 ## 与 LIFT 集成（`src`）
 
 ```bash

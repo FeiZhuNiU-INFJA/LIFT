@@ -118,11 +118,73 @@ mount 覆盖不适用于 GA。
 ## Task extra skills
 
 Benchmark 任务可通过 `requirements.extra_skills_dir` 提供额外技能。LIFT 在容器启动时
-把该目录挂到 `/workspace/task/skills`（与 OpenClaw 一致），GA workspace 在 `/workspace/task`
+把该目录挂到 `/workspace/task/skills`(与 OpenClaw 一致),GA workspace 在 `/workspace/task`
 下可直接读取。
 
-GA 自身没有 skills 装载机制，本能力主要供 GA 在工作目录里 `cat skills/*.md` 读取
+GA 自身没有 skills 装载机制,本能力主要供 GA 在工作目录里 `cat skills/*.md` 读取
 benchmark 提供的辅助技能描述。
+
+## 默认进化机制(baseline `-r genericagent`)
+
+GenericAgent baseline 采用**被动隐式**进化——LIFT 不主动触发任何蒸馏/复盘,
+[`GenericAgentAdapter.evolve_after_warmup`](../../src/lift/adapters/genericagent/adapter.py) 就是一个 `return None`。
+真正的进化载体是 warmup 期间 GA 自己在容器 FS 层写入的 memory 文件,
+warmup 结束后由 `ContainerAgentRuntimeAdapter.materialize_delta` 通过 `docker commit`
+一并打进 delta 镜像;holdout evolved 阶段从这份镜像启动即为进化后状态。
+
+### 进化产物路径
+
+| 容器内路径 | 后端 | 是否被 `docker commit` 持久化 | 用途 |
+|---|---|---|---|
+| `/opt/GenericAgent/memory/global_mem.txt` | 镜像 FS | ✅ 是 | L2 长文本记忆,warmup 期 GA 按 `memory_management_sop.md` 主动写入 |
+| `/opt/GenericAgent/memory/global_mem_insight.txt` | 镜像 FS | ✅ 是 | L1 精炼索引,启动时随 system prompt 拼进 `[Memory]` 段落供 LLM 读到 |
+| `/opt/GenericAgent/memory/*.md` | 镜像 FS | ✅ 是 | L3 task-level SOP / 结构化知识片段 |
+| `/opt/GenericAgent/temp/<iodir>/` | 镜像 FS | ✅ 是(但非"真进化产物") | LIFT 侧 I/O 通道(input.txt / output*.txt / reply.txt);GA process 副作用,声明在 `evolve_paths` 之外 |
+| `/workspace/task/` | 宿主机 bind mount → `results/{run_id}/outcome/.../{phase}/{category}/` | ❌ 否(mount) | 每题的 IO 表面 — task materials / result 都在这里,**不进 delta** |
+
+adapter 的 `evolve_paths` 白名单声明为 `("/opt/GenericAgent/memory",)`,仅作 delta preflight
+"负向判定"(warmup 到底有没有产出),不影响 `docker commit` 实际捕获内容。
+
+### 跨 session / 跨任务共享
+
+Warmup 默认 `parallel_single`(同一 suite 所有 warmup 任务共享同一容器)。GA 每题会启动
+一对**独立进程**(work / judge,各自独立 `iodir` + LIFT `session_id`),但**所有进程都读写同一份**
+`/opt/GenericAgent/memory/`:
+
+1. GA 引擎侧读 memory 用 `script_dir = /opt/GenericAgent` 拼绝对路径(不受进程 cwd 影响)。
+2. system prompt 里的 `[Memory]` 段落也被 [`install-in-image.sh`](install-in-image.sh) patch 成
+   `/opt/GenericAgent/memory` 绝对路径(**关键 patch**,详见下面 "*已知陷阱*")。
+3. 因此前一题 GA 进程写入的 `global_mem.txt` / `global_mem_insight.txt`,后一题(不同 session、
+   不同 iodir)的 GA 进程一启动就能读到——跨 session 传递经验的路径就是共享 FS。
+
+Warmup → holdout 之间则通过 `docker commit` 把 `/opt/GenericAgent/memory/` 冻结进 delta 镜像,
+holdout evolved 容器从这份镜像启动即继承 warmup 阶段积累的记忆。
+
+### 已知陷阱:memory 路径三点错位(已修)
+
+GA 上游默认让 LLM 用相对路径 `../memory/xxx` 写 memory,而 GA 进程 cwd 在
+`/workspace/task`(bind mount);相对路径解析结果落到 bind mount 内,
+`docker commit` 不会捕获 → 表面 warmup 成功,delta 镜像里 memory 空空如也 → evolve 失效。
+
+[`install-in-image.sh`](install-in-image.sh) 在 build 期 patch 三处相对路径为绝对路径
+`/opt/GenericAgent/memory`(引擎读、system prompt 提示、SOP 加载),让 LLM 写、GA 读、
+`docker commit` 捕获三点对齐。这是 GA 集成时踩过的核心坑,新集成 runtime 时的通用规范
+见 [skill/lift-integrate-agent-runtime/docs/evolve-artifact-contract.md](../../skill/lift-integrate-agent-runtime/docs/evolve-artifact-contract.md)。
+
+## 主动进化变体(`-r genericagent_active_evolve`)
+
+`genericagent_active_evolve` 复用同一镜像 `lift-genericagent:latest`,但在
+[`adapter.py`](../../src/lift/adapters/genericagent_active_evolve/adapter.py) 中额外 override
+两个钩子,叠加**主动复盘**层:
+
+1. **`evolve_after_task`**:每题完成后在 warmup 容器内起一个独立 GA 进程(独立 `iodir` +
+   独立 `session_id = reflect-task-*`)发 per-task 复盘 prompt,让 GA 按
+   `memory_management_sop.md` 决定写哪一层记忆。
+2. **`evolve_after_warmup`**:所有 warmup 完成后再起一个 GA 进程发 suite 级总复盘 prompt
+   (`session_id = reflect-suite-*`),做全 suite 汇总反思。
+
+两次复盘产物都落在 `/opt/GenericAgent/memory/`,被同一次 `docker commit` 带走。相当于
+在 baseline 的运行时副作用累积之上,再强制 agent 停下来做一次显式反思。
 
 ## LIFT integration (`src`)
 
@@ -134,10 +196,11 @@ python -m src.cli.lift_main -r genericagent --benchmark_dir assets/benchmarks_de
     --suite hello.json
 ```
 
-默认镜像：
+默认镜像:
 
-- `-r genericagent` → `lift-genericagent:latest`（常量
-  `GENERICAGENT_DOCKER_IMAGE`，定义于 [`src/paths.py`](../../src/paths.py)）
+- `-r genericagent` → `lift-genericagent:latest`(常量
+  `GENERICAGENT_DOCKER_IMAGE`,定义于 [`src/paths.py`](../../src/paths.py))
+- `-r genericagent_active_evolve` → 同一镜像,adapter 侧叠 reflection 钩子
 
 ## Manual sanity check
 

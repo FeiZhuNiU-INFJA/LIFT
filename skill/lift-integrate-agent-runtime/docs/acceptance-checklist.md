@@ -44,6 +44,32 @@ docker images | grep lift-<runtime>
 - 上游 patch 已生效:`docker run --rm <image> grep -n /workspace/task /opt/<runtime>/<patched>.py`
 - 运行期 import smoke:`docker run --rm <image> python -c 'import sys; sys.path.insert(0, "/opt/<runtime>"); import agentmain'`
 
+## 6.1a `MAX_TOKENS` 落地审计(硬指标)
+
+**不要相信"顶层 `.env` 有就等于生效"** —— 前车之鉴:GA / EvoScientist / OpenHuman 三家的
+`.env → 容器 env → 上游 LLM 请求 body` 链路各断一处,长产出被服务端默认 4096 截断,LIFT
+的 `success` / `content_score` 只看到 "content 不完整",看不到 truncation 根因。同一 runtime
+的 baseline vs evolved 会被同样截断,delta 上 **完全对消**,数字看似正常,横向对比其它 runtime
+才暴露。
+
+集成完必须过三点证据链(缺一不可):
+
+1. **容器 env 层**:`docker run --rm --env-file .env <image> env | grep MAX_TOKENS`
+   应打印 `MAX_TOKENS=51200`(或 `.env` 里配的值)
+2. **配置/代码层**:
+   - Python runtime(GA / OpenClaw / EvoScientist):`docker run --rm <image> grep -rn max_tokens /opt/<runtime>/ | head` 应能看到实际读值(如 `mykey.py`、`config.yaml`、`langfuse_tracing_overlay.py` 的 `_get_request_payload` patch)
+   - Rust / 无入口 runtime(OpenHuman):必须有 `max_tokens_proxy.py` 之类的容器内代理,`config.toml`
+     的 `inference_url` 指向 `127.0.0.1:${LIFT_PROXY_PORT}/v3`
+3. **HTTP payload 层(权威证据)**:实际抓一次 LLM 请求 body,确认里面有 `max_tokens` / `max_completion_tokens` / `max_output_tokens` 之一 == 期望值
+   - 抓法 A:临时代理法 —— 起 fake upstream(`python -c` 起 `http.server.ThreadingHTTPServer` 打印收到的 body),把 runtime 的 base URL 指向它,发一个 hello 请求
+   - 抓法 B:Langfuse trace 法 —— 跑一次 hello.json,到 Langfuse 找 LLM span,`input.metadata` 或 raw request 里查 `max_tokens` 字段
+   - 抓法 C(仅 OpenHuman 类代理方案):`docker exec <cid> cat /workspace/task/max-tokens-proxy.log`,期望
+     `patched={'injected': 'max_tokens', 'value': 51200}` 或 `body already has max_tokens`
+
+只有三点全绿才算通过。**只有 env 层 / 只有代码 grep 到不算数** —— 中间可能有 rename(如 langchain-openai 把 `max_tokens` rename 成 `max_completion_tokens`)、有硬编码 fallback(如 GA 早期版本 8192)、有上游 binary 忽略(如 OpenHuman Rust)。
+
+`finish_reason=="length"` 是自动告警的兜底信号,已经在 post-process 里增加检测(TODO:待补),集成时如果看到该告警高频,回来复查这一节。
+
 ## 6.2 hello.json sanity(基本流水线)
 
 按 §6.0 模板跑,`--suite hello.json`。

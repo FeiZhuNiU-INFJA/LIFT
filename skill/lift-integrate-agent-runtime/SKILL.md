@@ -96,6 +96,8 @@ description: "LIFT 评测框架接入新 agent runtime 的端到端清单:镜像
 
 任何一点错位 → warmup 期产物落进 bind mount / tmpfs → `docker commit` 不捕获 → evolve **无效**。
 
+⚠ **交付物要求**:完成 evolve 路径审计后,必须在 `agent-runtimes/<runtime>/README.md` 写清默认进化机制(产物路径 / 触发方式 / 跨 session 共享 / 衍生 runtime 差异),不能只把信息藏在 `adapter.py` docstring 里 —— 详见 [docs/evolve-artifact-contract.md §README 必备条款](./docs/evolve-artifact-contract.md#readme-必备条款)。
+
 详见 → [docs/evolve-artifact-contract.md](./docs/evolve-artifact-contract.md)
 
 ### Step 3. Adapter 三件套 + registry 注册
@@ -131,6 +133,7 @@ CLI 注册:
 按 [docs/acceptance-checklist.md](./docs/acceptance-checklist.md) 逐项过:
 - §6.0 本地测试工作流(nohup + dashboard + tail)
 - §6.1 镜像构建检查
+- §6.1a **`MAX_TOKENS` 三点证据链**(必跑) — env 层 / 配置代码层 / HTTP payload 层缺一不可,避免 GA / EvoScientist / OpenHuman 那种 `.env` 有值但链路断层的静默截断
 - §6.2 hello.json sanity(连通性)
 - §6.3 trace stitching 对齐
 - §6.4 test_search.json(可选,联网工具)
@@ -151,6 +154,7 @@ CLI 注册:
 3. `cache_read_tokens` / `reasoning_tokens` 全 0 → 5 字段落库链路某层断了,走 [docs/token-observability.md §2-§5](./docs/token-observability.md)
 4. evolved == baseline → 进化产物三点错位,走 [docs/evolve-artifact-contract.md](./docs/evolve-artifact-contract.md)
 5. `Delta preflight diff (evolve-only) ... no changes` WARNING → `evolve_paths` 声明错,看 log 里 `candidate unlisted evolve paths` 建议名单
+6. **长产出被静默截断,内容分低但看不出原因** → `MAX_TOKENS` 链路断层(env 有但没送到 LLM),按 [docs/acceptance-checklist.md §6.1a](./docs/acceptance-checklist.md) 抓 HTTP body 复核
 
 ---
 

@@ -11,9 +11,25 @@ escape_sed() {
   printf '%s' "${1:-}" | sed -e 's/[\/&]/\\&/g' -e ':a;N;$!ba;s/\n/\\n/g'
 }
 
+# LIFT max_tokens 代理:openhuman-core Rust binary 不暴露任何 max_tokens 覆盖入口,
+# 我们在容器 127.0.0.1:${LIFT_PROXY_PORT} 起一个透明反向代理,注入 MAX_TOKENS 后
+# 再转发到真实上游 (INFERENCE_URL)。config.toml 的 inference_url 改指向 proxy。
+# 通过 LIFT_MAX_TOKENS_PROXY_ENABLED=false 关闭代理(此时 inference_url 直连 upstream)。
+LIFT_MAX_TOKENS_PROXY_ENABLED="${LIFT_MAX_TOKENS_PROXY_ENABLED:-true}"
+LIFT_PROXY_PORT="${LIFT_PROXY_PORT:-7787}"
+UPSTREAM_INFERENCE_URL="${INFERENCE_URL:-https://ark.cn-beijing.volces.com/api/v3}"
+if [[ "${LIFT_MAX_TOKENS_PROXY_ENABLED}" == "true" || "${LIFT_MAX_TOKENS_PROXY_ENABLED}" == "1" ]]; then
+  # inference_url 前面已保留 /v3 前缀作为代理入口约定(proxy 会 strip 后拼到 UPSTREAM)。
+  EFFECTIVE_INFERENCE_URL="http://127.0.0.1:${LIFT_PROXY_PORT}/v3"
+  echo "==> max_tokens proxy enabled; inference_url=${EFFECTIVE_INFERENCE_URL}, upstream=${UPSTREAM_INFERENCE_URL}"
+else
+  EFFECTIVE_INFERENCE_URL="${UPSTREAM_INFERENCE_URL}"
+  echo "==> max_tokens proxy disabled; inference_url directly points to upstream ${EFFECTIVE_INFERENCE_URL}"
+fi
+
 API_KEY_ESC="$(escape_sed "${API_KEY:-}")"
 API_URL_ESC="$(escape_sed "${API_URL:-}")"
-INFERENCE_URL_ESC="$(escape_sed "${INFERENCE_URL:-https://ark.cn-beijing.volces.com/api/v3}")"
+INFERENCE_URL_ESC="$(escape_sed "${EFFECTIVE_INFERENCE_URL}")"
 DEFAULT_MODEL_ESC="$(escape_sed "${DEFAULT_MODEL:-}")"
 
 sed \

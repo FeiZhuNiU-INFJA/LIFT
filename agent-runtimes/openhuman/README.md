@@ -98,6 +98,46 @@ APT_MIRROR=http://mirrors.byted.org bash agent-runtimes/openhuman/build-image.sh
   运行期由 LIFT adapter 通过 `docker run --env-file` 注入，容器内 `localhost` /
   `127.0.0.1` 会自动改写为 `host.docker.internal`
 
+### `MAX_TOKENS` 注入(容器内反向代理)
+
+LIFT 顶层 `.env` 的 `MAX_TOKENS`(默认 51200)在 openhuman **没有原生落地路径**:
+
+- `openhuman-core` 的 JSON-RPC 方法 `openhuman.agent_chat` 只暴露 `message` / `thread_id` /
+  `model_override` (string) 等参数,**不接受任何 `max_tokens` 相关字段**(实测传入报
+  `unknown param 'max_tokens'`)
+- `config.update_model_settings` 只暴露 `api_url` / `api_key` / `default_model` /
+  `default_temperature` / `inference_url` 五个字段;`config.toml` 模板同样没有
+  `max_tokens` 键
+- Rust 二进制内部构造 `ChatCompletionRequest` 时对 `max_tokens` 走 provider-router
+  内置策略,外部无覆盖入口
+
+**LIFT 兜底方案:容器内透明反向代理**
+
+`scripts/max_tokens_proxy.py` 是一个 stdlib(`http.server` + `urllib`)反向代理,
+由 `openhuman-agentmemory-entrypoint.sh` 在 CMD 之前后台拉起(TCP 探活,不发真流量):
+
+- 监听 `127.0.0.1:${LIFT_PROXY_PORT}`(默认 `7787`)
+- `config.toml` 的 `inference_url` 与 `GMI_MAAS_BASE_URL` 在 build 期均被改指向
+  `http://127.0.0.1:${LIFT_PROXY_PORT}/v3`,openhuman-core 全部 LLM 流量必经代理
+- 对入站 `POST /v3/chat/completions` 与 `POST /v3/responses`,若 body 缺 `max_tokens`
+  / `max_output_tokens`,注入 `MAX_TOKENS` env 值;已有值时不覆盖
+- Body strip `/v3` 前缀后转发到 `LIFT_PROXY_UPSTREAM`(默认 build 期烧入的 `ARK_BASE_URL`),
+  支持 SSE 流式转发;`Authorization` 等 header 完整透传
+- 关闭:设 `LIFT_MAX_TOKENS_PROXY_ENABLED=false`,`inference_url` 会直连 upstream
+
+验证方式(容器启动后):
+
+```bash
+docker exec <cid> cat /workspace/task/max-tokens-proxy.log
+# 期望看到类似:
+# [POST] /v3/chat/completions -> https://ark.cn-beijing.volces.com/api/v3/chat/completions
+#   (kind=chat, len=60->87, patched={'injected': 'max_tokens', 'value': 51200})
+```
+
+后果:openhuman 已具备与其它 runtime 一致的 `MAX_TOKENS` 传导能力,长产出不再被
+ARK 服务端默认 4096 截断。若日后 openhuman 上游原生支持 `max_tokens`,可将
+`LIFT_MAX_TOKENS_PROXY_ENABLED=false` 关闭代理,回退到直连模式。
+
 ## Runtime CMD & port
 
 容器 `CMD` 是：
@@ -110,16 +150,46 @@ openhuman-core run --host 0.0.0.0 --port 7788
 访问；LIFT 通过 `docker run -p 0:7788` 让 Docker 分配宿主端口，再 curl
 `/health`（fallback: `/` / `/rpc`）探活，然后走 JSON-RPC 对话。
 
-## Evolve delta
+## 默认进化机制(baseline `-r openhuman`)
 
-OpenHuman 没有独立的 `evolve` 命令。warmup 阶段 work agent 自然写入的：
+OpenHuman baseline 采用**被动隐式**进化——LIFT 不主动触发任何 evolve 命令(OpenHuman
+上游本身也没有独立的 evolve/review CLI),[`OpenHumanAdapter.evolve_after_warmup`](../../src/lift/adapters/openhuman/adapter.py)
+就是一个 `return None`。真正的进化载体是 warmup 期间 orchestrator/subagent 在容器 FS 层
+自主写入的 memory tree / wiki / skill registry,warmup 结束后由
+`ContainerAgentRuntimeAdapter.materialize_delta` 通过 `docker commit` 一并打进 delta 镜像;
+holdout evolved 阶段从这份镜像启动即为进化后状态。
 
-- `/root/.openhuman/workspace/memory_tree/` — 结构化长期记忆树
-- `/root/.openhuman/workspace/wiki/` — Obsidian 风格的自建知识库
+### 进化产物路径
 
-两条路径被 [`OpenHumanAdapter.evolve_paths`](../../src/lift/adapters/openhuman/adapter.py)
-声明为白名单，`docker commit` 把它们随 work 容器 FS 层带入 delta 镜像；delta.py 的
-"仅演化路径" diff 用来校验真进化 vs 系统噪声。
+| 容器内路径 | 内容 | 是否被 `docker commit` 持久化 | 说明 |
+|---|---|---|---|
+| `/root/.openhuman/users/<profile>/workspace/memory_tree/` | 结构化长期记忆树 | ✅ 是 | orchestrator/subagent 自主写入 |
+| `/root/.openhuman/users/<profile>/workspace/wiki/` | Obsidian 风格自建知识库 | ✅ 是 | 同上 |
+| `/root/.openhuman/users/<profile>/workspace/*` | thread 历史、其它 workspace 状态 | ✅ 是 | 属 IO 副作用,与真进化产物共存 |
+| `/root/.openhuman/skill-registry/` | 可复用 skill 注册表 | ✅ 是 | baseline 生成路径,evolved holdout 中 orchestrator 检索复用 |
+| `/workspace/task/` | 每题 IO 表面(bind mount) | ❌ 否(mount) | task materials / result,**不进 delta** |
+
+adapter 的 `evolve_paths` 白名单声明为
+`("/root/.openhuman/users", "/root/.openhuman/skill-registry")`
+(见 [adapter.py](../../src/lift/adapters/openhuman/adapter.py) L48-51),
+覆盖了以上所有真进化产物 —— 一次白名单命中整个 `users/` 父目录,包含 memory_tree / wiki /
+skill-registry 等所有随任务累积的持久化状态。`evolve_paths` 仅作 delta preflight 负向判定
+(warmup 到底有没有产出),不影响 `docker commit` 实际捕获内容。
+
+### 跨 session / 跨任务共享
+
+Warmup 多任务共享同一容器,每题都是独立 LIFT session、独立 OpenHuman `thread_id`
+(通过 JSON-RPC `openhuman.agent_chat` 的 `thread_id` 参数区分),但**所有 thread 都读写
+同一个 profile 的 `users/<profile>/workspace/`** —— memory tree / wiki / skill registry 都是
+profile 级共享而非 thread 级隔离。因此前一题积累的记忆会被后一题(不同 thread、不同 LIFT
+session)的 orchestrator/subagent 读到。
+
+Warmup → holdout 之间通过 `docker commit` 把整个 `users/` 与 `skill-registry/` 冻结进
+delta 镜像,holdout evolved 容器从这份镜像启动即继承 warmup 阶段积累的所有知识。
+
+**没有衍生 runtime**:OpenHuman 只有 `-r openhuman` 一个变体。若未来需要主动 evolve
+(例如显式蒸馏 memory tree),只能改上游二进制或在 adapter 侧新增
+`evolve_after_warmup` 钩子调用容器内脚本 —— 目前 baseline 已能捕获 warmup 期的隐式产物。
 
 ## Langfuse
 

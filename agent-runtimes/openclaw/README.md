@@ -198,7 +198,7 @@ Benchmark 任务可在 `requirements.extra_skills_dir` 中提供额外 skill 目
 
 ## Workspace 布局（镜像 FS vs bind mount）
 
-OpenClaw 有意采用**两个**工作区根。agent 实际只看到一个（`/root/.openclaw/workspace`），但任务的输入/输出住在另一个（`/workspace/task`），让评测器可以从宿主机直接读写。
+OpenClaw 有意采用**两个**工作区根。agent 实际只看到一个（`/root/.openclaw/workspace`），但任务的输入/输出住在另一个（`/workspace/task`），让评测器可以从宿主机直接读写。**这套布局同时也是 OpenClaw 的默认进化机制载体** —— 见下面 *默认进化机制* 小节。
 
 | 容器内路径 | 后端 | 是否被 `docker commit` 持久化 | 用途 |
 |---|---|---|---|
@@ -230,6 +230,34 @@ OpenClaw 有意采用**两个**工作区根。agent 实际只看到一个（`/ro
 
 - `seed_workspace=True`（出现在 `start_container` / `start_openclaw_container`）：历史标志位，对 OpenClaw 已是 no-op（种子已 baked 进镜像）。保留参数仅为兼容 `group_memory` mixin 的签名。
 - `_PREPARE_WORKSPACE_GIT_SCRIPT`（位于 [openclaw_with_evolve/evolve.py](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/openclaw_with_evolve/evolve.py)）：在 `openclaw learn review` 之前把 `/root/.openclaw/workspace` `git init` + 一次空 commit，因为 self-evolving-plugin-pro 的 `/instances/onboard` 要求 workspace_root 是带 HEAD 的 git repo。
+
+## 默认进化机制
+
+OpenClaw 有 3 个 runtime 变体,进化触发方式差异如下:
+
+| Runtime | 触发方式 | `evolve_after_warmup` 行为 | 进化产物 |
+|---|---|---|---|
+| `-r openclaw` (baseline) | **被动隐式** | no-op | warmup 期 agent 在 `/root/.openclaw/workspace/`(SOUL.md / MEMORY.md / `memory/` / 日常记忆)与 `/root/.openclaw/skills/`(任务 skill 副本)自然写入,由 `docker commit` 捕获 |
+| `-r openclaw_with_evolve` | **主动显式** | 调 self-evolving-plugin-pro 的 `openclaw learn review` HTTP 接口 | 同 baseline + `learn review` 结构化蒸馏出的 SOUL / SOP 更新 |
+| `-r openclaw_with_openspace` | **被动隐式** | no-op | 同 baseline;OpenSpace MCP 只提供 skill hub,不改变 evolve 钩子 |
+
+三者共享同一份 `evolve_paths` 白名单(`/root/.openclaw/workspace/memory`、
+`/root/.openclaw/skill-workshop`,见 [`openclaw/adapter.py`](../../src/lift/adapters/openclaw/adapter.py) 的 `evolve_paths`)。
+注意白名单是 **workspace 的 `memory` 子目录**而不是 workspace 整体——workspace 根目录
+含 SOUL/IDENTITY 种子和 git 元数据(粒度太粗容易误计入进化产物),因此只对
+`memory/` 与 `skill-workshop/` 做 delta preflight 的负向判定;`docker commit` 依然
+捕获整个容器 FS,所以 workspace 根目录下 agent 写入的 SOUL / MEMORY 更新照样进 delta。
+
+**跨 session / 跨任务共享**:warmup `parallel_single` 下同一容器承载所有 warmup 任务,
+每题都是独立 LIFT session,但共享同一份 `/root/.openclaw/workspace/`(agent 的"家"),
+SOUL / MEMORY 的更新在任务之间自然可见;warmup → holdout 之间通过 `docker commit`
+把 workspace 与 skills 冻结进 delta 镜像。
+
+`-r openclaw_with_evolve` 相比 baseline 多做的一步:warmup 结束后 adapter 会先 `git init +
+空 commit` 保证 workspace 是合法 git repo,再调 `openclaw learn review` 让插件反思整个
+warmup 阶段的对话与工具轨迹,把提炼结果写回 `/root/.openclaw/workspace/`,最后由基类
+`materialize_delta` 做统一 commit。详见
+[`openclaw_with_evolve/evolve.py`](../../src/lift/adapters/openclaw_with_evolve/evolve.py)。
 
 ## 与 LIFT 集成（`src`）
 

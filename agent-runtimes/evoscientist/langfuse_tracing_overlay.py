@@ -102,9 +102,15 @@ def _install_overlay() -> bool:
     if os.environ.get("LIFT_EVOSCI_TOKEN_PATCH", "1") != "0":
         try:
             from langchain_openai.chat_models.base import BaseChatOpenAI
+            from langchain_openai import ChatOpenAI
             _patch_openai_compat_usage(BaseChatOpenAI)
+            # ChatOpenAI 子类 override 了 ``_get_request_payload`` (rename
+            # ``max_tokens`` -> ``max_completion_tokens``),而 EvoScientist
+            # custom-openai 走的是 ChatOpenAI 实例;必须再对子类重复 patch,
+            # 才能在子类 override 的 rename 之后把值再 rename 回 ``max_tokens``。
+            _patch_openai_compat_usage(ChatOpenAI)
         except Exception:  # noqa: BLE001
-            # patch 失败不阻断 tracing 主流程；只是没有 token 5 字段而已。
+            # patch 失败不阻断 tracing 主流程;只是没有 token 5 字段而已。
             pass
 
     pub = os.environ.get("LANGFUSE_PUBLIC_KEY", "").strip()
@@ -446,6 +452,54 @@ def _patch_openai_compat_usage(cls: Any) -> None:
 
         _lift_should_stream_usage._lift_patched = True  # type: ignore[attr-defined]
         cls._should_stream_usage = _lift_should_stream_usage
+
+    # ─────────────────────────────────────────────────────────────────
+    # 3) 强制注入 max_tokens 到请求 payload
+    #
+    # EvoScientist 主 flow ``get_chat_model`` 走 ``init_chat_model``,不会把
+    # config.yaml 里的 max_tokens (甚至 EvoScientistConfig 里根本没这字段)
+    # 传给 langchain-openai。custom-openai 走 provider=openai + 自定义 base_url,
+    # ``BaseChatOpenAI`` 默认 ``max_tokens=None`` → payload 缺 max_tokens →
+    # 火山方舟 doubao 端点按服务端默认(通常 <=8k)截断长产出。
+    #
+    # LIFT 契约:所有 runtime 共用 ``MAX_TOKENS`` 环境变量;wrap
+    # ``_get_request_payload`` —— 这是 langchain-openai 建请求前最后一个汇总点,
+    # 已完成 legacy_token_param rename / responses API 转换。返回后:
+    #   1) 若已带 max_output_tokens (responses API):不动。
+    #   2) 若已带 max_completion_tokens (ChatOpenAI 子类对 chat completions 的
+    #      默认 rename):value 转移回 max_tokens,兼容非 o-系列 endpoint
+    #      (火山方舟 doubao / ARK 官方文档明确列 max_tokens 字段)。
+    #   3) 若什么都没有:按 payload 结构判断 responses vs chat completions,
+    #      分别兜底 max_output_tokens / max_tokens = MAX_TOKENS env。
+    # 关闭开关:``LIFT_EVOSCI_MAXTOKENS_PATCH=0``。
+    # ─────────────────────────────────────────────────────────────────
+    if os.environ.get("LIFT_EVOSCI_MAXTOKENS_PATCH", "1") != "0":
+        try:
+            _max_tokens_env = int((os.environ.get("MAX_TOKENS") or "0").strip() or "0")
+        except (TypeError, ValueError):
+            _max_tokens_env = 0
+        orig_get_payload = getattr(cls, "_get_request_payload", None)
+        if (
+            _max_tokens_env > 0
+            and orig_get_payload is not None
+            and not getattr(orig_get_payload, "_lift_patched", False)
+        ):
+            def _lift_get_request_payload(self: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
+                payload = orig_get_payload(self, *args, **kwargs)
+                is_responses = "input" in payload  # responses API payload 特征
+                if is_responses:
+                    if "max_output_tokens" not in payload:
+                        payload["max_output_tokens"] = _max_tokens_env
+                else:
+                    # chat completions:兜底 + 兼容非 o-系列 endpoint
+                    if "max_completion_tokens" in payload and "max_tokens" not in payload:
+                        payload["max_tokens"] = payload.pop("max_completion_tokens")
+                    elif "max_tokens" not in payload:
+                        payload["max_tokens"] = _max_tokens_env
+                return payload
+
+            _lift_get_request_payload._lift_patched = True  # type: ignore[attr-defined]
+            cls._get_request_payload = _lift_get_request_payload
 
 
 def _accumulate_chunk_usage(chunk: Any) -> None:
