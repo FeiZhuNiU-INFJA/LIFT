@@ -12,6 +12,7 @@
 | [build-all-images.sh](./build-all-images.sh) | 一键 build 所有 runtime Docker 镜像；支持 `--only` / `--skip` / `--list`。SSoT: [`docs/build-images.md`](../docs/build-images.md) | `docker`, `bash` |
 | [cleanup_langfuse_traces.py](./cleanup_langfuse_traces.py) | 清理自部署 Langfuse 中超过 N 天的 trace（含 observations / scores 级联删除） | `httpx`, `python-dotenv`, `LANGFUSE_*` 凭据 |
 | [upload_benchmark_to_hf.py](./upload_benchmark_to_hf.py) | 把 `benchmark_mds.zip` 从 TOS 镜像推到 HuggingFace dataset 仓库（维护者一次性脚本） | `huggingface_hub`, `HF_TOKEN`（写权限） |
+| [run_postprocess.py](./run_postprocess.py) | 对已有 run 只重跑后处理，封装 `src.cli.lift_main --evaluate-only` | `python`, `.env`, `LANGFUSE_*` 凭据 |
 | [screenshot_dashboard.py](./screenshot_dashboard.py) | 用 Playwright 把 LIFT dashboard（HTTP 或静态 HTML）截成 PNG | `playwright`（需另装） |
 | [clean-results.sh](./clean-results.sh) | 回收 OpenClaw Docker workspace 里 root 拥有的 `results/` 文件并清空 | `sudo`, `bash` |
 
@@ -21,7 +22,15 @@
 里的 extract / compute。手动重跑后处理只需要：
 
 ```bash
-python -m src.cli.lift_main -r openclaw --run_id <existing-run-id> --evaluate-only
+python scripts/run_postprocess.py --run-id <existing-run-id> -r <runtime>
+```
+
+`<runtime>` 必须和原始评测运行一致，例如 `openclaw` / `hermes` /
+`openclaw_with_agentmemory`。脚本接受 run id 后缀、完整 `lift-runid-*` 目录名、
+`results/<run>/` 目录或 `results/<run>/report.json` 路径。等价底层命令是：
+
+```bash
+python -m src.cli.lift_main -r <runtime> --run_id <existing-run-id> --evaluate-only
 ```
 
 这会重新生成 `results/<run>/`：
