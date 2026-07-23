@@ -192,7 +192,7 @@ BENCHMARK_SOURCE=tos                # or huggingface / modelscope
 TOS_ACCESS_KEY=your_access_key
 TOS_SECRET_KEY=your_secret_key
 # BENCHMARK_HF_REPO=FeiZhuNiU-INFJA/EALE
-# BENCHMARK_MODELSCOPE_REPO=iKlare/EALE
+# BENCHMARK_MODELSCOPE_REPO=Evolvon/EALE
 ```
 
 ## OpenClaw Runtime Integration
