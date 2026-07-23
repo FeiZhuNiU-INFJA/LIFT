@@ -57,6 +57,7 @@ class OpenClawWithAgentMemoryAdapter(OpenClawAdapter):
         seed_workspace: bool,
         task: SuiteTask | None,
         load_state: HoldoutLoadState | None = None,
+        viz_role: str | None = None,
     ) -> ContainerSession:
         """委托 ``start_openclaw_container``，打开 agentmemory prelaunch 与强制 bridge。"""
         _ = load_state  # OpenClaw 主路径不区分 baseline/evolved（差异由镜像承载）
@@ -71,4 +72,5 @@ class OpenClawWithAgentMemoryAdapter(OpenClawAdapter):
             container_cpus=self._options.container_cpus,
             force_bridge_network=self.force_bridge_network,
             agentmemory_prelaunch=True,
+            viz_role=viz_role,
         )

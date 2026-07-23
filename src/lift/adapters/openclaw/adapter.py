@@ -61,6 +61,7 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
         seed_workspace: bool,
         task: SuiteTask | None,
         load_state: HoldoutLoadState | None = None,
+        viz_role: str | None = None,
     ) -> ContainerSession:
         """委托 ``start_openclaw_container`` 启动 gateway 容器。
 
@@ -78,6 +79,7 @@ class OpenClawAdapter(ContainerAgentRuntimeAdapter):
             task=task,
             container_memory=self._options.container_memory,
             container_cpus=self._options.container_cpus,
+            viz_role=viz_role,
             force_bridge_network=self.force_bridge_network,
         )
 

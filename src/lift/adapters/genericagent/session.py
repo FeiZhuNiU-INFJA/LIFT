@@ -122,6 +122,7 @@ async def start_genericagent_container(
     task: SuiteTask | None = None,
     container_memory: str | None = None,
     container_cpus: str | None = None,
+    viz_role: str | None = None,
 ) -> ContainerSession:
     """启动 GA 评测容器（无 gateway / readiness）。
 
@@ -194,4 +195,5 @@ async def start_genericagent_container(
         metadata={},
         viz_repeat_index=ctx.repeat_index,
         viz_suite_name=ctx.suite_name,
+        viz_role=viz_role,
     )

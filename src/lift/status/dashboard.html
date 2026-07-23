@@ -1021,7 +1021,7 @@
     </div>
     <div class="panel-body" style="padding:0">
       <table id="ctr">
-        <thead><tr><th>container</th><th>repeat</th><th>stage</th><th>suite</th><th>running tasks</th><th>uptime</th></tr></thead>
+        <thead><tr><th>container</th><th>repeat</th><th>stage</th><th>role</th><th>suite</th><th>running tasks</th><th>uptime</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -1784,6 +1784,7 @@ function render() {
     tr.innerHTML = `<td><span class="ctr-name" title="${escapeAttr(name)}">${escapeAttr(elide(name))}</span>${name ? killBtn(name) : ''}</td>`
       + `<td>${c.repeat_index ?? '-'}</td>`
       + `<td>${c.stage || '-'}</td>`
+      + `<td>${c.role || '-'}</td>`
       + `<td>${c.suite_name || '-'}</td>`
       + `<td>${taskCell}</td>`
       + `<td class="ctr-up" data-started="${c.started_at || ''}">${up}</td>`;

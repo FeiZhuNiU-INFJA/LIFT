@@ -83,6 +83,7 @@ async def start_hermes_container(
     container_memory: str | None = None,
     container_cpus: str | None = None,
     force_bridge_network: bool = False,
+    viz_role: str | None = None,
 ) -> ContainerSession:
     """启动 Hermes 评测容器（无 gateway / readiness / 端口）。
 
@@ -151,5 +152,6 @@ async def start_hermes_container(
         metadata={},
         viz_repeat_index=ctx.repeat_index,
         viz_suite_name=ctx.suite_name,
+        viz_role=viz_role,
         force_bridge_network=force_bridge_network,
     )

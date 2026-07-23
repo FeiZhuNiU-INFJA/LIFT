@@ -67,6 +67,7 @@ class OpenHumanAdapter(ContainerAgentRuntimeAdapter):
         seed_workspace: bool,
         task: SuiteTask | None,
         load_state: HoldoutLoadState | None = None,
+        viz_role: str | None = None,
     ) -> ContainerSession:
         """委托 ``start_openhuman_container``；baseline 与 evolved 走同一路径。"""
         _ = load_state
@@ -79,6 +80,7 @@ class OpenHumanAdapter(ContainerAgentRuntimeAdapter):
             task=task,
             container_memory=self._options.container_memory,
             container_cpus=self._options.container_cpus,
+            viz_role=viz_role,
             force_bridge_network=self.force_bridge_network,
         )
 

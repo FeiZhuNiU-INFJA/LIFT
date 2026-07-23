@@ -217,6 +217,7 @@ class GroupMemoryAdapterMixin:
             seed_workspace=True,  # 注入 IDENTITY/USER/SOUL，避免 warmup 跑首次上线 onboarding
             task=None,
             load_state=None,  # warmup 阶段不区分 baseline/evolved
+            viz_role="work",
         )
         resources.track(session)
         # judge 独立容器：同镜像、同 workspace，仅 instance_id 加 -judge。与主路径一致，
@@ -229,6 +230,7 @@ class GroupMemoryAdapterMixin:
             seed_workspace=True,
             task=None,
             load_state=None,
+            viz_role="judge",
         )
         resources.track(judge_session)
         env = ExecutionEnvironment(

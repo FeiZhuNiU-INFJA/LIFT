@@ -96,6 +96,9 @@ class ContainerEvent:
     suite_name: str | None = None
     task_name: str | None = None
     stage: str | None = None  # warmup / baseline / evolved
+    # 容器角色："work" / "judge"；由起容器时显式声明。
+    # None 表示未声明（legacy 或非双容器路径）。
+    role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -272,6 +275,7 @@ def emit_container(
     suite_name: str | None = None,
     task_name: str | None = None,
     stage: str | None = None,
+    role: str | None = None,
 ) -> None:
     """广播容器 started / stopped 事件。"""
     _emit(
@@ -284,6 +288,7 @@ def emit_container(
             suite_name=suite_name,
             task_name=task_name,
             stage=stage,
+            role=role,
         )
     )
 

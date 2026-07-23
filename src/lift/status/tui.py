@@ -373,6 +373,7 @@ def render_containers(snapshot: RunSnapshot) -> Panel:
     table.add_column("container", style="cyan", overflow="fold", ratio=3)
     table.add_column("repeat", style="magenta", justify="right", min_width=4)
     table.add_column("stage", style="magenta", min_width=8)
+    table.add_column("role", style="yellow", min_width=5)
     table.add_column("suite", style="white", overflow="fold", ratio=2)
     table.add_column("running tasks", style="white", overflow="fold", ratio=2)
     table.add_column("uptime", style="white", justify="right", min_width=6)
@@ -390,6 +391,7 @@ def render_containers(snapshot: RunSnapshot) -> Panel:
             _short_container_name(c.container_name),
             "-" if c.repeat_index is None else str(c.repeat_index),
             c.stage or "-",
+            c.role or "-",
             c.suite_name or "-",
             task_cell,
             _format_duration(uptime),
@@ -397,7 +399,7 @@ def render_containers(snapshot: RunSnapshot) -> Panel:
     if overflow > 0:
         table.add_row(
             Text(f"+ {overflow} more containers", style="grey62"),
-            "", "", "", "", "",
+            "", "", "", "", "", "",
         )
 
     title = f"alive containers: {len(snapshot.containers)}"
