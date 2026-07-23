@@ -7,10 +7,19 @@ writes ``PhaseRun.langfuse``.
 from __future__ import annotations
 
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from langfuse import Langfuse, get_client
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 
 from src.config import LOGGER
 from src.models import EvalReport, PhaseLangfuseBundle, PhaseRun
@@ -196,16 +205,30 @@ def backfill_report(
         LOGGER.info(
             "Backfilling %d phase(s) with %d worker thread(s).", len(jobs), workers,
         )
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [
-                (
-                    pool.submit(backfill_phase, client, run_tag, phase, agent_source, index),
-                    setter,
-                )
+        # 进度条走 stderr，避免 --tui 场景摘掉的是 stdout StreamHandler；同时保留 file log。
+        progress = Progress(
+            TextColumn("[postprocess] backfill"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("phases"),
+            TimeElapsedColumn(),
+            TextColumn("ETA"),
+            TimeRemainingColumn(),
+            console=Console(stderr=True),
+            transient=False,
+        )
+        with progress, ThreadPoolExecutor(max_workers=workers) as pool:
+            task_id = progress.add_task("backfill", total=len(jobs))
+            future_to_setter = {
+                pool.submit(
+                    backfill_phase, client, run_tag, phase, agent_source, index
+                ): setter
                 for phase, setter in jobs
-            ]
-            for future, setter in futures:
+            }
+            for future in as_completed(future_to_setter):
+                setter = future_to_setter[future]
                 setter(future.result())
+                progress.advance(task_id)
 
     # 按原结构重新组装 EvalReport，保留 task / suite / repeat 顺序。
     rebuilt_runs = []

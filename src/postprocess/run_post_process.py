@@ -109,14 +109,27 @@ def process_report_to_outputs(
     Returns the tuple of output paths plus the summary DataFrame so callers can
     forward it to a status tracker / dashboard for live display.
     """
+    t0 = time.perf_counter()
+    LOGGER.info("Post-process step 1/5: loading report + Langfuse backfill (%s)", input_path)
     data, title_stem = load_or_backfill_report(input_path, agent_source)
+    LOGGER.info("Post-process step 1/5 done in %.1fs", time.perf_counter() - t0)
+
+    t1 = time.perf_counter()
+    LOGGER.info("Post-process step 2/5: extracting dataframe + trajectory scoring")
     extracted_df = build_extracted_dataframe(data, agent_source)
     scored_df = attach_trajectory_scores(extracted_df)
+    LOGGER.info("Post-process step 2/5 done in %.1fs (rows=%d)", time.perf_counter() - t1, len(scored_df))
+
+    t2 = time.perf_counter()
+    LOGGER.info("Post-process step 3/5: building comparison + summary metrics")
     validate_pairs(scored_df)
     comparison_df = build_comparison_dataframe(scored_df)
     trajectory_map = build_trajectory_map(scored_df)
     summary_df = build_summary_dataframe(comparison_df, scored_df)
+    LOGGER.info("Post-process step 3/5 done in %.1fs", time.perf_counter() - t2)
 
+    t3 = time.perf_counter()
+    LOGGER.info("Post-process step 4/5: writing backfilled JSON + CSV outputs")
     if backfilled_json is not None:
         backfilled_json.parent.mkdir(parents=True, exist_ok=True)
         backfilled_json.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -126,7 +139,10 @@ def process_report_to_outputs(
 
     comparison_df.to_csv(comparison_csv, index=False, encoding="utf-8-sig")
     summary_df.to_csv(summary_csv, index=False, encoding="utf-8-sig")
+    LOGGER.info("Post-process step 4/5 done in %.1fs", time.perf_counter() - t3)
 
+    t4 = time.perf_counter()
+    LOGGER.info("Post-process step 5/5: rendering HTML report")
     html_text = render_report_html(
         comparison_df=comparison_df,
         summary_df=summary_df,
@@ -135,6 +151,7 @@ def process_report_to_outputs(
         trajectory_map=trajectory_map,
     )
     report_html.write_text(html_text, encoding="utf-8")
+    LOGGER.info("Post-process step 5/5 done in %.1fs (total %.1fs)", time.perf_counter() - t4, time.perf_counter() - t0)
     print_summary_to_console(summary_df)
     return backfilled_json, comparison_csv, summary_csv, report_html, summary_df
 

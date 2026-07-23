@@ -286,3 +286,26 @@ python -m src.cli.lift_main -r openclaw --evaluate-only --run_id hello-smoke
 - **build 报 permission denied**：当前用户不在 docker 组（Linux）或 Docker daemon 未启动（macOS 未 `colima start` / 未开 Docker Desktop）。
 - **拉取基础镜像慢/失败**：设 `OPENCLAW_BASE_IMAGE` 切换加速源后重试。
 - **想清理残留容器/镜像再重来**：见 [`lift-integrate-agent-runtime/docs/environment-cleanup.md`](file:///root/workspace/agent_evolve_evaluation/skill/lift-integrate-agent-runtime/docs/environment-cleanup.md),配套脚本 `bash skill/lift-integrate-agent-runtime/scripts/cleanup.sh`。
+
+## 附录：常用运维命令
+
+### 打包 run 产物（跨机传输 / 归档）
+
+`results/lift-runid-<run_id>/` 目录里 `outcome/` 全是文本 workspace，xz 压得非常实（实测 2.9G → 81M，比 zip 缩 5.4×）：
+
+```bash
+cd results
+XZ_OPT='-9e -T0' tar -cJf lift-runid-<run_id>.tar.xz lift-runid-<run_id>
+```
+
+- `-9e` 最高档 + extreme 精修（多花 CPU 换更小体积）；只想快用 `-6`
+- `-T0` 用满所有 CPU 核并行压缩
+- 解压：`tar -xJf lift-runid-<run_id>.tar.xz`；Windows 用 7-zip 双击
+
+如果只想留报告不留 workspace（更瘦，适合归档索引）：
+
+```bash
+tar -cJf lift-runid-<run_id>-lite.tar.xz \
+  --exclude='lift-runid-<run_id>/outcome' \
+  lift-runid-<run_id>
+```

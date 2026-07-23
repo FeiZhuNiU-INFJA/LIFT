@@ -17,9 +17,11 @@ Collect Langfuse traces for one ``openclaw_run_task`` phase (single pipeline).
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+from src.config import LOGGER
 from src.lift.adapters.registry import SUPPORTED_RUNTIMES
 from src.report.langfuse_trace_fetch import (
     TranscriptChampion,
@@ -42,6 +44,35 @@ AgentSource = str
 # 单 phase 内 4 路 ``trace.list`` 互相独立（work_sid / judge_sid / work_tag /
 # judge_tag），用线程池并行 4 路即可消掉 4× RTT 串行累加。
 _LIST_PARALLELISM = 4
+
+# 服务端 zod 校验硬上限 ``limit <= 100``（Langfuse 4.11.0 实测；见
+# ``langfuse/api/trace/client.py:list`` docstring "reduce the limit"），
+# 不能再往上顶。所有分页拉取都以 100 为上界。
+_LIST_PAGE_LIMIT_MAX = 100
+
+# RunTraceIndex 分页并发拉取的 worker 数；实测 8 workers 达 ~7.9× 加速，
+# 16 workers ~15.7×（每页 ~4.6s → 0.05s if fields=core）。默认 8，需要更快
+# 或 langfuse-web 是集群时可通过 ``EVAL_INDEX_WORKERS`` 调整。
+_INDEX_WORKERS_ENV = "EVAL_INDEX_WORKERS"
+_INDEX_WORKERS_DEFAULT = 8
+
+# 每拉几页打一条进度日志（dashboard live log 能看进度，避免"卡 45 分钟"错觉）。
+_INDEX_PROGRESS_EVERY = 20
+
+
+def _resolve_index_workers() -> int:
+    raw = os.environ.get(_INDEX_WORKERS_ENV, "").strip()
+    if not raw:
+        return _INDEX_WORKERS_DEFAULT
+    try:
+        v = int(raw)
+    except ValueError:
+        LOGGER.warning(
+            "Invalid %s=%r, falling back to %d.",
+            _INDEX_WORKERS_ENV, raw, _INDEX_WORKERS_DEFAULT,
+        )
+        return _INDEX_WORKERS_DEFAULT
+    return max(1, v)
 
 
 def _list_traces_all_pages(client: Any, *, page_limit: int = 100, **kwargs: Any) -> list[Any]:
@@ -86,26 +117,80 @@ class RunTraceIndex:
     放大（例如 28 task × 2 × 4 = 224 次），全部按 ``sessionId`` 打 ClickHouse——sessionId
     非排序键，每次几乎全表扫，容易压垮单进程 ``langfuse-web`` 触发 ``httpx.ReadTimeout``。
 
-    本索引把发现阶段收敛到 O(1) 次分页 REST：按 ``run_tag`` 拉一次（run_tag = run_id 唯一），
+    本索引把发现阶段收敛到 O(pages) 次分页 REST：按 ``run_tag`` 拉一次（run_tag = run_id 唯一），
     Python 侧按 ``session_id`` 与每个 ``tag`` 建立二级字典，phase 层只做 dict 查询。
     完整 payload 仍由 ``fetch_trace_details`` 按需 ``trace.get``，本索引不影响。
+
+    性能实现要点（实测 r10：745 页 × 100 traces = 74405 条）:
+
+    - ``fields=core``: Langfuse ``trace.list`` 默认 join observations/scores/metrics 做汇总，
+      单页 ~4.66s；``fields=core`` 只返回 id/name/session_id/tags/timestamp/metadata 等核心列，
+      单页降至 ~0.05s（~90×）。discovery 阶段完全够用（``trace_ref_from_detail`` 拿完整
+      payload 走 ``trace.get``），是本索引最大加速来源。
+    - 分页并发: page 1 拿 ``total_pages`` 后，pages 2..N 用 ``ThreadPoolExecutor`` 并发拉。
+      Langfuse-web 单进程实测 8 workers ~7.9× 加速，16 workers ~15.7×。worker 数由
+      ``EVAL_INDEX_WORKERS`` 控制。
+    - 进度日志: 每 ``_INDEX_PROGRESS_EVERY`` 页打一条 INFO，避免 dashboard live log
+      长时间无输出误当卡死。
 
     仅承担 "发现"（list）阶段的缓存；后续 classify / pair 逻辑无变化。当外部传入 ``None``
     时，stitch 函数回落到 per-phase ``_list_traces_parallel``，便于灰度 / 排障对拍。
     """
 
-    def __init__(self, client: Any, *, run_tag: str, page_limit: int = 100):
+    def __init__(self, client: Any, *, run_tag: str, page_limit: int = _LIST_PAGE_LIMIT_MAX):
         if not run_tag:
             raise ValueError("RunTraceIndex requires a non-empty run_tag")
         self._run_tag = run_tag
-        # 单次分页拉全 run；order_by=timestamp.asc 与 per-phase 查询保持一致，
-        # 让 pair 阶段的时间顺序假设仍然成立。
-        self._items: list[Any] = _list_traces_all_pages(
-            client,
-            page_limit=page_limit,
-            tags=[run_tag],
-            order_by="timestamp.asc",
+        page_limit = min(page_limit, _LIST_PAGE_LIMIT_MAX)
+        # order_by=timestamp.asc 与 per-phase 查询保持一致，让 pair 阶段的时间顺序假设成立。
+        # fields=core 只保留 discovery 需要的字段（id/session_id/tags/…），跳过 obs/score/metric
+        # 聚合，把每页 ClickHouse 查询从 ~4.6s 降到 ~0.05s（实测 90×）。
+        list_kwargs = {
+            "tags": [run_tag],
+            "order_by": "timestamp.asc",
+            "fields": "core",
+        }
+
+        LOGGER.info(
+            "RunTraceIndex: probing run_tag=%s (page 1, limit=%d, fields=core).",
+            run_tag, page_limit,
         )
+        first = client.api.trace.list(limit=page_limit, page=1, **list_kwargs)
+        first_batch = list(first.data or [])
+        total_pages = int(first.meta.total_pages) if first.meta is not None else 1
+        total_items = int(first.meta.total_items) if first.meta is not None else len(first_batch)
+        LOGGER.info(
+            "RunTraceIndex: total_items=%d total_pages=%d — fetching pages 2..%d concurrently.",
+            total_items, total_pages, total_pages,
+        )
+
+        items: list[Any] = list(first_batch)
+        if total_pages > 1:
+            remaining = list(range(2, total_pages + 1))
+            workers = min(_resolve_index_workers(), len(remaining))
+
+            def _fetch(page: int) -> list[Any]:
+                resp = client.api.trace.list(limit=page_limit, page=page, **list_kwargs)
+                return list(resp.data or [])
+
+            done = 1  # page 1 already counted
+            page_to_batch: dict[int, list[Any]] = {}
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                future_to_page = {pool.submit(_fetch, p): p for p in remaining}
+                for fut in as_completed(future_to_page):
+                    p = future_to_page[fut]
+                    page_to_batch[p] = fut.result()
+                    done += 1
+                    if done % _INDEX_PROGRESS_EVERY == 0 or done == total_pages:
+                        LOGGER.info(
+                            "RunTraceIndex: fetched %d/%d pages (%d traces so far).",
+                            done, total_pages,
+                            len(items) + sum(len(v) for v in page_to_batch.values()),
+                        )
+            for p in remaining:
+                items.extend(page_to_batch[p])
+
+        self._items: list[Any] = items
         by_session: dict[str, list[Any]] = {}
         by_tag: dict[str, list[Any]] = {}
         for item in self._items:
