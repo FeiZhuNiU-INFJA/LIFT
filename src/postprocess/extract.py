@@ -19,6 +19,12 @@ import pandas as pd
 # 具体合法值由 CLI/registry 单点定义，避免 Literal 与 tuple 双份漂移。
 AgentSource: TypeAlias = str
 
+HERMES_AGENT_SOURCES = {
+    "hermes",
+    "hermes_with_openspace",
+    "hermes_with_agentmemory",
+}
+
 
 def load_json(path: Path) -> dict[str, Any]:
     """Load and parse a UTF-8 JSON file at *path*."""
@@ -203,7 +209,7 @@ def make_row(
     agent_input = extract_last_agent_input(side)
     work_analytics = extract_work_analytics(side)
 
-    if agent_source in ("hermes", "hermes_with_openspace"):
+    if agent_source in HERMES_AGENT_SOURCES:
         metric_row = _make_row_hermes(side, work_analytics)
     elif agent_source == "openhuman":
         metric_row = _make_row_openhuman(side, work_analytics)

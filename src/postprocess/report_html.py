@@ -13,7 +13,11 @@ from typing import Any, Callable
 
 import pandas as pd
 
-from src.postprocess.extract import AgentSource, _should_ignore_tool_call_block
+from src.postprocess.extract import (
+    AgentSource,
+    HERMES_AGENT_SOURCES,
+    _should_ignore_tool_call_block,
+)
 from src.postprocess.metrics import METRIC_COLUMNS, _outlier_mask
 
 # Metrics hidden from HTML for all agent sources.
@@ -31,7 +35,7 @@ _HTML_HIDDEN_METRICS_HERMES = _HTML_HIDDEN_METRICS_BASE | {
 
 def _hidden_metrics(agent_source: AgentSource) -> set[str]:
     """Return the set of metric column names to omit from HTML for *agent_source*."""
-    if agent_source in ("hermes", "hermes_with_openspace"):
+    if agent_source in HERMES_AGENT_SOURCES:
         return _HTML_HIDDEN_METRICS_HERMES
     return _HTML_HIDDEN_METRICS_BASE
 
