@@ -118,6 +118,9 @@ class ContainerSession(Disposable):
     viz_task: str | None = field(default=None, repr=False)
     viz_repeat_index: int | None = field(default=None, repr=False)
     viz_suite_name: str | None = field(default=None, repr=False)
+    # 容器 role: "work" / "judge"；起容器时显式传入，供 dashboard 直接展示
+    # work↔judge 兄弟对，避免靠 -judge 后缀命名巧合识别。None 表示未声明。
+    viz_role: str | None = field(default=None, repr=False)
     _cleaner: EnvironmentCleaner = field(default_factory=EnvironmentCleaner)  # 容器/镜像清理
     _pre_cleanup_hooks: list[ContainerHook] = field(default_factory=list, repr=False)  # rm 前钩子
     _cleaned: bool = field(default=False, repr=False)  # 幂等 cleanup 标记
@@ -146,6 +149,7 @@ class ContainerSession(Disposable):
             stage=self.viz_stage,
             repeat_index=self.viz_repeat_index,
             suite_name=self.viz_suite_name,
+            role=self.viz_role,
         )
 
     @classmethod
@@ -167,6 +171,7 @@ class ContainerSession(Disposable):
         metadata: dict[str, Any] | None = None,
         viz_repeat_index: int | None = None,
         viz_suite_name: str | None = None,
+        viz_role: str | None = None,
         force_bridge_network: bool = False,
     ) -> ContainerSession:
         """组装 ``docker run -d`` 命令并启动容器，可选 readiness 与 post-start 钩子。
@@ -265,6 +270,7 @@ class ContainerSession(Disposable):
             viz_task=task,
             viz_repeat_index=repeat_index,
             viz_suite_name=suite_name,
+            viz_role=viz_role,
             _pre_cleanup_hooks=list(pre_cleanup_hooks or []),
         )
         status_events.emit_container(
@@ -275,6 +281,7 @@ class ContainerSession(Disposable):
             stage=stage,
             repeat_index=repeat_index,
             suite_name=suite_name,
+            role=viz_role,
         )
         if readiness_check is not None:
             await readiness_check(session)  # 如 OpenClaw gateway curl
@@ -292,12 +299,22 @@ def _infer_stage_task(
     - warmup 单容器：``...-r{N}-{suite}-warmup``
     - warmup 多容器：``...-r{N}-{suite}-warmup-{task}-{short_id}``
     - holdout 每题：``...-r{N}-{suite}-{task}-holdout-{baseline|evolved}-{short_id}``
+    - judge 兄弟容器：以上任一 instance_id 末尾追加 ``-judge`` 后缀。
+
+    末尾 ``-judge`` 段是 judge 兄弟容器的命名约定，仅用于容器名唯一性，
+    不参与 stage / task 推断，本函数先剥离再解析——否则 warmup judge 会把
+    "judge" 误读成 task 名。role 信息不在这里返回；调用方应通过
+    ``ContainerSession.start(viz_role=...)`` 显式传入。
+
     无法解析的字段返回 ``None``，不影响功能。
 
     注意 suite 段已经过 ``clip_name_segment`` 转拼音 / 截断，调用方若有原始 suite_name
     应通过 ``ContainerSession.start(viz_suite_name=...)`` 显式传入；本函数仅作兜底。
     """
     parts = instance_id.split("-")
+    # 剥离 judge 兄弟容器的末尾 -judge 后缀，避免污染 warmup 的 task 位次
+    if parts and parts[-1] == "judge":
+        parts = parts[:-1]
     repeat_idx: int | None = None
     suite: str | None = None
     # 找 ``r{N}`` 段；其后紧跟的是 suite 段

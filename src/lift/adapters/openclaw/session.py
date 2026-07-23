@@ -218,6 +218,7 @@ async def start_openclaw_container(
     container_cpus: str | None = None,
     force_bridge_network: bool = False,
     agentmemory_prelaunch: bool = False,
+    viz_role: str | None = None,
 ) -> ContainerSession:
     """启动 OpenClaw gateway 容器：端口、token、volume、readiness 与 workspace bridge。
 
@@ -300,6 +301,7 @@ async def start_openclaw_container(
         },
         viz_repeat_index=ctx.repeat_index,
         viz_suite_name=ctx.suite_name,
+        viz_role=viz_role,
         force_bridge_network=force_bridge_network,
     )
 

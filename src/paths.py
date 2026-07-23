@@ -127,7 +127,7 @@ BENCHMARK_MDS_HF_PATH_IN_REPO = "benchmark_mds.zip"
 DEFAULT_BENCHMARK_HF_REPO = "FeiZhuNiU-INFJA/EALE"
 """HuggingFace dataset 仓库默认 id（公开仓库，``BENCHMARK_HF_REPO`` 可覆盖）。"""
 
-DEFAULT_BENCHMARK_MODELSCOPE_REPO = "iKlare/EALE"
+DEFAULT_BENCHMARK_MODELSCOPE_REPO = "Evolvon/EALE"
 """ModelScope dataset 仓库默认 id（``BENCHMARK_MODELSCOPE_REPO`` 可覆盖）。"""
 
 

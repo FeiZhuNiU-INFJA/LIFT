@@ -58,6 +58,7 @@ class GenericAgentAdapter(ContainerAgentRuntimeAdapter):
         seed_workspace: bool,
         task: SuiteTask | None,
         load_state: HoldoutLoadState | None = None,
+        viz_role: str | None = None,
     ) -> ContainerSession:
         """委托 ``start_genericagent_container``；GA 不区分 baseline / evolved。"""
         _ = load_state
@@ -70,6 +71,7 @@ class GenericAgentAdapter(ContainerAgentRuntimeAdapter):
             task=task,
             container_memory=self._options.container_memory,
             container_cpus=self._options.container_cpus,
+            viz_role=viz_role,
         )
 
     @override

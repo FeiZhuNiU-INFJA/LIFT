@@ -82,6 +82,7 @@ class HermesAdapter(ContainerAgentRuntimeAdapter):
         seed_workspace: bool,
         task: SuiteTask | None,
         load_state: HoldoutLoadState | None = None,
+        viz_role: str | None = None,
     ) -> ContainerSession:
         """启动 Hermes 容器；启动后读回构建期发现的 venv/源码路径写入 metadata。"""
         _ = (seed_workspace, load_state)  # Hermes 状态 baked 在 /opt/hermes-state，不区分 seed
@@ -94,6 +95,7 @@ class HermesAdapter(ContainerAgentRuntimeAdapter):
             container_memory=self._options.container_memory,
             container_cpus=self._options.container_cpus,
             force_bridge_network=self.force_bridge_network,
+            viz_role=viz_role,
         )
         venv_py, src_dir = await read_hermes_paths(session.container_name)
         session.metadata["hermes_venv_py"] = venv_py

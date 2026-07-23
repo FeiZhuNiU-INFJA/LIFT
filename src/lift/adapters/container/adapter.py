@@ -110,6 +110,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
             workspace_dir=workspace_dir,
             seed_workspace=True,
             task=None,
+            viz_role="work",
         )
         # judge 独立容器：同镜像、同 workspace、同参数，仅 instance_id 加 -judge 后缀。
         # judge agent 跑在此容器，与 work 完全隔离（记忆/observation 互不污染）。judge
@@ -122,6 +123,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
             workspace_dir=workspace_dir,
             seed_workspace=True,
             task=None,
+            viz_role="judge",
         )
         return ExecutionEnvironment(
             disposable=CompositeDisposable([session, judge_session]),

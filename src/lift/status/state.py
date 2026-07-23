@@ -134,6 +134,8 @@ class ContainerInfo:
     suite_name: str | None = None
     task_name: str | None = None
     stage: str | None = None
+    # 容器角色："work" / "judge"；起容器时显式声明。None 表示未声明（legacy）。
+    role: str | None = None
     started_at: float = field(default_factory=time.time)
 
 
@@ -478,6 +480,7 @@ class RunStateTracker:
                     suite_name=e.suite_name,
                     task_name=e.task_name,
                     stage=e.stage,
+                    role=e.role,
                 )
             elif e.status == "stopped":
                 self._containers.pop(e.container_name, None)

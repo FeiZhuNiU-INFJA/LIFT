@@ -126,6 +126,7 @@ async def start_evoscientist_container(
     task: SuiteTask | None = None,
     container_memory: str | None = None,
     container_cpus: str | None = None,
+    viz_role: str | None = None,
 ) -> ContainerSession:
     """启动 EvoScientist 评测容器。
 
@@ -182,4 +183,5 @@ async def start_evoscientist_container(
         metadata={},
         viz_repeat_index=ctx.repeat_index,
         viz_suite_name=ctx.suite_name,
+        viz_role=viz_role,
     )
