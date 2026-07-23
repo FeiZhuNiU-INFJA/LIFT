@@ -64,6 +64,10 @@ ARG OPENSPACE_GIT_URL=https://github.com/HKUDS/OpenSpace.git
 ENV OPENSPACE_GIT_URL=${OPENSPACE_GIT_URL}
 ARG OPENSPACE_GIT_REF=main
 ENV OPENSPACE_GIT_REF=${OPENSPACE_GIT_REF}
+# uv 会去 python-build-standalone GitHub releases 拉 cpython；受限网络下常挂死。
+# 通过 UV_PYTHON_INSTALL_MIRROR 让下载走 GitHub 反代（默认 gh-proxy.com）。
+ARG UV_PYTHON_INSTALL_MIRROR=https://gh-proxy.com/https://github.com/astral-sh/python-build-standalone/releases/download
+ENV UV_PYTHON_INSTALL_MIRROR=${UV_PYTHON_INSTALL_MIRROR}
 
 # agentmemory memory provider plugin（README「Option 2: Memory provider plugin」深度集成）。
 # 默认不装；--with-agentmemory 时置 true。install-in-image.sh 据此装 Node>=20 + npm 装

@@ -167,6 +167,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
             seed_workspace=seed_workspace,
             task=task,
             load_state=load_state,
+            viz_role="work",
         )
         # judge 独立容器：同镜像（baseline 或 delta）、同 workspace、同 load_state，
         # 仅 instance_id 加 -judge 后缀。judge agent 跑此容器，与 work 完全隔离。
@@ -180,6 +181,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
             seed_workspace=seed_workspace,
             task=task,
             load_state=load_state,
+            viz_role="judge",
         )
         return ExecutionEnvironment(
             disposable=CompositeDisposable([session, judge_session]),
@@ -230,6 +232,7 @@ class ContainerAgentRuntimeAdapter(AgentRuntimeAdapter):
         seed_workspace: bool,
         task: SuiteTask | None,
         load_state: HoldoutLoadState | None = None,
+        viz_role: str | None = None,
     ) -> ContainerSession:
         """启动运行时特定的容器会话（子类实现 gateway/entrypoint 等）。
 

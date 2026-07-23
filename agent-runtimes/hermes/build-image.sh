@@ -47,6 +47,10 @@ Override via env:
   PIP_INDEX_URL           内网构建时切换 PyPI 源
   OPENSPACE_GIT_URL       OpenSpace 源（默认 https://github.com/HKUDS/OpenSpace.git）
   OPENSPACE_GIT_REF       OpenSpace ref（默认 main）
+  UV_PYTHON_INSTALL_MIRROR
+                          uv 拉 python-build-standalone cpython 的 GitHub releases
+                          反代（默认 https://gh-proxy.com/https://github.com/astral-sh/python-build-standalone/releases/download，
+                          可指向内网镜像；受限网络下必需，否则 uv venv 会静默挂死）
   AGENTMEMORY_GIT_URL     agentmemory 源（默认 https://github.com/rohitg00/agentmemory.git）
   AGENTMEMORY_GIT_REF     agentmemory ref（默认 main）
   NPM_CONFIG_REGISTRY     npm registry（内网可覆盖；默认公网）
@@ -92,6 +96,7 @@ BUILD_ARGS+=(--build-arg "INSTALL_OPENSPACE=${INSTALL_OPENSPACE}")
 if [[ "${INSTALL_OPENSPACE}" == "true" ]]; then
   [[ -n "${OPENSPACE_GIT_URL:-}" ]] && BUILD_ARGS+=(--build-arg "OPENSPACE_GIT_URL=${OPENSPACE_GIT_URL}")
   [[ -n "${OPENSPACE_GIT_REF:-}" ]] && BUILD_ARGS+=(--build-arg "OPENSPACE_GIT_REF=${OPENSPACE_GIT_REF}")
+  [[ -n "${UV_PYTHON_INSTALL_MIRROR:-}" ]] && BUILD_ARGS+=(--build-arg "UV_PYTHON_INSTALL_MIRROR=${UV_PYTHON_INSTALL_MIRROR}")
   echo "==> OpenSpace MCP plugin enabled (git ${OPENSPACE_GIT_URL:-default}@${OPENSPACE_GIT_REF:-main})"
 fi
 BUILD_ARGS+=(--build-arg "INSTALL_AGENTMEMORY=${INSTALL_AGENTMEMORY}")
@@ -110,6 +115,18 @@ if [[ -n "${FIRECRAWL_API_KEY:-}" ]]; then
   BUILD_ARGS+=(--build-arg "FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}")
   echo "==> Baking FIRECRAWL_API_KEY into image + running firecrawl-cli init"
 fi
+
+# Propagate host HTTP(S) proxy into build ARGs. BuildKit RUN sandboxes do NOT
+# inherit host env vars, so `git clone github.com` etc. can hang on restricted
+# networks even under --network host. Injecting http_proxy / https_proxy /
+# no_proxy as --build-arg makes them visible as env inside every RUN step.
+for var in http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY; do
+  val="${!var:-}"
+  if [[ -n "${val}" ]]; then
+    BUILD_ARGS+=(--build-arg "${var}=${val}")
+    echo "==> Forwarding ${var} to build args"
+  fi
+done
 
 # Build-time network mode. The BuildKit sandbox does NOT inherit host DNS by
 # default, so uv/git/npx can fail with "dns error / failed to lookup address"
