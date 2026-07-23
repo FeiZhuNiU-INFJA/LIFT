@@ -8,7 +8,7 @@
 
 Self-evolving LLM agents continuously accumulate reusable experience *artifacts* — skills, memories, standard operating procedures (SOPs), tool boxes, personas — produced during interaction and reloaded on later tasks. Yet mainstream evaluation cannot separate *genuine* capability generalization from *pseudo* performance growth introduced by evaluation confounds: training-memory leakage (the agent replaying an earlier task's output into the next), cross-session context pollution, grader self-preference, and non-reproducible runtimes. As a result, "the agent evolved a pile of artifacts" is routinely mistaken for "the artifacts help downstream."
 
-We present **LIFT (Loaded Impact on Final Task)**, a counterfactual evaluation framework that makes the *Base vs. Loaded* contrast on held-out tasks its single scientific question. LIFT operationalizes this contrast with three mechanisms: (i) **paired A/B runs** of the same held-out task with and without consolidated artifacts; (ii) **strict separation** of warmup (training) tasks from holdout (unseen) tasks; and (iii) **Docker container snapshots** (`docker commit` → delta image) that solidify the runtime agent state as an artifact-agnostic, cross-machine-reproducible carrier. Together these isolate the confounds above, so that a positive delta on an unseen task is *attributable to the artifacts* rather than to leakage, context pollution, or environment drift. A **three-layer decoupling** (pipeline / runtime adapter / evaluation kernel) hosts eleven heterogeneous agent runtimes behind four hooks; a **work-agent + judge-agent review loop** scores each task; and multi-level concurrency plus Langfuse trace backfill make every run auditable in both *conclusion* and *process*. We release a self-contained **benchmark of 14 scenes (84 tasks)** built on a two-phase schema with a deliberate ~75%/25% train-test requirement overlap designed to expose over-fitting to literal training requirements. LIFT provides a standardized, attributable pipeline for empirical research on self-evolving agents and makes precise the methodological gaps in existing agent benchmarks. All code, container images, and datasets are released.
+We present **LIFT (Loaded Impact on Final Task)**, a counterfactual evaluation framework that makes the *Base vs. Loaded* contrast on held-out tasks its single scientific question. LIFT operationalizes this contrast with three mechanisms: (i) **paired A/B runs** of the same held-out task with and without consolidated artifacts; (ii) **strict separation** of warmup (training) tasks from holdout (unseen) tasks; and (iii) **Docker container snapshots** (`docker commit` → delta image) that solidify the runtime agent state as an artifact-agnostic, cross-machine-reproducible carrier. Together these isolate the confounds above, so that a positive delta on an unseen task is *attributable to the artifacts* rather than to leakage, context pollution, or environment drift. A **three-layer decoupling** (pipeline / runtime adapter / evaluation kernel) hosts twelve heterogeneous agent runtimes behind four hooks; a **work-agent + judge-agent review loop** scores each task; and multi-level concurrency plus Langfuse trace backfill make every run auditable in both *conclusion* and *process*. We release a self-contained **benchmark of 14 scenes (84 tasks)** built on a two-phase schema with a deliberate ~75%/25% train-test requirement overlap designed to expose over-fitting to literal training requirements. LIFT provides a standardized, attributable pipeline for empirical research on self-evolving agents and makes precise the methodological gaps in existing agent benchmarks. All code, container images, and datasets are released.
 
 ---
 
@@ -47,10 +47,9 @@ We propose **LIFT**, whose thesis is one sentence:
 Concretely we contribute:
 
 1. **A scientific protocol** — train/test separation (`warmup_tasks` / `holdout_tasks`) + same-task paired runs (baseline / evolved) + a work-judge review loop (§3).
-2. **An engineering carrier** — container snapshots (`docker commit` → delta image) as the artifact-agnostic form of evolved state; each holdout task starts an isolated container; runtime / pipeline / evaluation are decoupled into three layers (§3.3, §3.5).
+2. **An engineering carrier, released** — container snapshots (`docker commit` → delta image) as the artifact-agnostic form of evolved state; each holdout task starts an isolated container; runtime / pipeline / evaluation are decoupled into three layers (§3.3, §3.5). We release the framework code, twelve runtime adapters, container images, and datasets, so the protocol is reusable, criticizable, and comparable.
 3. **Repeatability & observability** — multi-level concurrency and pre-chat + Langfuse trace backfill, so both conclusion and process are re-queryable (§3.6–3.7).
 4. **A self-contained benchmark suite** — 14 scenes / 84 tasks on a two-phase schema with a deliberate 75%/25% train-test requirement overlap (§4).
-5. **A release** — framework code, eleven runtime adapters, container images, and datasets, so the protocol is reusable, criticizable, and comparable.
 
 ---
 
@@ -108,7 +107,7 @@ TaskRun
 
 **Key engineering trade-offs.**
 
-- **Warmup container orchestration is configurable.** In a single-agent evolution scenario, all warmup tasks share one container by default (`parallel_single`; continuous file-system state is a natural requirement of the evolution plugin). In multi-user / group-memory scenarios (`multi_user_openclaw`), it switches to `parallel_multi`: each task gets its own container, artifacts land in an external group-memory service, and the commit degenerates to a no-op. Both forms are transparent to the upper pipeline.
+- **Warmup container orchestration is configurable.** In a single-agent evolution scenario, all warmup tasks share one container by default (`parallel_single`; continuous file-system state is a natural requirement of the evolution plugin). The framework also supports `parallel_multi` for scenarios where artifacts should live outside the container (e.g., an external memory service): each task gets its own container, artifacts land in the external service, and `docker commit` degenerates to a no-op. Both forms are transparent to the upper pipeline.
 - **Holdout starts a new container per task.** Unlike warmup, this is a protocol-level hard constraint — baseline must be an *uncontaminated* environment, and per-task workspaces must be isolated. Hence `HoldoutContainerPolicy` (`src/lift/policies/container.py`) offers only `SERIAL_MULTI` / `PARALLEL_MULTI` "multi-container" forms, with no single-container option.
 - **All holdout tasks share one delta.** The artifact is a suite-level constant and must not vary across holdout tasks.
 
@@ -140,13 +139,14 @@ The direct payoff: **integrating a new runtime is near-zero-cost.** Registered r
 | runtime | image | evolve behavior |
 |---|---|---|
 | `openclaw` | base image, no evolution plugin | no-op after warmup; only `docker commit` |
-| `openclaw_with_evolve` | with-evolve image | runs `openclaw learn review` in-container after warmup, then commit |
 | `openclaw_with_openspace` | with-openspace image (OpenSpace MCP skill hub) | reuses base warmup / commit flow; MCP-side skill hub is exercised during warmup |
-| `multi_user_openclaw` | base image + GroupMemoryMixin | multi-container warmup (simulated multi-user); artifacts to external group memory |
+| `openclaw_with_agentmemory` | with-agentmemory image | container-local agentmemory server on `:3111` (offline embedding); bridge network; base warmup / commit flow captures `/root/.agentmemory` |
 | `genericagent` / `genericagent_active_evolve` | `lift-genericagent:latest` | baseline file I/O; active variant does reflection chat |
 | `hermes` | `lift-hermes:latest` | Hermes review flow writes `/opt/hermes-state`, then commit |
 | `hermes_with_openspace` | `lift-hermes-with-openspace:latest` | Hermes review flow + OpenSpace MCP registered in `config.yaml`; commit |
+| `hermes_with_agentmemory` | `lift-hermes-with-agentmemory:latest` | Hermes review flow + agentmemory provider (container-local `:3111`, bridge network); commit |
 | `openhuman` | `lift-openhuman:latest` | Rust JSON-RPC runtime; long-term memory / wiki paths enter the delta |
+| `openhuman_with_agentmemory` | `lift-openhuman-with-agentmemory:latest` | `config.toml` `[memory] backend=agentmemory` routes to container-local `:3111`; bridge network; commit captures `/root/.agentmemory` |
 | `evoscientist` / `evoscientist_active_evolve` | `lift-evoscientist:latest` | baseline captures natural state change; active variant triggers EvoMemory AutoSkills, then commit |
 
 > **MCP note.** OpenSpace variants are only added to MCP-capable runtimes (OpenClaw, Hermes). GenericAgent (fixed atomic tools) and OpenHuman (no `mcp_servers` field) are not MCP clients, so they do not receive an OpenSpace variant.
@@ -157,7 +157,16 @@ A new runtime implements four hooks — `resolve_docker_image` / `start_containe
 
 ### 3.4 Per-task kernel: the work + judge review loop
 
-The single task is LIFT's minimal scoring unit. We use an *execute → review → feedback → retry* loop:
+The single task is LIFT's minimal scoring unit. We use an *execute → review → feedback → retry* loop.
+
+**Why a loop, and why this shape.** Real-user interaction is neither one-shot nor rubric-driven. A user rarely writes their full acceptance criteria up front; they issue a query, look at the deliverable, and only then surface an unmet requirement — *one at a time*, in natural language, in the tone of *"oh, and I also wanted X."* An agent operating under this loop must not only produce a plausible first draft, but also **interpret and act on partial, unordered feedback** — a strictly harder skill than answering a fully-specified prompt. Any evaluation that collapses this to a single "answer → score" step loses the most discriminative signal about artifact usefulness: whether the evolved agent needs *fewer* clarification rounds than the base. LIFT therefore mirrors the interaction rather than the grading rubric:
+
+- **Query only, checklist hidden.** The agent receives what a user would actually type; the ground-truth `content_reqs` list never enters the agent's context (§4.2).
+- **Judge as the user, not a rubric adjudicator.** The judge role-plays the person who wrote the query, compares the deliverable against the hidden checklist, and returns a natural-language `reason` that surfaces *the top unmet requirement(s)* only — not the full diff, reconstructing the "user suddenly remembers one more thing" dynamic.
+- **Feedback becomes the next prompt.** That `reason` is fed back verbatim as `current_prompt`, so the follow-up turn is indistinguishable in shape from a first turn — another human-style utterance, no metadata leak, no structured tool-call trace injected on the user's behalf.
+- **Bounded by a shared `max_turns`.** The loop terminates when the judge marks success or the budget is exhausted; `baseline` and `evolved` see the same budget, so extra rounds cannot masquerade as artifact merit.
+
+The code block below encodes exactly this loop:
 
 ```text
 run_task:
@@ -171,7 +180,7 @@ run_task:
 
 Design decisions:
 
-1. **The judge is a separate session of the same runtime** — simulating a real user reviewing, introducing no cross-model bias, and able to call real tools to verify outputs (Agent-as-a-Judge's *executable verification*).
+1. **The judge runs in a sibling container of the same runtime** — started from the same image and workspace as the work container, but sharing neither its file system nor its process space. This simulates a real user reviewing, introduces no cross-model bias, and lets the judge call real tools to verify outputs (Agent-as-a-Judge's *executable verification*). The physical split also prevents the work agent from reading the judge's tool state, and — combined with §3.5 — keeps any reviewing artifact out of the delta.
 2. **First-round and final pass rates are reported separately** — FirstRoundPassRate reflects "artifacts let the agent get it right in one shot"; FinalPassRate reflects "artifacts + feedback loop." Good artifacts show up mainly in the former.
 3. **baseline and evolved must share `max_turns`** — otherwise evolved wins by getting two more feedback rounds, not by artifact merit.
 4. **Tokens include the judge's consumption** — if Loaded retries less, the judge's token savings count toward the artifact's contribution.
@@ -208,7 +217,8 @@ Implicit constraints:
 
 - **Delta is a suite-level temporary artifact** — `docker rmi`'d when the suite finishes, never polluting the local image list.
 - **Holdout workspace must be explicitly seeded** — to avoid a first-run agent asking for a name/emoji and confusing scoring.
-- **Group-memory runtimes** use the same interface `DeltaRef(image_tag=base_image, owned=False)` (`owned=False` skips `docker rmi`), unifying "artifacts live externally" under one abstraction.
+- **`docker commit` operates on the work container only** — the judge sibling (§3.4) is torn down without commit, so no reviewing artifact can leak into `evolved`; tool counts, tokens, and `evolve_after_warmup` hooks are likewise scoped to the work side.
+- **External-artifact runtimes** use the same interface `DeltaRef(image_tag=base_image, owned=False)` (`owned=False` skips `docker rmi`), unifying "artifacts live externally" under one abstraction.
 
 ### 3.6 Concurrency & isolation: making "run it repeatedly" cheap
 
@@ -375,7 +385,7 @@ Turns dominate the composite because they map most directly to user-perceived la
 | 8 | `[TODO]` | Implicit | -- / -- | -- | -- | -- | -- | -- | -- | -- |
 | 9 | `[TODO]` | Implicit | -- / -- | -- | -- | -- | -- | -- | -- | -- |
 
-Runtimes entering the leaderboard — *Implicit* (natural state accumulation during warmup): `openclaw`, `genericagent`, `hermes`, `openhuman`, `evoscientist`; *Augmented* (explicit reflection / skill hub / AutoSkills after warmup): `openclaw_with_openspace`, `genericagent_active_evolve`, `hermes_with_openspace`, `evoscientist_active_evolve`. `openclaw_with_evolve` and `multi_user_openclaw` are excluded from this main leaderboard (they remain part of the registry and are discussed under RQ2 and RQ4 respectively).
+Runtimes entering the leaderboard — *Implicit* (natural state accumulation during warmup): `openclaw`, `genericagent`, `hermes`, `openhuman`, `evoscientist`; *Augmented* (explicit reflection / skill hub / external memory / AutoSkills after warmup): `openclaw_with_openspace`, `openclaw_with_agentmemory`, `genericagent_active_evolve`, `hermes_with_openspace`, `hermes_with_agentmemory`, `openhuman_with_agentmemory`, `evoscientist_active_evolve`.
 
 **Caveat.** Tool-call counts for runtimes without a native counter (EvoScientist, OpenHuman) are populated via Langfuse `trace_backfill`; if the trace overlay is unavailable, the cell is annotated `n/a` and that runtime is scored on ΔTurns% alone.
 
@@ -388,7 +398,7 @@ Runtimes entering the leaderboard — *Implicit* (natural state accumulation dur
 | (14 rows) | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` |
 | **Macro-avg** | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` |
 
-**RQ2 — Does the evolution plugin itself add value?** `openclaw` (no plugin) vs. `openclaw_with_evolve`, on identical suites. `[TODO-DATA]`
+**RQ2 — Do augmentation hooks (skill hub / external memory / active reflection) add value on top of implicit evolution?** `openclaw` vs. its augmented siblings (`openclaw_with_openspace`, `openclaw_with_agentmemory`); `hermes` vs. `hermes_with_openspace` / `hermes_with_agentmemory`; `openhuman` vs. `openhuman_with_agentmemory`; `genericagent` vs. `genericagent_active_evolve`; `evoscientist` vs. `evoscientist_active_evolve`. Each pair holds the base runtime fixed and toggles exactly one augmentation. `[TODO-DATA]`
 
 **RQ3 — Is the delta stable across repeats?** Variance of DownstreamPassDelta over `--repeat` on one suite; report std and CI. `[TODO-DATA]`
 
@@ -407,7 +417,7 @@ Runtimes entering the leaderboard — *Implicit* (natural state accumulation dur
 1. **Benchmark data contamination.** LIFT cannot prevent the gold set from being contaminated by LLM training data; ABC-Checklist-style tools must gate this at benchmark-design time.
 2. **No direct cross-agent comparison.** We deliberately do **not** support head-to-head *OpenClaw+plugin vs. Hermes* comparison — too many confounds make conclusions non-attributable. The correct move is per-agent Base vs. Loaded, then compare delta magnitudes.
 3. **Evolution ≠ artifacts.** LIFT is artifact-source-agnostic by default. To isolate "the evolution *mechanism* has value," use the attribution triplet (No-Evo / Only-Products / Evo-On) — an optional appendix, not a required metric.
-4. **Judge bias.** When both work and judge are LLMs, self-preference is a risk. Current mitigation: the judge role-plays "the user," adjudicates the `content_reqs` checklist item-by-item into a single completion ratio, and is pinned (temperature 0, fixed model, versioned rubric). Making deterministic requirements fully machine-checkable — shrinking the subjective surface further — is future work.
+4. **Judge bias.** When both work and judge are LLMs, self-preference is a risk. Current mitigation: the judge role-plays "the user," adjudicates the `content_reqs` checklist item-by-item into a single completion ratio, and is pinned (temperature 0, fixed model, versioned rubric); work and judge are additionally split into sibling containers (§3.4) so self-preference cannot compound with state leakage — neither party can read or write the other's runtime state. Making deterministic requirements fully machine-checkable — shrinking the subjective surface further — is future work.
 5. **Environment fidelity.** The container is still a *controlled Linux environment*; fidelity gaps remain versus desktop-GUI / browser agents — future work.
 6. **Evolution-cost attribution.** `evolve_after_warmup` tokens are training cost, not Loaded inference cost; LIFT books them separately so EvolutionROI is not under-counted.
 
@@ -421,8 +431,8 @@ Our stance in one sentence: **evaluating a self-evolving agent is not about how 
 
 ## Reproducibility & Release
 
-- **Code**: framework, eleven runtime adapters, status dashboard, post-processing.
-- **Images**: `lift-openclaw-base` / `lift-openclaw-with-evolve` and `lift-{genericagent,hermes,openhuman,evoscientist}:latest` build scripts.
+- **Code**: framework, twelve runtime adapters, status dashboard, post-processing.
+- **Images**: `lift-openclaw-base` / `lift-openclaw-with-openspace` / `lift-openclaw-with-agentmemory` and `lift-{genericagent,hermes,hermes-with-openspace,hermes-with-agentmemory,openhuman,openhuman-with-agentmemory,evoscientist}:latest` build scripts.
 - **Data**: 14-scene benchmark (Croissant metadata + hosted repository `[TODO-HOSTING]`), plus the demo smoke suite in-repo.
 - **Entry points**: `python -m src.cli.lift_main -r <runtime> --benchmark_dir <dir> --suite <name>.json --run_id <id>`; `--evaluate-only` for post-process replay.
 
