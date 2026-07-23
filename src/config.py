@@ -2,6 +2,8 @@
 
 import logging
 import os
+import threading
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -162,6 +164,67 @@ _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 _PROJECT_ROOT = PROJECT_ROOT
 
 
+_LOG_TAIL_MAX = 500
+"""``RingLogHandler`` 环形缓冲最多保留的日志行数，同时也是 dashboard 日志面板一次最多展示的条目上限。"""
+
+
+class RingLogHandler(logging.Handler):
+    """线程安全的环形日志缓冲：把最新 ``maxlen`` 行格式化后存起来，供 dashboard 拉取。
+
+    每行附带一个单调递增的 ``seq``，前端按 ``since=<seq>`` 增量取；缓冲被覆盖时
+    ``since`` 落在窗口外由前端触发一次全量刷新（handler 侧不做特殊处理，直接返回
+    全部窗口内容）。
+    """
+
+    def __init__(self, maxlen: int = _LOG_TAIL_MAX) -> None:
+        super().__init__()
+        self._buf: deque[tuple[int, str, str]] = deque(maxlen=maxlen)
+        self._lock = threading.Lock()
+        self._seq = 0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+        except Exception:  # pragma: no cover - 与 logging 默认行为一致，绝不让日志格式化把主流程炸掉
+            self.handleError(record)
+            return
+        with self._lock:
+            self._seq += 1
+            self._buf.append((self._seq, record.levelname, msg))
+
+    def tail(self, since: int = 0, limit: int | None = None) -> tuple[int, list[dict[str, object]]]:
+        """返回 ``seq > since`` 的日志行；``since=0`` 表示要窗口内的全部内容。
+
+        返回 ``(latest_seq, entries)``；``entries`` 中每项形如
+        ``{"seq": int, "level": str, "text": str}``。``since`` 落在窗口外时，
+        视作前端错过了历史，直接把当前窗口全量吐出。
+        """
+        with self._lock:
+            snapshot = list(self._buf)
+            latest = self._seq
+        if since <= 0:
+            selected = snapshot
+        else:
+            selected = [row for row in snapshot if row[0] > since]
+            if not selected and snapshot and snapshot[0][0] > since + 1:
+                # since 落在环外，交给前端按 latest 重建
+                selected = snapshot
+        if limit is not None and limit > 0:
+            selected = selected[-limit:]
+        entries = [
+            {"seq": seq, "level": level, "text": text} for seq, level, text in selected
+        ]
+        return latest, entries
+
+
+_LOG_RING_HANDLER: RingLogHandler | None = None
+
+
+def get_log_ring_handler() -> RingLogHandler | None:
+    """返回当前进程唯一的 ``RingLogHandler`` 实例；``setup_logging`` 未运行前为 None。"""
+    return _LOG_RING_HANDLER
+
+
 def _default_log_file() -> Path:
     """默认日志文件路径（项目根下 ``evolve_eval.log``）。"""
     return PROJECT_ROOT / "evolve_eval.log"
@@ -170,6 +233,7 @@ def _default_log_file() -> Path:
 def setup_logging() -> None:
     """配置根 logger：默认 INFO，可由 ``EVAL_LOG_LEVEL`` 覆盖（DEBUG/WARNING/ERROR 等）；
     彩色 stdout、plain 文件 handler（幂等追加）。"""
+    global _LOG_RING_HANDLER
     root_logger = logging.getLogger()
     level_name = os.getenv("EVAL_LOG_LEVEL", "INFO").upper()
     level = logging.getLevelName(level_name)
@@ -201,9 +265,24 @@ def setup_logging() -> None:
                     return True
         return False
 
+    def _ensure_ring_handler() -> None:
+        """幂等挂载 ``RingLogHandler`` 到 root logger，供 dashboard ``/logs`` 拉取。"""
+        global _LOG_RING_HANDLER
+        for h in root_logger.handlers:
+            if isinstance(h, RingLogHandler):
+                _LOG_RING_HANDLER = h
+                h.setFormatter(plain_formatter)
+                return
+        handler = RingLogHandler()
+        handler.setFormatter(plain_formatter)
+        root_logger.addHandler(handler)
+        _LOG_RING_HANDLER = handler
+
     if root_logger.handlers:
         for handler in root_logger.handlers:
-            if isinstance(handler, logging.StreamHandler) and not isinstance(
+            if isinstance(handler, RingLogHandler):
+                handler.setFormatter(plain_formatter)
+            elif isinstance(handler, logging.StreamHandler) and not isinstance(
                 handler, logging.FileHandler
             ):
                 handler.setFormatter(color_formatter)
@@ -213,6 +292,7 @@ def setup_logging() -> None:
             file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
             file_handler.setFormatter(plain_formatter)
             root_logger.addHandler(file_handler)
+        _ensure_ring_handler()
         return
 
     stream_handler = logging.StreamHandler()
@@ -222,6 +302,8 @@ def setup_logging() -> None:
     file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
     file_handler.setFormatter(plain_formatter)
     root_logger.addHandler(file_handler)
+
+    _ensure_ring_handler()
 
 
 setup_logging()

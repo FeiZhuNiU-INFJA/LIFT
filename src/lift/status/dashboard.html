@@ -809,6 +809,28 @@
     .running, .retrying { animation: none; }
     .conn-status.live .conn-dot { animation: none; }
   }
+
+  /* ---- live log tail panel ---- */
+  #log-panel .controls label { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; }
+  #log-panel .controls { display: flex; align-items: center; gap: 12px; }
+  .log-tail {
+    margin: 0;
+    max-height: 360px;
+    overflow: auto;
+    padding: 10px 14px;
+    background: var(--bg);
+    color: var(--fg);
+    font: 12px/1.55 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+    white-space: pre;
+    tab-size: 4;
+  }
+  .log-tail.wrap { white-space: pre-wrap; word-break: break-word; }
+  .log-tail .log-line { display: block; }
+  .log-tail .lvl-DEBUG { color: var(--muted); }
+  .log-tail .lvl-INFO { color: var(--fg); }
+  .log-tail .lvl-WARNING { color: var(--yellow); }
+  .log-tail .lvl-ERROR { color: var(--red); }
+  .log-tail .lvl-CRITICAL { color: var(--red); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -1040,6 +1062,24 @@
         <thead><tr><th>timestamp</th><th>kind</th><th>coordinates</th><th>detail</th></tr></thead>
         <tbody></tbody>
       </table>
+    </div>
+  </section>
+
+  <section class="panel" id="log-panel">
+    <div class="panel-head">
+      <div class="panel-title-group">
+        <button class="panel-fold" aria-label="toggle panel">▾</button>
+        <div class="panel-title">live log · tail 500</div>
+      </div>
+      <div class="controls">
+        <label><input type="checkbox" id="log-follow" checked /> follow</label>
+        <label><input type="checkbox" id="log-wrap" /> wrap</label>
+        <button type="button" id="log-clear" class="panel-toggle">clear</button>
+      </div>
+      <div class="panel-meta" id="log-meta">seq 0 · 0 lines</div>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <pre id="log-tail" class="log-tail"></pre>
     </div>
   </section>
 
@@ -2109,9 +2149,65 @@ document.addEventListener('click', (ev) => {
 });
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') hidePopoverNow(); });
 
+// ---- Live log tail：每秒 fetch /logs?since=<seq>，追加到 <pre id="log-tail"> ----
+let _logSeq = 0;
+let _logCount = 0;
+let _logInflight = false;
+const _LOG_MAX_LINES = 500;
+function _appendLogEntries(entries) {
+  if (!entries || !entries.length) return;
+  const pre = document.getElementById('log-tail');
+  if (!pre) return;
+  const follow = document.getElementById('log-follow');
+  const atBottom = follow && follow.checked;
+  const frag = document.createDocumentFragment();
+  for (const it of entries) {
+    const span = document.createElement('span');
+    span.className = 'log-line lvl-' + (it.level || 'INFO');
+    span.textContent = (it.text || '') + '\n';
+    frag.appendChild(span);
+  }
+  pre.appendChild(frag);
+  // 环形裁剪：只保留最后 _LOG_MAX_LINES 条
+  while (pre.childElementCount > _LOG_MAX_LINES) pre.removeChild(pre.firstElementChild);
+  _logCount = pre.childElementCount;
+  if (atBottom) pre.scrollTop = pre.scrollHeight;
+  const meta = document.getElementById('log-meta');
+  if (meta) meta.textContent = 'seq ' + _logSeq + ' · ' + _logCount + ' lines';
+}
+async function pollLogs() {
+  if (_logInflight) return;
+  _logInflight = true;
+  try {
+    const r = await fetch('/logs?since=' + _logSeq);
+    if (!r.ok) return;
+    const body = await r.json();
+    if (typeof body.seq === 'number') _logSeq = body.seq;
+    _appendLogEntries(body.entries);
+  } catch (_) {
+    // 静默：dashboard 未就绪或临时网络错误由下一次 tick 自愈
+  } finally {
+    _logInflight = false;
+  }
+}
+document.getElementById('log-clear').addEventListener('click', () => {
+  const pre = document.getElementById('log-tail');
+  if (pre) pre.textContent = '';
+  _logCount = 0;
+  const meta = document.getElementById('log-meta');
+  if (meta) meta.textContent = 'seq ' + _logSeq + ' · 0 lines';
+});
+document.getElementById('log-wrap').addEventListener('change', (ev) => {
+  const pre = document.getElementById('log-tail');
+  if (pre) pre.classList.toggle('wrap', ev.target.checked);
+});
+
 // __LIFT_STATIC_BOOT_START__
 // 启动
 refreshSnapshot(true).then(connect);
+// 首次全量拉一次 tail 窗口，然后接入定时轮询
+pollLogs();
+setInterval(pollLogs, 1000);
 // 每秒只刷新时间相关读数（elapsed / eta / container uptime），不调全量 render
 // —— 否则每秒 innerHTML 重建会把 running/retrying 的 blink 动画打断，造成“一抽一抽”
 function tick() {

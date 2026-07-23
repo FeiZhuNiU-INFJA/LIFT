@@ -40,6 +40,7 @@ from pathlib import Path
 
 from src.lift.status import events as ev
 from src.lift.status.state import RunSnapshot, RunStateTracker
+from src.config import get_log_ring_handler
 
 LOGGER = logging.getLogger(__name__)
 
@@ -298,17 +299,41 @@ class HttpDashboard:
                 LOGGER.debug("http_dashboard %s - %s", self.address_string(), format % args)
 
             def do_GET(self) -> None:  # noqa: N802
-                path = urlparse(self.path).path
+                parsed = urlparse(self.path)
+                path = parsed.path
                 if path == "/" or path == "/index.html":
                     self._send_html(_INDEX_HTML)
                 elif path == "/snapshot":
                     snapshot = tracker.snapshot()
                     body = json.dumps(_snapshot_payload(snapshot), ensure_ascii=False)
                     self._send_json(body)
+                elif path == "/logs":
+                    self._serve_logs(parsed.query)
                 elif path == "/events":
                     self._serve_sse(registry, tracker)
                 else:
                     self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+
+            def _serve_logs(self, raw_query: str) -> None:
+                from urllib.parse import parse_qs
+
+                handler = get_log_ring_handler()
+                if handler is None:
+                    self._send_json(json.dumps({"seq": 0, "entries": []}))
+                    return
+                params = parse_qs(raw_query or "")
+                try:
+                    since = int(params.get("since", ["0"])[0])
+                except (TypeError, ValueError):
+                    since = 0
+                try:
+                    limit = int(params.get("limit", ["0"])[0]) or None
+                except (TypeError, ValueError):
+                    limit = None
+                latest, entries = handler.tail(since=since, limit=limit)
+                self._send_json(
+                    json.dumps({"seq": latest, "entries": entries}, ensure_ascii=False)
+                )
 
             def _send_html(self, html: str) -> None:
                 body = html.encode("utf-8")
