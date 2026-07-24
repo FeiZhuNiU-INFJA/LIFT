@@ -231,7 +231,19 @@ if [[ -n "${FIRECRAWL_API_KEY:-}" ]]; then
 
   log "Upgrading Node via nvm ${NVM_VERSION} (target Node ${NODE_MAJOR}) for firecrawl-cli..."
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-  if curl -fsSL -o- "$NVM_INSTALL_URL" | bash; then
+  # 先试反代 URL；若 60s 内未获得完整响应则回退直连 GitHub raw。
+  NVM_DIRECT_URL="https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh"
+  NVM_INSTALLED=0
+  for src in "$NVM_INSTALL_URL" "$NVM_DIRECT_URL"; do
+    [[ -z "$src" ]] && continue
+    log "  trying nvm source: $src"
+    if curl --max-time 60 --connect-timeout 10 -fsSL -o /tmp/nvm-install.sh "$src" && bash /tmp/nvm-install.sh; then
+      NVM_INSTALLED=1
+      break
+    fi
+    log "  nvm source failed (curl or bash): $src" >&2
+  done
+  if [[ "$NVM_INSTALLED" -eq 1 ]]; then
     # Load nvm into this shell (in lieu of restarting it), then install Node.
     # shellcheck disable=SC1091
     \. "$NVM_DIR/nvm.sh"
@@ -291,7 +303,13 @@ if [[ "${INSTALL_OPENSPACE}" == "true" ]]; then
   fi
 
   # 独立 uv 3.12 venv（uv 已在 Hermes 构建可用，见上文 install_deps 的探测）。
+  #
+  # uv 会从 python-build-standalone GitHub releases 拉 cpython 二进制。受限网络
+  # （如字节内网）走系统代理时该请求经常静默挂死；提供 UV_PYTHON_INSTALL_MIRROR
+  # 让下载走公共 GitHub 反代（默认 gh-proxy.com；可通过同名环境变量覆盖）。
   if command -v uv >/dev/null 2>&1; then
+    export UV_PYTHON_INSTALL_MIRROR="${UV_PYTHON_INSTALL_MIRROR:-https://gh-proxy.com/https://github.com/astral-sh/python-build-standalone/releases/download}"
+    log "Using UV_PYTHON_INSTALL_MIRROR=${UV_PYTHON_INSTALL_MIRROR}"
     uv venv --python 3.12 "${OPENSPACE_VENV}"
     uv pip install --python "${OPENSPACE_VENV}/bin/python" --index-url "${PIP_IDX}" -e "${OPENSPACE_REPO}"
   else

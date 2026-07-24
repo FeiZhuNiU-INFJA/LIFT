@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 import json
 from threading import Lock
 from typing import Any, Callable
 
+import httpx
+
+from src.config import LOGGER
 from src.report.langfuse_trace_parse import structure_trace_payload, is_plugin_trace
 from src.models import (
     LangfuseObservationBrief,
@@ -33,6 +37,47 @@ def _resolve_trace_get_workers() -> int:
         return max(1, int(raw))
     except ValueError:
         return _TRACE_GET_WORKERS_DEFAULT
+
+
+# ``trace.get`` 走 httpx 同步池，跑大规模 backfill 时偶发瞬态网络错误
+# （连接池 socket 提前关的 [Errno 9] Bad file descriptor / RemoteProtocolError /
+# ReadTimeout），单条挂会把整个 phase 顶到 ``backfill_phase`` 的 except 分支变成
+# "keeping phase unchanged"。``trace.get`` 是幂等 GET，本地做一层小重试即可
+# 覆盖 99% 的瞬态抖动；总次数 = 1 + _TRACE_GET_RETRIES。
+_TRACE_GET_RETRIES = 3
+_TRACE_GET_RETRY_BACKOFF_SECONDS = 0.5
+_TRACE_GET_RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    httpx.ReadError,
+    httpx.ConnectError,
+    httpx.ReadTimeout,
+    httpx.ConnectTimeout,
+    httpx.RemoteProtocolError,
+    httpx.PoolTimeout,
+)
+
+
+def _trace_get_with_retry(client: Any, tid: str) -> Any:
+    """Call ``client.api.trace.get(tid)`` with bounded retries on transient network errors.
+
+    非重试类异常（例如 4xx 语义错误）直接抛出；只针对 httpx 网络瞬态错误。
+    """
+    last_exc: BaseException | None = None
+    for attempt in range(_TRACE_GET_RETRIES + 1):
+        try:
+            return client.api.trace.get(tid)
+        except _TRACE_GET_RETRYABLE_EXCEPTIONS as exc:
+            last_exc = exc
+            if attempt == _TRACE_GET_RETRIES:
+                break
+            delay = _TRACE_GET_RETRY_BACKOFF_SECONDS * (2 ** attempt)
+            LOGGER.warning(
+                "trace.get(%s) transient %s: %s — retrying in %.1fs (attempt %d/%d)",
+                tid, type(exc).__name__, exc, delay,
+                attempt + 1, _TRACE_GET_RETRIES,
+            )
+            time.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
 
 
 def _latency_seconds(raw: Any) -> float | None:
@@ -358,7 +403,7 @@ def fetch_trace_details(
         return out
 
     def _fetch_one(tid: str) -> LangfuseTraceDetailRecord:
-        detail = trace_detail_from_api(client.api.trace.get(tid))
+        detail = trace_detail_from_api(_trace_get_with_retry(client, tid))
         if champion is not None:
             messages = _detach_plugin_messages(detail)
             champion.offer(detail, messages)
