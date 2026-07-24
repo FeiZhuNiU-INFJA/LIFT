@@ -19,6 +19,13 @@ native_oai_config = {
     # ``max_completion_tokens`` / ``max_output_tokens`` 请求字段。未在此声明时
     # GA 上游 fallback 到 8192,长产出场景会被截断。
     "max_tokens": __MAX_TOKENS__,
+    # GA 历史裁剪触发阈值(字符):``trim_messages_history`` 里 cap = context_win*3。
+    # doubao-seed 256k token 窗口,扣除 max_tokens(51200) + system/tool schema 约
+    # 10k 余量,prefill 上限 ~= 195k token ~= 330k 字符;取 85000 让 cap = 255000
+    # 字符 ~= 150k token prefill,留 45k token 余量避免命中 API context 上限。
+    # 上游默认 30000 会让长对话过早裁掉关键 tool_result / 首消息,agent 反复
+    # 回读文件 → 单轮 loop 步数暴涨 → 撞 CHAT_EXEC_TIMEOUT_SECONDS。
+    "context_win": 85000,
 }
 
 langfuse_config = {

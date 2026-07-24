@@ -26,12 +26,14 @@ from src.lift.eval.worker_judger import WorkerJudgerPair
 from src.models import SuiteTask
 from src.utils import short_id
 
-# 单轮 chat 在宿主侧的 wall-clock 上限：与 OpenClaw 对齐 1000s。GA 上游
-# ``agentmain.py`` 有 1200s ``queue.get`` 上限用于等 LLM 输出，宿主侧 1000s 位于
-# 这个窗口内，保证在 GA 内部主动放弃前先由 LIFT 层判定超时。600s → 1000s 是为
-# 长 HTML/markdown 产出场景留余量。超时返回带 ``CHAT_EXEC_TIMEOUT_MARKER`` 前缀
-# 的字符串走 ``_looks_like_provider_error`` 重试通道。
-CHAT_EXEC_TIMEOUT_SECONDS = 1000.0
+# 单轮 chat 在宿主侧的 wall-clock 上限。GA 上游 ``agentmain.py`` 有 1200s
+# ``queue.get`` 上限用于等 LLM 输出,但这里的 1800s 覆盖的是"LIFT 层一次 chat →
+# GA 内部 agent loop(多次 tool_use / LLM 往返) → 写 [ROUND END]"的整段耗时。
+# 历史阈值 ``context_win`` 抬到 85000(cap = 255k 字符 ~= 150k token prefill)后
+# 单次 LLM 请求可能到 60-90s,若 agent 需要 10+ 步收敛,总耗时可达 900-1500s,
+# 保守取 1800s 留 20% 余量。超时返回带 ``CHAT_EXEC_TIMEOUT_MARKER`` 前缀的字符
+# 串走 ``_looks_like_provider_error`` 重试通道。
+CHAT_EXEC_TIMEOUT_SECONDS = 1800.0
 CHAT_EXEC_TIMEOUT_MARKER = "chat exec timeout"
 
 # GA 上游 ``agentmain.py`` 把整段 transcript（Turn 1..N，每轮 ``<summary>``
