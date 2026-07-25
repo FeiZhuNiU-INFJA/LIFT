@@ -27,6 +27,14 @@ class RunOptions(BaseModel):
         default=False,
         description="仅后处理已有 report（--evaluate-only）",
     )
+    resume: bool = Field(
+        default=False,
+        description=(
+            "从 results/{run_id}/report.json 断点续跑：已完成的 (repeat, suite) cell "
+            "整格跳过,只跑缺失/半成品 cell。粒度是 cell 级,因为 delta 镜像在 suite "
+            "结束时已 rmi,partial cell 必须整个重跑。"
+        ),
+    )
     docker_image: str | None = Field(
         default=None,
         description="覆盖 agent 配置的 base 镜像（None 时由 ContainerAgentRuntimeAdapter 解析）",

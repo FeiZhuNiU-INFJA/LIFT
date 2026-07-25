@@ -22,6 +22,32 @@ from src.models import PhaseRun, SuiteTask
 from src.paths import report_json_path, results_run_dir
 
 
+def _is_cell_complete(
+    suite: SuiteRun | None,
+    warmup_only: bool,
+    expected_holdout_count: int | None = None,
+) -> bool:
+    """判断 (repeat, suite) cell 是否已跑完,可跳过。
+
+    - ``warmup_only``: suite 有值即视为完成(produce_delta 成功过就写入了 suite)
+    - 完整模式: 要求 tasks 非空、baseline/evolved 都非空,且当传入
+      ``expected_holdout_count`` 时 task 数必须等于期望值——避免有 task
+      在异常里被 gather 过滤掉,残缺 cell 被误判成完成。
+    """
+    if suite is None:
+        return False
+    if warmup_only:
+        return True
+    if not suite.tasks:
+        return False
+    if (
+        expected_holdout_count is not None
+        and len(suite.tasks) != expected_holdout_count
+    ):
+        return False
+    return all(t.baseline is not None and t.evolved is not None for t in suite.tasks)
+
+
 def _fmt_optional_int(value: int | None) -> str:
     """``None`` / 非正整数视作 unlimited；正整数转字符串。"""
     if value is None or value <= 0:
@@ -84,23 +110,76 @@ class LIFTPipeline:
         # 占位：cell 并发回填时按 (repeat, suite) 索引写入，避免 append 顺序乱
         for repeat_run in eval_report.runs:
             repeat_run.suites = [None] * len(suite_paths)  # type: ignore[list-item]
+        # 快照关键运行参数,供 --resume 时自动恢复未显式传入的 CLI 参数
+        eval_report.run_options = {
+            **{k: v for k, v in extra_params},
+            **options.model_dump(mode="json"),
+        }
 
         # 预加载所有 suite 算 holdout 静态总数；放进 params 供 dashboard 渲染
         # "X of Y"，避免分母随 suite 陆续 plan 而动态增长。
         # 同时收集每个 suite 的 viz name（取 JSON 内 ``name`` 字段，与容器层
         # ``ContainerInfo.suite_name`` 保持一致；预扫描失败回落到文件 stem）。
+        # 副产品:每个 suite 的期望 holdout 数,给 resume 用于识别残缺 cell。
         holdout_total = 0
         viz_suite_names: list[str] = []
+        suite_holdout_counts: list[int | None] = []
         for p in suite_paths:
             try:
                 suite = load_lift_suite(p)
                 _, holdouts = split_suite_tasks(suite)
                 holdout_total += len(holdouts)
                 viz_suite_names.append(suite.name or p.stem)
+                suite_holdout_counts.append(len(holdouts))
             except Exception:  # noqa: BLE001 — 预扫描失败不阻塞 run
                 LOGGER.warning("preload holdout count failed: %s", p, exc_info=True)
                 viz_suite_names.append(p.stem)
+                suite_holdout_counts.append(None)
         holdout_total *= options.repeat
+
+        # 断点续跑：读旧 report,把已完整的 (repeat, suite) cell 预填回 eval_report
+        # 并从待跑 cells 列表里剔除。半成品 / 缺失 cell 一律重跑(delta 已 rmi)。
+        resumed_cells: set[tuple[int, int]] = set()
+        if options.resume and report_path.exists():
+            try:
+                prev = EvalReport.from_json_file(report_path)
+                for r_idx, prev_run in enumerate(prev.runs or []):
+                    if r_idx >= options.repeat:
+                        break
+                    for s_idx, prev_suite in enumerate(prev_run.suites or []):
+                        if s_idx >= len(suite_paths):
+                            break
+                        expected = (
+                            suite_holdout_counts[s_idx]
+                            if s_idx < len(suite_holdout_counts)
+                            else None
+                        )
+                        if _is_cell_complete(
+                            prev_suite, options.warmup_only, expected
+                        ):
+                            eval_report.runs[r_idx].suites[s_idx] = prev_suite
+                            resumed_cells.add((r_idx, s_idx))
+                # 保留旧的 categories 顺序,避免续跑时因分类顺序变动导致 dashboard 抖
+                for cat in prev.categories or []:
+                    if cat not in eval_report.categories:
+                        eval_report.categories.append(cat)
+                LOGGER.info(
+                    "LIFT resume: reusing %d already-complete cell(s) from %s",
+                    len(resumed_cells),
+                    report_path,
+                )
+            except Exception:  # noqa: BLE001 — 解析失败时干净重跑
+                LOGGER.warning(
+                    "LIFT resume: failed to load %s, starting fresh",
+                    report_path, exc_info=True,
+                )
+                resumed_cells.clear()
+        elif options.resume:
+            LOGGER.info(
+                "LIFT resume: no existing report at %s, starting fresh",
+                report_path,
+            )
+
 
         # 广播整体执行计划：repeat 数 + suite 列表（题级骨架在 suite 加载后补全）
         status_events.emit_run_plan(
@@ -116,11 +195,26 @@ class LIFTPipeline:
 
         # 单层 cell 级并发：repeat × suite 笛卡尔积铺平后用同一个 limit 限流。
         # 失败 cell 全局收集，最后用同 limit 统一重跑一次。
+        # ``--resume`` 时跳过 ``resumed_cells`` 中已完整的 (repeat, suite) 对。
         cells: list[tuple[int, int, Path]] = [
             (r, s, suite_paths[s])
             for r in range(options.repeat)
             for s in range(len(suite_paths))
+            if (r, s) not in resumed_cells
         ]
+        if options.resume and resumed_cells:
+            LOGGER.info(
+                "LIFT resume: skipping %d cell(s), scheduling %d cell(s)",
+                len(resumed_cells),
+                len(cells),
+            )
+            # 把已完成 cell 的骨架 + 状态 emit 给事件总线,让 dashboard/TUI 立刻
+            # 显示为 done(否则跳过的 cell 一直是 pending 灰圈)。
+            self._replay_resumed_cells(
+                run_id=run_id,
+                resumed_cells=resumed_cells,
+                eval_report=eval_report,
+            )
         failed = await self._run_cells(
             cells=cells,
             run_id=run_id,
@@ -158,6 +252,68 @@ class LIFTPipeline:
             eval_report.write_json(report_path)
         LOGGER.info("LIFT report written: %s", report_path)
         return eval_report
+
+    def _replay_resumed_cells(
+        self,
+        *,
+        run_id: str,
+        resumed_cells: set[tuple[int, int]],
+        eval_report: EvalReport,
+    ) -> None:
+        """把 ``--resume`` 跳过的 cell 的完成状态 emit 给事件总线。
+
+        与 ``src.lift.status.replay.replay_report_into_bus`` 的 evaluate-only
+        路径同理:先补 ``suite_plan`` 骨架(告诉 tracker 这个 cell 有哪些 holdout
+        task),再逐级 emit ``suite`` / ``warmup`` / ``task`` / ``phase`` 的
+        ``done`` 事件,dashboard 里对应格子立刻显示绿点 + 分数。warmup 题不入
+        report,补一条 ``warmup=done`` 让 suite 汇总不因 ``warmup_status=pending``
+        整格停在 pending。
+        """
+        for (r_idx, s_idx) in sorted(resumed_cells):
+            suite_run = eval_report.runs[r_idx].suites[s_idx]
+            if suite_run is None:
+                continue
+            holdout_names = tuple(t.task_name for t in suite_run.tasks)
+            status_events.emit_suite_plan(
+                run_id=run_id,
+                repeat_index=r_idx,
+                suite_index=s_idx,
+                suite_name=suite_run.suite_name,
+                warmup_task_names=(),
+                holdout_task_names=holdout_names,
+            )
+            status_events.emit_stage(
+                kind="warmup", status="done",
+                run_id=run_id, repeat_index=r_idx,
+                suite_index=s_idx, suite_name=suite_run.suite_name,
+            )
+            for task in suite_run.tasks:
+                for phase_name, phase in (
+                    ("baseline", task.baseline),
+                    ("evolved", task.evolved),
+                ):
+                    if phase is None:
+                        continue
+                    status_events.emit_stage(
+                        kind="phase", status="done",
+                        run_id=run_id, repeat_index=r_idx,
+                        suite_index=s_idx, suite_name=suite_run.suite_name,
+                        task_name=task.task_name, phase=phase_name,
+                        score=phase.content_score, success=phase.success,
+                        turns=phase.turns or None,
+                        tool_calls=phase.tool_calls,
+                    )
+                status_events.emit_stage(
+                    kind="task", status="done",
+                    run_id=run_id, repeat_index=r_idx,
+                    suite_index=s_idx, suite_name=suite_run.suite_name,
+                    task_name=task.task_name,
+                )
+            status_events.emit_stage(
+                kind="suite", status="done",
+                run_id=run_id, repeat_index=r_idx,
+                suite_index=s_idx, suite_name=suite_run.suite_name,
+            )
 
     async def _run_cells(
         self,
