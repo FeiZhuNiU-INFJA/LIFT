@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.config import LOGGER
+from src.models import EvalReport
 from src.paths import report_json_path
 from src.utils import make_run_id, resolve_suite_paths
 
@@ -33,6 +34,98 @@ from src.lift.status.panels import optional_status_panels, status_dashboard
 from src.lift.status.replay import replay_report_into_bus
 
 
+# --resume 时从旧 report.run_options 里可以恢复的 CLI 参数
+# key: argparse dest, value: 从 run_options dict 里取的 key
+_RESUMABLE_ARGS: dict[str, str] = {
+    "agent_runtime": "agent_runtime",
+    "benchmark_dir": "benchmark_dir",
+    "suite": "suite",
+    "repeat": "repeat",
+    "warmup_only": "warmup_only",
+    "warmup_container_policy": "warmup_container_policy",
+    "holdout_container_policy": "holdout_container_policy",
+    "holdout_phase_policy": "holdout_phase_policy",
+    "max_parallel_suites": "max_parallel_suites",
+    "max_concurrent_tasks": "max_concurrent_tasks",
+    "max_conversation_turns": "max_conversation_turns",
+    "container_memory": "container_memory",
+    "container_cpus": "container_cpus",
+}
+
+
+def _explicit_cli_dests(argv: list[str], parser: argparse.ArgumentParser) -> set[str]:
+    """扫 argv 找出用户显式传入的参数(argparse dest)。
+
+    通过 parser._actions 匹配 option_strings,识别 ``--foo`` / ``--foo=bar`` /
+    ``-r`` 三种形式;跳过 ``--`` 分隔符和纯 positional。用于 --resume 时区分
+    \"用了默认值\" vs \"用户传了值\",只把\"未显式传入\"的字段从旧 report 恢复。
+    """
+    option_to_dest: dict[str, str] = {}
+    for action in parser._actions:
+        for opt in action.option_strings:
+            option_to_dest[opt] = action.dest
+    explicit: set[str] = set()
+    for tok in argv:
+        if tok == "--":
+            break
+        key = tok.split("=", 1)[0]
+        if key in option_to_dest:
+            explicit.add(option_to_dest[key])
+    return explicit
+
+
+def _apply_resume_defaults(
+    args: argparse.Namespace,
+    explicit: set[str],
+    parser: argparse.ArgumentParser,
+) -> None:
+    """--resume 时读旧 report.run_options,把未显式传入的字段覆盖到 args。
+
+    只对 ``_RESUMABLE_ARGS`` 里的字段生效。找不到旧 report 或字段缺失时静默跳过
+    (启用完全为空的 resume 时会走 pipeline 里现有的 \"no existing report\" 分支)。
+    """
+    if not args.run_id:
+        return
+    run_id = make_run_id(args.run_id)
+    report_path = report_json_path(run_id)
+    if not report_path.exists():
+        LOGGER.info(
+            "LIFT resume: no prior report at %s, using CLI defaults", report_path
+        )
+        return
+    try:
+        prev = EvalReport.from_json_file(report_path)
+    except Exception:  # noqa: BLE001 — 解析失败当作没有 prior run_options
+        LOGGER.warning(
+            "LIFT resume: failed to parse %s for run_options, using CLI defaults",
+            report_path, exc_info=True,
+        )
+        return
+    prior = prev.run_options or {}
+    if not prior:
+        LOGGER.info(
+            "LIFT resume: prior report has no run_options snapshot (created "
+            "before this feature), using CLI defaults"
+        )
+        return
+    restored: list[tuple[str, object]] = []
+    for dest, key in _RESUMABLE_ARGS.items():
+        if dest in explicit:
+            continue  # 用户显式传了 → 尊重 CLI
+        if key not in prior:
+            continue
+        value = prior[key]
+        # argparse choices 用的是原始字符串;policy 枚举也序列化成 value 字符串
+        setattr(args, dest, value)
+        restored.append((dest, value))
+    if restored:
+        LOGGER.info(
+            "LIFT resume: restored %d arg(s) from %s: %s",
+            len(restored), report_path,
+            ", ".join(f"{k}={v}" for k, v in restored),
+        )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """构建 LIFT 评测命令行参数解析器。"""
     parser = argparse.ArgumentParser(
@@ -41,11 +134,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-r",
         "--agent-runtime",
-        required=True,
+        required=False,
+        default=None,
         choices=list(SUPPORTED_RUNTIMES),
         dest="agent_runtime",
         metavar="RUNTIME",
-        help="Agent runtime adapter (e.g. openclaw → OpenClawAdapter).",
+        help=(
+            "Agent runtime adapter (e.g. openclaw → OpenClawAdapter). "
+            "Required unless --resume can recover it from a prior report."
+        ),
     )
     parser.add_argument(
         "--benchmark_dir",
@@ -73,6 +170,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--evaluate-only",
         action="store_true",
         help="Only post-process an existing report (requires --run_id).",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume from results/{run_id}/report.json: skip (repeat, suite) cells "
+            "that already have all holdout tasks with both baseline and evolved "
+            "phases; re-run partial or missing cells. Cell-level granularity "
+            "because delta images are rmi'd at suite end."
+        ),
     )
     parser.add_argument("--run_id", default=None, help="Custom run_id suffix.")
     parser.add_argument("--repeat", type=int, default=1, help="Repeat LIFT flow N times.")
@@ -223,6 +330,7 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
         warmup_only=args.warmup_only,
         evaluate=args.evaluate,
         evaluate_only=False,
+        resume=args.resume,
         warmup_container_policy=WarmupContainerPolicy(args.warmup_container_policy),
         holdout_container_policy=HoldoutContainerPolicy(args.holdout_container_policy),
         holdout_phase_policy=HoldoutPhasePolicy(args.holdout_phase_policy),
@@ -278,12 +386,27 @@ async def run_lift(args: argparse.Namespace, suite_paths: list[Path]) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     """CLI 入口：解析参数并分发到 evaluate-only 或完整 LIFT run。"""
+    import sys
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(raw_argv)
 
     if args.evaluate_only:
+        if not args.agent_runtime:
+            parser.error("-r/--agent-runtime is required (unavailable in evaluate-only)")
         evaluate_only_mode(args)
         return
+
+    # --resume: 未显式传入的字段从旧 report.run_options 恢复
+    if args.resume:
+        explicit = _explicit_cli_dests(raw_argv, parser)
+        _apply_resume_defaults(args, explicit, parser)
+
+    if not args.agent_runtime:
+        parser.error(
+            "-r/--agent-runtime is required (no prior report to recover from)"
+        )
 
     # Map --benchmark_dir + --suite (all or comma-separated JSON names) → suite file paths
     suite_paths = resolve_suite_paths(Path(args.benchmark_dir), args.suite)

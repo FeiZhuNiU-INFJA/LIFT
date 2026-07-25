@@ -530,9 +530,13 @@ class EvalRepeat(BaseModel):
         default=None,
         description="本轮完成时间（UTC ISO 8601）",
     )
-    suites: list[SuiteRun] = Field(
+    suites: list[SuiteRun | None] = Field(
         default_factory=list,
-        description="本轮内各 suite 的执行结果",
+        description=(
+            "本轮内各 suite 的执行结果。允许 ``None`` 占位:pipeline 用 "
+            "``[None] * N`` 预分配槽位以支持 cell 级并发回填、以及 ``--resume`` "
+            "断点续跑时保留未完成 cell 的位置。"
+        ),
     )
 
 
@@ -555,6 +559,14 @@ class EvalReport(BaseModel):
     runs: list[EvalRepeat] = Field(
         default_factory=list,
         description="各 repeat 的执行结果（对应 --repeat）",
+    )
+    run_options: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "本次 run 的关键 CLI/RunOptions 参数快照（agent_runtime / benchmark_dir / "
+            "suite / repeat / warmup_only / policies / max_* 等）。供 --resume 时"
+            "自动恢复未显式传入的参数使用。"
+        ),
     )
 
     def write_json(self, path: str | Path) -> None:
