@@ -65,3 +65,4 @@ release notes 只讲**故事线**并交叉引用。
 | 日期 | 标题 | 影响面 |
 |---|---|---|
 | 2026-07-16 | [Token 5 字段落库全链路修复](2026-07-16-token-5-fields-observability.md) | 4 runtime · 3 层(agent plugin / Langfuse ingestion / backfill) |
+| 2026-07-26 | [GenericAgent 1800s 超时根因分析](2026-07-26-genericagent-1800s-timeout-analysis.md) | GenericAgent runtime · paper 结果标注要求 |
