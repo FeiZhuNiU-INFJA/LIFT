@@ -173,6 +173,20 @@ if [[ -n "${PIP_INDEX_URL:-}" ]]; then
   BUILD_ARGS+=(--build-arg "PIP_INDEX_URL=${PIP_INDEX_URL}")
   echo "==> Using pip index URL: ${PIP_INDEX_URL}"
 fi
+# 宿主代理透传：内网构建时 OpenSpace 需要从公网 GitHub git clone，直连会 TLS 中断；
+# Docker 对 build-arg 名 http_proxy/https_proxy/no_proxy（含大写）有内建支持，会自动
+# 注入所有 RUN 的 env，git/curl 都会自动认。设 LIFT_BUILD_PROXY_AUTODETECT=0 关闭。
+if [[ "${LIFT_BUILD_PROXY_AUTODETECT:-1}" != "0" ]]; then
+  _proxy_http="${http_proxy:-${HTTP_PROXY:-}}"
+  _proxy_https="${https_proxy:-${HTTPS_PROXY:-}}"
+  _proxy_no="${no_proxy:-${NO_PROXY:-}}"
+  if [[ -n "${_proxy_http}" || -n "${_proxy_https}" ]]; then
+    [[ -n "${_proxy_http}" ]]  && BUILD_ARGS+=(--build-arg "http_proxy=${_proxy_http}"  --build-arg "HTTP_PROXY=${_proxy_http}")
+    [[ -n "${_proxy_https}" ]] && BUILD_ARGS+=(--build-arg "https_proxy=${_proxy_https}" --build-arg "HTTPS_PROXY=${_proxy_https}")
+    [[ -n "${_proxy_no}" ]]    && BUILD_ARGS+=(--build-arg "no_proxy=${_proxy_no}"    --build-arg "NO_PROXY=${_proxy_no}")
+    echo "==> Forwarding host proxy to docker build (http=${_proxy_http:-<unset>} https=${_proxy_https:-<unset>} no=${_proxy_no:-<unset>})"
+  fi
+fi
 
 echo "==> Building ${TAG} (context: ${AGENT_DIR})"
 # Build-time network mode. BuildKit 沙箱默认不继承宿主 DNS/路由，内网环境下
