@@ -197,6 +197,39 @@ def _patch_memory_provider_with_yaml(data: dict) -> None:
     data["memory"] = memory
 
 
+def _agentmemory_mcp_server_block() -> dict:
+    """``mcp_servers.agentmemory`` 的内容（stdio transport，@agentmemory/mcp）。
+
+    与 provider plugin 叠加使用（上游 integrations/hermes README「6-hook plugin on top
+    of the MCP server」）。MCP shim 用 ``AGENTMEMORY_URL`` 连正在运行的 :3111 server 时
+    代理全部 53 个记忆工具（memory_save / memory_smart_search 等），补上 provider plugin
+    未覆盖的"显式写入"通道。stdio 子进程不继承容器任意 env，故 ``AGENTMEMORY_URL`` 必须
+    写进 env 块（留空时 shim 默认同址 http://localhost:3111，这里显式写更稳）。
+    """
+    return {
+        "command": "agentmemory-mcp",
+        "env": {"AGENTMEMORY_URL": "http://localhost:3111"},
+    }
+
+
+def _patch_agentmemory_mcp_with_yaml(data: dict) -> None:
+    """把 ``mcp_servers.agentmemory`` upsert 进已加载的 config dict（原地改）。
+
+    保留 mcp_servers 下其它 server（如 openspace）与 agentmemory 里未覆盖的既有键。
+    """
+    servers = data.get("mcp_servers")
+    if not isinstance(servers, dict):
+        servers = {}
+    existing = servers.get("agentmemory")
+    block = _agentmemory_mcp_server_block()
+    if isinstance(existing, dict):
+        existing.update(block)
+        servers["agentmemory"] = existing
+    else:
+        servers["agentmemory"] = block
+    data["mcp_servers"] = servers
+
+
 def _patch_with_yaml(
     model_block: dict, add_openspace: bool = False, add_agentmemory: bool = False
 ) -> bool:
@@ -225,6 +258,7 @@ def _patch_with_yaml(
         _patch_openspace_with_yaml(data)
     if add_agentmemory:
         _patch_memory_provider_with_yaml(data)
+        _patch_agentmemory_mcp_with_yaml(data)
 
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(
@@ -351,6 +385,40 @@ def _patch_memory_provider_plaintext() -> None:
     print(f"[patch-hermes-config] fallback(no-yaml): appended memory.provider=agentmemory to {CONFIG_PATH}")
 
 
+def _render_agentmemory_mcp_block() -> str:
+    """Render a top-level ``mcp_servers:`` block containing only ``agentmemory``.
+
+    Used only in the PyYAML-unavailable fallback. Mirrors ``_render_openspace_block``.
+    """
+    block = _agentmemory_mcp_server_block()
+    lines = ["mcp_servers:", "  agentmemory:", f"    command: {block['command']}", "    env:"]
+    for key, value in block["env"].items():
+        lines.append(f"      {key}: {value}")
+    return "\n".join(lines) + "\n"
+
+
+def _patch_agentmemory_mcp_plaintext() -> None:
+    """Fallback agentmemory MCP-server registration when PyYAML is unavailable.
+
+    Only appends a ``mcp_servers:`` block if none exists. If ``mcp_servers:`` is
+    already present (e.g. OpenSpace appended one, or a hand-authored block), skip
+    and warn — can't safely merge a second server without a parser. In a correctly
+    built image PyYAML is available, so this degraded path should not trigger.
+    """
+    if not CONFIG_PATH.exists():
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_PATH.write_text(_render_agentmemory_mcp_block(), encoding="utf-8")
+        print(f"[patch-hermes-config] fallback(no-yaml): created {CONFIG_PATH} with mcp_servers.agentmemory")
+        return
+    original = CONFIG_PATH.read_text(encoding="utf-8")
+    if re.search(r"^mcp_servers\s*:", original, flags=re.MULTILINE):
+        print("[patch-hermes-config] fallback(no-yaml): mcp_servers already present; skip agentmemory MCP append (install PyYAML to merge).")
+        return
+    sep = "" if original.endswith("\n") or original == "" else "\n"
+    CONFIG_PATH.write_text(original + sep + _render_agentmemory_mcp_block(), encoding="utf-8")
+    print(f"[patch-hermes-config] fallback(no-yaml): appended mcp_servers.agentmemory to {CONFIG_PATH}")
+
+
 def main() -> None:
     model_block = _model_block()
     if not model_block["default"]:
@@ -368,7 +436,7 @@ def main() -> None:
         if add_openspace:
             print("[patch-hermes-config] registered mcp_servers.openspace via PyYAML")
         if add_agentmemory:
-            print("[patch-hermes-config] set memory.provider=agentmemory via PyYAML")
+            print("[patch-hermes-config] set memory.provider=agentmemory + registered mcp_servers.agentmemory via PyYAML")
     else:
         print("[patch-hermes-config] WARN: PyYAML unavailable in this interpreter; using plaintext fallback.")
         _patch_plaintext(model_block)
@@ -376,6 +444,7 @@ def main() -> None:
             _patch_openspace_plaintext()
         if add_agentmemory:
             _patch_memory_provider_plaintext()
+            _patch_agentmemory_mcp_plaintext()
 
     print(f"[patch-hermes-config] model block now in {CONFIG_PATH}:")
     for key, value in model_block.items():

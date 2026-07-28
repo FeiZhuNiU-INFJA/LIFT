@@ -291,6 +291,27 @@ if [[ "${INSTALL_AGENTMEMORY}" == "true" ]]; then
   # 避免覆盖既有 langfuse-tracer / firecrawl 等 allowlist 项）。
   node -e "const fs=require('fs');const p='${TARGET}';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.plugins=j.plugins||{};const a=Array.isArray(j.plugins.allow)?j.plugins.allow:[];if(!a.includes('agentmemory'))a.push('agentmemory');j.plugins.allow=a;fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
   echo "==> agentmemory plugin installed under ${OPENCLAW_STATE_DIR}/extensions/agentmemory"
+
+  # 7f) agentmemory MCP server（README「Option 1: MCP server」，与 Option 2 plugin 叠加使用）。
+  #     上游明确两者是叠加关系（30 秒安装 prompt 同时做 MCP + plugin）；plugin 的 agent_end
+  #     capture 在本项目实测里未产出写入（Observation captured=0），补 MCP 让 agent 能显式调
+  #     memory_save / memory_smart_search 等 53 个工具，闭合"写入→检索"链路。
+  #       - 构建期 npm -g 装 @agentmemory/mcp（bin=agentmemory-mcp），避免运行期 npx 联网。
+  #       - openclaw mcp set 注册 stdio server；env 注 AGENTMEMORY_URL=http://localhost:3111
+  #         （MCP shim 连该 server 时代理全部 53 工具；留空会默认同址，这里显式写更稳）。
+  echo "==> Installing agentmemory MCP server (@agentmemory/mcp, stdio; layered on Option 2 plugin)"
+  npm install -g @agentmemory/mcp
+  AM_MCP_BIN="$(command -v agentmemory-mcp || true)"
+  if [[ -z "${AM_MCP_BIN}" ]]; then
+    echo "WARN: agentmemory-mcp not on PATH after npm install; MCP server will not be registered." >&2
+  else
+    # MCP stdio 子进程不继承容器任意 env（TS SDK 只透传 PATH/HOME 等白名单 + 本 env 块），
+    # 故 AGENTMEMORY_URL 必须写进 env 块。用 node JSON.stringify 安全转义。
+    AM_MCP_JSON="$(node -e 'process.stdout.write(JSON.stringify({command:"agentmemory-mcp",env:{AGENTMEMORY_URL:"http://localhost:3111"}}));')"
+    openclaw mcp set agentmemory "${AM_MCP_JSON}" 2>&1 \
+      || echo "WARN: 'openclaw mcp set agentmemory' failed; verify OpenClaw MCP CLI syntax." >&2
+    echo "==> agentmemory MCP server registered (agentmemory-mcp -> :3111)"
+  fi
 else
   echo "INSTALL_AGENTMEMORY=${INSTALL_AGENTMEMORY}: skip agentmemory memory plugin install"
 fi
