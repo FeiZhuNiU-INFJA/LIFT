@@ -63,8 +63,14 @@ forbidden_paths = ["/etc", "/root/.ssh", "/root/.gnupg", "/root/.aws", "/root/.c
 [[autonomy.trusted_roots]]
 path = "/workspace/task"
 access = "readwrite"
+
+# LIFT 评测场景已预付费到上游 provider，openhuman-core 内建的 daily_limit_usd=10
+# 会在长上下文任务里累积到上限后拒 chat（"cost budget exceeded"）。评测无成本内约，
+# 直接关掉 cost tracking；无 env 覆盖，只能落 config.toml。
+[cost]
+enabled = false
 AUTONOMY_EOF
-echo "==> Wrote ${OPENHUMAN_USER_HOME}/config.toml (autonomy: workspace_only=false, trusted_roots=/workspace/task rw)"
+echo "==> Wrote ${OPENHUMAN_USER_HOME}/config.toml (autonomy: workspace_only=false, trusted_roots=/workspace/task rw; cost.enabled=false)"
 
 # agentmemory backend（官方 wiki config.toml backend 切换）。默认不装（INSTALL_AGENTMEMORY=false）。
 # 装的话：
