@@ -241,6 +241,14 @@ async def start_openhuman_container(
     # fallback；LIFT 侧 wall-clock 仍是最外层兜底。
     env_vars["OPENHUMAN_INFERENCE_TIMEOUT_SECS"] = "1000"
 
+    # ── agent_turn 墙钟预算 ─────────────────────────────────────────────
+    # openhuman-core 0.63.1 的 tinyagents harness 对单个 ``agent_turn`` 有内建
+    # wall-clock budget（``OPENHUMAN_AGENTBOX_JOB_TIMEOUT_SECS`` 默认 600s），
+    # 超过就报 ``run timed out: tool/model call exceeded remaining wall-clock``。
+    # 长 context + 长思考的 warmup / judge turn 偶发命中；与宿主
+    # ``CHAT_EXEC_TIMEOUT_SECONDS=1000`` 对齐，让宿主层做最终墙钟兜底。
+    env_vars["OPENHUMAN_AGENTBOX_JOB_TIMEOUT_SECS"] = "1800"
+
     # ── tokio 线程数收敛 ────────────────────────────────────────────────
     # openhuman-core 是 tokio 多线程 axum 服务，默认 worker 数 = 宿主全部 CPU 核心。
     # 高并发下(--max-parallel-suites 20+ ⇒ 数十容器并存)每个容器都吃满 host CPU
