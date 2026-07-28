@@ -13,7 +13,10 @@ agent-runtimes/hermes/
 ├── .dockerignore
 ├── Dockerfile
 ├── build-image.sh
-├── install-in-image.sh          # 构建期：装 langfuse 进 Hermes venv + 覆盖插件 + 记录发现的路径
+├── scripts/
+│   ├── install-heavy.sh          # 构建期 L2：pip / uv / nvm / npm / git clone / warmup（重量层）
+│   └── install-config.sh         # 构建期 L4：langfuse overlay / run_agent.py patch / plugins enable（轻量层）
+├── hermes-bootstrap.sh           # 构建期：初始化 $HERMES_HOME 状态根 + 同步 bundled skills
 ├── hermes-entrypoint.sh         # 启动期：patch config.yaml + enable 插件 + 容器空转
 ├── patch_hermes_config.py       # 从 env 生成 config.yaml 的 model 块（不 bake secret）
 ├── hermes-helper/               # Hermes runner 与协议说明
@@ -45,7 +48,7 @@ bash agent-runtimes/hermes/build-image.sh --with-openspace
 # 产出 lift-hermes-with-openspace:latest
 ```
 
-OpenSpace（基于 MCP 的 quality-first skill hub）在构建期由 `install-in-image.sh` git clone
+OpenSpace（基于 MCP 的 quality-first skill hub）在构建期由 `scripts/install-heavy.sh` git clone
 到 `/opt/OpenSpace`（sparse-checkout 跳过 `assets/`），装进独立 Python 3.12 venv（`/opt/openspace-venv`；
 Hermes 自带 venv 无 pip 且很可能 <3.12，不能复用），软链 `openspace-mcp` 到 `/usr/local/bin`，
 并把 `delegate-task` / `skill-discovery` 两个 host skill 拷进 `/opt/hermes-state/skills`。
@@ -63,7 +66,7 @@ bash agent-runtimes/hermes/build-image.sh --with-agentmemory
 
 agentmemory（跨会话持久记忆，README「Option 2: Memory provider plugin」深度集成）采用**纯本地**模式：
 `all-MiniLM-L6-v2` 嵌入 + BM25 + 知识图，**零 API Key、离线**（构建期预热 iii-engine 与嵌入模型进镜像）。
-构建期由 `install-in-image.sh` 装 Node ≥20 + `@agentmemory/agentmemory`，把 `integrations/hermes`
+构建期由 `scripts/install-heavy.sh` 装 Node ≥20 + `@agentmemory/agentmemory`，`scripts/install-config.sh` 把 `integrations/hermes`
 拷进 `/opt/hermes-state/plugins/agentmemory`；容器启动时 `patch_hermes_config.py` 把
 `memory.provider: agentmemory` upsert 进 `config.yaml`，`hermes-entrypoint.sh` 后台拉起 agentmemory
 server（`:3111`）。chat 走 `docker exec hermes_runner.py`（同容器同网络命名空间），runner 直连的
@@ -95,8 +98,8 @@ PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ bash agent-runtimes/hermes/bui
 
 ## 构建期自动发现的路径
 
-不同 Hermes 镜像布局不一致，`install-in-image.sh` 在构建期**自动探测**并写入
-`/opt/lift/hermes-paths.env`：
+不同 Hermes 镜像布局不一致，`scripts/install-heavy.sh` 在构建期**自动探测**并写入
+`/opt/lift/hermes-paths.env`（`scripts/install-config.sh` 直接 source 复用）：
 
 - `HERMES_VENV_PY` — Hermes 自带 venv 的 python（用于跑 runner / 装 langfuse）
 - `HERMES_SRC_DIR` — Hermes 源码目录（runner `--hermes-agent-dir`）
@@ -236,7 +239,7 @@ span（宿主机侧），与容器内 Hermes 插件的 `Hermes turn`。后处理
 ### Token 5 字段落库状态
 
 全 5 字段（`input_fresh` / `cache_write` / `cache_read` / `output` / `reasoning`）齐，
-**依赖 LIFT 覆盖版 `langfuse-hermes` 插件**（构建期由 `install-in-image.sh`
+**依赖 LIFT 覆盖版 `langfuse-hermes` 插件**（构建期由 `scripts/install-config.sh`
 overlay 到 Hermes venv 的 `observability/langfuse`）。要点：
 
 - 上游 `agent.usage_pricing.normalize_usage` 在 **OpenAI-compatible / Ark** 路径下会

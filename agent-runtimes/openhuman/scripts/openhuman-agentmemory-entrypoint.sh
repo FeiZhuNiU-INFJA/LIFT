@@ -6,7 +6,7 @@
 # 职责(顺序):
 #   1) max_tokens 代理(base 镜像默认启用): 在 127.0.0.1:${LIFT_PROXY_PORT} 上起一个
 #      透明反向代理,请求 body 缺 max_tokens 时按 endpoint 类型注入。openhuman-core
-#      的 ``inference_url`` 已被 install-in-image.sh 改指向 http://127.0.0.1:${PORT}/v3,
+#      的 ``inference_url`` 已被 scripts/install-config.sh 改指向 http://127.0.0.1:${PORT}/v3,
 #      流量必经此代理。上游真正的 base URL 通过 LIFT_PROXY_UPSTREAM 传入。
 #      LIFT_MAX_TOKENS_PROXY_ENABLED=false 关闭(直连 upstream)。
 #   2) agentmemory 变体(AGENTMEMORY_ENABLED=true): 先在容器内后台拉起 agentmemory server

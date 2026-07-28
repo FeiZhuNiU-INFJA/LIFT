@@ -79,7 +79,7 @@ description: "LIFT 评测框架接入新 agent runtime 的端到端清单:镜像
 
 ### Step 1. 镜像脚手架
 
-新建 `agent-runtimes/<runtime>/`,准备 Dockerfile / build-image.sh / install-in-image.sh / mykey.py.template / langfuse_tracing_overlay.py / workspace_seed/。
+新建 `agent-runtimes/<runtime>/`,准备 Dockerfile / build-image.sh / `scripts/install-heavy.sh` (L2 重量层) / `scripts/install-config.sh` (L4 轻量层) / mykey.py.template / langfuse_tracing_overlay.py / workspace_seed/。参考 [docs/image-scaffold.md §6.3](./docs/image-scaffold.md#63-docker-分层缓存按-改动频率--耗时-拆-install-脚本) 的 L2/L4 拆分契约。
 
 ⚠ **overlay 里 usage 必须塞 `usageDetails` 才能落库**,见 [docs/token-observability.md §断点 B](./docs/token-observability.md)
 ⚠ **单进程跨多轮 runtime** overlay 需按 [docs/image-scaffold.md §1.3.1](./docs/image-scaffold.md) 处理进程级 transcript

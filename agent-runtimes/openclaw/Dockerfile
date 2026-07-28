@@ -44,14 +44,13 @@ RUN mkdir -p /root/.openclaw/extensions /root/.openclaw/skills /workspace/task
 
 # Firecrawl 自 OpenClaw 2026.6.10 起从 stock 剥离为外置 npm 插件
 # (@openclaw/firecrawl-plugin)，提供 web_search/scrape/browser 能力；安装与启用
-# 由 install-plugins-in-image.sh 完成，运行时只需在容器 env 注入 FIRECRAWL_API_KEY
+# 由 install-heavy.sh（`openclaw plugins install`）+ install-config.sh（`plugins enable`）完成，
+# 运行时只需在容器 env 注入 FIRECRAWL_API_KEY
 # 鉴权。allowlist 在 config/plugins.fragment.json。
 
 COPY plugins/langfuse-tracer /tmp/langfuse-tracer
 COPY plugins/self-evolving-plugin-pro-2026.4.23.zip /tmp/self-evolving-plugin-pro.zip
-COPY config /tmp/config
-COPY merge-openclaw-config.mjs /tmp/merge-openclaw-config.mjs
-COPY install-plugins-in-image.sh /tmp/install-plugins-in-image.sh
+COPY scripts/install-heavy.sh /tmp/install-heavy.sh
 COPY scripts/openclaw-agentmemory-prelaunch.sh /opt/lift/openclaw-agentmemory-prelaunch.sh
 COPY workspace_seed /root/.openclaw/workspace
 
@@ -59,12 +58,12 @@ ARG WORK_OPENAI_API_KEY=
 ENV WORK_OPENAI_API_KEY=${WORK_OPENAI_API_KEY}
 
 # OpenSpace LLM base URL（对应本项目 WORK_OPENAI_BASE_URL）。仅 OpenSpace MCP env 块使用
-# （install-plugins-in-image.sh 写入 OPENSPACE_LLM_API_BASE）；OpenClaw 自身模型的 baseUrl
+# （install-config.sh 写入 OPENSPACE_LLM_API_BASE）；OpenClaw 自身模型的 baseUrl
 # 仍由 models.fragment.json 决定，二者互不影响。默认空串时 OpenSpace 走其默认解析。
 ARG WORK_OPENAI_BASE_URL=
 ENV WORK_OPENAI_BASE_URL=${WORK_OPENAI_BASE_URL}
 
-# 运行模型选用（provider/model_id 格式，provider 约定固定为 custom）。install-plugins-in-image.sh
+# 运行模型选用（provider/model_id 格式，provider 约定固定为 custom）。install-config.sh
 # 据此渲染 models.fragment（斜杠后作 model.id）与 agents.fragment（整串作 primary/models key）。
 ARG MODEL_NAME=
 ENV MODEL_NAME=${MODEL_NAME}
@@ -75,7 +74,7 @@ ARG INSTALL_SELF_EVOLVING=true
 ENV INSTALL_SELF_EVOLVING=${INSTALL_SELF_EVOLVING}
 
 # 是否安装 OpenSpace（基于 MCP 的 quality-first skill hub）。默认 false；设为 true 时
-# install-plugins-in-image.sh 会 git clone OpenSpace、在独立 Python 3.12 venv 里
+# install-heavy.sh 会 git clone OpenSpace、在独立 Python 3.12 venv 里
 # pip install -e，注册名为 openspace 的 stdio MCP server，并拷入 host skills。
 # OPENSPACE_GIT_URL / OPENSPACE_GIT_REF 允许切换上游（内网可指镜像/反代）。
 ARG INSTALL_OPENSPACE=false
@@ -86,7 +85,7 @@ ARG OPENSPACE_GIT_REF=main
 ENV OPENSPACE_GIT_REF=${OPENSPACE_GIT_REF}
 
 # 是否安装 agentmemory memory plugin（README「Option 2: OpenClaw memory plugin」深度集成）。
-# 默认 false；设为 true 时 install-plugins-in-image.sh 会 npm 装 @agentmemory/agentmemory、
+# 默认 false；设为 true 时 install-heavy.sh 会 npm 装 @agentmemory/agentmemory、
 # 预热离线引擎/嵌入模型、git clone integrations/openclaw 到 extensions/agentmemory，并 merge
 # agentmemory.fragment.json（claim plugins.slots.memory = agentmemory）。运行期由
 # openclaw-agentmemory-prelaunch.sh 在 gateway 启动前后台拉起 :3111 server（离线本地嵌入）。
@@ -99,7 +98,7 @@ ARG AGENTMEMORY_GIT_URL=https://github.com/rohitg00/agentmemory.git
 ENV AGENTMEMORY_GIT_URL=${AGENTMEMORY_GIT_URL}
 ARG AGENTMEMORY_GIT_REF=main
 ENV AGENTMEMORY_GIT_REF=${AGENTMEMORY_GIT_REF}
-# npm registry（内网可覆盖；默认公网）。install-plugins-in-image.sh 读取后 export 给 npm。
+# npm registry（内网可覆盖；默认公网）。install-heavy.sh 读取后 export 给 npm。
 ARG NPM_CONFIG_REGISTRY=
 ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
 
@@ -141,8 +140,17 @@ RUN pip3 install --no-cache-dir \
         tabulate \
         Pillow
 
-RUN chmod +x /tmp/install-plugins-in-image.sh /opt/lift/openclaw-agentmemory-prelaunch.sh \
-    && bash /tmp/install-plugins-in-image.sh
+RUN chmod +x /tmp/install-heavy.sh /opt/lift/openclaw-agentmemory-prelaunch.sh \
+    && bash /tmp/install-heavy.sh
+
+# ── L4 config 层 COPY 放在 install-heavy 之后：改 fragment / merge 脚本 / install-config.sh
+#    只 bust 本层，不重跑 self-evolving unzip / OpenSpace pip / agentmemory npm+warmup。
+COPY config /tmp/config
+COPY merge-openclaw-config.mjs /tmp/merge-openclaw-config.mjs
+COPY scripts/install-config.sh /tmp/install-config.sh
+
+RUN chmod +x /tmp/install-config.sh \
+    && bash /tmp/install-config.sh
 
 WORKDIR /workspace
 

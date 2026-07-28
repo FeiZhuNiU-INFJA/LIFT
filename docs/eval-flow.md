@@ -732,13 +732,13 @@ OpenClaw 在容器内通过 `agents add --model …` 注册 work / judge agent�
 
 | 层级 | 谁配置 | 做什么 |
 |------|--------|--------|
-| **能力层**（镜像构建） | Agent runtime 的 config fragment（OpenClaw：`agent-runtimes/openclaw/config/models.fragment.json`） | 注册固定 provider `custom`：硬编码 `baseUrl`、占位符 `apiKey`（`__WORK_OPENAI_API_KEY__`）、单一 model（`id` 用占位符 `__MODEL_ID__`、`name` 固定 `LLM`）；构建期由 `install-plugins-in-image.sh` 用 sed 注入 `WORK_OPENAI_API_KEY` 与从 `MODEL_NAME` 斜杠后派生的 `MODEL_ID` |
+| **能力层**（镜像构建） | Agent runtime 的 config fragment（OpenClaw：`agent-runtimes/openclaw/config/models.fragment.json`） | 注册固定 provider `custom`：硬编码 `baseUrl`、占位符 `apiKey`（`__WORK_OPENAI_API_KEY__`）、单一 model（`id` 用占位符 `__MODEL_ID__`、`name` 固定 `LLM`）；构建期由 `scripts/install-config.sh` 用 sed 注入 `WORK_OPENAI_API_KEY` 与从 `MODEL_NAME` 斜杠后派生的 `MODEL_ID` |
 | **默认选用层**（镜像构建） | Agent defaults fragment（OpenClaw：`config/agents.fragment.json` 的 `agents.defaults.model.primary` / `models` key） | 用占位符 `__MODEL_NAME__`，构建期 sed 注入整串 `MODEL_NAME`（即 `custom/<model_id>`），作为默认 primary 与 models key |
 | **运行时选用层**（评测前） | 仓库根 `.env` 的 `MODEL_NAME` | 构建期作为 `--build-arg` 注入镜像；LIFT 运行时调用 `openclaw agents add --model $MODEL_NAME`（`custom/<model_id>`）；**一次 eval run 内所有 eval agent 共用同一模型** |
 
 **契约规则：**
 
-1. `MODEL_NAME` 必须为 `custom/model_id` 格式（provider 前缀恒为 `custom`，例如 `custom/ep-20260529115331-9zxpm`）。构建脚本会校验含斜杠，否则 `build-image.sh` / `install-plugins-in-image.sh` 直接报错退出。
+1. `MODEL_NAME` 必须为 `custom/model_id` 格式（provider 前缀恒为 `custom`，例如 `custom/ep-20260529115331-9zxpm`）。构建脚本会校验含斜杠，否则 `build-image.sh` / `scripts/install-config.sh` 直接报错退出。
 2. 斜杠后的 `model_id` 注入 `models.fragment.json` 的 `models[].id`；整串 `custom/model_id` 注入 `agents.fragment.json` 的 `primary` 与 `models` key。二者由同一 `MODEL_NAME` 派生，天然一致。
 3. `MODEL_NAME` 是**构建期**参数：换模型或换 apiKey 需要改 `.env` 后 `build-image.sh` 重建镜像使占位符重新注入；仅改 `.env` 不重建镜像不会改变镜像内已 bake 的 `openclaw.json`。
 

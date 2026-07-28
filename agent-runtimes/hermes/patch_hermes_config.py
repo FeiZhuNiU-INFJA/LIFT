@@ -280,7 +280,7 @@ def _patch_plaintext(model_block: dict) -> None:
     """Fallback used ONLY when PyYAML is unavailable.
 
     PyYAML is installed + verified into the Hermes venv at image build time
-    (install-in-image.sh), and the entrypoint runs this script with that venv's
+    (scripts/install-heavy.sh), and the entrypoint runs this script with that venv's
     python, so this path should not trigger in a correctly built image. It exists
     so a degraded image still configures Hermes instead of silently misbehaving.
 

@@ -28,14 +28,14 @@ docker run --rm <image> sh -c 'grep -nE "cwd\s*=|\[Memory\]|\.\./memory|\./memor
 grep -nE "mkdir.*memory|mkdir.*skill" agent-runtimes/<runtime>/Dockerfile
 ```
 
-三处路径**必须**指向同一个容器 FS 绝对路径(例如 `/opt/<runtime>/memory`)。如果 LLM 会看到相对路径(`memory/xxx` / `../memory/xxx`)且 cwd 在 bind mount 之内,就必须在 `install-in-image.sh` 里 patch 上游源码把提示改成绝对路径,同时(双保险)在 reflection prompt 里显式告诉 LLM"cwd 是 bind mount,只能用 `/opt/<runtime>/memory` 绝对路径"。
+三处路径**必须**指向同一个容器 FS 绝对路径(例如 `/opt/<runtime>/memory`)。如果 LLM 会看到相对路径(`memory/xxx` / `../memory/xxx`)且 cwd 在 bind mount 之内,就必须在 `scripts/install-config.sh` 里 patch 上游源码把提示改成绝对路径,同时(双保险)在 reflection prompt 里显式告诉 LLM"cwd 是 bind mount,只能用 `/opt/<runtime>/memory` 绝对路径"。
 
 ## 历史案例(GA memory patch)
 
 - GA 引擎读 `script_dir + 'memory/'` → 绝对路径 `/opt/GenericAgent/memory` ✅
 - GA system prompt 告诉 LLM `cwd = /workspace/task (./)` + `[Memory] (../memory)` → LLM 解析为 `/workspace/memory`(不存在)或 `/workspace/task/memory`(bind mount)❌
 - 引擎读的位置**永远拿不到** LLM 写的内容 → warmup 表面成功,delta 镜像里 `/opt/GenericAgent/memory` 空空如也 → evolved 与 baseline 无差异 → LIFT 数据毫无意义
-- 修复:`install-in-image.sh` patch [ga.py:518,590,591](../../../agent-runtimes/genericagent/install-in-image.sh#L86-L108) 三处相对路径都改成 `/opt/GenericAgent/memory` 绝对路径;reflection prompt 也加 `_MEMORY_PATH_NOTE`。
+- 修复:`scripts/install-config.sh` patch [ga.py:518,590,591](../../../agent-runtimes/genericagent/scripts/install-config.sh#L86-L108) 三处相对路径都改成 `/opt/GenericAgent/memory` 绝对路径;reflection prompt 也加 `_MEMORY_PATH_NOTE`。
 
 ## 验证方式
 
