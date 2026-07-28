@@ -124,6 +124,18 @@ class OpenHumanContainerAgent(ChatAgent):
                 "[openhuman chat] RPC transport error container=%s: %r",
                 self._container.container_name, exc,
             )
+            # ConnectionRefused = openhuman-core 进程已死(SIGPIPE 退出/panic 后
+            # listen socket 被内核回收)，重试再多次也是 refused。用不同的 marker
+            # 绕开 provider-retry 5× 通道，让上层题级重试直接换新容器接管。
+            is_refused = "ConnectionRefusedError" in repr(exc) or (
+                hasattr(exc, "reason")
+                and "ConnectionRefusedError" in repr(getattr(exc, "reason", ""))
+            )
+            if is_refused:
+                return (
+                    f"openhuman /rpc unrecoverable: process gone "
+                    f"(ConnectionRefused on {self._container.container_name})"
+                )
             return (
                 f"{CHAT_EXEC_TIMEOUT_MARKER}: openhuman /rpc transport error: {exc!r}"
             )

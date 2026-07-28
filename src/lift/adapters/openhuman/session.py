@@ -231,6 +231,14 @@ async def start_openhuman_container(
     # env 覆盖(``max_timeout_secs=3600``)；抬到 600s 给足预算，仍远低于宿主侧
     # ``CHAT_EXEC_TIMEOUT_SECONDS=1000``，不会让单轮 chat 无限拖长。
     env_vars["OPENHUMAN_TOOL_TIMEOUT_SECS"] = "600"
+
+    # ── tokio 线程数收敛 ────────────────────────────────────────────────
+    # openhuman-core 是 tokio 多线程 axum 服务，默认 worker 数 = 宿主全部 CPU 核心。
+    # 高并发下(--max-parallel-suites 20+ ⇒ 数十容器并存)每个容器都吃满 host CPU
+    # 会造成 thrash，进而放大上游 provider 抖动的影响，最终导致 openhuman-core
+    # 进程整体 SIGPIPE 退出、:7788 listen socket 回收、大量 "Connection refused"。
+    # 显式收敛到 4 worker/容器，可预测的 CPU 占用比不设更稳定。
+    env_vars["TOKIO_WORKER_THREADS"] = "4"
     # openhuman-core 拒绝在非 loopback 地址（0.0.0.0）上无 token 裸绑。
     # 每容器独立生成 64 hex（256 bit）token，通过 ``-e`` 注入进程 +
     # 落到 ``session.metadata['rpc_token']``，adapter 侧 ``chat_agent`` 每次

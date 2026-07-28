@@ -42,6 +42,30 @@ sed \
 echo "==> Rendered ${OPENHUMAN_HOME}/config.toml:"
 sed -e 's/api_key = ".*"/api_key = "<redacted>"/' "${OPENHUMAN_HOME}/config.toml"
 
+# ── sandbox 边界放行 /workspace/task（关键修复）────────────────────────────
+# openhuman-core 除 acting-tool sandbox 的 action_dir 外还有第二层 autonomy 边界：
+#   workspace_only=true + forbidden_paths 含 /root/tmp/opt → 即便 OPENHUMAN_ACTION_DIR
+#   注入到 /workspace/task，agent 访问 /workspace/task/qN_materials/xxx 仍会被判
+#   "Resolved path escapes workspace"。真实边界由 ~/.openhuman/users/local/config.toml
+#   的 [autonomy] 段控制，字段与 CLI ``config update_autonomy_settings`` 一一对应。
+#
+# 直接在 build 期预烘焙 users/local/config.toml，避免运行期每容器 exec 一次的竞态。
+# workspace_only=false + trusted_roots=/workspace/task(rw) 打开 LIFT 挂载点；
+# forbidden_paths 只保留凭据目录，不再涵盖 /root/tmp/opt（否则会把 agentmemory
+# 的 /root/.agentmemory 一起拦掉）。
+OPENHUMAN_USER_HOME="${OPENHUMAN_HOME}/users/local"
+mkdir -p "${OPENHUMAN_USER_HOME}"
+cat > "${OPENHUMAN_USER_HOME}/config.toml" <<'AUTONOMY_EOF'
+[autonomy]
+workspace_only = false
+forbidden_paths = ["/etc", "/root/.ssh", "/root/.gnupg", "/root/.aws", "/root/.config"]
+
+[[autonomy.trusted_roots]]
+path = "/workspace/task"
+access = "readwrite"
+AUTONOMY_EOF
+echo "==> Wrote ${OPENHUMAN_USER_HOME}/config.toml (autonomy: workspace_only=false, trusted_roots=/workspace/task rw)"
+
 # agentmemory backend（官方 wiki config.toml backend 切换）。默认不装（INSTALL_AGENTMEMORY=false）。
 # 装的话：
 #   - 在 config.toml 追加 [memory] backend=agentmemory（openhuman-core 旁路自家 SQLite，
