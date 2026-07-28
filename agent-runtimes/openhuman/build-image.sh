@@ -179,6 +179,21 @@ if [[ -n "${APT_MIRROR:-}" ]]; then
   echo "==> Using APT mirror: ${APT_MIRROR}"
 fi
 
+# 宿主代理透传：内网构建时 npm/git/curl 需走公司代理才能高速访问公网 registry / GitHub。
+# Docker 对 build-arg 名 http_proxy/https_proxy/no_proxy（含大写）有内建支持，会自动
+# 注入所有 RUN 的 env，npm/git/curl 都会自动认。设 LIFT_BUILD_PROXY_AUTODETECT=0 关闭。
+if [[ "${LIFT_BUILD_PROXY_AUTODETECT:-1}" != "0" ]]; then
+  _proxy_http="${http_proxy:-${HTTP_PROXY:-}}"
+  _proxy_https="${https_proxy:-${HTTPS_PROXY:-}}"
+  _proxy_no="${no_proxy:-${NO_PROXY:-}}"
+  if [[ -n "${_proxy_http}" || -n "${_proxy_https}" ]]; then
+    [[ -n "${_proxy_http}" ]]  && BUILD_ARGS+=(--build-arg "http_proxy=${_proxy_http}"  --build-arg "HTTP_PROXY=${_proxy_http}")
+    [[ -n "${_proxy_https}" ]] && BUILD_ARGS+=(--build-arg "https_proxy=${_proxy_https}" --build-arg "HTTPS_PROXY=${_proxy_https}")
+    [[ -n "${_proxy_no}" ]]    && BUILD_ARGS+=(--build-arg "no_proxy=${_proxy_no}"    --build-arg "NO_PROXY=${_proxy_no}")
+    echo "==> Forwarding host proxy to docker build (http=${_proxy_http:-<unset>} https=${_proxy_https:-<unset>} no=${_proxy_no:-<unset>})"
+  fi
+fi
+
 # docker build 网络模式:默认走 docker 默认 bridge。某些出口环境下 bridge NAT 会让
 # github.com / githubusercontent 等的 tarball 下载几乎不可用(strace 显示 recvfrom
 # 长期 EAGAIN),但同一 URL 在宿主 host 网络下秒开。设 DOCKER_BUILD_NETWORK=host

@@ -142,13 +142,15 @@ GA 风格 runtime 通过 `assets/tools_schema.json`(英文)+ `assets/tools_schem
 
 ## 6. 字节内网 / GitHub 拉取受限时的构建环境变量
 
-镜像构建期可能卡在三个地方,全部通过环境变量切镜像源解决;这些变量都被 `build-image.sh` 透传给 Dockerfile:
+镜像构建期可能卡在四个地方,全部通过环境变量切镜像源 / 透传代理解决;这些变量都被 `build-image.sh` 透传给 Dockerfile:
 
 | 卡点 | 环境变量 | 字节内网值 / 推荐值 |
 |---|---|---|
 | `apt-get update` | `APT_MIRROR` | `http://mirrors.byted.org` |
 | `pip install` / `uv pip install` | `PIP_INDEX_URL` | `https://bytedpypi.byted.org/simple/` |
 | `git clone <agent 上游>` | `<RUNTIME>_GIT_URL`(每个 runtime 自己的 build-arg) | 用 `ghfast.top` 反代前缀 |
+| `npm install`(agentmemory / node 插件) | `NPM_CONFIG_REGISTRY` | `https://bnpm.byted.org/` |
+| 任意 RUN 步骤走宿主代理(git/curl/npm) | 宿主 `http_proxy` / `https_proxy` / `no_proxy` 自动透传 | 见下方 §6.1 |
 
 **GitHub 反代写法**(参考 [`build-image.sh:54`](../../../agent-runtimes/genericagent/build-image.sh#L54)):
 
@@ -169,3 +171,44 @@ PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \
 `build-image.sh -h` 必须把这三个变量列在 `Override via env:` 区域(参考 [GA build-image.sh:25-38](../../../agent-runtimes/genericagent/build-image.sh#L25-L38)),方便后续接手者 `--help` 直接看到。
 
 > **可选**:在 `build-image.sh` 里加"探测到 `mirrors.byted.org` 就自动默认 APT_MIRROR / PIP_INDEX_URL"逻辑(参考 [GA build-image.sh:25-35](../../../agent-runtimes/genericagent/build-image.sh#L25-L35)),免掉每次手敲 env;留一个 `LIFT_INTRANET_AUTODETECT=0` 兜底开关。
+
+### 6.1 宿主代理自动透传(强烈建议在 build-image.sh 里内建)
+
+**症状**:内网环境下 `npm install`、`git clone github.com`、`curl github release` 直连公网,速率跌到 100–200 KB/s(实测 openhuman + agentmemory 拉 npm 依赖 260 MB 用了 20+ 分钟),而宿主机 `curl` 秒开——原因是 BuildKit 的 RUN 沙箱**不继承宿主 env**,`http_proxy` / `https_proxy` 没进 RUN 层。
+
+**修复**:Docker 对 build-arg 名 `http_proxy` / `https_proxy` / `no_proxy`(含大写)有**内建支持**,一旦作为 `--build-arg` 传入,会自动注入所有 RUN 的 env,git / curl / npm / pip 全都会自动识别代理。所以 `build-image.sh` 只需要检测宿主 env、拼进 `BUILD_ARGS` 数组即可,Dockerfile 不用改一行。
+
+推荐的实现片段(在 `BUILD_ARGS` 组装完、`docker build` 调用前插入):
+
+```bash
+# 宿主代理透传:内网构建时 npm/git/curl 需走公司代理才能高速访问公网 registry / GitHub。
+# Docker 对 build-arg 名 http_proxy/https_proxy/no_proxy(含大写)有内建支持,会自动
+# 注入所有 RUN 的 env。设 LIFT_BUILD_PROXY_AUTODETECT=0 关闭。
+if [[ "${LIFT_BUILD_PROXY_AUTODETECT:-1}" != "0" ]]; then
+  _proxy_http="${http_proxy:-${HTTP_PROXY:-}}"
+  _proxy_https="${https_proxy:-${HTTPS_PROXY:-}}"
+  _proxy_no="${no_proxy:-${NO_PROXY:-}}"
+  if [[ -n "${_proxy_http}" || -n "${_proxy_https}" ]]; then
+    [[ -n "${_proxy_http}" ]]  && BUILD_ARGS+=(--build-arg "http_proxy=${_proxy_http}"  --build-arg "HTTP_PROXY=${_proxy_http}")
+    [[ -n "${_proxy_https}" ]] && BUILD_ARGS+=(--build-arg "https_proxy=${_proxy_https}" --build-arg "HTTPS_PROXY=${_proxy_https}")
+    [[ -n "${_proxy_no}" ]]    && BUILD_ARGS+=(--build-arg "no_proxy=${_proxy_no}"    --build-arg "NO_PROXY=${_proxy_no}")
+    echo "==> Forwarding host proxy to docker build (http=${_proxy_http:-<unset>} https=${_proxy_https:-<unset>} no=${_proxy_no:-<unset>})"
+  fi
+fi
+```
+
+现有实现参考:[openclaw/build-image.sh:179-189](../../../agent-runtimes/openclaw/build-image.sh#L179-L189) · [openhuman/build-image.sh:182-195](../../../agent-runtimes/openhuman/build-image.sh#L182-L195) · [evoscientist/build-image.sh:138-151](../../../agent-runtimes/evoscientist/build-image.sh#L138-L151);hermes 用等价的 `for var in http_proxy https_proxy no_proxy ...` 循环,见 [hermes/build-image.sh:119-129](../../../agent-runtimes/hermes/build-image.sh#L119-L129)。
+
+> **验证方式**:build 完成后 `head -n 20 build.log` 应能看到 `==> Forwarding host proxy to docker build (http=... https=... no=...)`;若日志没这行,说明宿主 env 里没设代理,或被 `LIFT_BUILD_PROXY_AUTODETECT=0` 关闭了。
+
+### 6.2 npm registry(仅对含 node 插件的 runtime,如 agentmemory)
+
+对含 `npm install` 的 runtime(如 `_with_agentmemory` 系列),即便代理已透传,走 `registry.npmjs.org` 仍然比走 `bnpm.byted.org` 慢一个数量级。build-image.sh 应把 `NPM_CONFIG_REGISTRY` 也作为 build-arg 透传,Dockerfile 里用它设置 `.npmrc`:
+
+```bash
+[[ -n "${NPM_CONFIG_REGISTRY:-}" ]] && BUILD_ARGS+=(--build-arg "NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}")
+```
+
+参考 [openhuman/build-image.sh:160](../../../agent-runtimes/openhuman/build-image.sh#L160) 与 [hermes/build-image.sh:106](../../../agent-runtimes/hermes/build-image.sh#L106)。
+
+

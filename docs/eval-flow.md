@@ -458,6 +458,23 @@ flowchart LR
 - **配对键**：`run + suite_name + suite_path + task_name + category`
 - **相对改进**：`impr_* = (evolved - baseline) / baseline`；baseline 为 0 时为 NaN
 
+### 9.2 失败样本在后处理里的可见性
+
+后处理层对"失败"的处理分两类，容易被忽略；这里显式列一下（与 §4.6 的运行期矩阵配套）：
+
+| 失败类型 | 运行期落盘 | comparison / summary 里的表现 |
+|---------|-----------|-------------------------------|
+| **judge fail**（`PhaseRun.success=False`，跑满 `max_conversation_turns` 但 judge 一直不满意） | ✅ PhaseRun 正常写入，`content_score`=最后一轮分、`turns`=max，tokens / tool_use / latency 全都有值 | 完整进入 comparison；只贡献 `baseline_success_rate` / `evolved_success_rate` 下降，其它指标照常参与 `mean_impr_*` / `mean_diff_*` 聚合 |
+| **异常 fail**（phase runner 抛异常并在原地重试后仍失败：超时、容器崩、provider 5xx 耗尽等） | ❌ PhaseRun **不写入**；进而整个 TaskRun 被 [`_one_task`](../src/lift/pipeline/lift_pipeline.py#L607-L668) 丢弃，`suite_run.tasks[]` 里根本不出现该 task | comparison 走 **inner join** on `(run, suite_name, suite_path, task_name, suite)`（[`build_comparison_dataframe`](../src/postprocess/metrics.py#L79-L115)），任一 phase 缺失就整对丢弃。summary 的分母 / `task_count` 都感知不到"被吞了多少题" |
+| **单边异常 fail**（baseline 或 evolved 其中一边异常，另一边成功） | 由于 `_one_task` 的 gather 收集 `errs` 后**整体抛出**，另一边即使成功也一起丢 | 同上：整对从 comparison 里蒸发 |
+
+**几点重要 caveat**：
+
+- `mean_impr_*` 采用**聚合口径** `(Σevolved − Σbaseline) / Σbaseline`（在 aggregate_df 上做，见 [`build_summary_row`](../src/postprocess/metrics.py#L136-L193)），不是逐样本 impr 的算术平均。分母只算 comparison 里存在的 pair。
+- summary 有一个 **outlier 剔除**：`impr_trials` 或 `impr_tool_use_num >= 2.0` 的样本会从聚合中移除（退化过强视为离群），`task_count_excluded` 会显示。这个字段**只反映离群剔除**，**不反映异常 fail 造成的丢失**。
+- `baseline_success_rate` / `evolved_success_rate` 的分母是"两个 phase 都跑起来了"的 task 数（因为它是在 inner-join 之前的 `original_df` 上按 `baseline==True` / `evolved==True` 各自算平均），因此单边异常 fail 的 task 也不会拉低任一 phase 的 success_rate。
+- 若关心异常 fail 的实际数量，需要对比 `report.json` 每个 `SuiteRun.tasks` 长度与 `Suite.holdout_tasks` 的期望长度；`--resume` 走的正是这一路径（cell 级别粒度）。
+
 ---
 
 ## 10. CLI 参数与流程映射（`lift_main`）
