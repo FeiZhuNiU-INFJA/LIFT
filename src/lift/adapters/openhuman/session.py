@@ -232,6 +232,15 @@ async def start_openhuman_container(
     # ``CHAT_EXEC_TIMEOUT_SECONDS=1000``，不会让单轮 chat 无限拖长。
     env_vars["OPENHUMAN_TOOL_TIMEOUT_SECS"] = "600"
 
+    # ── LLM 推理 timeout 放宽 ────────────────────────────────────────────
+    # openhuman-core 内建 ``OPENHUMAN_INFERENCE_TIMEOUT_SECS`` 默认 120s，超时后
+    # 会尝试 ``/responses`` API fallback。Volces ark 不支持 ``/responses`` →
+    # 累积 400 MissingParameter 触发 openhuman-core 进程 SIGPIPE 退出，从而
+    # 每容器 Q6-holdout（>46k cached_in）批量死亡、后续 chat 全部 refused。
+    # 抬到 1000s 与宿主 ``CHAT_EXEC_TIMEOUT_SECONDS`` 对齐，长上下文时不再触发
+    # fallback；LIFT 侧 wall-clock 仍是最外层兜底。
+    env_vars["OPENHUMAN_INFERENCE_TIMEOUT_SECS"] = "1000"
+
     # ── tokio 线程数收敛 ────────────────────────────────────────────────
     # openhuman-core 是 tokio 多线程 axum 服务，默认 worker 数 = 宿主全部 CPU 核心。
     # 高并发下(--max-parallel-suites 20+ ⇒ 数十容器并存)每个容器都吃满 host CPU
