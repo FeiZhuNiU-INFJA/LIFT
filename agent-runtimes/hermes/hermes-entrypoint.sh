@@ -23,7 +23,7 @@ export HERMES_HOME="${HERMES_HOME:-/opt/hermes-state}"
 mkdir -p "$HERMES_HOME"
 
 # Patch config.yaml with the Hermes venv python. That venv is where
-# install-in-image.sh installed (and verified) PyYAML, so it is the only
+# scripts/install-heavy.sh installed (and verified) PyYAML, so it is the only
 # interpreter guaranteed to merge config.yaml without clobbering other keys.
 # We only fall back to system python if venv discovery failed (degraded image);
 # in that case patch_hermes_config.py still refuses to overwrite an existing

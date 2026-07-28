@@ -11,8 +11,10 @@ agent-runtimes/genericagent/
 ├── .dockerignore
 ├── Dockerfile
 ├── build-image.sh
-├── install-in-image.sh             # build 期渲染 mykey.py + overlay langfuse_tracing.py
-├── mykey.py.template               # GA 配置模板（占位符由 install-in-image.sh sed 渲染）
+├── scripts/
+│   ├── install-heavy.sh            # L2 重量层占位（GA 目前无耗时装配）
+│   └── install-config.sh           # L4 轻量层：渲染 mykey.py + patch GA + overlay langfuse_tracing.py
+├── mykey.py.template               # GA 配置模板（占位符由 scripts/install-config.sh sed 渲染）
 ├── langfuse_tracing_overlay.py     # 替换 GA 自带 plugins/langfuse_tracing.py，强制 LIFT trace 名/session/tag
 ├── workspace_seed/                 # （占位）holdout 容器启动前 copy 进 /workspace/task
 └── README.md
@@ -33,7 +35,7 @@ bash agent-runtimes/genericagent/build-image.sh
 1. `git clone https://github.com/lsdefine/GenericAgent.git /opt/GenericAgent`
 2. 安装 GA 依赖 + langfuse Python SDK + 评测常用库（pandas / openpyxl / python-docx 等，与
    OpenClaw 镜像保持一致）
-3. 通过 `install-in-image.sh` 把仓库根 `.env` 中的 `WORK_OPENAI_API_KEY` / `MODEL_NAME` /
+3. 通过 `scripts/install-config.sh` 把仓库根 `.env` 中的 `WORK_OPENAI_API_KEY` / `MODEL_NAME` /
    `LANGFUSE_*` 注入 `mykey.py`
 4. 用 `langfuse_tracing_overlay.py` 覆盖 GA 自带 `plugins/langfuse_tracing.py`，确保
    trace name = `genericagent-plugin`，并把 LIFT session_id / run tag 写入 trace 根
@@ -152,7 +154,7 @@ Warmup 默认 `parallel_single`(同一 suite 所有 warmup 任务共享同一容
 `/opt/GenericAgent/memory/`:
 
 1. GA 引擎侧读 memory 用 `script_dir = /opt/GenericAgent` 拼绝对路径(不受进程 cwd 影响)。
-2. system prompt 里的 `[Memory]` 段落也被 [`install-in-image.sh`](install-in-image.sh) patch 成
+2. system prompt 里的 `[Memory]` 段落也被 [`scripts/install-config.sh`](scripts/install-config.sh) patch 成
    `/opt/GenericAgent/memory` 绝对路径(**关键 patch**,详见下面 "*已知陷阱*")。
 3. 因此前一题 GA 进程写入的 `global_mem.txt` / `global_mem_insight.txt`,后一题(不同 session、
    不同 iodir)的 GA 进程一启动就能读到——跨 session 传递经验的路径就是共享 FS。
@@ -166,7 +168,7 @@ GA 上游默认让 LLM 用相对路径 `../memory/xxx` 写 memory,而 GA 进程 
 `/workspace/task`(bind mount);相对路径解析结果落到 bind mount 内,
 `docker commit` 不会捕获 → 表面 warmup 成功,delta 镜像里 memory 空空如也 → evolve 失效。
 
-[`install-in-image.sh`](install-in-image.sh) 在 build 期 patch 三处相对路径为绝对路径
+[`scripts/install-config.sh`](scripts/install-config.sh) 在 build 期 patch 三处相对路径为绝对路径
 `/opt/GenericAgent/memory`(引擎读、system prompt 提示、SOP 加载),让 LLM 写、GA 读、
 `docker commit` 捕获三点对齐。这是 GA 集成时踩过的核心坑,新集成 runtime 时的通用规范
 见 [skill/lift-integrate-agent-runtime/docs/evolve-artifact-contract.md](../../skill/lift-integrate-agent-runtime/docs/evolve-artifact-contract.md)。

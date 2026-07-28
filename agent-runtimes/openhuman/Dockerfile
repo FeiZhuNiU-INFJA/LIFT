@@ -84,7 +84,7 @@ ARG INFERENCE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARG DEFAULT_MODEL=
 # LIFT max_tokens 代理:openhuman-core 不暴露 max_tokens 覆盖;由 entrypoint 起一个
 # 容器内 127.0.0.1:${LIFT_PROXY_PORT} 上的透明代理注入 max_tokens 后再转发到
-# 真实上游(LIFT_PROXY_UPSTREAM)。config.toml 的 inference_url 被 install-in-image.sh
+# 真实上游(LIFT_PROXY_UPSTREAM)。config.toml 的 inference_url 被 scripts/install-config.sh
 # 改指向 http://127.0.0.1:${LIFT_PROXY_PORT}/v3。同 GMI_MAAS_BASE_URL 也改指向代理,
 # 保持 AgentBox mode 请求也经过代理。
 ARG LIFT_MAX_TOKENS_PROXY_ENABLED=true
@@ -111,8 +111,9 @@ ENV ARK_API_KEY=${API_KEY} \
 #   我们把它当作 headless custom provider，指到 ARK OpenAI 兼容 URL 与 endpoint id。
 
 # agentmemory backend（官方 wiki config.toml backend 切换）。默认不装；--with-agentmemory
-# 时置 true。install-in-image.sh 据此在 config.toml 追加 [memory] backend=agentmemory，并装
-# Node>=20 + npm 装 @agentmemory/agentmemory、预热离线引擎/嵌入模型。AGENTMEMORY_ENABLED
+# 时置 true。scripts/install-agentmemory.sh 装 Node>=20 + npm 装 @agentmemory/agentmemory、
+# 预热离线引擎/嵌入模型（L2 层，重活）；scripts/install-config.sh 据此在 config.toml 追加
+# [memory] backend=agentmemory（L4 层，轻活）。AGENTMEMORY_ENABLED
 # 作为运行期信号：openhuman-agentmemory-entrypoint.sh 在 openhuman-core 启动前先拉起 :3111
 # server（OH agentmemory backend 无自动回退 SQLite，daemon 不可达会报错）。
 ARG INSTALL_AGENTMEMORY=false
@@ -127,14 +128,29 @@ ENV NODE_MAJOR=${NODE_MAJOR}
 ARG NPM_CONFIG_REGISTRY=
 ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
 
-COPY config.toml.template /tmp/config.toml.template
-COPY install-in-image.sh /tmp/install-in-image.sh
+COPY scripts/install-agentmemory.sh /tmp/install-agentmemory.sh
 COPY scripts/openhuman-agentmemory-entrypoint.sh /opt/lift/openhuman-agentmemory-entrypoint.sh
 COPY scripts/max_tokens_proxy.py /opt/lift/max_tokens_proxy.py
 COPY workspace_seed /opt/lift/workspace_seed
 
-RUN chmod +x /tmp/install-in-image.sh /opt/lift/openhuman-agentmemory-entrypoint.sh \
+# ── Layer L2（重量 · 缓存友好）:agentmemory 后端安装 + 引擎/模型 warmup。
+# 只依赖 INSTALL_AGENTMEMORY / NODE_MAJOR / NPM_CONFIG_REGISTRY / AGENTMEMORY_GIT_*
+# 这些 ARG 与 install-agentmemory.sh 本身；改 config.toml 不会 bust 本层。
+RUN chmod +x /tmp/install-agentmemory.sh /opt/lift/openhuman-agentmemory-entrypoint.sh \
     && chmod +r /opt/lift/max_tokens_proxy.py \
+    && INSTALL_AGENTMEMORY="${INSTALL_AGENTMEMORY}" \
+       AGENTMEMORY_GIT_URL="${AGENTMEMORY_GIT_URL}" \
+       AGENTMEMORY_GIT_REF="${AGENTMEMORY_GIT_REF}" \
+       NODE_MAJOR="${NODE_MAJOR}" \
+       NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY}" \
+       bash /tmp/install-agentmemory.sh
+
+# ── COPY config 相关材料放在 L2 之后：改 template / install-config.sh 只 bust L4。
+COPY config.toml.template /tmp/config.toml.template
+COPY scripts/install-config.sh /tmp/install-config.sh
+
+# ── Layer L4（轻量 · 频繁变动）:config.toml 渲染 + [autonomy]/[cost]/[memory] 预烘焙。
+RUN chmod +x /tmp/install-config.sh \
     && API_KEY="${API_KEY}" \
        API_URL="${API_URL}" \
        INFERENCE_URL="${INFERENCE_URL}" \
@@ -142,11 +158,7 @@ RUN chmod +x /tmp/install-in-image.sh /opt/lift/openhuman-agentmemory-entrypoint
        LIFT_MAX_TOKENS_PROXY_ENABLED="${LIFT_MAX_TOKENS_PROXY_ENABLED}" \
        LIFT_PROXY_PORT="${LIFT_PROXY_PORT}" \
        INSTALL_AGENTMEMORY="${INSTALL_AGENTMEMORY}" \
-       AGENTMEMORY_GIT_URL="${AGENTMEMORY_GIT_URL}" \
-       AGENTMEMORY_GIT_REF="${AGENTMEMORY_GIT_REF}" \
-       NODE_MAJOR="${NODE_MAJOR}" \
-       NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY}" \
-       bash /tmp/install-in-image.sh
+       bash /tmp/install-config.sh
 
 # 3) Workspace 目录（LIFT bind mount `/workspace/task`）
 RUN mkdir -p /workspace/task /workspace/outcome

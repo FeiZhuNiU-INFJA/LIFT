@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# GenericAgent 镜像分层 —— L4 轻量层（配置 / 渲染 / 补丁，秒级）。
+# 从原 install-in-image.sh 迁移过来，内容未变。
+#
 # Run inside Docker build (after `git clone` + dep install).
 # 1) Render mykey.py.template into /opt/GenericAgent/mykey.py
 # 2) Overlay /opt/GenericAgent/plugins/langfuse_tracing.py with our LIFT-aware version

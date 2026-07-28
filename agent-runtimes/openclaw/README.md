@@ -65,9 +65,9 @@ bash agent-runtimes/openclaw/build-image.sh --with-agentmemory
 
 OpenSpace 源默认 `git clone https://github.com/HKUDS/OpenSpace.git@main`（sparse-checkout 跳过 `assets/`），
 可用 env `OPENSPACE_GIT_URL` / `OPENSPACE_GIT_REF` 覆盖（内网可指镜像 / 反代）。安装逻辑见
-[install-plugins-in-image.sh](install-plugins-in-image.sh) 第 6 步：git clone 到 `/opt/OpenSpace`、
+[install-heavy.sh](scripts/install-heavy.sh) 第 4 步：git clone 到 `/opt/OpenSpace`、
 在独立 Python 3.12 venv（`/opt/openspace-venv`）里 `pip install -e`、软链 `openspace-mcp` 到
-`/usr/local/bin`、`openclaw mcp set openspace`（stdio，`toolTimeout=600`），并把 `delegate-task` /
+`/usr/local/bin`；[install-config.sh](scripts/install-config.sh) 再做 `openclaw mcp set openspace`（stdio，`toolTimeout=600`），并把 `delegate-task` /
 `skill-discovery` 两个 host skill 拷进 `/root/.openclaw/skills`（随 `docker commit` 落 delta）。
 
 种子文件直接位于**镜像内**的 `/root/.openclaw/workspace`，也是 work agent 真正的工作目录；因此 warmup 期间 work agent 生成的 SOUL / MEMORY / 日常记忆都会被 `docker commit` 一并打进 delta 镜像（详见下文 *Workspace 布局*）。judge 容器使用相同 seed 与 task workspace，但其状态不会被 commit。
@@ -180,7 +180,7 @@ Benchmark 任务可在 `requirements.extra_skills_dir` 中提供额外 skill 目
 
 ### 插件清单与 OpenClaw 版本兼容性
 
-构建期 [install-plugins-in-image.sh](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openclaw/install-plugins-in-image.sh) 会装这三个插件（运行时 enable）：
+构建期 [install-heavy.sh](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openclaw/scripts/install-heavy.sh)（unzip / npm / pip / clone 等重活）+ [install-config.sh](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openclaw/scripts/install-config.sh)（fragment 渲染 + `openclaw plugins enable` / `mcp set` 等秒级配置）会装这三个插件（运行时 enable）：
 
 | 插件 | 来源 | 运行时依赖 | 备注 |
 |------|------|------------|------|
@@ -194,7 +194,7 @@ Benchmark 任务可在 `requirements.extra_skills_dir` 中提供额外 skill 目
 - 旧版本（≲ 2026.5.x）firecrawl 是 stock plugin（`/app/dist/extensions/firecrawl/`），脚本里 `openclaw plugins enable firecrawl` 就能直接生效。
 - 当前版本（2026.6.10 起）firecrawl 已被剥离为外置 npm 包，必须显式 `openclaw plugins install @openclaw/firecrawl-plugin`，否则 gateway 启动会打 warning，`web_search` 工具调用会返回 `{"status":"error","error":"web_search is disabled or no provider is available."}`。
 
-排查 `web_search` 不工作时，先 `docker run --rm <image> openclaw plugins list | grep -i firecrawl` 看是否 `enabled`；如果只看到 stock list 里没有 firecrawl，且 `~/.openclaw/extensions/`、`~/.openclaw/npm/projects/` 都没有，就是这一步漏装了。升级 base image 后如果 firecrawl 的分发方式又变（重新进 stock 或换包名），同步更新 [install-plugins-in-image.sh](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openclaw/install-plugins-in-image.sh) 第 3 步即可。
+排查 `web_search` 不工作时，先 `docker run --rm <image> openclaw plugins list | grep -i firecrawl` 看是否 `enabled`；如果只看到 stock list 里没有 firecrawl，且 `~/.openclaw/extensions/`、`~/.openclaw/npm/projects/` 都没有，就是这一步漏装了。升级 base image 后如果 firecrawl 的分发方式又变（重新进 stock 或换包名），同步更新 [install-heavy.sh](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/openclaw/scripts/install-heavy.sh) 第 3 步（`openclaw plugins install`）即可。
 
 ## Workspace 布局（镜像 FS vs bind mount）
 

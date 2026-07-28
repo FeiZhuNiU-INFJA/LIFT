@@ -12,11 +12,20 @@ agent-runtimes/openhuman/
 ├── .dockerignore
 ├── Dockerfile
 ├── build-image.sh
-├── install-in-image.sh        # build 期渲染 ~/.openhuman/config.toml
-├── config.toml.template       # OpenAI-兼容直连模板；占位符由 install-in-image.sh sed 渲染
+├── config.toml.template       # OpenAI-兼容直连模板；占位符由 scripts/install-config.sh sed 渲染
+├── scripts/
+│   ├── install-agentmemory.sh # L2 重量层：装 Node + npm + agentmemory engine/model warmup
+│   ├── install-config.sh      # L4 轻量层：渲染 config.toml + [autonomy]/[cost]/[memory] 预烘焙
+│   ├── openhuman-agentmemory-entrypoint.sh
+│   └── max_tokens_proxy.py
 ├── workspace_seed/            # （占位）holdout 容器启动前 copy 进 /workspace/task
 └── README.md
 ```
+
+> **构建分层**（Dockerfile cache 友好设计）：`install-agentmemory.sh` 和
+> `install-config.sh` 拆开的目的是让 config.toml 相关字段（`[autonomy]` / `[cost]` /
+> `[memory]`）改动只 bust 秒级的轻量层，不用重跑几分钟的 Node + npm + engine warmup。
+> 通用原则见 [`skill/lift-integrate-agent-runtime/docs/image-scaffold.md`](../../skill/lift-integrate-agent-runtime/docs/image-scaffold.md) §6.3。
 
 ## Build (recommended)
 
@@ -33,7 +42,7 @@ bash agent-runtimes/openhuman/build-image.sh
 1. 从 [GitHub Releases](https://github.com/tinyhumansai/openhuman/releases/latest)
    拉取 latest `.deb` 安装包（`amd64` 默认；`OPENHUMAN_ARCH=arm64` 切 arm64）
 2. `apt-get install ./OpenHuman_*.deb` 装 `openhuman-core` 二进制
-3. `install-in-image.sh` 把 `.env` 中的 `ARK_API_KEY` / `MODEL_NAME` /
+3. `scripts/install-config.sh` 把 `.env` 中的 `ARK_API_KEY` / `MODEL_NAME` /
    `ARK_BASE_URL` 通过 sed 渲染到 `/root/.openhuman/config.toml`，配置 OpenHuman
    的 OpenAI-兼容直连模式（`inference_url` + `api_key` + `default_model` 三字段
    配套，绕开 OpenHuman backend；见 upstream `Config.inference_url` 字段注释）
@@ -47,8 +56,8 @@ bash agent-runtimes/openhuman/build-image.sh --with-agentmemory
 
 agentmemory（官方 wiki config.toml backend 切换）采用**纯本地**模式：`all-MiniLM-L6-v2` 嵌入 +
 BM25 + 知识图，**零 API Key、离线**（构建期预热 iii-engine 与嵌入模型进镜像）。构建期
-`install-in-image.sh` 在 `config.toml` 追加 `[memory] backend = "agentmemory"`，装 Node ≥20 +
-`@agentmemory/agentmemory`；`openhuman-core` 启动时旁路自家 SQLite，把 Memory trait 调用代理到
+`scripts/install-agentmemory.sh` 装 Node ≥20 + `@agentmemory/agentmemory` 并做 engine/model warmup；
+后续 `scripts/install-config.sh` 在 `config.toml` 追加 `[memory] backend = "agentmemory"`。`openhuman-core` 启动时旁路自家 SQLite，把 Memory trait 调用代理到
 容器内 agentmemory server（`:3111`）。镜像 ENTRYPOINT 包装脚本
 `scripts/openhuman-agentmemory-entrypoint.sh` 在 `openhuman-core` 启动**前**先拉起并等待 `:3111`
 就绪（OpenHuman 的 agentmemory backend **无自动回退 SQLite**，daemon 不可达会报错）。work 容器中的记忆落在

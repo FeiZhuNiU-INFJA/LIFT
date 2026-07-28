@@ -86,7 +86,7 @@ RUN uv pip install --system --no-cache \
         tabulate \
         Pillow
 
-# 4) Bake build-time secrets / config into mykey.py via install-in-image.sh
+# 4) Bake build-time secrets / config into mykey.py via scripts/install-config.sh
 ARG WORK_OPENAI_API_KEY=
 ARG WORK_OPENAI_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARG MODEL_NAME=
@@ -109,11 +109,18 @@ ENV WORK_OPENAI_API_KEY=${WORK_OPENAI_API_KEY} \
 COPY mykey.py.template /tmp/mykey.py.template
 COPY langfuse_tracing_overlay.py /tmp/langfuse_tracing_overlay.py
 COPY firecrawl_plugin.py /tmp/firecrawl_plugin.py
-COPY install-in-image.sh /tmp/install-in-image.sh
+COPY scripts/install-heavy.sh /tmp/install-heavy.sh
+
+# L2 重量层：GA 目前无耗时装配（占位，为分层契约保留入口）
+RUN chmod +x /tmp/install-heavy.sh \
+    && bash /tmp/install-heavy.sh
+
+# L4 轻量层：mykey.py 渲染 + GA 源码 patch + langfuse overlay + firecrawl 插件注入
+COPY scripts/install-config.sh /tmp/install-config.sh
 COPY workspace_seed /opt/lift/workspace_seed
 
-RUN chmod +x /tmp/install-in-image.sh \
-    && bash /tmp/install-in-image.sh
+RUN chmod +x /tmp/install-config.sh \
+    && bash /tmp/install-config.sh
 
 # 5) Workspace 与 GA temp 目录
 RUN mkdir -p /workspace/task /opt/GenericAgent/temp /opt/GenericAgent/memory

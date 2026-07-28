@@ -125,7 +125,8 @@ M  src/models.py                             # LANGFUSE_PLUGIN_TRACE_NAMES 加 "
 
 ?? agent-runtimes/<runtime>/Dockerfile
 ?? agent-runtimes/<runtime>/build-image.sh
-?? agent-runtimes/<runtime>/install-in-image.sh
+?? agent-runtimes/<runtime>/scripts/install-heavy.sh    # L2 重量层(可占位)
+?? agent-runtimes/<runtime>/scripts/install-config.sh   # L4 轻量层
 ?? agent-runtimes/<runtime>/mykey.py.template
 ?? agent-runtimes/<runtime>/langfuse_tracing_overlay.py
 ?? agent-runtimes/<runtime>/.dockerignore
@@ -139,4 +140,4 @@ M  src/models.py                             # LANGFUSE_PLUGIN_TRACE_NAMES 加 "
 ?? src/lift/adapters/<runtime>/chat_agent.py
 ```
 
-如果还集成了第三方工具(如 firecrawl),再加一份 `agent-runtimes/<runtime>/<tool>_plugin.py` + `install-in-image.sh` 里 `cp + tools_schema*.json patch` 的相关段落。
+如果还集成了第三方工具(如 firecrawl),再加一份 `agent-runtimes/<runtime>/<tool>_plugin.py` + `scripts/install-config.sh` 里 `cp + tools_schema*.json patch` 的相关段落。

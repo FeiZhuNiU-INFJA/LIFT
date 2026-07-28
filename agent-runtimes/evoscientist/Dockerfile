@@ -84,11 +84,20 @@ ENV WORK_OPENAI_API_KEY=${WORK_OPENAI_API_KEY} \
     REASONING_EFFORT=${REASONING_EFFORT}
 
 COPY langfuse_tracing_overlay.py /opt/lift/evoscientist_langfuse_overlay.py
-COPY install-in-image.sh /tmp/install-in-image.sh
+COPY scripts/install-heavy.sh /tmp/install-heavy.sh
+
+# L2 重量层：把 firecrawl-mcp npm 包 pre-warm 进 image 层。secrets / config 类
+# build-arg 变动不会 bust 本层，rebuild 直接命中缓存。
+RUN chmod +x /tmp/install-heavy.sh \
+    && bash /tmp/install-heavy.sh
+
+# L4 轻量层：config.yaml 渲染 + firecrawl MCP 注册 + langfuse overlay。
+# 依赖 build-arg / ENV，改动频繁但秒级完成。
+COPY scripts/install-config.sh /tmp/install-config.sh
 COPY workspace_seed /opt/lift/workspace_seed
 
-RUN chmod +x /tmp/install-in-image.sh \
-    && bash /tmp/install-in-image.sh
+RUN chmod +x /tmp/install-config.sh \
+    && bash /tmp/install-config.sh
 
 # 3) EvoScientist 运行时目录（须落在 container FS 层以进 delta 镜像）
 #    ~/.evoscientist/{sessions.db,memories/,skills/} = 跨会话持久数据；

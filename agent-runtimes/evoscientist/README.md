@@ -9,7 +9,9 @@ LIFT (`src`) 在每个 phase 的 work 容器内通过 **`docker exec … EvoSci 
 agent-runtimes/evoscientist/
 ├── Dockerfile
 ├── build-image.sh
-├── install-in-image.sh          # build 期渲染 EvoScientist 的 config.yaml（注入 WORK_OPENAI_* / MODEL_NAME）
+├── scripts/
+│   ├── install-heavy.sh         # L2 重量层：pre-warm firecrawl-mcp 的 npm 包缓存
+│   └── install-config.sh        # L4 轻量层：渲染 config.yaml、注册 MCP、装 langfuse overlay
 ├── langfuse_tracing_overlay.py  # sitecustomize 挂钩：包装 EvoScientist.stream.events.stream_agent_events，把 3 段 trace 打齐；同时 patch langchain-openai BaseChatOpenAI 强制吐 usage
 ├── workspace_seed/              # （占位）holdout 容器启动前 copy 进 /workspace/task
 └── README.md
@@ -31,7 +33,7 @@ adapter 的 warmup 后 evolve hook）。
 
 ## Environment
 
-镜像内 EvoScientist 读 `WORK_OPENAI_API_KEY` / `WORK_OPENAI_BASE_URL` / `MODEL_NAME`，由 `install-in-image.sh` 生成 `~/.evoscientist/config.yaml` 的 `custom-openai` provider 条目——`model_id` 取 `MODEL_NAME` 中 `/` 之后的部分。
+镜像内 EvoScientist 读 `WORK_OPENAI_API_KEY` / `WORK_OPENAI_BASE_URL` / `MODEL_NAME`，由 `scripts/install-config.sh` 生成 `~/.evoscientist/config.yaml` 的 `custom-openai` provider 条目——`model_id` 取 `MODEL_NAME` 中 `/` 之后的部分。
 
 Langfuse：`LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST`（LIFT 会把宿主 `http://localhost:3000` 改写成 `http://host.docker.internal:3888` 或对应容器可达地址；见 [session.py::rewrite_langfuse_base_url_for_container](../../src/lift/adapters/evoscientist/session.py)）。
 
@@ -83,7 +85,7 @@ observation 结构化为可复用 skills 再 commit。详见下面 *Active Evolv
 
 ## Tools (MCP)
 
-镜像在 build 期通过 [`install-in-image.sh`](install-in-image.sh) 的 `EvoSci mcp add ...` 注册以下 MCP servers（写入 `/home/evosci/.evoscientist/.config/evoscientist/mcp.yaml`，属于 image 层，不受 `docker commit` 影响）：
+镜像在 build 期通过 [`scripts/install-config.sh`](scripts/install-config.sh) 的 `EvoSci mcp add ...` 注册以下 MCP servers（写入 `/home/evosci/.evoscientist/.config/evoscientist/mcp.yaml`，属于 image 层，不受 `docker commit` 影响）：
 
 | Name | Command | Exposed to | Env |
 |---|---|---|---|
@@ -93,7 +95,7 @@ observation 结构化为可复用 skills 再 commit。详见下面 *Active Evolv
 
 `npx -y firecrawl-mcp` 的 npm 包在 build 期通过 `FIRECRAWL_API_KEY=stub npx -y firecrawl-mcp --help` 预拉到 `~/.npm/_npx`，首次运行时无需在线拉包。
 
-如需添加更多 MCP server：编辑 `install-in-image.sh` 的 `EvoSci mcp add ...` 块并重 build 镜像；warmup / holdout 产生的 delta commit 不会覆盖 build 期的 MCP 配置（config 落在 `/home/evosci/...`，不在 `evolve_paths` 内）。
+如需添加更多 MCP server：编辑 `scripts/install-config.sh` 的 `EvoSci mcp add ...` 块并重 build 镜像；warmup / holdout 产生的 delta commit 不会覆盖 build 期的 MCP 配置（config 落在 `/home/evosci/...`，不在 `evolve_paths` 内）。
 
 ## Langfuse correlation with LIFT pre-chat
 

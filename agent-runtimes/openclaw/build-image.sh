@@ -155,7 +155,7 @@ if [[ -n "${WORK_OPENAI_API_KEY}" ]]; then
   echo "==> Baking model provider (apiKey from WORK_OPENAI_API_KEY) into image"
 fi
 # OpenSpace 的 LLM base URL（OPENSPACE_LLM_API_BASE）由构建期 WORK_OPENAI_BASE_URL bake 进
-# openspace MCP env 块（install-plugins-in-image.sh）。仅 --with-openspace 时相关；空值时
+# openspace MCP env 块（install-config.sh）。仅 --with-openspace 时相关；空值时
 # OpenSpace 走其默认解析，故非致命，只在启用 OpenSpace 且为空时提醒。
 if [[ -n "${WORK_OPENAI_BASE_URL}" ]]; then
   BUILD_ARGS+=(--build-arg "WORK_OPENAI_BASE_URL=${WORK_OPENAI_BASE_URL}")

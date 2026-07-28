@@ -1,6 +1,6 @@
 # 镜像脚手架:`agent-runtimes/<runtime>/`
 
-> [`SKILL.md`](../SKILL.md) 的第 1 步深化文档。本文件覆盖:目录结构、Dockerfile / build-image / install-in-image 三方同步、Langfuse overlay 关键约束、上游硬编码 patch、工具 schema、字节内网构建。
+> [`SKILL.md`](../SKILL.md) 的第 1 步深化文档。本文件覆盖:目录结构、Dockerfile / build-image / install 脚本三方同步、Langfuse overlay 关键约束、上游硬编码 patch、工具 schema、字节内网构建。
 > 关于**进化产物落地契约**(Docker commit 陷阱)见姊妹文档 [`evolve-artifact-contract.md`](evolve-artifact-contract.md)。
 > 关于 overlay 里 5 字段 token 落库口径见 [`token-observability.md`](token-observability.md)。
 
@@ -10,11 +10,14 @@
 |---|---|---|
 | `Dockerfile` | 必须 | 多阶段构建 agent 镜像;ENTRYPOINT 一般是 `tini` + `tail -f /dev/null`(容器空转等 docker exec) |
 | `build-image.sh` | 必须 | 读 `.env` 获取 WORK_OPENAI / Langfuse / 第三方 secret,`--build-arg` 透传 |
-| `install-in-image.sh` | 必须 | 镜像内执行:`sed` 渲染 `mykey.py.template` → `mykey.py`、覆盖 `langfuse_tracing_overlay.py`、patch 上游硬编码 |
-| `mykey.py.template` | 必须 | 凭据模板,占位符 `__WORK_OPENAI_API_KEY__` 等由 `install-in-image.sh` 用 sed 渲染 |
+| `scripts/install-heavy.sh` | 必须(可占位) | L2 重量层:装 Node / Python 依赖、npm/uv 全局包、engine warmup、pre-warm 大 npm 包。无耗时装配的 runtime(如 GA)保留占位 |
+| `scripts/install-config.sh` | 必须 | L4 轻量层:`sed` 渲染 `mykey.py.template` → `mykey.py`、覆盖 `langfuse_tracing_overlay.py`、patch 上游硬编码、写 config.toml / config.yaml。**必须** COPY 位置放在 L2 RUN 之后,详见 §6.3 |
+| `mykey.py.template` | 必须 | 凭据模板,占位符 `__WORK_OPENAI_API_KEY__` 等由 `scripts/install-config.sh` 用 sed 渲染 |
 | `langfuse_tracing_overlay.py` | 必须 | LIFT 自有 tracing overlay:强制 root span name = `<runtime>-plugin`、注入 `session_id` / tags |
 | `workspace_seed/` | 可选 | 容器内 `/workspace/task` 初始内容(如 README、人设文件);GA baseline 仅一个 README |
 | `.dockerignore` | 推荐 | 屏蔽 `.git` / `temp/` 减小 build context |
+
+> 早期实现只有一个 `install-in-image.sh` 大脚本,现已按 §6.3 强制拆成 L2 (heavy) + L4 (config) 两个脚本;`install-in-image.sh` 命名保留为**只做配置渲染的单脚本 runtime** 的兼容名字,新 runtime 直接从二拆样板起步。
 
 ## 1. `mykey.py.template` 占位符规范
 
@@ -23,14 +26,14 @@ native_oai_config = {"name": "doubao", "apikey": "__WORK_OPENAI_API_KEY__", "api
 langfuse_config = {"public_key": "__LANGFUSE_PUBLIC_KEY__", "secret_key": "__LANGFUSE_SECRET_KEY__", "host": "__LANGFUSE_HOST__"}
 ```
 
-`install-in-image.sh` 里要:
+`scripts/install-config.sh` 里要:
 1. `escape_sed` 转义所有 `__XXX__` 注入值(防 `/` 与换行污染 sed)。
 2. 一条 `sed -e ... -e ...` 替换全部占位符。
 3. 严禁把空字符串当成 valid secret 写进镜像 — 上层 `build-image.sh` 应预先 `${VAR:-}` fallback 成空,由 plugin 自身在运行期再做 "未配置" 校验(参考 [`firecrawl_plugin.py`](../../../agent-runtimes/genericagent/firecrawl_plugin.py))。
 
 > **`MODEL_NAME` 必须是 provider-native 标识**:GA / 任意直连 work LLM 的 runtime,`MODEL_NAME` 要是 provider 真实 endpoint id(形如 `ep-2025xxxx-xxxxx`),不是 OpenClaw gateway 的命名空间值。如果同一个 `.env` 同时给 OpenClaw / GA 用,建议在 `build-image.sh` 里走专属变量名(参考 GA 用 `GENERICAGENT_MODEL_NAME` 优先于共享 `MODEL_NAME`,见 [`build-image.sh:61`](../../../agent-runtimes/genericagent/build-image.sh#L61)),避免一改就同时污染另一个 runtime 的镜像。
 
-## 2. 三方同步:Dockerfile ARG/ENV ↔ build-image.sh `--build-arg` ↔ install-in-image.sh sed
+## 2. 三方同步:Dockerfile ARG/ENV ↔ build-image.sh `--build-arg` ↔ scripts/install-config.sh sed
 
 新加一个凭据/开关变量必须**同时**改三个地方,少一处就静默失效:
 
@@ -38,7 +41,7 @@ langfuse_config = {"public_key": "__LANGFUSE_PUBLIC_KEY__", "secret_key": "__LAN
 |---|---|---|
 | `Dockerfile` | `ARG FOO=` + `ENV FOO=${FOO}` | [Dockerfile:96-103](../../../agent-runtimes/genericagent/Dockerfile#L96-L103) |
 | `build-image.sh` | `FOO="${FOO:-}"` + `--build-arg "FOO=${FOO}"` | [build-image.sh:65,84](../../../agent-runtimes/genericagent/build-image.sh#L65) |
-| `install-in-image.sh` | `escape_sed` + sed 替换占位符 | [install-in-image.sh:20,29](../../../agent-runtimes/genericagent/install-in-image.sh#L20) |
+| `scripts/install-config.sh` | `escape_sed` + sed 替换占位符 | [scripts/install-config.sh:20,29](../../../agent-runtimes/genericagent/scripts/install-config.sh#L20) |
 
 > 验证手段:build 完后 `docker run --rm <image> grep __ /opt/<runtime>/mykey.py` 应当 0 行。
 
@@ -134,11 +137,11 @@ Q2     evolved  chat_turns=2 all_messages=4 roles={'user': 2, 'assistant': 2}
 
 ## 4. patch 上游硬编码(如有)
 
-GA 上游把 `Handler.cwd` 与 system prompt cwd 都硬编码成 `os.path.join(script_dir, 'temp')`,LIFT 把 task materials bind 到 `/workspace/task`,必须在 build 期 patch 上游源码(见 [`install-in-image.sh:51-85`](../../../agent-runtimes/genericagent/install-in-image.sh#L51-L85) 的 python in-place 替换)。换 runtime 时先 grep `script_dir` / `os.getcwd()` / `os.path.dirname(__file__)` 找类似硬编码。
+GA 上游把 `Handler.cwd` 与 system prompt cwd 都硬编码成 `os.path.join(script_dir, 'temp')`,LIFT 把 task materials bind 到 `/workspace/task`,必须在 build 期 patch 上游源码(见 [`scripts/install-config.sh:51-85`](../../../agent-runtimes/genericagent/scripts/install-config.sh#L51-L85) 的 python in-place 替换)。换 runtime 时先 grep `script_dir` / `os.getcwd()` / `os.path.dirname(__file__)` 找类似硬编码。
 
 ## 5. 工具 schema 中英双份(如果 runtime 用了 GA 那套 schema)
 
-GA 风格 runtime 通过 `assets/tools_schema.json`(英文)+ `assets/tools_schema_cn.json`(中文)两套声明告知 LLM 可用工具。GA 上游 `agentmain.py` 按模型名(`glm` / `minimax` / `kimi` 走 cn)切换。新加 plugin tool 时,**两套 schema 都要 append**,不然中文模型看不到工具。参考 [`install-in-image.sh:93-208`](../../../agent-runtimes/genericagent/install-in-image.sh#L93-L208) 的 idempotent append 实现(已存在则跳过,避免重复 append)。
+GA 风格 runtime 通过 `assets/tools_schema.json`(英文)+ `assets/tools_schema_cn.json`(中文)两套声明告知 LLM 可用工具。GA 上游 `agentmain.py` 按模型名(`glm` / `minimax` / `kimi` 走 cn)切换。新加 plugin tool 时,**两套 schema 都要 append**,不然中文模型看不到工具。参考 [`scripts/install-config.sh:93-208`](../../../agent-runtimes/genericagent/scripts/install-config.sh#L93-L208) 的 idempotent append 实现(已存在则跳过,避免重复 append)。
 
 ## 6. 字节内网 / GitHub 拉取受限时的构建环境变量
 
@@ -210,5 +213,65 @@ fi
 ```
 
 参考 [openhuman/build-image.sh:160](../../../agent-runtimes/openhuman/build-image.sh#L160) 与 [hermes/build-image.sh:106](../../../agent-runtimes/hermes/build-image.sh#L106)。
+
+### 6.3 Docker 分层缓存:按 "改动频率 × 耗时" 拆 install 脚本
+
+新 runtime 上手时最容易写成的反模式:把**渲染 config**(1 秒)和**装依赖 + warmup**(几分钟)塞进同一个 install 脚本(例如早期 `install-in-image.sh`),然后 Dockerfile 里一条 `RUN bash install-in-image.sh` 搞定。后果是**每次改一行 config.toml 都要重跑几分钟的 apt/npm/warmup**,因为 install 脚本内容一变、这条 RUN 上游的 layer hash 就作废。
+
+**必须把 install 脚本按"改动频率 × 耗时"拆开**,让频繁变动的轻量层不 bust 重量层的 layer cache:
+
+| 层 | 内容 | 改动频率 | 单次耗时 | 拆分要点 |
+|---|---|---|---|---|
+| **L1** | apt-get / 二进制下载(如 openhuman-core tarball) | 极低 | 30-60s | Dockerfile 独立 RUN,ARG 只放版本号 |
+| **L2** | 装 Node / Python / Rust / npm / pip 依赖 + 引擎预热 | 极低 | **~200s+** | **独立成 `scripts/install-<subsystem>.sh`** |
+| **L3** | COPY 静态资源(entrypoint.sh、workspace_seed) | 低 | <1s | Dockerfile 独立 COPY |
+| **L4** | 渲染 config.toml / mykey.py / autonomy/cost/memory 段 | **频繁** | <1s | **独立成 `scripts/install-config.sh`,COPY 放在 L2 RUN 之后** |
+
+关键 Dockerfile 编排(照抄可用):
+
+```dockerfile
+# L2 前:COPY 依赖脚本 + 静态资源
+COPY scripts/install-agentmemory.sh /tmp/install-agentmemory.sh
+COPY scripts/openhuman-agentmemory-entrypoint.sh /opt/lift/openhuman-agentmemory-entrypoint.sh
+COPY workspace_seed /opt/lift/workspace_seed
+
+# L2 RUN:重量层(200s,只在 install-agentmemory.sh 内容/NODE_MAJOR/npm_registry 变时 bust)
+RUN INSTALL_AGENTMEMORY="${INSTALL_AGENTMEMORY}" NODE_MAJOR="${NODE_MAJOR}" \
+    bash /tmp/install-agentmemory.sh
+
+# ⚠️ L4 相关 COPY 必须放在 L2 之后 —— 否则改 config.toml.template / install-config.sh
+#    会 bust L2,重跑 200s
+COPY config.toml.template /tmp/config.toml.template
+COPY scripts/install-config.sh /tmp/install-config.sh
+
+# L4 RUN:轻量层(1s,改 config 相关字段只 bust 本层)
+RUN API_KEY="${API_KEY}" INFERENCE_URL="${INFERENCE_URL}" \
+    bash /tmp/install-config.sh
+```
+
+**验证手法**(三步)——每接入或改造一个 runtime,都跑一遍:
+
+```bash
+# 1. 首次 rebuild 冷启:所有层都 Running
+time bash agent-runtimes/<runtime>/build-image.sh 2>&1 | tail -5
+# 2. 立即再 rebuild:应全部 Using cache,秒级返回
+time bash agent-runtimes/<runtime>/build-image.sh 2>&1 | grep -c "Using cache"  # 应等于总 step 数
+# 3. 改一行 install-config.sh 后 rebuild:只有 L4 RUN 有 "Running in"
+echo "" >> agent-runtimes/<runtime>/scripts/install-config.sh
+time bash agent-runtimes/<runtime>/build-image.sh 2>&1 | grep -E "Running in|Successfully built"
+#    → 期望只看到 1 条 Running in(即 L4 那条 RUN),总耗时 <3s
+```
+
+现有实现参考(4 个 runtime 全部按同一契约落地,`scripts/install-heavy.sh` + `scripts/install-config.sh`):
+
+| Runtime | 首次 rebuild | no-op | 改 install-config.sh | 加速比 |
+|---|---|---|---|---|
+| [openclaw](../../../agent-runtimes/openclaw/scripts/) | ~180s | 2s | 14s | ≈13× |
+| [hermes](../../../agent-runtimes/hermes/scripts/) | 69s | 1s | 3s | ≈23× |
+| [openhuman](../../../agent-runtimes/openhuman/scripts/) | ~200s | <1s | 1.2s | ≈170× |
+| [evoscientist](../../../agent-runtimes/evoscientist/scripts/) | 33s | 0s | 10s | ≈3× |
+| [genericagent](../../../agent-runtimes/genericagent/scripts/) | 4s | 0s | 4s | ≈1×(L2 占位,本身够快) |
+
+> **反面案例**:把 `[cost] enabled=false` 加进 config.toml 却混进未拆分的 install 脚本 → 每次 rebuild 要花 200s 重装 npm/warmup,才能验证一行配置改动。分层后同一改动 1.2s 完成,加速 ~200×。
 
 

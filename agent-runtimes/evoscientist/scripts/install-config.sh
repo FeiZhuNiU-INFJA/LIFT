@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# 镜像构建期一次性执行：
-#   1) 渲染 EvoScientist config.yaml，将 build-arg secrets baked 进 image
-#      （custom-openai provider + Work LLM 三件套）。
-#   2) 注册 Firecrawl MCP server（`npx -y firecrawl-mcp`，暴露给 main +
-#      research-agent），并 pre-warm 到 image 层。
-#   3) 部署 langfuse tracing overlay 到 site-packages，通过 sitecustomize.py
-#      让其在每次 Python 进程启动时被自动 import；这样 `EvoSci -p ...` 只需
-#      正常 exec 就会启用 tracing。
+# EvoScientist 镜像分层 —— L4 轻量层（配置 / 渲染 / 补丁，秒级）。
 #
-# 输入（build args → docker ENV）：
+# 从旧 install-in-image.sh 拆出：
+#   1) 渲染 EvoScientist config.yaml —— WORK_OPENAI_* + MODEL_NAME + REASONING_EFFORT
+#   2) 注册 firecrawl-search MCP server（`--env-ref FIRECRAWL_API_KEY`，key 运行期读）
+#   3) 部署 langfuse tracing overlay 到 site-packages，走 sitecustomize.py 全局注入
+#
+# 输入：build-args → docker ENV（同上游 install-in-image.sh，未变）：
 #   WORK_OPENAI_API_KEY / WORK_OPENAI_BASE_URL / MODEL_NAME
 #   LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_HOST
 #   REASONING_EFFORT
+#
+# firecrawl-mcp 的 npm 包 pre-warm 已迁移到 scripts/install-heavy.sh (L2)。
 set -euo pipefail
 
 # EvoScientist config path 遵循 XDG 约定：``get_config_dir()`` 优先读
@@ -109,12 +109,6 @@ data = yaml.safe_load(cfg.read_text()) or {}
 assert "firecrawl-search" in str(data), f"firecrawl-search missing in {cfg}: {data}"
 print(f"  mcp.yaml OK at {cfg}, firecrawl-search registered")
 PYEOF_VERIFY_MCP
-
-# Pre-warm: 把 firecrawl-mcp 的 npm 包固化到 image 层，避免首次联网任务多花 3-10s。
-# 用 FIRECRAWL_API_KEY=stub 触发下载但不执行真实请求；--help 会立即 exit 0。
-echo "==> Pre-warming firecrawl-mcp npm package"
-FIRECRAWL_API_KEY=stub timeout 60 npx -y firecrawl-mcp --help >/dev/null 2>&1 || \
-  echo "WARN: firecrawl-mcp pre-warm skipped (offline?)"
 
 # ─────────────────────────────────────────────────────────────────────
 # 3) 部署 langfuse tracing overlay

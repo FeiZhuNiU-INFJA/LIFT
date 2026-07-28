@@ -1,4 +1,4 @@
-# GenericAgent 配置（LIFT 评测镜像构建期渲染；占位符由 install-in-image.sh 注入）。
+# GenericAgent 配置（LIFT 评测镜像构建期渲染；占位符由 scripts/install-config.sh 注入）。
 #
 # 上游约定：变量名包含 'oai' / 'claude' / 'mixin' / 'native' 决定使用哪种 Session
 # 类。这里使用 OpenAI 兼容协议（火山方舟 Ark）作为 doubao 后端。
