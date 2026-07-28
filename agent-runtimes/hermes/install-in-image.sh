@@ -421,6 +421,24 @@ if [[ "${INSTALL_AGENTMEMORY}" == "true" ]]; then
     ln -sf "${NODE_BIN}" /usr/local/bin/node || true
   fi
 
+  # 6d-2c) 装 agentmemory MCP server（@agentmemory/mcp，bin=agentmemory-mcp），与 provider
+  #        plugin 叠加（上游明确两者叠加使用；见 integrations/hermes README「6-hook plugin
+  #        on top of the MCP server」）。补 MCP 让 Hermes agent 能显式调 memory_save /
+  #        memory_smart_search 等 53 个工具。注册进 config.yaml 的 mcp_servers 由 entrypoint
+  #        阶段 patch_hermes_config.py 完成（AGENTMEMORY_ENABLED=true 触发）；hermes_runner.py
+  #        的 discover_mcp_tools() 会通用地把该 server 的工具注册进 tools.registry。
+  npm install -g @agentmemory/mcp
+  AM_MCP_BIN="$(command -v agentmemory-mcp || true)"
+  if [[ -z "${AM_MCP_BIN}" ]]; then
+    AM_MCP_BIN="$(ls /root/.nvm/versions/node/*/bin/agentmemory-mcp 2>/dev/null | head -1 || true)"
+  fi
+  if [[ -n "${AM_MCP_BIN}" ]]; then
+    ln -sf "${AM_MCP_BIN}" /usr/local/bin/agentmemory-mcp
+    log "Symlinked agentmemory-mcp -> /usr/local/bin/agentmemory-mcp (source: ${AM_MCP_BIN})"
+  else
+    log "WARN: agentmemory-mcp not found after npm install; MCP server will not be registered." >&2
+  fi
+
   # 6d-3) 构建期预热引擎 + 本地嵌入模型，然后清空记忆状态（保留引擎/模型缓存）。
   log "Warming up agentmemory engine + local embedding model (build-time, networked)"
   export CI=1

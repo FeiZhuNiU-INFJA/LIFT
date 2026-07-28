@@ -209,6 +209,28 @@ async def start_openhuman_container(
     env_vars = {
         "LIFT_EVAL_RUN_TAG": ctx.run_id,
     }
+
+    # ── action_dir 对齐（关键修复）─────────────────────────────────────────
+    # openhuman-core 的"acting-tool sandbox"(agent 读写文件 / 跑代码的目录)默认解析为
+    # ``/root/OpenHuman/projects``（见 ``config get_agent_paths`` 的 action_dir=default），
+    # 而 LIFT 把 task materials 挂在 ``/workspace/task``。二者不一致会让 agent 反复访问
+    # ``/root/OpenHuman/projects/qN_materials/...`` 却被 autonomy policy 拦
+    # （``workspace_only=true`` + ``forbidden_paths`` 含 ``/root`` → ``policy-blocked:
+    # Resolved path escapes workspace``），找不到素材便陷入长时间试错，单轮 chat 拖到
+    # 十几分钟并撞穿宿主侧 1000s 超时，进而触发 RPC 连接雪崩。
+    #
+    # ``OPENHUMAN_ACTION_DIR`` 是官方支持的运行期覆盖（``get_agent_paths`` 的
+    # ``action_dir_source=env``，实测生效），把 sandbox 指到 LIFT 的挂载点即可对齐，
+    # 且 confinement 随之允许该目录。这是纯 env 注入，不需重建镜像。
+    env_vars["OPENHUMAN_ACTION_DIR"] = "/workspace/task"
+
+    # ── tool 超时放宽 ─────────────────────────────────────────────────────
+    # openhuman-core 单个工具(如 run_code)默认 wall-clock 超时 ``agent_timeout_secs=120``
+    # （见 ``config get_agent_settings``），复杂评测任务里 120s 常不够，日志频现
+    # ``run_code timed out after 120 seconds``。``OPENHUMAN_TOOL_TIMEOUT_SECS`` 是官方
+    # env 覆盖(``max_timeout_secs=3600``)；抬到 600s 给足预算，仍远低于宿主侧
+    # ``CHAT_EXEC_TIMEOUT_SECONDS=1000``，不会让单轮 chat 无限拖长。
+    env_vars["OPENHUMAN_TOOL_TIMEOUT_SECS"] = "600"
     # openhuman-core 拒绝在非 loopback 地址（0.0.0.0）上无 token 裸绑。
     # 每容器独立生成 64 hex（256 bit）token，通过 ``-e`` 注入进程 +
     # 落到 ``session.metadata['rpc_token']``，adapter 侧 ``chat_agent`` 每次
