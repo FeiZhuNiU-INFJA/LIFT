@@ -200,8 +200,12 @@ class ContainerSession(Disposable):
             container_name,
             "--add-host",
             "host.docker.internal:host-gateway",  # 容器内 Langfuse / 模型 API 访问宿主机
-            "-v",
-            "/tmp:/tmp",  # OpenClaw / 插件临时文件
+            # 每容器独立 tmpfs 作为 /tmp。不用 -v /tmp:/tmp 是因为宿主机 /tmp 被跨 runtime
+            # 共享后，上一轮评测遗留的 /tmp/openhuman/ /tmp/result/ /tmp/openclaw/ 等目录会
+            # 被下一轮 agent 当作"熟悉的 workspace"错写产物进去,导致产物不进 outcome 也不进
+            # docker commit——静默丢数据。tmpfs 每容器独立,容器销毁时自动回收。
+            "--tmpfs",
+            "/tmp:rw,exec,size=2g,mode=1777",
         ]
         # 全 runtime 通用的容器网络模式（CONTAINER_NETWORK_MODE）。默认不设=Docker 默认
         # bridge；在 bridge 容器无法出网的宿主机（如纯 IPv6/NAT64）上设为 host 复用宿主

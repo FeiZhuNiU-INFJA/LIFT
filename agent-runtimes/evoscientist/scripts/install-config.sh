@@ -52,6 +52,10 @@ config = {
     "show_thinking": True,
     "log_level": "info",
     "ui_backend": "cli",
+    # 兜底 default_workdir，防止 EVOSCIENTIST_WORKSPACE_DIR ENV 被子进程意外
+    # 清掉后回落到 Path.cwd()——LIFT 挂载在 /workspace/task，父级 /workspace
+    # 是官方 base image 的烘焙默认，若命中会导致 sub-agent 双嵌套写产物。
+    "default_workdir": "/workspace/task",
 }
 config_file = "${CONFIG_FILE}"
 with open(config_file, "w", encoding="utf-8") as f:

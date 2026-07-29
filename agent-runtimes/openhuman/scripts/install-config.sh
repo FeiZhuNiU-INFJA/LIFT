@@ -60,14 +60,18 @@ mkdir -p "${OPENHUMAN_USER_HOME}"
 cat > "${OPENHUMAN_USER_HOME}/config.toml" <<'AUTONOMY_EOF'
 # openhuman-core 的 [autonomy] 有两层语义:
 #   1. path 边界: workspace_only + trusted_roots + forbidden_paths → 决定路径拦不拦
-#   2. approval tier: autonomy_level + require_* + auto_approve → 决定 tool call 需不需要人点批准
-# 只放开路径边界不够。默认 autonomy_level 兜到 "supervised" + require_task_plan_approval
+#   2. approval tier: level + require_* + auto_approve → 决定 tool call 需不需要人点批准
+# 只放开路径边界不够。默认 level 兜到 "supervised" + require_task_plan_approval
 # + require_approval_for_medium_risk 会让 headless 容器里的 agent 在没人点批准时把
 # medium-risk tool (file_write / execute_shell / node_exec / npm_exec) 都视为被拦，
 # 然后按内建 policy-blocked 模板对用户回复"权限不足,请去 Settings -> Agent access"。
 # LIFT 评测里没人 approval,必须把整个 approval loop 关掉。
+#
+# 字段名必须精确匹配 openhuman-core Rust binary 的期望:
+#   level (NOT autonomy_level) — 之前烘焙时用了 autonomy_level 被 schema migration 直接扔掉
+#   auto_approve 里 file_write 必须显式列出 — 否则 schema init 会移除
 [autonomy]
-autonomy_level = "autonomous"
+level = "autonomous"
 require_task_plan_approval = false
 require_approval_for_medium_risk = false
 block_high_risk_commands = false
@@ -80,6 +84,7 @@ auto_approve = [
   "web_search_tool", "web_fetch", "browser",
   "shell", "node_exec", "npm_exec", "schedule",
   "git_operations", "skills",
+  "glob", "grep",
 ]
 
 workspace_only = false
@@ -95,7 +100,7 @@ access = "readwrite"
 [cost]
 enabled = false
 AUTONOMY_EOF
-echo "==> Wrote ${OPENHUMAN_USER_HOME}/config.toml (autonomy_level=autonomous, approval loop disabled, trusted_roots=/workspace/task rw; cost.enabled=false)"
+echo "==> Wrote ${OPENHUMAN_USER_HOME}/config.toml (autonomy: level=autonomous, approval loop disabled, trusted_roots=/workspace/task rw; cost.enabled=false)"
 
 # agentmemory 已在上一层安装/warmup 完毕，此处只做 config.toml 的 [memory] 段追加。
 INSTALL_AGENTMEMORY="${INSTALL_AGENTMEMORY:-false}"
