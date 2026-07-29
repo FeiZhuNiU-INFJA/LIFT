@@ -42,15 +42,15 @@ bash agent-runtimes/openclaw/build-image.sh --with-evolve
 # Smoke test (warmup + delta only, skips holdout)
 python -m src.cli.lift_main -r openclaw \
   --benchmark_dir assets/benchmarks_demo --suite hello.json \
-  --run_id smoke-test --warmup-only
+  --run-id smoke-test --warmup-only
 
 # Full LIFT evaluation (with terminal TUI + browser dashboard)
 python -m src.cli.lift_main -r openclaw \
   --benchmark_dir assets/benchmarks_demo --suite hello.json \
-  --run_id my-run --tui --dashboard 8080
+  --run-id my-run --tui --dashboard 8080
 
 # Post-process only (rebuild dashboard / metrics from existing report.json)
-python -m src.cli.lift_main -r openclaw --evaluate-only --run_id my-run
+python -m src.cli.lift_main -r openclaw --evaluate-only --run-id my-run
 
 # Pull benchmark markdowns from TOS / HuggingFace / ModelScope and convert to suite JSON
 python -m src.cli.preprocess

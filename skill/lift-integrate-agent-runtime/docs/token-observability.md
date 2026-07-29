@@ -202,7 +202,7 @@ for details_key in ("usage_details", "usageDetails"):
 fresh, cw, cr, out_t, reasoning = _usage_breakdown(usage_payload)
 ```
 
-**验证**:直接 `python -m src.cli.lift_main -r <runtime> --evaluate-only --run_id <run>` 重跑 backfill,不需要 rerun 整个 IC。
+**验证**:直接 `python -m src.cli.lift_main -r <runtime> --evaluate-only --run-id <run>` 重跑 backfill,不需要 rerun 整个 IC。
 
 ---
 

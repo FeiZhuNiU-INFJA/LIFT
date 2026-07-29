@@ -218,7 +218,7 @@ python -m src.cli.lift_main -r openclaw \
 
 # 完整 LIFT：Q1 warmup → evolve → Q2 baseline vs evolved → 后处理
 python -m src.cli.lift_main -r openclaw \
-  --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id hello-full
+  --benchmark_dir assets/benchmarks_demo --suite hello.json --run-id hello-full
 ```
 
 ### 执行时发生了什么（按顺序讲，听众能跟上）

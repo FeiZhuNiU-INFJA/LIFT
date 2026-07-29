@@ -160,7 +160,7 @@ python -m src.cli.lift_main \
   -r openclaw \
   --benchmark_dir assets/benchmarks_demo \
   --suite hello.json \
-  --run_id my-first-run \
+  --run-id my-first-run \
   --tui \
   --dashboard 8080
 ```
@@ -182,7 +182,7 @@ EvoScientist 镜像构建和 AutoSkills active evolve 说明见
 ```bash
 bash agent-runtimes/hermes/build-image.sh   # 默认基于 nousresearch/hermes-agent:v2026.5.16
 python -m src.cli.lift_main -r hermes \
-  --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id hermes-smoke \
+  --benchmark_dir assets/benchmarks_demo --suite hello.json --run-id hermes-smoke \
   --warmup-container-policy serial_single
 ```
 

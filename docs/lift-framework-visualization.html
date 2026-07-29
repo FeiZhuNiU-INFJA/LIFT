@@ -550,7 +550,7 @@ python -m src.cli.lift_main -r openclaw \
 
 # 完整 LIFT
 python -m src.cli.lift_main -r openclaw \
-  --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id hello-full</code></pre>
+  --benchmark_dir assets/benchmarks_demo --suite hello.json --run-id hello-full</code></pre>
       </div>
 
       <h3>执行顺序</h3>
@@ -708,7 +708,7 @@ sequenceDiagram
             <tbody>
               <tr><td><code>-r openclaw</code></td><td>—</td><td>选择 agent runtime 适配器（必填）</td></tr>
               <tr><td><code>--warmup-only</code></td><td>off</td><td>只跑 warmup + evolve，跳过 holdout</td></tr>
-              <tr><td><code>--run_id</code></td><td>自动</td><td>自定义 run 后缀</td></tr>
+              <tr><td><code>--run-id</code></td><td>自动</td><td>自定义 run 后缀</td></tr>
               <tr><td><code>--repeat</code></td><td>1</td><td>重复完整 LIFT 流程 N 次</td></tr>
               <tr><td><code>--warmup-container-policy</code></td><td>parallel_single</td><td>warmup 容器编排：serial_single / parallel_single / parallel_multi</td></tr>
               <tr><td><code>--holdout-container-policy</code></td><td>parallel_multi</td><td>holdout 多题间并发：serial_multi / parallel_multi</td></tr>

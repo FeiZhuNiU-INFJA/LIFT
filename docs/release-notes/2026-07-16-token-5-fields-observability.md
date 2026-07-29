@@ -145,7 +145,7 @@ usage dict),否则 SDK 平铺出来后 dict 上没有嵌套。
 ```bash
 python -m src.cli.lift_main -r <runtime> \
   --benchmark_dir assets/benchmarks_demo --suite integration_check.json \
-  --run_id ic-<runtime>-$(date +%Y%m%d)
+  --run-id ic-<runtime>-$(date +%Y%m%d)
 ```
 
 跑完检查 `results/<run_id>/_comparison_metrics.csv`:`cache_read_tokens` /

@@ -254,7 +254,7 @@ python -m src.cli.lift_main \
   -r openclaw \
   --benchmark_dir assets/benchmarks_demo \
   --suite hello.json \
-  --run_id hello-smoke \
+  --run-id hello-smoke \
   --tui \
   --dashboard 8080
 ```
@@ -266,7 +266,7 @@ python -m src.cli.lift_main \
 
 仅重跑后处理：
 ```bash
-python -m src.cli.lift_main -r openclaw --evaluate-only --run_id hello-smoke
+python -m src.cli.lift_main -r openclaw --evaluate-only --run-id hello-smoke
 ```
 
 ---

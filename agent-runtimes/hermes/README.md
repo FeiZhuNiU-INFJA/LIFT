@@ -193,7 +193,7 @@ LIFT 默认的地方。
 ```bash
 bash agent-runtimes/hermes/build-image.sh
 python -m src.cli.lift_main -r hermes --benchmark_dir assets/benchmarks_demo \
-    --suite hello.json --run_id hermes-smoke
+    --suite hello.json --run-id hermes-smoke
 ```
 
 默认镜像常量 `HERMES_DOCKER_IMAGE`（`lift-hermes:latest`）定义于
@@ -211,7 +211,7 @@ Hermes 的演化是"每题 work session 结束触发 background review，写入�
 
 ```bash
 python -m src.cli.lift_main -r hermes --benchmark_dir assets/benchmarks_demo \
-    --suite hello.json --run_id hermes-run \
+    --suite hello.json --run-id hermes-run \
     --warmup-container-policy serial_single
 ```
 

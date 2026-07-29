@@ -315,7 +315,7 @@ grep -E "^A /opt/<runtime>/memory/" "$DUMP" | head
 # 用 --warmup-only 只跑 warmup + commit,delta 镜像会保留下来
 nohup python -m src.cli.lift_main -r <runtime> \
   --benchmark_dir assets/benchmarks_demo --suite <suite>.json \
-  --run_id <run_id> --warmup-only > logs/<run_id>.log 2>&1 &
+  --run-id <run_id> --warmup-only > logs/<run_id>.log 2>&1 &
 wait
 
 # 找出 delta 镜像

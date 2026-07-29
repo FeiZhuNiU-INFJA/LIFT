@@ -11,7 +11,7 @@ nohup python -m src.cli.lift_main \
   -r <runtime> \
   --benchmark_dir assets/benchmarks_demo \
   --suite hello.json \
-  --run_id <run_id> \
+  --run-id <run_id> \
   --dashboard 0.0.0.0:<port> \
   > logs/<run_id>.log 2>&1 &
 
@@ -86,7 +86,7 @@ docker images | grep lift-<runtime>
 run 完后默认自动跑后处理;想单独重跑:
 
 ```bash
-python -m src.cli.lift_main -r <runtime> --evaluate-only --run_id <run_id>
+python -m src.cli.lift_main -r <runtime> --evaluate-only --run-id <run_id>
 ```
 
 验证点:

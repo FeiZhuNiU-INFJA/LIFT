@@ -30,7 +30,7 @@ python scripts/run_postprocess.py --run-id <existing-run-id> -r <runtime>
 `results/<run>/` 目录或 `results/<run>/report.json` 路径。等价底层命令是：
 
 ```bash
-python -m src.cli.lift_main -r <runtime> --run_id <existing-run-id> --evaluate-only
+python -m src.cli.lift_main -r <runtime> --run-id <existing-run-id> --evaluate-only
 ```
 
 这会重新生成 `results/<run>/`：
