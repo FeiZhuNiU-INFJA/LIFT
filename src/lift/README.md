@@ -43,7 +43,7 @@ python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo -
 python -m src.cli -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --warmup-only
 
 # Full LIFT (default post-process / evaluation)
-python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id my-run
+python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run-id my-run
 
 # Parallel repeats (default)
 python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --repeat 3

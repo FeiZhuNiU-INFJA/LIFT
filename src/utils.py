@@ -22,7 +22,7 @@ def long_id() -> str:
 def make_run_id(run_id_suffix: str | None = None) -> str:
     """Build the canonical run id used in reports and ``results/{run_id}/``.
 
-    With ``run_id_suffix`` (from ``--run_id``), returns ``lift-runid-{suffix}``.
+    With ``run_id_suffix`` (from ``--run-id``), returns ``lift-runid-{suffix}``.
     Otherwise generates ``lift-runid-{YYYYMMDD}-{short_id}``.
     """
     if run_id_suffix:

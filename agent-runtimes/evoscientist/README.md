@@ -221,12 +221,12 @@ print('_astream patched:', getattr(BaseChatOpenAI._astream, '_lift_patched', Fal
 # 3. smoke run
 python -m src.cli.lift_main -r evoscientist \
   --benchmark_dir assets/benchmarks_demo --suite hello.json \
-  --run_id evosci-smoke --max-parallel-suites 1 --max-concurrent-tasks 1
+  --run-id evosci-smoke --max-parallel-suites 1 --max-concurrent-tasks 1
 
 # 4. active evolve smoke
 python -m src.cli.lift_main -r evoscientist_active_evolve \
   --benchmark_dir assets/benchmarks_demo --suite integration_check.json \
-  --run_id evosci-active-smoke --max-parallel-suites 1 --max-concurrent-tasks 1
+  --run-id evosci-active-smoke --max-parallel-suites 1 --max-concurrent-tasks 1
 ```
 
 跑完检查 `results/lift-runid-evosci-smoke/lift-runid-evosci-smoke_comparison_metrics.csv` 里 `input_tokens` / `output_tokens` / `cache_read_tokens` / `reasoning_tokens` 均非 NaN。

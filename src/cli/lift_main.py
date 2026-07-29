@@ -169,7 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--evaluate-only",
         action="store_true",
-        help="Only post-process an existing report (requires --run_id).",
+        help="Only post-process an existing report (requires --run-id).",
     )
     parser.add_argument(
         "--resume",
@@ -181,7 +181,7 @@ def build_parser() -> argparse.ArgumentParser:
             "because delta images are rmi'd at suite end."
         ),
     )
-    parser.add_argument("--run_id", default=None, help="Custom run_id suffix.")
+    parser.add_argument("--run-id", default=None, help="Custom run id suffix.")
     parser.add_argument("--repeat", type=int, default=1, help="Repeat LIFT flow N times.")
     parser.add_argument(
         "--warmup-container-policy",
@@ -300,7 +300,7 @@ def evaluate_only_mode(args: argparse.Namespace) -> None:
     from src.postprocess.run_post_process import run_post_process_pipeline
 
     if not args.run_id:
-        raise ValueError("--evaluate-only requires --run_id")
+        raise ValueError("--evaluate-only requires --run-id")
     run_id = make_run_id(args.run_id)
     report_path = report_json_path(run_id)
     if not report_path.exists():

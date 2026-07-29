@@ -22,7 +22,7 @@ evolve_eval 用于评测 **self-evolving agent**：在 holdout final task 上对
 
 | 术语 | 含义 | 示例 | 模型 / CLI |
 |------|------|------|------------|
-| **eval run** | 一次完整评测 invocation | `python -m src.cli.lift_main ...` | `EvalReport`；`--run_id` |
+| **eval run** | 一次完整评测 invocation | `python -m src.cli.lift_main ...` | `EvalReport`；`--run-id` |
 | **repeat** | `--repeat` 的一轮完整执行 | 第 2 次 `--repeat 3` | `EvalReport.runs[]` → `EvalRepeat` |
 | **suite** | 一份规格 JSON 文件 | `hello.json` | `SuiteSpec`；`--suite`；report 里 `SuiteRun` |
 | **task** | suite 内 `tasks[]` 的一条 | `Q1`、`Q2` | `SuiteTask`；report 里 `TaskRun` |
@@ -108,7 +108,7 @@ repeat 之间默认并行；每 suite 独立 Δ 与 `SuiteRunResources` 登记�
 入口：
 
 ```bash
-python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run_id my-run
+python -m src.cli.lift_main -r openclaw --benchmark_dir assets/benchmarks_demo --suite hello.json --run-id my-run
 ```
 
 详见 [lift-framework-guide-cn.md](./lift-framework-guide-cn.md)。
@@ -355,7 +355,7 @@ flowchart TD
 | Outcome workspace | `results/{run_id}/outcome/run-{i}/{phase}/{category}/` | **N 套**（i = 0..N-1） |
 | 后处理输出 | `results/{run_id}/*_backfilled.json` 等 | **1 套**（汇总全部 repeat，CSV 含 `run` 列） |
 
-若要 N 份独立 report，需执行 N 次命令（不同 `--run_id`），而不是依赖 `--repeat`。
+若要 N 份独立 report，需执行 N 次命令（不同 `--run-id`），而不是依赖 `--repeat`。
 
 ---
 
@@ -484,7 +484,7 @@ flowchart LR
 | `-r` / `--agent-runtime` | **必填**；当前支持 `openclaw`、`openclaw_with_evolve`、`multi_user_openclaw`、`genericagent`、`genericagent_active_evolve`、`hermes`、`openhuman`、`evoscientist`、`evoscientist_active_evolve` |
 | `--benchmark_dir` | suite JSON 目录（默认 `assets/benchmarks`） |
 | `--suite` | 逗号分隔 suite 文件名，或 `all` |
-| `--run_id` | 自定义 eval run 后缀 |
+| `--run-id` | 自定义 eval run 后缀 |
 | `--warmup-only` | 只跑 warmup + evolve + Δ，跳过 holdout |
 | `--repeat` | 完整 LIFT 重复 N 次，写入 `EvalReport.runs[]` |
 | `--warmup-container-policy` | warmup 容器编排策略（`serial_single` / `parallel_single` / `parallel_multi`，默认 `parallel_single`），见 [§4.2](#42-warmup-容器策略warmupcontainerpolicy) |
@@ -498,7 +498,7 @@ flowchart LR
 | `--tui` | 启动终端 TUI 实时状态面板（`rich.Live`），见 [§12.8](#128-运行状态可视化--tui----dashboard) |
 | `--dashboard [HOST:]PORT` | 启动浏览器 HTTP 状态面板（标准库零依赖），见 [§12.8](#128-运行状态可视化--tui----dashboard) |
 | `-e` / `--evaluate` | 评测结束后自动后处理（**默认开启**；`--no-evaluate` 关闭） |
-| `--evaluate-only` | 跳执行，仅对已有 report 后处理（需 `--run_id`） |
+| `--evaluate-only` | 跳执行，仅对已有 report 后处理（需 `--run-id`） |
 
 等价入口：`python -m src.cli`（转发到 `lift_main`）。
 
