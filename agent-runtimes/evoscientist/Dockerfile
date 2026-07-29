@@ -109,7 +109,8 @@ WORKDIR /workspace/task
 
 ENV LIFT_EVAL_RUN_TAG="" \
     LIFT_EVOSCI_SESSION_ID="" \
-    EVOSCIENTIST_DATA_DIR=/root/.evoscientist
+    EVOSCIENTIST_DATA_DIR=/root/.evoscientist \
+    EVOSCIENTIST_WORKSPACE_DIR=/workspace/task
 
 # 容器空转，LIFT 通过 docker exec 起 EvoSci -p ... 单次调用
 ENTRYPOINT ["/usr/bin/tini", "--"]

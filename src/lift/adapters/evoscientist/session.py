@@ -147,6 +147,11 @@ async def start_evoscientist_container(
     env_vars = {
         # 每条 trace 附着的批次标签（同 GA / OpenClaw 约定）
         "LIFT_EVAL_RUN_TAG": ctx.run_id,
+        # 官方 base image 烘焙 EVOSCIENTIST_WORKSPACE_DIR=/workspace，比 LIFT
+        # 的 bind mount /workspace/task 高一层。paths.py `WORKSPACE_ROOT` 与
+        # langgraph_dev sub-agent env 都读这个变量，不覆盖会出现 sub-agent
+        # cwd=/workspace、扁平 .md 文件、/workspace/task/workspace/... 双嵌套。
+        "EVOSCIENTIST_WORKSPACE_DIR": "/workspace/task",
     }
     # 与 GA 同理：把 LANGFUSE_BASE_URL / LANGFUSE_HOST 里的 loopback 改写为
     # host.docker.internal，避免容器 loopback 打不到宿主 Langfuse。
