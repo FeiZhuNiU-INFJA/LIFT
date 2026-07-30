@@ -97,16 +97,24 @@ def build_work_analytics(
     g = LangfuseTokenToolStats()
     total_latency = 0.0
     for t in chat_turns:
+        # Token 5 字段：每个 root span（= 一个 eval turn）里的 GENERATION usage 是
+        # "当轮增量"（子 observation 只记本轮 LLM call），跨轮 SUM 得到 session 总量。
         g.input_tokens += t.stats.input_tokens
         g.cache_write_tokens += t.stats.cache_write_tokens
         g.cache_read_tokens += t.stats.cache_read_tokens
         g.output_tokens += t.stats.output_tokens
         g.reasoning_tokens += t.stats.reasoning_tokens
-        g.tool_roundtrips += t.stats.tool_roundtrips
-        g.tool_call_blocks += t.stats.tool_call_blocks
+        # 子 TOOL observation 也每轮各挂当轮的，跨轮 SUM = session 总工具调用数。
         g.tool_observation_count += t.stats.tool_observation_count
         if t.latency_seconds is not None:
             total_latency += t.latency_seconds
+        # tool_call_blocks / tool_roundtrips：统一契约下每个 root span 的
+        # ``metadata.toolCallBlocks`` / ``output.tool_calls`` 都是"同 session **跨轮累积**"
+        # 值（见 docs/langfuse-unified-observation-contract），因此取各轮的 **最大值**
+        # （= 最末轮的累积值），而不是 SUM —— SUM 会把累积值重复相加造成爆炸性高估。
+        # 累积计数天然单调不减，max 等价于取最末轮，但对时间排序抖动更健壮。
+        g.tool_call_blocks = max(g.tool_call_blocks, t.stats.tool_call_blocks)
+        g.tool_roundtrips = max(g.tool_roundtrips, t.stats.tool_roundtrips)
 
     return LangfuseWorkSessionAnalytics(
         trace_chain=trace_chain,

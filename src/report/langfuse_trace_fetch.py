@@ -229,12 +229,17 @@ def observation_briefs(observations: list[Any]) -> list[LangfuseObservationBrief
     return briefs
 
 
-def _hermes_tool_call_count_from_output(raw_output: Any) -> int | None:
-    """Hermes ``Hermes turn`` chain 的 output 形如 ``{content, reasoning, tool_calls: [...]}``。
+def _tool_call_count_from_output(raw_output: Any) -> int | None:
+    """从 plugin trace 的 root ``output`` 里读 ``tool_calls`` 列表长度（runtime-agnostic）。
 
-    ``tool_calls`` 由插件在 ``_finish_trace`` 时通过 ``_merge_trace_output`` 注入，
-    覆盖整轮累计的工具调用（包括被上下文压缩遮蔽的早期调用），是 Hermes 工具调用数
-    的权威来源。返回 ``None`` 表示无法解析（保留旧 fallback 行为）。
+    统一观测契约（见 docs/langfuse-unified-observation-contract）要求**所有** runtime
+    的插件都在 root span 的 ``output.tool_calls`` 里放"同 session **跨轮累积**"的完整
+    工具调用列表（形如 ``{content, reasoning, tool_calls: [...]}``）。它由插件在
+    收尾/每轮发布时写入 root output，覆盖整段会话的工具调用（包括被上下文压缩遮蔽的
+    早期调用），是工具调用数的**权威来源**，优先于 ``metadata.toolCallBlocks``。
+
+    返回 ``None`` 表示无法解析（该 runtime 未写 output.tool_calls，回退到
+    ``metadata.toolCallBlocks``）。
     """
     data: Any = raw_output
     if isinstance(data, str):
@@ -261,15 +266,16 @@ def trace_detail_from_api(full: Any) -> LangfuseTraceDetailRecord:
         d.get("output"),
         d.get("metadata") if isinstance(d.get("metadata"), dict) else {},
     )
-    # Hermes 现行链路：
-    # - trace 顶层 metadata.messages 包含全量 transcript（由插件
-    #   `_publish_messages_to_root` 写入）。当前插件已经不再在 GENERATION 子节点
-    #   metadata 中保存 messages，所以这里没有回退路径——顶层缺失就是真的缺失。
-    # - tool_call_blocks 权威来源：trace 顶层 output.tool_calls 的长度。插件在
-    #   `_finish_trace` 中把整轮累计 tool_calls 写入 root output，不受上下文压缩影响；
-    #   下游 `_make_row_hermes` 通过 `global_stats.tool_call_blocks` 读取。
-    if name == "Hermes turn" and structured.plugin_metadata is not None:
-        tc_count = _hermes_tool_call_count_from_output(d.get("output"))
+    # 统一观测契约（runtime-agnostic，见 docs/langfuse-unified-observation-contract）：
+    # - trace 顶层 metadata.messages 包含"同 session 跨轮累积"的全量 transcript
+    #   （各插件在 root span 上维护，不再散落到 GENERATION 子节点）。顶层缺失即真缺失。
+    # - tool_call_blocks 权威来源：trace 顶层 ``output.tool_calls`` 的长度。所有插件
+    #   都把"跨轮累积"的完整工具调用列表写入 root output，不受上下文压缩影响；用它
+    #   校准 ``plugin_metadata.tool_call_blocks``（后者是插件写的累积计数，二者应一致，
+    #   以 output.tool_calls 为准兜底 metadata 缺失 / 偏差）。下游经
+    #   ``global_stats.tool_call_blocks`` 读取。
+    if is_plugin_trace(name) and structured.plugin_metadata is not None:
+        tc_count = _tool_call_count_from_output(d.get("output"))
         if tc_count is not None:
             structured = structured.model_copy(
                 update={
