@@ -355,60 +355,95 @@ Any benchmark plugged into LIFT must satisfy: (1) **two-phase schema** — expli
 
 ## 6 Experiments
 
-> `[TODO-DATA]` All numbers in this section are pending the full run. Structure and research questions are fixed; tables are placeholders.
+### 6.1 Setup and comparison methodology
 
-We fix the agent model, work/judge endpoints, `max_conversation_turns`, and container resource passthrough across all cells; the only manipulated variable is Base vs. Loaded (P1). Unless noted, `--repeat 5`, `--max-parallel-suites 20`. We report mean ± std across repeats.
+**Runs.** We report five full runs on the EALE benchmark: `openclaw`, `openclaw_with_openspace`, `hermes`, `hermes_with_openspace`, and `genericagent`. Each run covers 14 scenes × 2 holdout tasks × `--repeat 10`, yielding ≈280 (Base, Loaded) pairs per runtime. The agent model, work/judge endpoints, `max_conversation_turns=36`, and container resource passthrough are held identical across all cells; the only manipulated axis is Base vs. Loaded.
 
-### 6.1 Interaction-efficiency leaderboard
+**How we compare across five heterogeneous runtimes.** A naïve leaderboard on absolute Loaded scores conflates (a) the underlying runtime's raw capability, (b) its warmup accumulation policy, and (c) its augmentation plugin — three confounds that make head-to-head rankings scientifically empty. LIFT deliberately restricts cross-runtime inference to *delta magnitudes*, and we further partition the analysis into three tables that respect three distinct comparison boundaries:
 
-On EALE the `content_score` is close to saturation for most scenes (deterministic checklists, capable underlying LLM), so absolute pass rate is a low-resolution signal of *self-evolution*. What genuinely improves as an agent internalizes artifacts is **the interaction cost of completing the same task**: fewer conversation turns and fewer tool invocations for the same score. The leaderboard therefore ranks runtimes on *interaction-cost reduction*, not on absolute score.
+1. **Within-runtime (RQ1, Table 6.1).** Each row is a runtime compared against its own Base. This is the only within-row causal claim in the paper; every other comparison is derived from it.
+2. **Delta-of-delta within a base family (RQ2, Table 6.2).** To ask "does the augmentation plugin add value?", we hold the base runtime fixed and subtract two Base-vs-Loaded deltas: Gain = Δ_augmented − Δ_base. This cancels the raw-capability confound of the underlying LLM/runtime because both sides share the same Base column.
+3. **Per-repeat stability (RQ3, Table 6.3).** We report mean / std / 95% CI of ΔTurns% over 10 repeats to expose whether a delta is a robust signal or a single-repeat artifact.
 
-**Metrics.** Let *B* / *E* denote the baseline / evolved phase means (averaged over holdout tasks × `--repeat`):
+We do **not** rank "`openclaw+openspace` vs. `genericagent`" in any table — those two rows may not be subtracted, only observed side by side.
 
-- ΔTurns% = (E_turns − B_turns) / B_turns
-- ΔTools% = (E_tools − B_tools) / B_tools
-- **Composite = 0.8 · ΔTurns% + 0.2 · ΔTools%**  (lower is stronger)
+**Metrics.** Let *B̄* / *Ē* denote the population means of a metric across all holdout task-repeats. We report the **population-ratio** delta **ΔX% = (Ē − B̄) / B̄ · 100** for turns, tool calls, tokens, and latency. Negative means the evolved side is more efficient. Population ratio is preferred over the mean of per-task ratios because the latter is dominated by tasks with near-zero baselines (a single Base = 2, Loaded = 6 task contributes +200%), which flips the direction of the aggregate on Hermes and inflates it on GenericAgent. Pass rates are macro-averaged from the postprocess `ALL` row of `summary_metrics.csv`.
 
-Turns dominate the composite because they map most directly to user-perceived latency. Both baseline and evolved `content_score` are reported alongside for transparency but do *not* participate in ranking; no pass-rate gate is applied, so regressions (positive Δ) surface directly in the composite. Turns and tool-call counts are sourced from the postprocess CSV columns `trials` / `tool_use_num` (Langfuse-derived), aggregated per-runtime.
+**Pass rate is saturated on EALE.** Across all five runs Base pass is 0.99–1.00 and Loaded pass is 0.99–1.00 (Table 6.1); the primary lens is interaction efficiency, with pass rate reported as a regression guardrail.
 
-> **[MOCK TABLE — illustrative structure only; all numbers are placeholders pending the full `--repeat 5` run.]** Interaction-Efficiency Leaderboard across the nine runtimes reported in the paper. Ranked by Composite ↑ (lower is stronger).
+### 6.2 RQ1 — Do evolved artifacts help on unseen tasks?
 
-| Rank | Runtime | Category | Score (B / E) | Turns B | Turns E | ΔTurns% | Tools B | Tools E | ΔTools% | Composite |
-|:---:|---|---|:---:|:---:|:---:|---:|:---:|:---:|---:|---:|
-| 1 | `[TODO]` | Augmented | -- / -- | -- | -- | -- | -- | -- | -- | -- |
-| 2 | `[TODO]` | Augmented | -- / -- | -- | -- | -- | -- | -- | -- | -- |
-| 3 | `[TODO]` | Augmented | -- / -- | -- | -- | -- | -- | -- | -- | -- |
-| 4 | `[TODO]` | Augmented | -- / -- | -- | -- | -- | -- | -- | -- | -- |
-| 5 | `[TODO]` | Implicit | -- / -- | -- | -- | -- | -- | -- | -- | -- |
-| 6 | `[TODO]` | Implicit | -- / -- | -- | -- | -- | -- | -- | -- | -- |
-| 7 | `[TODO]` | Implicit | -- / -- | -- | -- | -- | -- | -- | -- | -- |
-| 8 | `[TODO]` | Implicit | -- / -- | -- | -- | -- | -- | -- | -- | -- |
-| 9 | `[TODO]` | Implicit | -- / -- | -- | -- | -- | -- | -- | -- | -- |
+Each row is a within-runtime Base-vs-Loaded comparison. Tasks column: total (post-processed after excluding cells with missing traces).
 
-Runtimes entering the leaderboard — *Implicit* (natural state accumulation during warmup): `openclaw`, `genericagent`, `hermes`, `openhuman`, `evoscientist`; *Augmented* (explicit reflection / skill hub / external memory / AutoSkills after warmup): `openclaw_with_openspace`, `openclaw_with_agentmemory`, `genericagent_active_evolve`, `hermes_with_openspace`, `hermes_with_agentmemory`, `openhuman_with_agentmemory`, `evoscientist_active_evolve`.
+**Table 6.1** — Base vs. Loaded across the 14 scenes (holdout only, macro-averaged over 10 repeats). Negative ΔTurns% / ΔTools% / ΔTokens% / ΔLatency% mean the evolved side is *more efficient*.
 
-**Caveat.** Tool-call counts for runtimes without a native counter (EvoScientist, OpenHuman) are populated via Langfuse `trace_backfill`; if the trace overlay is unavailable, the cell is annotated `n/a` and that runtime is scored on ΔTurns% alone.
+| Runtime | Tasks | Base Pass | Loaded Pass | ΔPass | ΔTurns% | ΔTools% | ΔTokens% | ΔLatency% |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `openclaw` | 280 (269) | 0.9929 | 0.9929 | +0.00 | +2.74 | −2.09 | +0.44 | +3.34 |
+| `openclaw+openspace` | 280 (271) | 1.0000 | 1.0000 | +0.00 | **−3.95** | **−6.41** | **−7.12** | **−7.90** |
+| `hermes` | 278 (272) | 0.9964 | 0.9928 | −0.36 | **−17.24** | **−10.38** | **−17.48** | **−23.01** |
+| `hermes+openspace` | 280 (268) | 0.9964 | 1.0000 | +0.36 | **−19.09** | **−10.62** | **−19.27** | **−22.09** |
+| `genericagent` | 275 (257) | 0.9964 | 1.0000 | +0.36 | −1.75 | −1.38 | −0.53 | −2.20 |
 
-### 6.2 Research questions
+**Reading Table 6.1.** `hermes` shows the strongest interaction-cost reduction on every axis (turns −17.2%, latency −23.0%, tokens −17.5%); its `review`-driven implicit evolution distills verbose warmup into a compact plan that the model consults on Loaded runs. `genericagent` moves only marginally (−1 to −2%): its file-I/O policy captures skill files but the base runtime already writes highly focused deliverables. `openclaw` slightly regresses on turns/tokens/latency (+0.4% to +3.3%): natural memory accumulation without an explicit distillation step lengthens rather than shortens the outer loop. Pass rate is essentially unchanged across all five runs (|ΔPass| ≤ 0.36pp).
 
-**RQ1 — Do evolved artifacts help on unseen tasks?** Base vs. Loaded across the 14 scenes.
+### 6.3 RQ2 — Do augmentation plugins add value on top of implicit evolution?
 
-| Scene | Base FinalPassRate | Loaded FinalPassRate | DownstreamPassDelta | Base FirstRound | Loaded FirstRound |
-|---|---|---|---|---|---|
-| (14 rows) | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` |
-| **Macro-avg** | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` | `[TODO-DATA]` |
+Both `openclaw` and `hermes` are compared against their `+openspace` sibling. Gain is a *delta-of-delta*: **Gain = Δ_augmented − Δ_base**. A **negative** Gain means the augmentation improves the metric *beyond* implicit evolution alone.
 
-**RQ2 — Do augmentation hooks (skill hub / external memory / active reflection) add value on top of implicit evolution?** `openclaw` vs. its augmented siblings (`openclaw_with_openspace`, `openclaw_with_agentmemory`); `hermes` vs. `hermes_with_openspace` / `hermes_with_agentmemory`; `openhuman` vs. `openhuman_with_agentmemory`; `genericagent` vs. `genericagent_active_evolve`; `evoscientist` vs. `evoscientist_active_evolve`. Each pair holds the base runtime fixed and toggles exactly one augmentation. `[TODO-DATA]`
+**Table 6.2** — OpenSpace augmentation gain (delta-of-delta, same base runtime).
 
-**RQ3 — Is the delta stable across repeats?** Variance of DownstreamPassDelta over `--repeat` on one suite; report std and CI. `[TODO-DATA]`
+| Base family | ΔTurns%_base | ΔTurns%_aug | Gain (turns) | ΔTools%_base | ΔTools%_aug | Gain (tools) | ΔTokens%_base | ΔTokens%_aug | Gain (tokens) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `openclaw` | +2.74 | −3.95 | **−6.69** | −2.09 | −6.41 | **−4.32** | +0.44 | −7.12 | **−7.55** |
+| `hermes` | −17.24 | −19.09 | −1.85 | −10.38 | −10.62 | −0.24 | −17.48 | −19.27 | −1.79 |
 
-**RQ4 — Cross-runtime bare baseline and Loaded delta.** On the same benchmark, per-runtime (`openclaw`, `hermes`, `openhuman`, `evoscientist`, …) bare baseline and Loaded delta. Per §7, we do **not** compare runtimes head-to-head; each is its own Base-vs-Loaded, and we compare *delta magnitudes*. `[TODO-DATA]`
+**Reading Table 6.2.** OpenSpace adds value on *both* base families, but the mechanism differs by starting point:
 
-**RQ5 — Cross-scene transfer (ablation).** Artifacts evolved on scene A applied to scene B tasks. `[TODO-DATA]`
+- On `openclaw`, implicit evolution is neutral-to-negative on turns/tokens/latency (Table 6.1); OpenSpace turns this around and delivers the largest observed gain in the paper (−6.7pp turns, −7.6pp tokens). The plugin is doing real work here — structured skill retrieval is filling in for the missing distillation step in OpenClaw's implicit-only path.
+- On `hermes`, implicit evolution is already very strong; OpenSpace's incremental gain is −2pp on turns/tokens and near-zero on tool calls. There is little headroom left — the base runtime has already extracted most of the compressible cost from its warmup.
 
-**RQ6 — Cost view.** TotalTokens and EvolutionROI; `impr_metric` on {attempts, tool calls, tokens}. `[TODO-DATA]`
+The pattern is directionally consistent (both Gains negative on turns and tokens) but the magnitudes differ by an order of magnitude, showing that augmentation value is inseparable from the base runtime's warmup policy — a plugin's absolute effect cannot be quoted without naming its host.
 
-**Efficiency observation (preliminary, single-suite integration runs).** In integration-check runs on the `evoscientist_active_evolve` runtime, evolved reached the same 100% pass rate as baseline while reducing tokens, latency, and conversation turns — consistent with LIFT's efficiency-first hypothesis. Full-suite numbers are `[TODO-DATA]`.
+### 6.4 RQ3 — Is the delta stable across repeats?
+
+For each of the 10 repeats we compute a population Δ (as in Table 6.1), then report mean, std, and 95% CI over the 10 per-repeat values. CI = mean ± 1.96 · std / √10.
+
+**Table 6.3** — Per-repeat stability.
+
+| Runtime | ΔTurns% mean | std | 95% CI | ΔTools% mean | std |
+|---|---:|---:|---|---:|---:|
+| `openclaw` | +3.13 | 9.40 | [−2.70, +8.95] | −1.84 | 8.28 |
+| `openclaw+openspace` | −3.78 | 7.22 | [−8.26, +0.69] | −6.17 | 7.62 |
+| `hermes` | **−17.06** | 7.58 | **[−21.76, −12.36]** | −9.83 | 11.74 |
+| `hermes+openspace` | **−18.89** | 7.56 | **[−23.58, −14.20]** | −10.00 | 10.60 |
+| `genericagent` | −1.40 | 7.91 | [−6.30, +3.50] | −0.97 | 9.30 |
+
+Only the two Hermes rows deliver a robust turns-reduction signal at 10-repeat resolution (both CIs well below zero). `openclaw+openspace`'s CI [−8.3, +0.7] narrowly straddles zero: the Gain in Table 6.2 is real in aggregate but only marginally repeat-stable. `openclaw` and `genericagent` CIs cross zero on both turns and tools, so we treat their small point estimates as directional only, not statistically significant.
+
+### 6.5 RQ4 — Cost view: tokens and latency per task
+
+**Table 6.4** — Per-task means with token totals. Base turns / tools / tokens are absolute per-task population means; Δ columns repeat Table 6.1 for direct cost comparison. Tokens are the full 5-field sum (input + cache_write + cache_read + output) from Langfuse `trace_backfill`.
+
+| Runtime | Base turns | Base tools | Base tokens | ΔTurns% | ΔTools% | ΔTokens% | ΔLatency% |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `openclaw` | 15.9 | 33.2 | 2,139,707 | +2.74 | −2.09 | +0.44 | +3.34 |
+| `openclaw+openspace` | 16.0 | 34.0 | 2,442,614 | −3.95 | −6.41 | −7.12 | −7.90 |
+| `hermes` | 16.9 | 39.0 | 2,623,025 | −17.24 | −10.38 | −17.48 | −23.01 |
+| `hermes+openspace` | 16.3 | 39.5 | 2,888,667 | −19.09 | −10.62 | −19.27 | −22.09 |
+| `genericagent` | 13.9 | 68.5 | 2,944,209 | −1.75 | −1.38 | −0.53 | −2.20 |
+
+The Base-turns column is remarkably flat across runtimes (13.9–16.9), so the Δs translate almost directly to absolute turn-count savings: Hermes saves ≈3 turns per task, its OpenSpace variant ≈3.1, OpenClaw+OpenSpace ≈0.6, GenericAgent ≈0.2. Latency savings track turns closely on Hermes (both around −20%) but decouple on OpenClaw variants where OpenSpace saves latency (−7.9%) faster than it saves turns (−4.0%) — consistent with the skill hub replacing sequential tool-call chains by a single retrieved skill invocation. Evolution cost is booked separately (§6.1); `evolve_after_warmup` tokens are not added to the Loaded column.
+
+### 6.6 Findings and negative results
+
+Four robust findings and one deliberate non-finding:
+
+1. **Implicit evolution's efficacy depends heavily on the runtime's warmup policy.** Hermes' `review`-driven distillation delivers a strong, repeat-stable interaction-cost reduction (turns −17.2%, latency −23.0%, 95% CI fully below zero). OpenClaw's plain state-accumulation policy actually *regresses* slightly on turns/tokens/latency, indicating that accumulated state without an explicit distillation step is not a reliable win. GenericAgent's file-I/O policy produces a tiny effect that is not statistically distinguishable from zero at 10 repeats.
+2. **OpenSpace augmentation adds value on both base runtimes, but the mechanism differs.** On OpenClaw, OpenSpace *rescues* an otherwise-neutral base (Gain: turns −6.7pp, tokens −7.6pp). On Hermes, OpenSpace provides a modest incremental improvement (−2pp on turns/tokens) on top of an already-strong base. Both Gains are negative on turns and tokens, but their magnitudes differ by 3–4× — augmentation value is inseparable from the host runtime.
+3. **Statistical significance is unevenly distributed.** Only Hermes and Hermes+OpenSpace show 95% CIs on ΔTurns% that lie entirely below zero (Table 6.3); the other three rows' turns-CIs cross zero. Small differences (|Δ| ≲ 5%) should not be read as effects at 10-repeat resolution.
+4. **Pass rate on EALE is saturated.** All five runs score 0.99–1.00 on both Base and Loaded; the largest |ΔPass| is 0.36pp. Pass rate is retained as a regression guardrail — none observed — but unfit as a discriminator of evolution quality on this benchmark.
+5. **Non-finding: no cross-runtime ranking is claimed.** The five rows of Table 6.1 share a benchmark but not a raw-capability floor, a warmup policy, or an augmentation surface. Each row is a self-comparison; Table 6.2 is the only cross-configuration inference we authorize (delta-of-delta, same base family).
 
 ---
 
