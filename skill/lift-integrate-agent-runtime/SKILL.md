@@ -35,6 +35,7 @@ description: "LIFT 评测框架接入新 agent runtime 的端到端清单:镜像
 - LIFT 通过 **`AgentRuntimeAdapter` ABC + `ContainerAgentRuntimeAdapter` 模板方法** 接入容器化 agent;非容器型 runtime(如 Hermes 直连 OpenAI)走 `AgentRuntimeAdapter` 直接 override
 - Chat 协议是 `WorkerJudgerPair`(一次 task 一对独立 ChatAgent;work / judge 互不干扰),由 `worker_judger_factory` 在每题创建
 - Langfuse trace 拼装要求 plugin 侧 trace 的 **`name` 在 `LANGFUSE_PLUGIN_TRACE_NAMES` 白名单里**,且 trace 的 **`session_id` 与 LIFT 侧 `work-/judge-` session 对齐**
+- **统一观测契约**(runtime-agnostic 的地基):每个 eval turn 一条 root span,root 的 `metadata.messages` / `metadata.toolCallBlocks` / `output.tool_calls` 都是"同 session 跨轮累积"值;后处理 token 跨轮 SUM、工具计数跨轮 take-max,**不再有 `_make_row_<runtime>` 之类 runtime 分支**。必读 [docs/langfuse-unified-observation-contract.md](../../docs/langfuse-unified-observation-contract.md)
 - **Token 5 字段口径**必须先读 [docs/token-observability.md](./docs/token-observability.md) §0 —— `reasoning ⊆ output`,不是 sibling;`total = input + output + cache_read`,reasoning 不入 total
 
 参考实现速查:
@@ -121,10 +122,12 @@ CLI 注册:
 ### Step 4. 后处理 + trace 拼装
 
 - `src/models.py::LANGFUSE_PLUGIN_TRACE_NAMES` 加 `"<runtime>-plugin"`,让后处理能匹配 plugin trace
-- 如果 trace 布局不复用 OpenClaw sid-only 或 transcript usage schema 不含 `totalTokens`,新增 `_make_row_<runtime>` 分支
+- **遵循统一观测契约**:overlay / push 侧保证每个 eval turn 一条 root span,root 的 `metadata.messages` / `metadata.toolCallBlocks` / `output.tool_calls` 都是"同 session 跨轮累积"值,且 `len(output.tool_calls) == toolCallBlocks`(同源)。做到这点后,**后处理零改动**——`_make_metric_row` runtime-agnostic,不再需要 `_make_row_<runtime>`
+- 若 trace 布局不复用 OpenClaw sid-only(如 Hermes 要 tag 才能配对),在 `langfuse_trace_stitch` 加一条 `_stitch_<runtime>` dispatch
 
-⚠ **5 字段 provider 归一 + camelCase/snake_case 兼容**,见 [docs/token-observability.md §断点 C](./docs/token-observability.md)
-⚠ **tool_calls 兜底链**必须回写 tracker,否则静态 dashboard 空,见 [docs/postprocess-and-stitching.md §5.3.1](./docs/postprocess-and-stitching.md)
+⚠ **统一观测契约是后处理 runtime-agnostic 的前提**,先读 [docs/langfuse-unified-observation-contract.md](../../docs/langfuse-unified-observation-contract.md)
+⚠ **5 字段 provider 归一**统一在 `_usage_breakdown` 消化(不再写 runtime 分支),新 provider key 命名只需补 `_first_int` 候选名单,见 [docs/token-observability.md §断点 C](./docs/token-observability.md)
+⚠ **tool_calls 兜底链**(dashboard tools 列)需 overlay 每次工具调用挂 `as_type='tool'` 子 span,否则静态 dashboard 空,见 [docs/postprocess-and-stitching.md §5.3.1](./docs/postprocess-and-stitching.md)
 
 详见 → [docs/postprocess-and-stitching.md](./docs/postprocess-and-stitching.md)
 
@@ -166,6 +169,7 @@ CLI 注册:
 | [docs/evolve-artifact-contract.md](./docs/evolve-artifact-contract.md) | Step 2;要评估 evolve 有效性时 |
 | [docs/adapter-quartet.md](./docs/adapter-quartet.md) | Step 3;新建 `src/lift/adapters/<runtime>/` 时 |
 | [docs/postprocess-and-stitching.md](./docs/postprocess-and-stitching.md) | Step 4;要理解 trace 拼装、tool_calls 兜底、CSV 列生成 |
+| [../../docs/langfuse-unified-observation-contract.md](../../docs/langfuse-unified-observation-contract.md) | Step 1 / 4;**runtime-agnostic 后处理的地基**——root span 跨轮累积口径(messages / toolCallBlocks / output.tool_calls)+ 后处理 SUM/take-max 聚合 |
 | [docs/token-observability.md](./docs/token-observability.md) | Step 1 / 4 / 5 都会跳来看;`cache_read / reasoning` 出现 0 或 NaN 时的排障 workflow |
 | [docs/acceptance-checklist.md](./docs/acceptance-checklist.md) | Step 5;逐项验收 |
 | [docs/three-layer-verification.md](./docs/three-layer-verification.md) | Step 5 §6.5;必跑,证据 A / A' / B / B' / C |

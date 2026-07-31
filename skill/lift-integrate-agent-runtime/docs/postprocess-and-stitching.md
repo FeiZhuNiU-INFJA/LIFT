@@ -1,6 +1,8 @@
 # 后处理类型同步 + Langfuse Trace 拼装
 
-> [`SKILL.md`](../SKILL.md) 的第 4、5 步深化文档。本文件覆盖:`AgentSource` 单点收敛、`_make_row_<runtime>` usage schema 分支、trace name 白名单、`stitch_phase_langfuse_traces` dispatch、dashboard tools 兜底、宿主侧 transcript push 反哺路径。
+> [`SKILL.md`](../SKILL.md) 的第 4、5 步深化文档。本文件覆盖:`AgentSource` 单点收敛、**统一观测契约下的 runtime-agnostic 指标提取**、trace name 白名单、`stitch_phase_langfuse_traces` dispatch、dashboard tools 兜底、宿主侧 transcript push 反哺路径。
+>
+> **⚠️ 前置必读**:后处理的所有读法都建立在 [统一观测契约](../../../docs/langfuse-unified-observation-contract.md) 之上——每个 eval turn 一条 root span,root 的 `metadata.messages` / `metadata.toolCallBlocks` / `output.tool_calls` 都是"同 session 跨轮累积"值。**接入新 runtime 前先读那份契约**,否则看不懂为什么 token 跨轮 SUM 而工具计数跨轮 take-max。
 >
 > 5 字段 token 落库口径与"cache/reasoning=0 排障"见 [`token-observability.md`](token-observability.md)。
 
@@ -20,51 +22,41 @@
 
 1. `registry.py` 的 `SUPPORTED_RUNTIMES` tuple 加名字 → CLI `--agent-runtime` / `--agent-source` choices 自动包含
 2. `langfuse_trace_stitch.stitch_phase_langfuse_traces` 的 dispatch 已经用 `agent_source in SUPPORTED_RUNTIMES` 兜底走 OpenClaw layout;如果新 runtime **不复用** sid-only 布局(例如 hermes 那种要 tag 才能配对),需要在这里新开一条 `if agent_source == "<runtime>"` 分支,参考 `_stitch_hermes`
-3. 是否需要 `_make_row_<runtime>`:见 §4.1
+3. **指标提取无需任何 runtime 分支**——见 §4.1
 
-### 4.1 usage schema 分支(`_make_row_<runtime>`)⚠️
+### 4.1 指标提取:runtime-agnostic 单函数(`_make_metric_row`)⚠️
 
-后处理 CSV 里 `total_tokens` / `cached_token` / `tool_use_num` 这些列由 [`src/postprocess/extract.py`](../../../src/postprocess/extract.py) 里的 `_make_row_openclaw` / `_make_row_hermes` / `_make_row_<runtime>` 组装,dispatch 在 `_make_row_side` 里按 `agent_source` 选。
+> **历史演进**:早期每个 runtime 有各自的 `_make_row_openclaw` / `_make_row_hermes` / `_make_row_openhuman`,按 `agent_source` dispatch 处理不同的 usage schema。**统一观测契约落地后这些分支已全部删除**,合并成单个 [`_make_metric_row`](../../../src/postprocess/extract.py#L103)。接入新 runtime **不需要**再写任何 `_make_row_<runtime>`。
 
-**默认走 `_make_row_openclaw`**,它按 **OpenClaw transcript 的 usage schema** 累加:从 `work_analytics.all_messages[*].usage.totalTokens` 求和。
+后处理 CSV 里 `total_tokens` / `tool_use_num` 这些列由 [`src/postprocess/extract.py`](../../../src/postprocess/extract.py) 里的 `_make_metric_row(work_analytics)` 统一组装,对所有 runtime 用同一套读法:
 
-**新 runtime 何时必须新增 `_make_row_<runtime>` 分支**:
+| 列 | 读法 | 说明 |
+|---|---|---|
+| `trials` | `len(work_analytics["chat_turns"])` | = 该 session 内 eval turn 数;不数 `all_messages`(context compaction 后会丢早期消息) |
+| `tool_use_num` | `global_stats.tool_call_blocks`,为 0 时回退 `tool_observation_count` | 由 [`build_work_analytics`](../../../src/report/langfuse_work_analytics.py#L70) 对各轮 root span 的**跨轮累积计数取 max**(权威来源是各插件写入 root `output.tool_calls` 的长度) |
+| token 5 字段 | `global_stats`(归一后) | provider 差异已在 [`_usage_breakdown`](../../../src/report/langfuse_trace_fetch.py#L140) 消化,`extract` 这层拿到的已是同构 5 字段 |
 
-| runtime transcript 里 usage 的 key 集合 | 处理方式 |
-|---|---|
-| 含 `totalTokens`(OpenClaw、Hermes、GA、EvoScientist — 因为 overlay 是 LIFT 自己写的,会强制拉齐 schema) | 复用 `_make_row_openclaw`,无需新增 |
-| 不含 `totalTokens`(例:OpenHuman `{input, output, cached_input}`;上游用 OpenAI SDK 原生 usage schema `{prompt_tokens, completion_tokens, total_tokens}`) | 必须新增 `_make_row_<runtime>`,从 `global_stats.total_tokens` 取(由 Langfuse GENERATION observation `usage_details` 累加得到),不能依赖 messages 里的字段 |
+**为什么不再需要 `_make_row_<runtime>`**:曾经 OpenHuman 那种"usage schema 不含 `totalTokens`"(`{input, output, cached_input}`)要专门分支,现在这层差异**已下沉到 Langfuse 归一层** `_usage_breakdown`(用 `_first_int` 多命名兼容,例如 OpenHuman 的 `cached_input` → `cache_read_tokens`)。到 `extract.py` 时 `global_stats` 已是同构 5 字段,一把梭即可。
 
-**症状**:CSV / dashboard 里所有 phase `total_tokens=0`,但 `*_backfilled.json` 里 `work_analytics.global_stats.total_tokens` 有值。
+**接入新 runtime 时**:只要 overlay / push 侧把 usage 塞进 GENERATION 子 span 的 `usage_details`,`_usage_breakdown` 就能归一;若出现新的 provider usage key 命名,去 `_usage_breakdown` 的 `_first_int(...)` 候选名单**补一个别名**,而**不是**回去写 runtime 分支。
 
-**修法参考 OpenHuman**:[`extract.py::_make_row_openhuman`](../../../src/postprocess/extract.py) —
-
-```python
-def _make_row_openhuman(side, work_analytics):
-    global_stats = work_analytics.get("global_stats") or {}
-    total_tokens = int_value(global_stats.get("total_tokens"))
-    # cached_input 也不在 OpenClaw schema,从 assistant messages usage.cached_input 累加
-    cached_tokens = _aggregate_openhuman_cached_tokens(work_analytics.get("all_messages") or [])
-    ...
-```
-
-同时在 `_make_row_side` 里加一个 `elif agent_source == "<runtime>": metric_row = _make_row_<runtime>(...)` 分支即可。
-
-> **验证**:跑完 pipeline 后 `head -2 results/lift-runid-<run_id>/*_comparison_metrics.csv`,`baseline_total_tokens` / `evolved_total_tokens` 应非 0;若仍为 0,回 `*_backfilled.json` 里看 `global_stats.total_tokens` 有没有值 —— 有则新增分支,没有则查 langfuse GENERATION observation 的 `usage_details` 是否正确挂了 `{input, output, total}`(overlay/push 侧的锅,回 [`token-observability.md`](token-observability.md))。
+> **验证**:跑完 pipeline 后 `head -2 results/lift-runid-<run_id>/*_comparison_metrics.csv`,`baseline_total_tokens` / `evolved_total_tokens` / `tool_use_num` 应非 0;若 `total_tokens` 为 0,回 `*_backfilled.json` 看 `global_stats.total_tokens` 有没有值——有则是 extract 读法问题(基本不会,已 runtime-agnostic),没有则查 langfuse GENERATION observation 的 `usage_details` 是否正确挂了 `{input, output, total}`(overlay/push 侧的锅,回 [`token-observability.md`](token-observability.md))。若 `tool_use_num` 异常,按 [统一观测契约 §5](../../../docs/langfuse-unified-observation-contract.md) 的验收命令检查跨轮 take-max 一致性。
 
 ---
 
 ## 5. Langfuse Trace 拼装(`models.py` + `langfuse_trace_stitch.py`)
 
-### 5.1 `src/models.py:96-100` 加 trace name
+### 5.1 `src/models.py` 加 trace name
 
-[`LANGFUSE_PLUGIN_TRACE_NAMES`](../../../src/models.py#L96-L100) 元组加 `"<runtime>-plugin"`:
+[`LANGFUSE_PLUGIN_TRACE_NAMES`](../../../src/models.py#L97-L103) 元组加 `"<runtime>-plugin"`:
 
 ```python
 LANGFUSE_PLUGIN_TRACE_NAMES: tuple[str, ...] = (
     "openclaw-plugin",
     "Hermes turn",
     "genericagent-plugin",
+    "openhuman-plugin",
+    "evoscientist-plugin",
     "<runtime>-plugin",  # 新加
 )
 ```
@@ -105,6 +97,8 @@ runtime overlay 每次 tool 调用 → langfuse `as_type='tool'` span (type=TOOL
 **接入新 runtime 时不需要做任何额外工作** —— 只要 `langfuse_tracing_overlay.py` 在每次工具调用 / 每个 plugin 子操作上挂了 `as_type='tool'` 的 span,dashboard 就自动有数。如果你的 runtime 能像 OpenClaw 那样从容器内拿到精确轮次(`trajectory.jsonl` 之类),可以 override `count_tool_calls` 拿到比 observation count 更稳的值;不 override 也不会显示空 — 兜底链路接住。
 
 > **GA 注意**:GA 的 plugin 函数都是 generator(`def do_xxx(self, args, response): yield ...; return StepOutcome(...)`),如果你给 plugin 包了 langfuse decorator 但忘了 `as_type='tool'`,observation 会落到 `type=DEFAULT`,count 仍是 0。验证手段:langfuse UI 上挑一条 `genericagent-plugin` trace,展开 observation 列表,看每次 tool 调用是不是 `tool` 类型。
+
+> **⚠️ 两个"工具数"别混淆**:dashboard tools 列读的 `PhaseRun.tool_calls` 走**本节兜底链路**——`type=TOOL` 子 span 计数(`tool_observation_count`,后处理跨轮 **SUM**);而 CSV 的 `tool_use_num`(§4.1)走 root `metadata.toolCallBlocks` / `output.tool_calls`(跨轮**累积** + 后处理 **take-max**)。两者数据源与聚合方式不同,含义上都是"这个 phase 调了多少次工具",正常情况下应当接近或相等。若你的 runtime 只挂了 root 的 `output.tool_calls` 而没挂 `as_type='tool'` 子 span,dashboard tools 列会走不到兜底而显示空,但 CSV `tool_use_num` 仍正确——**两条都要满足**才算观测完整。口径的权威定义见 [统一观测契约](../../../docs/langfuse-unified-observation-contract.md) §0/§2。
 
 #### 5.3.1 dashboard 实时 vs 静态导出 — 为什么要回写 tracker
 
@@ -162,9 +156,14 @@ hook 位点、异步 push 骨架、验收命令等**全部细节**已下沉到
 新 runtime 若也无 hook 点,参照 OpenHuman 结构:
 - adapter `worker_judger_factory` 透传 `ctx.run_id → run_tag`
 - chat_agent 用 `asyncio.to_thread(push_<runtime>_plugin_trace_safe, …)` 异步 push
+- 每轮 chat 后**全量重读** transcript(OpenHuman 每次 chat 重读所有 `session_raw/*.jsonl`),
+  这样 root `metadata.messages` / `toolCallBlocks` / `output.tool_calls` 天然是"截至当前轮的
+  累积值",满足 [统一观测契约](../../../docs/langfuse-unified-observation-contract.md) §1 规则 B/C
+- root `output` 携带跨轮累积的完整 `tool_calls` 列表(`{content, tool_calls:[...]}`),
+  且 `len(output.tool_calls) == metadata.toolCallBlocks`(同源:从 assistant 消息的 `tool_calls`
+  同处累加,含 subagent 调用)
 - generation observation `usage_details` 只填 `{input, output, total,
-  cache_read_input_tokens}`(Langfuse SDK v4 只认这四个 key)
-- tool observation 挂 `as_type='tool'`(不是 `'default'`)
-- **配套** §4.1:新增 `_make_row_<runtime>`,从 `global_stats.total_tokens` 累加
-  (transcript-push 路线通常伴随非 `totalTokens` 的原始 schema)
+  cache_read_input_tokens}`(Langfuse SDK v4 只认这四个 key)—— provider 原始 schema
+  (如 OpenHuman `cached_input`)由后处理 `_usage_breakdown` 归一,**无需**再写 `_make_row_<runtime>`
+- tool observation 挂 `as_type='tool'`(不是 `'default'`),让 dashboard tools 列的兜底链路(§5.3)有数
 

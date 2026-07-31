@@ -65,6 +65,58 @@ def _lift_session_id() -> str | None:
     return sid or None
 
 
+# ── 跨进程（跨 eval turn）工具调用累积 ────────────────────────────────
+# 统一观测契约（见 docs/langfuse-unified-observation-contract）：每个 root span 的
+# ``output.tool_calls`` / ``metadata.toolCallBlocks`` 必须是"同 session **跨轮累积**"
+# 值，后处理对各轮 root span 取 max（= 最末轮累积）。
+#
+# EvoScientist 特殊性：每个 eval turn 是一次独立的 ``EvoSci -p`` OS 进程（stateless
+# 单发，靠 ``--resume`` 续接会话），进程级内存累积器每轮清零；且 ``--resume`` 恢复的
+# 历史在 agent 内部**不重新 emit** ``tool_call`` 事件，本轮进程只看得到本轮新增工具
+# 调用。因此把累积状态落到**容器内、按 session_id 键控的 JSON 文件**跨进程持久：每个
+# 进程读旧累积 + 本轮从 stream ``tool_call`` 事件独立计数的新调用 → 写回 → 写入本轮
+# root span。严格"从每次 LLM 响应独立累计"，不从可能被压缩的 transcript 派生。
+import json as _json  # noqa: E402  (放这里避免影响顶部 import 分组)
+
+_TOOLCALL_STATE_DIR = "/tmp"
+_TOOLCALL_STATE_LOCK = threading.Lock()
+
+
+def _toolcall_state_path(session_id: str) -> str:
+    # session_id 形如 user-xxxx / judge-xxxx，字符集安全，可直接做文件名。
+    safe = "".join(c for c in session_id if c.isalnum() or c in ("-", "_"))
+    return os.path.join(_TOOLCALL_STATE_DIR, f"lift_evosci_tc_{safe}.json")
+
+
+def _load_prior_tool_calls(session_id: str | None) -> list[dict[str, Any]]:
+    """读取该 session 之前所有 eval turn 累积的 tool_calls 列表（无则空）。"""
+    if not session_id:
+        return []
+    path = _toolcall_state_path(session_id)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+        calls = data.get("tool_calls") if isinstance(data, dict) else None
+        return list(calls) if isinstance(calls, list) else []
+    except (FileNotFoundError, ValueError, OSError):
+        return []
+
+
+def _save_cumulative_tool_calls(session_id: str | None, calls: list[dict[str, Any]]) -> None:
+    """把跨轮累积后的 tool_calls 列表写回状态文件（供下一 eval turn 进程续接）。"""
+    if not session_id:
+        return
+    path = _toolcall_state_path(session_id)
+    try:
+        with _TOOLCALL_STATE_LOCK:
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                _json.dump({"tool_calls": calls}, f, ensure_ascii=False)
+            os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 def _install_overlay() -> bool:
     """Monkey-patch ``stream_agent_events``。成功返回 True。
 
@@ -291,6 +343,14 @@ def _install_overlay() -> bool:
                 pass
 
             distinct_names = _distinct(tool_names)
+            # 跨进程累积：读该 session 之前 eval turn 的 tool_calls，拼上本轮从 stream
+            # 独立计数的 finalized_tool_calls，得到"同 session 跨轮累积"列表，写回状态文件
+            # 供下一 eval turn 进程续接，并写入本轮 root span（统一观测契约）。
+            sid_for_state = _lift_session_id()
+            prior_calls = _load_prior_tool_calls(sid_for_state)
+            cumulative_calls = prior_calls + list(finalized_tool_calls)
+            _save_cumulative_tool_calls(sid_for_state, cumulative_calls)
+            cum_tcb = len(cumulative_calls)
             try:
                 obs.update(
                     metadata={
@@ -298,13 +358,20 @@ def _install_overlay() -> bool:
                         "error": error_msg,
                         "messages": transcript,
                         "messageCount": len(transcript),
-                        "toolCallBlocks": tool_call_blocks,
-                        "toolRoundtrips": tool_call_blocks,
+                        # 跨 eval turn 累积的工具调用数（后处理取 max）。
+                        "toolCallBlocks": cum_tcb,
+                        "toolRoundtrips": cum_tcb,
                         "toolNamesDistinct": (
                             ",".join(distinct_names) if distinct_names else None
                         ),
                     },
-                    output=final_text or done_response,
+                    # root output 带跨轮累积 tool_calls 列表（与 Hermes/OpenClaw/GA 对齐，
+                    # len == toolCallBlocks，供人工检查 + 后处理 _tool_call_count_from_output 校准）。
+                    output=(
+                        {"content": final_text or done_response, "tool_calls": cumulative_calls}
+                        if cumulative_calls
+                        else (final_text or done_response)
+                    ),
                 )
             except Exception:  # noqa: BLE001
                 pass

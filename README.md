@@ -124,7 +124,7 @@ agent 每完成一个 phase，dashboard 立刻显示三个原始计数：
 聚合公式（越低越好）：
 
 $$
-\mathrm{impr\_metric} = \frac{\mathrm{evolved}}{\mathrm{baseline}}
+\mathrm{impr\_metric} = \frac{\mathrm{evolved} - \mathrm{baseline}}{\mathrm{baseline}}
 $$
 
 更细的字段定义、列映射、汇总规则见 [docs/eval-flow.md](./docs/eval-flow.md)。

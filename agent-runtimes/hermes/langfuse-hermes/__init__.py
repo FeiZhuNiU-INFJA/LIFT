@@ -45,6 +45,8 @@ class TraceState:
     trace_id: str
     root_ctx: Any
     root_span: Any
+    task_key: str = ""  # 跨 eval turn 稳定的会话键，用于查 _SESSION_TOOL_CALLS
+    session_id: str = ""  # LIFT work/judge session_id：跨 eval turn 最稳定的累积键
     generations: Dict[str, Any] = field(default_factory=dict)
     tools: Dict[str, Any] = field(default_factory=dict)
     pending_tools_by_name: Dict[str, list] = field(default_factory=dict)
@@ -56,6 +58,48 @@ class TraceState:
 
 _STATE_LOCK = threading.Lock()
 _TRACE_STATE: Dict[str, TraceState] = {}
+
+# ── 会话级（跨 eval turn）工具调用累积器 ──────────────────────────────
+# 统一观测契约（见 docs/langfuse-unified-observation-contract）：每个 root span
+# 的 ``output.tool_calls`` 与 ``metadata.toolCallBlocks`` 都必须是"同 session
+# **跨轮累积**"值，后处理据此对各轮取 max（= 最末轮累积）。
+#
+# 为什么不能只用 ``TraceState.turn_tool_calls``：LIFT 的 ``run_task`` 是同 session
+# 多轮 eval loop，每个 eval turn 结束时 ``_finish_trace`` 会 pop 掉 ``TraceState``，
+# 导致 ``turn_tool_calls`` 每轮从空开始（单轮口径）。因此把累积器提升到 **module
+# 级、按 ``task_key`` 持久**，跨 eval turn 持续 extend。
+#
+# 口径要点（按用户要求）：工具调用**从每次 LLM 响应的 ``output.tool_calls`` 独立
+# 累计**（``on_post_llm_call``），而不是从可能被上下文压缩截断的 ``messages`` 派生，
+# 保证压缩后早期工具调用不丢。runner 是每 session 一个 ``docker exec`` 进程，module
+# globals 随进程退出自然回收，session 间天然隔离。
+_SESSION_TOOL_CALLS_LOCK = threading.Lock()
+_SESSION_TOOL_CALLS: Dict[str, list[dict[str, Any]]] = {}
+
+
+def _record_session_tool_calls(task_key: str, tool_calls: Any) -> None:
+    """把本次 LLM 响应新增的 ``tool_calls`` 追加到该 session 的累积列表。"""
+    if not task_key or not tool_calls:
+        return
+    with _SESSION_TOOL_CALLS_LOCK:
+        bucket = _SESSION_TOOL_CALLS.setdefault(task_key, [])
+        bucket.extend(tool_calls)
+
+
+def _session_tool_calls(task_key: str) -> list[dict[str, Any]]:
+    """返回该 session 至今**跨 eval turn 累积**的完整工具调用列表（浅拷贝）。"""
+    if not task_key:
+        return []
+    with _SESSION_TOOL_CALLS_LOCK:
+        return list(_SESSION_TOOL_CALLS.get(task_key, []))
+
+
+def _accum_key(state: TraceState) -> str:
+    """会话级累积键：优先 ``session_id``（LIFT work/judge sid，跨 eval turn 恒定），
+    回退 ``task_key``。绝不能用每轮可能变化的 task_id，否则累积会被重置。"""
+    return state.session_id or state.task_key
+
+
 _LANGFUSE_CLIENT = None
 _READ_FILE_LINE_RE = re.compile(r"^\s*(\d+)\|(.*)$")
 _READ_FILE_HEAD_LINES = 25
@@ -718,6 +762,8 @@ def _start_root_trace(task_key: str, *, task_id: str, session_id: str, platform:
         trace_id=trace_id,
         root_ctx=root_ctx,
         root_span=root_span,
+        task_key=task_key,
+        session_id=session_id or "",
         messages=messages if isinstance(messages, list) else []
     )
 
@@ -763,10 +809,16 @@ def _publish_messages_to_root(state: TraceState) -> None:
             continue
         filtered.append(msg)
     serialized = _serialize_messages(filtered)
+    # 统一观测契约：root metadata.toolCallBlocks / toolRoundtrips 写"同 session
+    # 跨轮累积"的工具调用数（来自 _SESSION_TOOL_CALLS，从每次 LLM 响应独立累计，
+    # 不受上下文压缩影响）。与 root output.tool_calls 长度一致，供后处理取 max。
+    session_tool_count = len(_session_tool_calls(_accum_key(state)))
     try:
         state.root_span.update(metadata={
             "messages": serialized,
             "message_count": len(serialized),
+            "toolCallBlocks": session_tool_count,
+            "toolRoundtrips": session_tool_count,
         })
     except Exception as exc:  # pragma: no cover - fail-open
         _debug(f"publish root messages failed: {exc}")
@@ -794,11 +846,15 @@ def _end_observation(observation: Any, *, output: Any = None, metadata: Optional
 
 
 def _merge_trace_output(output: Any, state: TraceState) -> Any:
-    if not state.turn_tool_calls:
+    # root output.tool_calls 用"同 session 跨轮累积"的完整列表（_SESSION_TOOL_CALLS），
+    # 不是单个 eval turn 的 state.turn_tool_calls —— 保证每个 "Hermes turn" root span
+    # 的 output.tool_calls 都覆盖整段会话至今的全部工具调用（统一观测契约）。
+    session_calls = _session_tool_calls(_accum_key(state))
+    if not session_calls:
         return output
 
     merged = dict(output) if isinstance(output, dict) else {"content": output}
-    merged["tool_calls"] = list(state.turn_tool_calls)
+    merged["tool_calls"] = session_calls
     return merged
 
 
@@ -1033,7 +1089,12 @@ def on_post_llm_call(*, task_id: str = "", session_id: str = "", provider: str =
         }
 
     if output.get("tool_calls"):
+        # per-eval-turn 累积（供 gen metadata 的 cumulative_tool_call_count 展示）+
+        # 跨 eval turn 会话级累积（_SESSION_TOOL_CALLS，权威口径，供 root output /
+        # metadata 用）。二者都从本次 LLM 响应的 output.tool_calls 独立累计，不依赖
+        # 可能被上下文压缩的 messages。
         state.turn_tool_calls.extend(output["tool_calls"])
+        _record_session_tool_calls(_accum_key(state), output["tool_calls"])
 
     # Extract usage: prefer response object, fall back to usage dict from post_api_request
     if response is not None:
