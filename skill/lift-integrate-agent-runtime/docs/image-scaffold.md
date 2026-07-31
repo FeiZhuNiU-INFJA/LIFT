@@ -60,31 +60,34 @@ langfuse_config = {"public_key": "__LANGFUSE_PUBLIC_KEY__", "secret_key": "__LAN
 
 **5 字段 usage 落库口径**:overlay 里 `usage_details=` 或 sibling `usageDetails` 必须传细分字段(cache/reasoning),否则 Langfuse ingestion 会静默丢弃。详见 [`token-observability.md` §断点 B](token-observability.md#4-断点-b-修复langfuse-存了但字段丢失)。
 
-### 3.1 多轮对话的 root span 生命周期 — transcript 累积器必须**进程级**,root span **每轮一条** ⚠️
+### 3.1 多轮对话的 root span 生命周期 — transcript / 工具计数累积器必须**进程级**,root span **每轮一条** ⚠️
 
-> **背景(GA 实测踩坑)**:文件 I/O 型 runtime(GA 那种:宿主写 `input.txt` / `reply.txt`,容器内一个常驻进程轮询)在**同一个进程**里跑多轮对话。但 GA 上游每收到一次 `reply.txt` 就重新调用一次 `agent_runner_loop`,而 `agent_before` / `agent_after` / `llm_before` / `llm_after` 这些 hook 是在 `agent_runner_loop` **内部**触发的(见 GA `agent_loop.py`:`_hook('agent_before', ...)` 在 loop 开头、`_hook('agent_after', ...)` 在 loop 结尾)。**结论:一次多轮对话 = N 次 `agent_runner_loop` = N 次 `agent_before`/`agent_after`**。真正的跨轮历史存在上游 LLM client 的 `backend.history` 里,每次 loop 的 `messages` 只从"本轮新 user"重建。
+> **前置必读**:本节是 [统一观测契约](../../../docs/langfuse-unified-observation-contract.md) 在 overlay 侧的落地。契约规定:**每个 eval turn 落一条 root span,root 的 `metadata.messages` / `metadata.toolCallBlocks` / `output.tool_calls` 都是"同 session 跨轮累积"值**。先读那份契约再看本节实现细节。
 
-接入任何 **"单进程跨多轮"** 的 runtime(文件 I/O 型、长连接 stdin/stdout 型都算)时,overlay 的 transcript 累积必须满足两条,否则 Langfuse 上 `messages` 无法还原整段会话:
+> **背景(GA 实测踩坑)**:文件 I/O 型 runtime(GA 那种:宿主写 `input.txt` / `reply.txt`,容器内一个常驻进程轮询)在**同一个进程**里跑多轮对话。但 GA 上游每收到一次 `reply.txt` 就重新调用一次 `agent_runner_loop`,而 `agent_before` / `agent_after` / `llm_before` / `llm_after` 这些 hook 是在 `agent_runner_loop` **内部**触发的(见 GA `agent_loop.py`:`_hook('agent_before', ...)` 在 loop 开头、`_hook('agent_after', ...)` 在 loop 结尾)。**结论:一次多轮对话 = N 次 `agent_runner_loop` = N 次 `agent_before`/`agent_after` = N 条 root span**。真正的跨轮历史存在上游 LLM client 的 `backend.history` 里,每次 loop 的 `messages` 只从"本轮新 user"重建。
 
-**规则 1:transcript / 工具名 累积器提升到进程级全局(模块级 dict),不要放 `threading.local`、更不要放单次 loop 的 `locals()`。**
-- 每轮 `agent_before` 只往这个全局累积器**追加**当轮 user,`llm_after` 追加 assistant(含归一化 `tool_calls`)——跨轮持续 append。
-- GA 单进程只服务一个 `session_id`(LIFT factory 每题每 role 各起一个进程 / iodir),所以"进程级 = 会话级",无需再按 sid 分桶。若未来复用单进程跑多 session,才需要按 session_id 分桶。
+接入任何 **"单进程跨多轮"** 的 runtime(文件 I/O 型、长连接 stdin/stdout 型都算)时,overlay 的累积必须满足三条,否则 Langfuse 上无法还原整段会话 / 工具计数会错:
 
-**规则 2:root span 仍然"每轮一条"(`agent_before` 建、`agent_after` 关闭并 `flush`),每轮把"截至当前轮的全量 transcript"写进该轮 root span 的 metadata。**
+**规则 1:transcript / 工具名 / 工具计数 / tool_calls 列表 累积器全部提升到进程级全局(模块级 dict,如 GA `_STATE`),不要放 `threading.local`、更不要放单次 loop 的 `locals()`。**
+- 每轮 `agent_before` 只往这个全局累积器**追加**当轮 user,`llm_after` 追加 assistant(含归一化 `tool_calls`),并从**本次 LLM 响应**独立累加 `tool_call_blocks` / append `tool_calls`——跨轮持续 append。
+- GA 单进程只服务一个 `session_id`(LIFT factory 每题每 role 各起一个进程 / iodir),所以"进程级 = 会话级",无需再按 sid 分桶。若未来复用单进程跑多 session,才需要按 session_id 分桶(EvoScientist 那种**每轮独立进程**的则用 session_id 键控的**磁盘状态文件**跨进程累积,见契约 §4)。
+
+**规则 2:root span 仍然"每轮一条"(`agent_before` 建、`agent_after` 关闭并 `flush`),每轮把"截至当前轮的全量 transcript + 累积工具计数 + 累积 tool_calls 列表"写进该轮 root span 的 metadata / output。**
 - 为什么不做成"整进程一条 root span、退出时才 end"?因为**容器是被 `docker rm -f`(SIGKILL)杀的,`atexit` / 信号 handler 根本不会执行** → root span 永远 end 不掉 / flush 不出去 → Langfuse 上该 trace 的 Input / Output 全是 `undefined`(实测踩过这个坑)。所以必须每轮在 `agent_after` 里同步 `__exit__` + `flush`,保证每一轮都是一条**完整落库**的 trace。
 - 每轮写"截至当前的全量"后,**最后一轮的 trace 天然含整段会话**,后处理 `TranscriptChampion`([`langfuse_trace_fetch.py`](../../../src/report/langfuse_trace_fetch.py) 按 timestamp "取最晚一条" work transcript)拿到的正好是完整对话。这与 Hermes"每轮全量 transcript"的 champion 口径一致。
 
-**规则 3(工具计数口径,容易反向踩坑):`messages` 走 champion"取最晚一条"(全量),但 `toolCallBlocks` 在后处理 [`build_work_analytics`](../../../src/report/langfuse_work_analytics.py) 里是按轮 SUM(`g.tool_call_blocks += t.stats.tool_call_blocks`)。**
-- 因此写进 root metadata 的 `toolCallBlocks` / `toolRoundtrips` 必须是**本轮 per-round 增量**(用一个 `threading.local` 的 round 计数器),SUM 后才是正确总数。
-- 如果 `toolCallBlocks` 也用全局累积值,SUM 会把 round1 的量重复累加进 round2 → 工具数虚高。
-- `toolNamesDistinct` 用全局累积去重即可(它只做展示,不参与 SUM)。
+**规则 3(工具计数口径 — 契约核心,已从旧"per-round SUM"改为"跨轮累积 + take-max"):`messages` 与 `toolCallBlocks` / `output.tool_calls` 都走"跨轮累积"口径,后处理 [`build_work_analytics`](../../../src/report/langfuse_work_analytics.py#L116) 对工具计数取 `max`(不是 SUM)。**
+- 写进 root metadata 的 `toolCallBlocks` / `toolRoundtrips` 必须是**截至当前轮的累积值**(进程级 `_STATE` 累计,不是 per-round 增量)。root `output.tool_calls` 放**同一份累积列表**,保证 `len(output.tool_calls) == toolCallBlocks`。
+- 后处理对累积值取 `max`(= 最末轮累积值 = session 总量);累积值单调不减,`max` 对 trace 排序抖动 / provider 重试导致的某轮缺口(`toolCallBlocks=0`)都健壮。
+- **⚠️ 这里与旧版文档相反**:早期口径是"root 写 per-round 增量、后处理 SUM"。现已统一为"root 写累积、后处理 take-max"(见契约 §1 规则 C / §2.2)。若你还照旧写 per-round 增量,后处理 take-max 只会拿到"最大的单轮增量",工具数会**偏小**。
+- `toolNamesDistinct` 用全局累积去重即可(展示用,不参与聚合)。
 
-> **判定 runtime 是否踩这条**:run 一次 2 轮对话,去 Langfuse 按 `session_id=user-*` 搜。
+> **判定 runtime 是否踩这条**:run 一次 ≥2 轮对话,去 Langfuse 按 `session_id=user-*` 搜。
 > - 只看到 **1 条** trace 且它只含某一轮的 messages → 你把 span/累积器绑在单次 loop 上了(每轮互相覆盖 / 各自独立),走规则 1+2。
-> - 看到 **N 条** trace 但每条只含单轮增量、无法拼出全量 → 累积器没提升到进程级,走规则 1。
+> - 看到 **N 条** trace 但每条只含单轮增量、无法拼出全量 / 各轮 `toolCallBlocks` 不是单调递增 → 累积器没提升到进程级或还在写 per-round 增量,走规则 1+3。
 > - trace 的 Input / Output 是 `undefined` → span 没 end/flush(多半是想靠 atexit 收尾但被 SIGKILL),走规则 2 改回每轮 `agent_after` 收尾。
 >
-> 参考实现见 [`agent-runtimes/genericagent/langfuse_tracing_overlay.py`](../../../agent-runtimes/genericagent/langfuse_tracing_overlay.py) 的 `_STATE`(进程级全量)+ `_tls.round_tool_call_blocks`(per-round SUM)+ `agent_after` 每轮 `__exit__` + `flush`。
+> 参考实现见 [`agent-runtimes/genericagent/langfuse_tracing_overlay.py`](../../../agent-runtimes/genericagent/langfuse_tracing_overlay.py) 的 `_STATE`(进程级全量 transcript + 跨轮累积 `tool_calls` / `tool_call_blocks`)+ `agent_after` 每轮 `__exit__` + `flush`。跨进程累积样板见 [`agent-runtimes/evoscientist/langfuse_tracing_overlay.py`](../../../agent-runtimes/evoscientist/langfuse_tracing_overlay.py) 的 `_load/_save_cumulative_tool_calls`(session_id 键控磁盘状态文件)。
 
 #### 3.1.1 怎么**发现**这个问题(两种诊断法)
 

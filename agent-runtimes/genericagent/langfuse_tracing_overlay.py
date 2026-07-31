@@ -109,14 +109,17 @@ if _lf:
     #   - 最后一轮的 trace 天然含整段会话，后处理 ``TranscriptChampion``
     #     取「最晚一条」即完整对话。
     #
-    # 注意工具计数口径：``messages`` 走 champion「取最晚一条」（全量），而后处理
-    # ``build_work_analytics`` 对 ``toolCallBlocks`` 是**按轮 SUM**。因此 root
-    # metadata 里的 ``toolCallBlocks`` 写**本轮** per-round 增量
-    # （``_tls.round_tool_call_blocks``），SUM 后正好是总数；``toolNamesDistinct``
-    # 用全局累积去重（展示用，不参与 SUM）。
+    # 工具计数口径（统一观测契约，见 docs/langfuse-unified-observation-contract）：
+    # 每个 root span 的 ``toolCallBlocks`` / ``output.tool_calls`` 都写「同 session
+    # **跨轮累积**」值，后处理对各轮取 max（= 最末轮累积）。因此计数器与 tool_calls
+    # 列表都提升到进程级 ``_STATE``（GA 一个 session = 一个常驻进程，见
+    # chat_agent.py：首轮 docker exec -d 起进程，后续轮写 reply.txt 复用同进程），
+    # 从每次 LLM 响应（``_on_llm_after``）独立累加，不从可能被压缩的 transcript 派生。
     _STATE = {
         "transcript": [],   # 跨轮累积的全量 message 列表
         "tool_names": [],   # 跨轮累积的工具名（全局 distinct 展示用）
+        "tool_calls": [],   # 跨轮累积的 OpenAI 风格 tool_calls 列表 → root output.tool_calls
+        "tool_call_blocks": 0,  # 跨轮累积的工具调用总数（= len(tool_calls)）
     }
     _STATE_LOCK = threading.Lock()
 
@@ -159,7 +162,6 @@ if _lf:
             _tls.attr_cm = attr_cm
             _tls.obs_cm = obs_cm
             _tls.trace_obs = obs
-            _tls.round_tool_call_blocks = 0  # 本轮 per-round 工具计数
             # 播种本轮 user message（跳过 system prompt）到进程级 transcript。
             # seeded 让 llm_before 不重复追加 agent_before 已播种的这批 messages。
             _tls.seeded = False
@@ -181,29 +183,36 @@ if _lf:
 
     @hooks.register('agent_after')
     def _on_agent_after(ctx):
-        """当轮结束：把「截至当前轮的全量 transcript」+ 本轮工具计数写进 root
-        metadata，再反序退出 obs_cm → attr_cm，最后 flush。"""
+        """当轮结束：把「截至当前轮的全量 transcript」+ 跨轮累积工具计数写进 root
+        metadata，root output 带跨轮累积 tool_calls 列表，再反序退出 obs_cm → attr_cm，最后 flush。"""
         try:
             obs = getattr(_tls, 'trace_obs', None)
             if obs:
-                # 从进程级 _STATE 读全量 transcript（含此前所有轮）。键名走 OpenClaw
-                # camelCase schema，见 LangfusePluginTraceMetadata。
+                # 从进程级 _STATE 读全量 transcript + 跨轮累积工具计数 / tool_calls 列表。
+                # 键名走 OpenClaw camelCase schema，见 LangfusePluginTraceMetadata。
                 try:
                     with _STATE_LOCK:
                         transcript = list(_STATE["transcript"])
                         distinct = _distinct(_STATE["tool_names"])
-                    round_tcb = int(getattr(_tls, 'round_tool_call_blocks', 0) or 0)
+                        cum_calls = list(_STATE["tool_calls"])
+                        cum_tcb = int(_STATE["tool_call_blocks"])
                     obs.update(metadata={
                         "messages": transcript,
                         "messageCount": len(transcript),
-                        # 本轮 per-round 工具数：后处理按轮 SUM，跨轮累加得总数。
-                        "toolCallBlocks": round_tcb,
-                        "toolRoundtrips": round_tcb,
+                        # 统一观测契约：跨 eval turn 累积的工具调用数（后处理取 max）。
+                        "toolCallBlocks": cum_tcb,
+                        "toolRoundtrips": cum_tcb,
                         "toolNamesDistinct": ",".join(distinct) if distinct else None,
                     })
                 except Exception:
                     pass
-                obs.update(output=ctx.get('exit_reason'))
+                # root output 带跨轮累积 tool_calls 列表（与 Hermes/OpenClaw 对齐，供人工
+                # 检查 + 后处理 _tool_call_count_from_output 校准）；无工具调用时退回 exit_reason。
+                exit_reason = ctx.get('exit_reason')
+                if cum_calls:
+                    obs.update(output={"content": exit_reason, "tool_calls": cum_calls})
+                else:
+                    obs.update(output=exit_reason)
             obs_cm = getattr(_tls, 'obs_cm', None)
             if obs_cm is not None:
                 obs_cm.__exit__(None, None, None)
@@ -257,19 +266,21 @@ if _lf:
         except Exception:
             pass
         # 追加本轮 assistant message（含归一化 tool_calls）到进程级 transcript，
-        # 并累计工具计数：全局 tool_names（distinct 展示）+ 本轮 round 计数（SUM）。
+        # 并累计工具计数：从本次 LLM 响应独立累加到进程级 _STATE（跨 eval turn 累积）。
+        # tool_names（distinct 展示）+ tool_calls 列表 + tool_call_blocks 计数三者同源，
+        # 保证 len(tool_calls) == tool_call_blocks，供 root output.tool_calls / metadata 使用。
         try:
             response = ctx.get('response')
             if response is not None:
                 assistant_msg, tool_names = _assistant_message_from_response(response)
+                new_calls = assistant_msg.get("tool_calls") or []
                 with _STATE_LOCK:
                     _STATE["transcript"].append(assistant_msg)
                     if tool_names:
                         _STATE["tool_names"].extend(tool_names)
-                if tool_names:
-                    _tls.round_tool_call_blocks = (
-                        int(getattr(_tls, 'round_tool_call_blocks', 0) or 0) + len(tool_names)
-                    )
+                    if new_calls:
+                        _STATE["tool_calls"].extend(new_calls)
+                        _STATE["tool_call_blocks"] += len(new_calls)
         except Exception:
             pass
 

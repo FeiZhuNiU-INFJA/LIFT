@@ -227,7 +227,16 @@ export function register(api) {
     // otherwise they are silently dropped. Mirror the payload so both legacy and
     // typed consumers see the numbers. See LIFT lesson: openclaw ingestion drop.
     const usageDetails = usageDetailsFromUsage(usage);
-    const toolStats = summarizeTools(turnSlice);
+    // 统一观测契约（见 docs/langfuse-unified-observation-contract）：
+    // toolCallBlocks / toolRoundtrips 必须是"同 session **跨轮累积**"值。OpenClaw 的
+    // `agent_end` 每个 eval turn 触发一次、各发一条 openclaw-plugin root trace，且
+    // `event.messages`(safeMessages) 是**累积**的完整会话历史；因此统计工具调用要走
+    // 全量 safeMessages，而不是仅当轮的 turnSlice —— 否则每轮 root 只带当轮增量，后处理
+    // 取 max 会严重少算。计数与 trajectory.jsonl 的 last model.completed 快照口径一致。
+    const toolStats = summarizeTools(safeMessages);
+    // 跨轮累积的完整工具调用列表 → root output.tool_calls（与 Hermes 对齐，供人工在
+    // 报告里直接检查，也让后处理 `_tool_call_count_from_output` 校准 toolCallBlocks）。
+    const toolCallsList = collectToolCalls(safeMessages);
     const messagesPayload = serializeMessagesForMetadata(safeMessages, appendLog);
 
     const traceTags = buildTraceTags({
@@ -253,7 +262,12 @@ export function register(api) {
           userId: agentId ?? 'unknown',
           tags: traceTags,
           input: input.slice(0, 2000) || undefined,
-          output: output.slice(0, 4000) || undefined,
+          // root output 携带"同 session 跨轮累积"的完整 tool_calls 列表（统一观测契约）。
+          // 有工具调用时用 {content, tool_calls} 对象形态（与 Hermes root output 对齐，
+          // 供人工检查 + 后处理 `_tool_call_count_from_output` 校准）；无则退回纯文本。
+          output: toolCallsList.length > 0
+            ? { content: output.slice(0, 4000) || null, tool_calls: toolCallsList }
+            : (output.slice(0, 4000) || undefined),
           metadata: {
             success,
             error: error ?? undefined,
@@ -283,13 +297,12 @@ export function register(api) {
           statusMessage: error ?? undefined,
           usage,
           usageDetails,
+          // 统一观测契约：全量 transcript 只挂在 root trace 的 metadata.messages，
+          // GENERATION 子节点不再重复写 messages（避免每个 LLM 节点携带 N 份完整历史）。
+          // 保留轻量工具计数字段（toolStats）+ 观测计数，供 UI 快速查看。
           metadata: {
             durationMs,
             messageCount: safeMessages.length,
-            messages: messagesPayload.messages,
-            messagesTruncated: messagesPayload.anyMessageTruncated,
-            messagesSanitizedCount: messagesPayload.sanitizedCount,
-            messagesSerializedChars: messagesPayload.serializedChars,
             ...toolStats,
           },
         },
@@ -533,6 +546,46 @@ function summarizeTools(turnMessages) {
     toolCallBlocks: toolCallBlockCount,
     toolNamesDistinct: toolNames.size > 0 ? [...toolNames].sort().join(',') : undefined,
   };
+}
+
+/**
+ * Collect the cross-turn cumulative tool_calls list from full session messages,
+ * normalized to OpenAI-style `{id, type, function:{name, arguments}}`.
+ *
+ * 统一观测契约：写入 root output.tool_calls，供人工检查 + 后处理
+ * `_tool_call_count_from_output` 校准计数。过滤规则与 `summarizeTools` 完全一致
+ * （跳过 self-evolution signal 的 exec 调用），因此返回列表长度 === toolStats.toolCallBlocks，
+ * 保证 output.tool_calls.length 与 metadata.toolCallBlocks 一致。
+ */
+function collectToolCalls(messages) {
+  const src = Array.isArray(messages) ? messages : [];
+  const out = [];
+  for (const msg of src) {
+    if (msg?.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      if (block?.type !== 'toolCall' || typeof block.name !== 'string' || !block.name.trim()) {
+        continue;
+      }
+      if (shouldIgnoreToolCallBlock(block)) continue;
+      const name = block.name.trim();
+      let args = block.arguments;
+      // arguments 尽力序列化为字符串（与 OpenAI function.arguments 形态对齐）。
+      if (args !== undefined && typeof args !== 'string') {
+        try {
+          args = JSON.stringify(args);
+        } catch {
+          args = String(args);
+        }
+      }
+      out.push({
+        id: typeof block.id === 'string' ? block.id : undefined,
+        type: 'function',
+        name,
+        function: { name, arguments: args ?? '' },
+      });
+    }
+  }
+  return out;
 }
 
 function isProbablyBase64Payload(s) {

@@ -477,6 +477,10 @@ class _PluginTraceSummary:
     generations: list[dict[str, Any]]  # 每个 assistant iteration
     tools: list[dict[str, Any]]  # 每次 tool 调用（含 input args + tool result）
     final_response: str
+    # 统一观测契约：同 session 跨轮累积的 OpenAI 风格 tool_calls 列表 → root
+    # output.tool_calls。OpenHuman 每轮 chat 后全量重读所有 session_raw jsonl，因此
+    # 这里天然是"截至当前轮"的累积列表；长度 == tool_call_blocks（含 subagent 调用）。
+    tool_calls: list[dict[str, Any]]
 
 
 def _dedup_preserve_order(items: list[str]) -> list[str]:
@@ -667,6 +671,7 @@ def summarize_transcripts(transcripts: list[ParsedTranscript]) -> _PluginTraceSu
     tool_roundtrips = 0
     generations: list[dict[str, Any]] = []
     tools: list[dict[str, Any]] = []
+    tool_calls_list: list[dict[str, Any]] = []
     final_response = ""
 
     pending_tool_call_id_to_name: dict[str, str] = {}
@@ -680,6 +685,9 @@ def summarize_transcripts(transcripts: list[ParsedTranscript]) -> _PluginTraceSu
             if calls:
                 # 工具调用计数：root 与 subagent 的调用都计入（满足"subagent 调用也算"）。
                 tool_call_blocks += len(calls)
+                # 同源收集 OpenAI 风格 tool_calls → root output.tool_calls；用与
+                # tool_call_blocks 相同的 calls 源 + GA 风格归一化，保证 len 一致。
+                tool_calls_list.extend(_normalize_tool_calls_ga_style(calls))
                 for c in calls:
                     name = str(c.get("name") or "")
                     if name:
@@ -747,6 +755,7 @@ def summarize_transcripts(transcripts: list[ParsedTranscript]) -> _PluginTraceSu
         generations=generations,
         tools=tools,
         final_response=final_response,
+        tool_calls=tool_calls_list,
     )
 
 
@@ -886,7 +895,13 @@ def push_openhuman_plugin_trace(
                     obs.update(output=output_val)
                     obs.end()
 
-                root.update(output=final_output)
+                # 统一观测契约：root output 带"同 session 跨轮累积"的 tool_calls 列表
+                # （与 Hermes/OpenClaw/GA/EvoScientist 对齐，供人工检查 + 后处理
+                # _tool_call_count_from_output 校准 toolCallBlocks）。无工具调用时退回纯文本。
+                if summary.tool_calls:
+                    root.update(output={"content": final_output, "tool_calls": summary.tool_calls})
+                else:
+                    root.update(output=final_output)
             finally:
                 root_cm.__exit__(None, None, None)
         client.flush()
