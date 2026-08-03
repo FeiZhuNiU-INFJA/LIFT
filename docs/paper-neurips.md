@@ -1,14 +1,21 @@
 # LIFT: A Counterfactual Framework and Benchmark for Disentangling Genuine Self-Evolution in LLM Agents
 
-> NeurIPS 2027 submission draft (Evaluations and Datasets Track). English, submission-ready structure. Experimental numbers are placeholders marked `[TODO-DATA]` pending the full run. This document is self-contained: it merges the evaluation protocol (framework) and the benchmark suite into a single paper. Working subtitle / acronym anchor: **LIFT = Loaded Impact on Final Task.**
+> arXiv v1 preprint. Non-anonymous, author-visible. Companion target: NeurIPS 2027 (Datasets & Benchmarks Track) — the NeurIPS submission MUST switch to the anonymous build (strip author identifiers, affiliation strings, and code/benchmark URLs from the abstract). §6 tables report population-ratio Δ from a partial cross-runtime sweep; remaining runtimes and full-suite repeats will be refreshed in v2. Working subtitle / acronym anchor: **LIFT = Loaded Impact on Final Task.**
+
+**Authors** (equal contribution; author order arbitrary; all authors are independent researchers):
+- Lin Yu — `yulin.jay@gmail.com`
+- Tong Han — `iklare_hans@outlook.com`
+- Linsheng Zheng — `zzuzhangwen@aliyun.com`
 
 ---
 
 ## Abstract
 
-Self-evolving LLM agents continuously accumulate reusable experience *artifacts* — skills, memories, standard operating procedures (SOPs), tool boxes, personas — produced during interaction and reloaded on later tasks. Yet mainstream evaluation cannot separate *genuine* capability generalization from *pseudo* performance growth introduced by evaluation confounds: training-memory leakage (the agent replaying an earlier task's output into the next), cross-session context pollution, grader self-preference, and non-reproducible runtimes. As a result, "the agent evolved a pile of artifacts" is routinely mistaken for "the artifacts help downstream."
+Self-evolving LLM agents continuously accumulate reusable experience *artifacts* — skills, memories, tool libraries, and workflows (SOPs) — produced during interaction and reloaded on later tasks. Yet mainstream evaluation cannot separate *genuine* capability generalization from *pseudo* performance growth introduced by evaluation confounds: training-memory leakage (the agent replaying an earlier task's output into the next), cross-session context pollution, grader self-preference, and non-reproducible runtimes. As a result, "the agent evolved a pile of artifacts" is routinely mistaken for "the artifacts help downstream."
 
-We present **LIFT (Loaded Impact on Final Task)**, a counterfactual evaluation framework that makes the *Base vs. Loaded* contrast on held-out tasks its single scientific question. LIFT operationalizes this contrast with three mechanisms: (i) **paired A/B runs** of the same held-out task with and without consolidated artifacts; (ii) **strict separation** of warmup (training) tasks from holdout (unseen) tasks; and (iii) **Docker container snapshots** (`docker commit` → delta image) that solidify the runtime agent state as an artifact-agnostic, cross-machine-reproducible carrier. Together these isolate the confounds above, so that a positive delta on an unseen task is *attributable to the artifacts* rather than to leakage, context pollution, or environment drift. A **three-layer decoupling** (pipeline / runtime adapter / evaluation kernel) hosts twelve heterogeneous agent runtimes behind four hooks; a **work-agent + judge-agent review loop** scores each task; and multi-level concurrency plus Langfuse trace backfill make every run auditable in both *conclusion* and *process*. We release a self-contained **benchmark of 14 scenes (84 tasks)** built on a two-phase schema with a deliberate ~75%/25% train-test requirement overlap designed to expose over-fitting to literal training requirements. LIFT provides a standardized, attributable pipeline for empirical research on self-evolving agents and makes precise the methodological gaps in existing agent benchmarks. All code, container images, and datasets are released.
+We present **LIFT (Loaded Impact on Final Task)**, a counterfactual evaluation framework that makes the *Base vs. Loaded* contrast on held-out tasks its single scientific question. LIFT operationalizes this contrast with three mechanisms: (i) **paired A/B runs** of the same held-out task with and without consolidated artifacts; (ii) **strict separation** of warmup (training) tasks from holdout (unseen) tasks; and (iii) **Docker container snapshots** (`docker commit` → delta image) that solidify the runtime agent state as an artifact-agnostic, cross-machine-reproducible carrier. Together these isolate the confounds above, so that a positive delta on an unseen task is *attributable to the artifacts* rather than to leakage, context pollution, or environment drift. A **three-layer decoupling** (pipeline / runtime adapter / evaluation kernel) hosts a range of mainstream self-evolving agent runtimes behind four hooks; a **work-agent + judge-agent review loop** scores each task; and multi-level concurrency plus Langfuse trace backfill make every run auditable in both *conclusion* and *process*. We release a self-contained **benchmark of 14 scenes (84 tasks)** built on a two-phase schema with a deliberate ~75%/25% train-test requirement overlap designed to expose over-fitting to literal training requirements. LIFT provides a standardized, attributable pipeline for empirical research on self-evolving agents and makes precise the methodological gaps in existing agent benchmarks. All code, container images, and datasets are released.
+
+*Preprint status.* This is a v1 preprint. §6 reports population-ratio Δ from a partial cross-runtime sweep (5 runtimes across RQ1–RQ4); remaining runtimes and full-suite repeats will be released in v2.
 
 ---
 
@@ -20,7 +27,7 @@ LLM evaluation began as "feed a prompt, check the output." Agents shattered that
 
 ### 1.2 Self-evolving agents magnify the problem
 
-Over the past year, self-evolving agents accumulate reloadable artifacts — skills, memories, SOPs, MCP boxes, personas — during interaction. Commercially, "an agent that keeps learning" is the headline; academically, the four-component loop (System Inputs → Agent System → Environment → Optimisers) has crystallized. But a blunt empirical fact stands out: on SkillsBench's 86 tasks, *curated* skills yield +16.2pp on average, while *self-generated* skills are on average useless or harmful. Hence:
+Over the past year, self-evolving agents accumulate reloadable artifacts — skills, memories, tool libraries, workflows (SOPs) — during interaction. Commercially, "an agent that keeps learning" is the headline; academically, the four-component loop (System Inputs → Agent System → Environment → Optimisers) has crystallized. But a blunt empirical fact stands out: on SkillsBench's 86 tasks, *curated* skills yield +16.2pp on average, while *self-generated* skills are on average useless or harmful. Hence:
 
 > "The agent evolved a pile of artifacts" ≠ "the artifacts help downstream."
 
@@ -47,7 +54,7 @@ We propose **LIFT**, whose thesis is one sentence:
 Concretely we contribute:
 
 1. **A scientific protocol** — train/test separation (`warmup_tasks` / `holdout_tasks`) + same-task paired runs (baseline / evolved) + a work-judge review loop (§3).
-2. **An engineering carrier, released** — container snapshots (`docker commit` → delta image) as the artifact-agnostic form of evolved state; each holdout task starts an isolated container; runtime / pipeline / evaluation are decoupled into three layers (§3.3, §3.5). We release the framework code, twelve runtime adapters, container images, and datasets, so the protocol is reusable, criticizable, and comparable.
+2. **An engineering carrier, released** — container snapshots (`docker commit` → delta image) as the artifact-agnostic form of evolved state; each holdout task starts an isolated container; runtime / pipeline / evaluation are decoupled into three layers (§3.3, §3.5). We release the framework code, adapters for mainstream self-evolving agent runtimes, container images, and datasets, so the protocol is reusable, criticizable, and comparable.
 3. **Repeatability & observability** — multi-level concurrency and pre-chat + Langfuse trace backfill, so both conclusion and process are re-queryable (§3.6–3.7).
 4. **A self-contained benchmark suite** — 14 scenes / 84 tasks on a two-phase schema with a deliberate 75%/25% train-test requirement overlap (§4).
 
@@ -57,15 +64,29 @@ Concretely we contribute:
 
 **General agent benchmarks.** AgentBench, GAIA, REAL, τ-bench / τ²-bench, SWE-bench, and harness-comparison benchmarks answer "can the agent do the job on a static task set." They are LIFT's *task source*, not its contrast object. Some already do cross-harness comparison and tiered evaluation (script verification / point-wise verification / pairwise comparison), a design we reuse — but none reach the artifact-dimension causal contrast.
 
-**Artifact benchmarks.** SkillsBench, EvolveTool-Bench, and memory benchmarks (EvoMemBench, Evo-Memory) begin to probe the artifact dimension but each binds to one artifact form (skill / tool / memory). They provide LIFT's key motivating evidence — "self-generated skills are on average ineffective." LIFT's **artifact-source-agnostic** stance abstracts over them: whether the artifact is a skill, a memory, or an SOP, the verification logic is *Base vs. Loaded*.
+**Artifact benchmarks.** SkillsBench, EvolveTool-Bench, and memory benchmarks (EvoMemBench, Evo-Memory) begin to probe the artifact dimension but each binds to one artifact form (skill / tool / memory). LIFT's **artifact-source-agnostic** stance abstracts over them: whether the artifact is a skill, a memory, a tool library, or a workflow, the verification logic is *Base vs. Loaded*.
 
-**Lifelong / sequential learning.** LifeLongAgentBench and SEA-Eval provide learning-curve metrics (FWT / BWT / RecoveryRate). LIFT positions these as **evolution-specific diagnostics**: if the Base-vs-Loaded test is conclusive, no curve is needed; when it is not, learning curves help diagnose forgetting vs. non-transfer. This differs from prior work that treats them as primary metrics, and it avoids coupling evolution-mechanism complexity into the main evaluation path.
+**Lifelong / sequential learning.** LifelongAgentBench and SEA-Eval provide learning-curve metrics (FWT / BWT / RecoveryRate). LIFT positions these as **evolution-specific diagnostics**: if the Base-vs-Loaded test is conclusive, no curve is needed; when it is not, learning curves help diagnose forgetting vs. non-transfer. This differs from prior work that treats them as primary metrics, and it avoids coupling evolution-mechanism complexity into the main evaluation path.
 
-**Evaluation methodology.** The ABC Checklist, Agent-as-a-Judge, and MAJ-Eval answer "how do we grade reliably." LIFT's review loop borrows Agent-as-a-Judge's *tool-augmented verification*: the judge runs in a separate session of the *same* runtime, so it can call real tools to verify outputs rather than grading on surface text.
+**Evaluation methodology.** The ABC Checklist, Agent-as-a-Judge, and MAJ-Eval answer "how do we grade reliably." LIFT's review loop borrows Agent-as-a-Judge's *tool-augmented verification*: the judge calls real tools to verify outputs rather than grading on surface text (LIFT sandboxes it in a sibling container; §2.1).
 
 **Evaluation SDKs.** DeepEval, Opik, and Promptfoo target LLM-API-layer developer evaluation at the granularity of prompt × model. LIFT's granularity is *in-container agent × holdout task × baseline/evolved* — a different layer. Langfuse plays Opik's *trace* role in LIFT — we use only its trace capability, not its evaluator, because the evaluator role is filled by the work-judge loop.
 
 **Safety evaluation.** OS-Harm and RAS-Eval flag that loading artifacts introduces new safety risk. LIFT keeps SafetyRegression as an optional cross-cutting dimension (off by default, to avoid entangling it with functional artifact evaluation); a full safety protocol is orthogonal future work.
+
+### 2.1 LIFT vs. existing work: where LIFT fills the gaps
+
+The five paragraphs above sketch *who does what*. This subsection zooms into the five works closest to LIFT along the axis "can this answer *do the artifacts help?*". Each contrast is expressed as: *what the work does well, what design LIFT reuses, and what LIFT adds that this work does not*. A wider nine-dimension matrix appears in Appendix B.
+
+- **SkillsBench — motivating evidence, not a substitute.** SkillsBench's three-condition design (*no skill / curated skill / self-generated skill*) yields the fact that motivates LIFT (§1.2): generation quality is not implied by generation activity, so evaluation must contrast *loaded vs. not*. LIFT reuses this ternary logic but generalises the artifact form: SkillsBench binds to skill packs while LIFT is **artifact-source-agnostic** — whatever the runtime writes to disk during warmup is committed into a delta image and reloaded, so skill, memory, tool library, and workflow all pass through the same protocol. SkillsBench cannot answer "does memory help?" because memory is not in its scope; LIFT can.
+
+- **LifelongAgentBench — learning curves are diagnostic, not primary.** LifelongAgentBench is the closest lifelong-learning benchmark and centres FWT / BWT / RecoveryRate as its primary metrics — capturing forward transfer, catastrophic forgetting, and recovery. LIFT considers these *necessary diagnostics but insufficient primary metrics*: a positive FWT on a curated task ordering does not answer whether the artifact helps on *arbitrary* unseen tasks, and BWT is defined only along the ordering used at training. LIFT instead makes **Base vs. Loaded on held-out tasks** the primary contrast (P1–P2 in §3.1) and demotes FWT / BWT to optional diagnostics reserved for cases where P1 is inconclusive. This inversion is intentional: it lets a benchmark author decide train / test separation once (in the suite JSON) rather than every time a curriculum is redesigned.
+
+- **Agent-as-a-Judge — LIFT inherits tool-augmented verification, but sandboxes it.** Agent-as-a-Judge shows that a judge with tool access verifies multi-step agent outputs far more reliably than surface-text LLM-as-a-Judge. LIFT's work ↔ judge review loop (§3.4) directly adopts this stance: the judge is a real agent in the *same* runtime, capable of executing tools to verify (e.g., open the artifact file, run the reproduction script). Where LIFT adds design: (i) the judge runs in a *sibling container* of the work agent, not inside the same session — so file-system, memory, and process state cannot leak from work to judge, closing a self-preference pathway that shared-session LLM-as-a-Judge suffers from; and (ii) both work and judge share the same Langfuse `session_id`, giving one navigable trace tree per task while keeping state strictly isolated.
+
+- **EvolveTool-Bench — static tool quality is orthogonal to loaded impact.** EvolveTool-Bench evaluates *tool libraries* on four dimensions (correctness, reusability, composability, regression safety), showing that tools which work on the task that produced them frequently fail to generalise. This is a valuable *static* check on a tool artifact — but static quality does not imply downstream lift. LIFT is deliberately positioned one layer above: it asks whether the runtime that produced the tool (plus everything else in the delta image) benefits a held-out task. The two are complementary: EvolveTool-Bench diagnoses *which tool is broken*, LIFT diagnoses *whether loading any of the tools together helps*. A tool that passes EvolveTool-Bench can still produce a null delta on LIFT; a null delta on LIFT is a signal that the static check missed the composition-level failure that only shows up under real load.
+
+- **REAL — reproducibility as a first-class citizen.** REAL (NeurIPS 2025 Oral) centres on making deterministic simulation of web tasks a first-class evaluation citizen: 11 real websites replicated as fixed sandboxes, 112 tasks with programmatic verifiers, so that a repeat run gives you a comparable score even six months later. LIFT applies the same principle in a different scope: not task-level determinism (LLM sampling variance remains) but **artifact-level reproducibility** — the exact delta image reloaded on any machine reproduces the same evaluated agent state, and Langfuse trace backfill re-hydrates the process record. Where REAL's contribution is "the environment does not drift," LIFT's contribution is "the artifact does not drift." We view REAL as the closest methodological ancestor for the reproducibility principle P4, though the two answer different scientific questions.
 
 ---
 
@@ -81,7 +102,7 @@ We treat the survey conclusions as hard constraints that all engineering must ob
 |---|---|
 | **P1 Single causal contrast** | The only variable under test is "loaded vs. not"; everything else held constant |
 | **P2 Train/test separation** | The tasks used to evolve (warmup) and the tasks used to test (holdout) must not overlap |
-| **P3 Artifact-source agnostic** | Whether the artifact is a skill / memory / SOP / MCP box, the evaluation logic is identical |
+| **P3 Artifact-source agnostic** | Whether the artifact is a skill / memory / tool library / workflow, the evaluation logic is identical |
 | **P4 Reproducible runtime** | The same `run_id` re-run on any machine should produce a consistent structure (including traces) |
 | **P5 Optional evolution diagnostics** | Learning curves (FWT / BWT) are used only when P1 is inconclusive |
 
@@ -164,7 +185,7 @@ The single task is LIFT's minimal scoring unit. We use an *execute → review �
 - **Query only, checklist hidden.** The agent receives what a user would actually type; the ground-truth `content_reqs` list never enters the agent's context (§4.2).
 - **Judge as the user, not a rubric adjudicator.** The judge role-plays the person who wrote the query, compares the deliverable against the hidden checklist, and returns a natural-language `reason` that surfaces *the top unmet requirement(s)* only — not the full diff, reconstructing the "user suddenly remembers one more thing" dynamic.
 - **Feedback becomes the next prompt.** That `reason` is fed back verbatim as `current_prompt`, so the follow-up turn is indistinguishable in shape from a first turn — another human-style utterance, no metadata leak, no structured tool-call trace injected on the user's behalf.
-- **Bounded by a shared `max_turns`.** The loop terminates when the judge marks success or the budget is exhausted; `baseline` and `evolved` see the same budget, so extra rounds cannot masquerade as artifact merit.
+- **Bounded by a shared `max_turns`.** The loop terminates when the judge marks success or the budget is exhausted; `baseline` and `evolved` share the same budget (rationale in decision 3 below).
 
 The code block below encodes exactly this loop:
 
@@ -185,7 +206,7 @@ Design decisions:
 3. **baseline and evolved must share `max_turns`** — otherwise evolved wins by getting two more feedback rounds, not by artifact merit.
 4. **Tokens include the judge's consumption** — if Loaded retries less, the judge's token savings count toward the artifact's contribution.
 
-**Scoring.** The judge, role-playing "the user," compares the deliverable against the hidden `content_reqs` checklist and returns a single scalar `score = (satisfied requirements) / (total requirements)` (`score = 1` on success), together with `success` and a natural-language `reason`. There is no rule/rubric weighted blend — the score is one judge call. Content requirements and trajectory requirements are scored on two separate lines (§4.2).
+**Scoring.** The judge returns a single scalar `score = (satisfied requirements) / (total requirements)` (`score = 1` on success), together with `success` and the natural-language `reason`. There is no rule/rubric weighted blend — the score is one judge call. Content requirements and trajectory requirements are scored on two separate lines (§4.2).
 
 ### 3.5 Artifact materialization: why `docker commit`
 
@@ -200,7 +221,7 @@ The carrier form of the artifact is an engineering choice that *looks incidental
 LIFT chooses `docker commit`. A full run's timeline:
 
 ```text
-Pipeline → Adapter: warmup tasks (Q1..Qn-1)
+Pipeline → Adapter: warmup tasks (all warmup_tasks[])
 Adapter  → Warmup container: start one container, run tasks continuously (default parallel_single)
 Warmup container: evolve_after_warmup (in-container learn review)
 Warmup container: docker commit → delta image
@@ -299,7 +320,7 @@ Each task reconstructs a real interaction where the user *first asks vaguely, th
 2. **requirements (`content_reqs`)** — the true acceptance checklist the user reveals after seeing an unsatisfactory draft: content, format, fields, organization, business rules, personalized preferences. Each item must be **independently verifiable** and at the **same level** (no nested sub-requirements); a scene carries **≥ 12** items. This is the main signal for both the judge and the agent's evolution.
 3. **trajectory requirements (`trajectory_reqs`)** — constrains/inspects the execution path (tool-call validity and efficiency, allowed information sources, allowed tools/skills; catching hallucination such as fabricating instead of searching). Trajectory requirements are derived *only* from the requirements and must not contradict them.
 
-Content and trajectory are **scored on two separate lines**. Because the judge discloses only the top unmet requirement(s) per turn (§3.4), the query alone is sent to the agent; the checklist stays hidden, reconstructing the "user suddenly remembers one more thing" dynamic.
+Content and trajectory are **scored on two separate lines**. At run time only the `query` reaches the agent; the checklist stays hidden and is disclosed one top-unmet item at a time by the judge (§3.4).
 
 **Concrete example** (travel scene, warmup Q1, translated): the *query* is one sentence — "Plan a same-day round-trip family itinerary from Hangzhou to Fuyang on 2026-06-01, two adults + one child, no budget limit; save the plan to `result/result_q1`." The 12 *requirements* are the hidden checklist (local weather in a basics module; round-trip transport in a transport module; itinerary split by date and morning/afternoon/evening; child-friendly items flagged; walking distance shown separately and ≤ 3 km/day; all facts date-verified with sources shown; …). The 4 *trajectory requirements* constrain the path (facts must come from authoritative web search, not fabricated; search destination content before planning; save to the specified folder).
 
@@ -403,7 +424,7 @@ Both `openclaw` and `hermes` are compared against their `+openspace` sibling. Ga
 - On `openclaw`, implicit evolution is neutral-to-negative on turns/tokens/latency (Table 6.1); OpenSpace turns this around and delivers the largest observed gain in the paper (−6.7pp turns, −7.6pp tokens). The plugin is doing real work here — structured skill retrieval is filling in for the missing distillation step in OpenClaw's implicit-only path.
 - On `hermes`, implicit evolution is already very strong; OpenSpace's incremental gain is −2pp on turns/tokens and near-zero on tool calls. There is little headroom left — the base runtime has already extracted most of the compressible cost from its warmup.
 
-The pattern is directionally consistent (both Gains negative on turns and tokens) but the magnitudes differ by an order of magnitude, showing that augmentation value is inseparable from the base runtime's warmup policy — a plugin's absolute effect cannot be quoted without naming its host.
+The pattern is directionally consistent (both Gains negative on turns and tokens) but the magnitudes differ by 3–4×, showing that augmentation value is inseparable from the base runtime's warmup policy — a plugin's absolute effect cannot be quoted without naming its host.
 
 ### 6.4 RQ3 — Is the delta stable across repeats?
 
@@ -433,7 +454,7 @@ Only the two Hermes rows deliver a robust turns-reduction signal at 10-repeat re
 | `hermes+openspace` | 16.3 | 39.5 | 2,888,667 | −19.09 | −10.62 | −19.27 | −22.09 |
 | `genericagent` | 13.9 | 68.5 | 2,944,209 | −1.75 | −1.38 | −0.53 | −2.20 |
 
-The Base-turns column is remarkably flat across runtimes (13.9–16.9), so the Δs translate almost directly to absolute turn-count savings: Hermes saves ≈3 turns per task, its OpenSpace variant ≈3.1, OpenClaw+OpenSpace ≈0.6, GenericAgent ≈0.2. Latency savings track turns closely on Hermes (both around −20%) but decouple on OpenClaw variants where OpenSpace saves latency (−7.9%) faster than it saves turns (−4.0%) — consistent with the skill hub replacing sequential tool-call chains by a single retrieved skill invocation. Evolution cost is booked separately (§6.1); `evolve_after_warmup` tokens are not added to the Loaded column.
+The Base-turns column is remarkably flat across runtimes (13.9–16.9), so the Δs translate almost directly to absolute turn-count savings: Hermes saves ≈3 turns per task, its OpenSpace variant ≈3.1, OpenClaw+OpenSpace ≈0.6, GenericAgent ≈0.2. Latency savings track turns closely on Hermes (both around −20%) but decouple on OpenClaw variants where OpenSpace saves latency (−7.9%) faster than it saves turns (−4.0%) — consistent with the skill hub replacing sequential tool-call chains by a single retrieved skill invocation. These Loaded columns exclude `evolve_after_warmup` tokens (booked as training cost, §5), so EvolutionROI derivations do not double-count.
 
 ### 6.6 Findings and negative results
 
@@ -454,7 +475,7 @@ Four robust findings and one deliberate non-finding:
 3. **Evolution ≠ artifacts.** LIFT is artifact-source-agnostic by default. To isolate "the evolution *mechanism* has value," use the attribution triplet (No-Evo / Only-Products / Evo-On) — an optional appendix, not a required metric.
 4. **Judge bias.** When both work and judge are LLMs, self-preference is a risk. Current mitigation: the judge role-plays "the user," adjudicates the `content_reqs` checklist item-by-item into a single completion ratio, and is pinned (temperature 0, fixed model, versioned rubric); work and judge are additionally split into sibling containers (§3.4) so self-preference cannot compound with state leakage — neither party can read or write the other's runtime state. Making deterministic requirements fully machine-checkable — shrinking the subjective surface further — is future work.
 5. **Environment fidelity.** The container is still a *controlled Linux environment*; fidelity gaps remain versus desktop-GUI / browser agents — future work.
-6. **Evolution-cost attribution.** `evolve_after_warmup` tokens are training cost, not Loaded inference cost; LIFT books them separately so EvolutionROI is not under-counted.
+6. **Dimensions the relation matrix (Appendix B) does not cover.** Three axes were considered and deliberately left out. *Cost per artifact-unit* (dollars-per-percent-lift) requires a cost model of the evolution mechanism, which is runtime-internal and out of LIFT's scope. *Multi-agent / group memory* is partially covered by the framework's group-memory mixin, but no benchmark yet forces multi-agent Base-vs-Loaded — an explicit v2 direction. *Human-in-the-loop grading* is out of scope by construction: LIFT's contribution is a mechanistic protocol runnable unattended by a third party; HITL is orthogonal and can be layered on top for high-stakes deployment.
 
 ---
 
@@ -466,14 +487,14 @@ Our stance in one sentence: **evaluating a self-evolving agent is not about how 
 
 ## Reproducibility & Release
 
-- **Code**: framework, twelve runtime adapters, status dashboard, post-processing.
+- **Code**: framework, adapters for mainstream self-evolving agent runtimes, status dashboard, post-processing.
 - **Images**: `lift-openclaw-base` / `lift-openclaw-with-openspace` / `lift-openclaw-with-agentmemory` and `lift-{genericagent,hermes,hermes-with-openspace,hermes-with-agentmemory,openhuman,openhuman-with-agentmemory,evoscientist}:latest` build scripts.
 - **Data**: 14-scene benchmark (Croissant metadata + hosted repository `[TODO-HOSTING]`), plus the demo smoke suite in-repo.
 - **Entry points**: `python -m src.cli.lift_main -r <runtime> --benchmark_dir <dir> --suite <name>.json --run_id <id>`; `--evaluate-only` for post-process replay.
 
 ## Appendix A — 32 surveyed open-source works (by type)
 
-`[carry over from the design draft; to be finalized with citations]` Surveys (6); Methods/Judge (4): ABC Checklist, Agent-as-a-Judge, MAJ-Eval, AgentDistill; Evolution/artifact benchmarks (5): SEA-Eval, EvolveTool-Bench, SkillsBench, EvoMemBench, Evo-Memory; Lifelong/sequential (1): LifeLongAgentBench; General task benchmarks (10): REAL, MLR-bench, AgentIF, τ-bench/τ²-bench, AgentBench, GAIA, SWE-bench, and harness-comparison benchmarks; Safety (3): OS-Harm, RAS-Eval, MultiBreak; SDKs (3): DeepEval, Opik, Promptfoo.
+`[carry over from the design draft; to be finalized with citations]` Surveys (6); Methods/Judge (4): ABC Checklist, Agent-as-a-Judge, MAJ-Eval, AgentDistill; Evolution/artifact benchmarks (5): SEA-Eval, EvolveTool-Bench, SkillsBench, EvoMemBench, Evo-Memory; Lifelong/sequential (1): LifelongAgentBench; General task benchmarks (10): REAL, MLR-bench, AgentIF, τ-bench/τ²-bench, AgentBench, GAIA, SWE-bench, and harness-comparison benchmarks; Safety (3): OS-Harm, RAS-Eval, MultiBreak; SDKs (3): DeepEval, Opik, Promptfoo.
 
 ## Appendix B — LIFT vs. existing work (relation matrix)
 
@@ -484,7 +505,7 @@ Our stance in one sentence: **evaluating a self-evolving agent is not about how 
 | Train / test | explicit separation (warmup/holdout) | most self-evolution papers mix them |
 | Per-task scoring | work + judge review loop | borrows Agent-as-a-Judge tool-augmented verification |
 | Artifact materialization | `docker commit` → delta image | more reproducible than toggle-load, more complete than structured export |
-| Learning curves | evolution-specific diagnostic (optional) | LifeLongAgentBench makes FWT/BWT primary; LIFT makes them diagnostic |
+| Learning curves | evolution-specific diagnostic (optional) | LifelongAgentBench makes FWT/BWT primary; LIFT makes them diagnostic |
 | Cross-agent comparison | per-agent Base-vs-Loaded, compare deltas; no head-to-head | harness-comparison benchmarks compare bare agents |
 | Safety | cross-cutting, optional | OS-Harm / RAS-Eval provide dedicated safety benchmarks; LIFT does not redo them |
 | Trace | Langfuse backfill | like Opik, but trace-only, no evaluator |
