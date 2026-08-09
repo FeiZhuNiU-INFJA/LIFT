@@ -11,7 +11,7 @@
 验证 work agent / judge agent 是否都跑了、reflection 钩子(如 `evolve_after_task` / `evolve_after_warmup`)是否触发。
 
 ```bash
-LOG=logs/<run_id>.log
+LOG=results/lift-runid-<run_id>/run.log
 
 # work / judge chat 次数(每题至少一对,评测多轮会更多)
 grep -cE "work-agent chat start|user-[0-9a-f]+ session" "$LOG"
@@ -38,7 +38,7 @@ grep -E "wait output timeout|Cannot connect to Docker|Judge response is not vali
 ### A'.1 Material 可读性哨兵(bind mount / workspace seed 路径最常见踩坑点)
 
 ```bash
-LOG=logs/<run_id>.log
+LOG=results/lift-runid-<run_id>/run.log
 
 # 文件系统层面报错(work / judge 尝试 open material 失败)
 grep -iE "no such file|permission denied|cannot read|读取失败|open .* failed|q[0-9]+_materials.*not found|材料.*不存在" "$LOG"
@@ -141,7 +141,7 @@ docker run --rm --entrypoint sh "$DELTA" -c '
 回复,看它是否在上一轮答案上修改:
 
 ```bash
-LOG=logs/<run_id>.log
+LOG=results/lift-runid-<run_id>/run.log
 
 # 找同一个 user-* 的连续 prompt/result,确认第二轮不是从零开始
 grep -E "User Prompt|Agent result|captured thread_id|Thread .* not found" "$LOG" | head -120
@@ -313,9 +313,10 @@ grep -E "^A /opt/<runtime>/memory/" "$DUMP" | head
 
 ```bash
 # 用 --warmup-only 只跑 warmup + commit,delta 镜像会保留下来
+mkdir -p results/lift-runid-<run_id>
 nohup python -m src.cli.lift_main -r <runtime> \
   --benchmark_dir assets/benchmarks_demo --suite <suite>.json \
-  --run-id <run_id> --warmup-only > logs/<run_id>.log 2>&1 &
+  --run-id <run_id> --warmup-only > results/lift-runid-<run_id>/run.log 2>&1 < /dev/null &
 wait
 
 # 找出 delta 镜像
