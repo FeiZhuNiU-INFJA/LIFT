@@ -14,6 +14,7 @@ SUPPORTED_RUNTIMES = (
     "openclaw_with_evolve",
     "openclaw_with_openspace",
     "openclaw_with_agentmemory",
+    "openclaw_with_agentmemory_active_evolve",
     "multi_user_openclaw",
     "genericagent",
     "genericagent_active_evolve",
@@ -53,6 +54,15 @@ def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
         )
 
         return OpenClawWithAgentMemoryAdapter(options)
+    if normalized == "openclaw_with_agentmemory_active_evolve":
+        # OpenClaw + agentmemory + 主动进化：warmup 容器点火 agentmemory 的 LLM
+        # provider（复用 WORK_OPENAI_*），warmup 后显式 POST consolidate-pipeline /
+        # crystals/auto 把碎片记忆蒸馏成 semantic facts/insights，再 docker commit。
+        from src.lift.adapters.openclaw_with_agentmemory_active_evolve.adapter import (
+            OpenClawWithAgentMemoryActiveEvolveAdapter,
+        )
+
+        return OpenClawWithAgentMemoryActiveEvolveAdapter(options)
     if normalized == "multi_user_openclaw":
         # OpenClaw + 群体记忆 Mixin（多容器 warmup，evolve 落到外部记忆系统）
         from src.lift.adapters.openclaw_multi_user.adapter import MultiUserOpenClawAdapter

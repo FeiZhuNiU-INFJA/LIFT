@@ -273,6 +273,7 @@ python -m src.cli.lift_main -r openclaw_with_evolve --benchmark_dir assets/bench
 - `-r openclaw_with_evolve` → `lift-openclaw-with-evolve:latest`（带 self-evolving-plugin-pro，常量 `OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE`）
 - `-r openclaw_with_openspace` → `lift-openclaw-with-openspace:latest`（带 OpenSpace MCP 插件，常量 `OPENCLAW_WITH_OPENSPACE_DOCKER_IMAGE`）
 - `-r openclaw_with_agentmemory` → `lift-openclaw-with-agentmemory:latest`（带 agentmemory memory plugin，常量 `OPENCLAW_WITH_AGENTMEMORY_DOCKER_IMAGE`）
+- `-r openclaw_with_agentmemory_active_evolve` → 复用同一个 `lift-openclaw-with-agentmemory:latest`；只在 host adapter 层加"主动进化"：warmup 容器点火 agentmemory 的 LLM provider（`WORK_OPENAI_*` + `MODEL_NAME` → `OPENAI_API_KEY`/`OPENAI_BASE_URL`/`OPENAI_MODEL`），warmup 后显式 POST `consolidate-pipeline{tier:all}` / `crystals/auto` 到 `:3111` 再 `docker commit`。**无需单独构建镜像**。
 
 均定义于 `src/paths.py`。
 

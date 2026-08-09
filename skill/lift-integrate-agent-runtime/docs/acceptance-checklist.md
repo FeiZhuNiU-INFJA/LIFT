@@ -7,19 +7,23 @@
 LIFT 一次跑下来时间偏长(warmup + commit + holdout 串起来),推荐 nohup 后台启 + dashboard + tail 日志:
 
 ```bash
+RUN_ID=<run_id>
+mkdir -p results/lift-runid-$RUN_ID
 nohup python -m src.cli.lift_main \
   -r <runtime> \
   --benchmark_dir assets/benchmarks_demo \
   --suite hello.json \
-  --run-id <run_id> \
+  --run-id $RUN_ID \
   --dashboard 0.0.0.0:<port> \
-  > logs/<run_id>.log 2>&1 &
+  > results/lift-runid-$RUN_ID/run.log 2>&1 < /dev/null &
 
-tail -f logs/<run_id>.log               # 主进度看这里
-# 浏览器开 http://<host>:<port>         # 结构化状态
+tail -f results/lift-runid-$RUN_ID/run.log   # 主进度看这里
+# 浏览器开 http://<host>:<port>               # 结构化状态
 ```
 
-> **不要用默认 `nohup.out`**:所有 run 会 append 到同一文件,多 run 并行 / 反复跑会互相污染。统一显式写 `logs/<run_id>.log`(先 `mkdir -p logs`),文件名对应 `results/lift-runid-<run_id>/`。
+> **日志落点:写进本 run 自己的目录 `results/lift-runid-<run_id>/run.log`,不要堆在 `results/` 根下,更不要用默认 `nohup.out`。** 理由:① 默认 `nohup.out` 所有 run 会 append 到同一文件,多 run 并行 / 反复跑互相污染;② 直接放 `results/` 根下会和一堆 run 目录混在一起、难归档。放进 `results/lift-runid-<run_id>/` 后,日志与该 run 的 `report.json` / `outcome/` / `delta_diff_*.txt` / `dashboard.html` 自包含在同一目录,好归档、好清理。注意 LIFT 会给 `--run-id` 自动加 `lift-runid-` 前缀,故 `mkdir` 与日志路径都用带前缀的全名。
+>
+> **务必 `nohup ... < /dev/null & `,别只用裸 `&`。** 裸 `&` 起的进程仍挂在当前终端会话下,SSH 断开 / shell 退出时会被 `SIGHUP` 连坐杀掉(症状:进程刚打第一行日志就凭空消失、无 traceback、无容器创建)。`nohup`(忽略 SIGHUP),`< /dev/null` 断开 stdin 防止读终端阻塞。长任务(数小时)更推荐 `tmux`,能随时 `attach` 回看实时输出。**切忌 `nohup ... --tui`**:`rich.Live` 需 tty,重定向到文件会产出 ANSI 转义乱码。
 
 `assets/benchmarks_demo/` 里三个常用 sanity suite:
 
@@ -77,7 +81,7 @@ docker images | grep lift-<runtime>
 验证点:
 - 容器拉起 → warmup 单题跑完 → `docker commit` 成功 → holdout 跑完
 - `results/lift-runid-<run_id>/report.json` 存在且 task `outcome.success: true`
-- `logs/<run_id>.log` 没有 `wait output timeout` / `Cannot connect to Docker daemon` / `Judge response is not valid JSON` 高频重试
+- `results/lift-runid-<run_id>/run.log` 没有 `wait output timeout` / `Cannot connect to Docker daemon` / `Judge response is not valid JSON` 高频重试
 
 > ⚠️ **hello.json 只能证连通性 —— evolve_paths 声明是否正确必须靠 `integration_check.json` 才能触发**(见 [三层证据交叉验证](./three-layer-verification.md))。hello 题目太简单 agent 根本不会写记忆,即使 `evolve_paths` 声明错了也不会 WARNING("白名单里 0 条"与"agent 根本没写"外观相同)。集成新 runtime 不要在 hello 全绿就停手。
 

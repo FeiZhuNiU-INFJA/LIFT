@@ -218,6 +218,7 @@ async def start_openclaw_container(
     container_cpus: str | None = None,
     force_bridge_network: bool = False,
     agentmemory_prelaunch: bool = False,
+    extra_env: dict[str, str] | None = None,
     viz_role: str | None = None,
 ) -> ContainerSession:
     """启动 OpenClaw gateway 容器：端口、token、volume、readiness 与 workspace bridge。
@@ -232,6 +233,13 @@ async def start_openclaw_container(
 
     ``container_memory`` / ``container_cpus``: 透传给 ``docker run --memory`` /
     ``--cpus`` 的单容器资源上限（None 表示不限制）。
+
+    ``extra_env``: 额外注入 ``docker run -e`` 的运行时环境变量（与 ``env_vars``
+    合并，key 冲突时以 ``extra_env`` 为准）。典型用途：agentmemory active-evolve
+    变体在 warmup 容器点火 LLM provider（``OPENAI_API_KEY`` / ``OPENAI_BASE_URL``
+    / ``OPENAI_MODEL``），使容器内 :3111 agentmemory server 在 boot 时构造出真正的
+    OpenAI provider（而非零-LLM NoopProvider），从而后续 consolidate/reflect
+    才能真正综合。日志侧 secret 值由 ``redact_docker_argv`` 自动脱敏。
 
     宿主机端口由 Docker 自动分配（避免确定性 hash 端口的碰撞与占用冲突）；启动后
     ``_resolve_gateway_port`` 把真实端口写回 ``metadata['gateway_port']``。
@@ -253,6 +261,10 @@ async def start_openclaw_container(
         "LIFT_EVAL_RUN_TAG": ctx.run_id,  # langfuse-tracer 写入 trace tags，对齐 pre-chat run
         **_container_runtime_env(),
     }
+    if extra_env:
+        # 变体级额外 env（如 agentmemory active-evolve 的 OPENAI_* 点火）；冲突以
+        # extra_env 为准。secret 值在日志侧由 redact_docker_argv 脱敏。
+        env_vars.update(extra_env)
 
     # 单容器资源上限：防止单容器吃光 VM 内存触发整机卡死
     extra_docker_args: list[str] = []

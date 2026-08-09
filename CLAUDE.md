@@ -97,6 +97,7 @@ Supported runtimes (`-r` values, see `src/lift/adapters/registry.py`):
 - `openclaw_with_evolve` — evolution plugin variant; runs `openclaw learn review` after warmup
 - `openclaw_with_openspace` — OpenClaw + OpenSpace MCP plugin (skill hub); reuses base warmup/evolve/commit flow (`INSTALL_OPENSPACE=true`, image `lift-openclaw-with-openspace`)
 - `openclaw_with_agentmemory` — OpenClaw + agentmemory memory plugin; starts a container-local `:3111` server, forces bridge networking, and commits `/root/.agentmemory`
+- `openclaw_with_agentmemory_active_evolve` — same image/bridge/commit as `openclaw_with_agentmemory`, but **actively evolves**: the warmup container ignites agentmemory's LLM provider (maps `WORK_OPENAI_*` + `MODEL_NAME` → `OPENAI_API_KEY`/`OPENAI_BASE_URL`/`OPENAI_MODEL`, injected only for warmup, not holdout), and `evolve_after_warmup` POSTs `crystals/auto` + `consolidate-pipeline{tier:all}` to `:3111` before `docker commit`, distilling raw observations into semantic facts / higher-order insights. Distillation LLM calls hit `WORK_OPENAI_BASE_URL`, so warmup token cost rises vs. the passive variant.
 - `multi_user_openclaw` — OpenClaw + group memory mixin; multi-container warmup (`parallel_multi`), evolve writes to external memory service
 - `genericagent` / `genericagent_active_evolve` — file-I/O-style agent; the latter performs an extra active-reflection pass
 - `hermes` — Hermes runner via `docker exec`; warmup **must** use `serial_single` (concurrent writes to `/opt/hermes-state` race the review process)
