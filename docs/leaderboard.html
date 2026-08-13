@@ -13,10 +13,10 @@
     --ink:#19180F; --ink-72:rgba(25,24,15,.72); --ink-52:rgba(25,24,15,.52);
     --ink-34:rgba(25,24,15,.34); --ink-22:rgba(25,24,15,.22); --ink-14:rgba(25,24,15,.14); --ink-10:rgba(25,24,15,.10);
     --graph:rgba(25,24,15,.055);
-    --signal:#A8362A;  /* instrument red — regression / worse */
-    --pass:#2C6A4E;    /* lab green — efficiency gain / better */
-    --mark:#A07A22;    /* ochre — warmup / neutral */
-    --steel:#36506B;   /* calm blue — values / refs */
+    --signal:#A8362A;  /* instrument red · regression / worse */
+    --pass:#2C6A4E;    /* lab green · efficiency gain / better */
+    --mark:#A07A22;    /* ochre · warmup / neutral */
+    --steel:#36506B;   /* calm blue · values / refs */
     --serif:"Instrument Serif",Georgia,serif;
     --sans:"Spline Sans","PingFang SC",system-ui,sans-serif;
     --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
@@ -51,22 +51,54 @@
   .legend{display:flex; flex-wrap:wrap; gap:18px; margin:18px 0 4px; font-family:var(--mono); font-size:11.5px; letter-spacing:.02em;}
   .legend span{display:inline-flex; align-items:center; gap:7px; color:var(--ink-72);}
   .swatch{width:14px; height:14px; border-radius:3px; display:inline-block; border:1px solid var(--ink-22);}
+  .dotkey{width:11px; height:11px; border-radius:50%; display:inline-block;}
+  .dotkey.sig{background:var(--pass); border:2px solid var(--paper-3); box-shadow:0 0 0 1px var(--ink-22);}
+  .dotkey.nsg{background:var(--paper-3); border:2px solid var(--ink-52);}
+  .whiskkey{position:relative; width:26px; height:2px; background:var(--pass); display:inline-block;}
+  .whiskkey::before,.whiskkey::after{content:""; position:absolute; top:-4px; width:2px; height:10px; background:var(--pass);}
+  .whiskkey::before{left:0;} .whiskkey::after{right:0;}
+  .bandkey{width:16px; height:13px; border-radius:3px; display:inline-block;
+    background:linear-gradient(90deg, rgba(44,106,78,.22), rgba(44,106,78,.06)); border:1px solid rgba(44,106,78,.30);}
   .arrow{font-weight:700;}
 
   /* ---------- chart ---------- */
   .panel{margin:30px 0; background:var(--paper-3); border:1px solid var(--ink-14); border-radius:6px; box-shadow:var(--shadow-2); padding:22px 24px 14px;}
   .panel h2{font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-52); margin:0 0 4px; font-weight:500;}
   .panel .sub{font-size:12.5px; color:var(--ink-52); margin:0 0 18px;}
-  .bars{display:flex; flex-direction:column; gap:10px;}
-  .barrow{display:grid; grid-template-columns:180px 1fr 66px; align-items:center; gap:12px;}
-  .barrow .name{font-family:var(--mono); font-size:12.5px; text-align:right; color:var(--ink);}
-  .barrow .name .cls{display:inline-block; width:16px; height:16px; line-height:16px; text-align:center; font-size:10px; font-weight:700; border-radius:3px; margin-left:6px; color:#fff; vertical-align:middle;}
-  .track{position:relative; height:26px; background:linear-gradient(90deg,transparent,transparent); border-radius:3px;}
-  .track::before{content:""; position:absolute; left:var(--zero,60%); top:-4px; bottom:-4px; width:1.5px; background:var(--ink-52);}
-  .bar{position:absolute; top:3px; height:20px; border-radius:2px; transition:width .8s var(--ease); box-shadow:var(--shadow-2);}
-  .val{font-family:var(--mono); font-size:12.5px; font-weight:500; text-align:left;}
-  .val.good{color:var(--pass);} .val.bad{color:var(--signal);} .val.flat{color:var(--mark);}
-  .zerolab{font-family:var(--mono); font-size:10px; color:var(--ink-52); position:absolute; top:100%; transform:translateX(-50%); margin-top:2px;}
+  /* ---------- CI forest chart (signature: the significance cliff) ---------- */
+  .chart{position:relative; display:flex; flex-direction:column; padding-top:4px;}
+  /* podium band behind the contiguous repeat-stable (significant) cluster */
+  .podium{position:absolute; left:0; right:0; border-radius:6px;
+    background:linear-gradient(90deg, rgba(44,106,78,.11), rgba(44,106,78,.02));
+    border:1px solid rgba(44,106,78,.20); z-index:0; pointer-events:none;}
+  .crow{position:relative; z-index:1; display:grid; grid-template-columns:184px 1fr 96px; align-items:center; gap:14px; height:34px;}
+  .crow .name{font-family:var(--mono); font-size:12.5px; text-align:right; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .crow.dim .name{color:var(--ink-52);}
+  .crow .name .cls{display:inline-block; min-width:16px; height:16px; line-height:16px; text-align:center; font-size:10px; font-weight:700; border-radius:3px; margin-left:6px; color:#fff; vertical-align:middle;}
+  .plot{position:relative; height:34px;}
+  .plot .zero{position:absolute; top:-1px; bottom:-1px; width:1.5px; background:var(--ink-52); z-index:1;}
+  .whisker{position:absolute; top:50%; height:2px; transform:translateY(-50%); border-radius:2px; transition:left .7s var(--ease), width .7s var(--ease);}
+  .whisker .cap{position:absolute; top:50%; width:2px; height:10px; transform:translateY(-50%); border-radius:2px;}
+  .whisker .cap.lo{left:0;} .whisker .cap.hi{right:0;}
+  .dot{position:absolute; top:50%; width:11px; height:11px; border-radius:50%; transform:translate(-50%,-50%); z-index:2; box-shadow:0 1px 3px rgba(64,52,18,.28); transition:left .7s var(--ease);}
+  .crow.sig .whisker, .crow.sig .whisker .cap{background:var(--pass);}
+  .crow.sig .dot{background:var(--pass); border:2px solid var(--paper-3);}
+  .crow.dim .whisker, .crow.dim .whisker .cap{background:var(--ink-34);}
+  .crow.dim .dot{background:var(--paper-3); border:2px solid var(--ink-52);}
+  .crow .val{font-family:var(--mono); font-size:12.5px; font-weight:600; text-align:left; white-space:nowrap;}
+  .crow.sig .val{color:var(--pass);} .crow.dim .val{color:var(--ink-52);}
+  .crow .val .tag{font-size:9.5px; font-weight:700; margin-left:5px; letter-spacing:.02em;}
+  .crow.dim .val .tag{color:var(--ink-52);}
+  /* quantitative axis under the plot, aligned to the plot column */
+  .axis{display:grid; grid-template-columns:184px 1fr 96px; gap:14px; margin:14px 0 2px;}
+  .axis .ticks{position:relative; grid-column:2; height:18px;}
+  .axis .tick{position:absolute; top:0; transform:translateX(-50%); font-family:var(--mono); font-size:10px; color:var(--ink-52); white-space:nowrap;}
+  .axis .tick::before{content:""; position:absolute; top:-5px; left:50%; width:1px; height:4px; background:var(--ink-34);}
+  .axis .tick.zero{color:var(--ink); font-weight:700;}
+  .axis .tick.zero::before{height:6px; top:-7px; background:var(--ink-52);}
+  .axis .caption{grid-column:2; font-family:var(--mono); font-size:10px; color:var(--ink-52); text-align:center; margin-top:8px; letter-spacing:.02em;}
+  .axis .caption .good{color:var(--pass); font-weight:600;} .axis .caption .bad{color:var(--signal); font-weight:600;}
+  @media (prefers-reduced-motion: reduce){ .whisker,.dot{transition:none;} }
 
   /* ---------- table ---------- */
   .tablewrap{overflow-x:auto; margin:8px 0;}
@@ -90,7 +122,7 @@
   .g-C{background:var(--mark);} .g-D{background:var(--pass);} .g-R{background:var(--steel);}
   .good{color:var(--pass);} .bad{color:var(--signal);} .flat{color:var(--ink-72);}
   .sig{font-weight:700; color:var(--pass);}
-  .nosig{color:var(--ink-34);}
+  .nosig{color:var(--ink-72); font-size:11px; letter-spacing:.02em;}
   .mech{font-family:var(--sans); font-size:11.5px; color:var(--ink-52); text-align:left; white-space:normal; max-width:280px;}
 
   /* ---------- class key ---------- */
@@ -99,10 +131,10 @@
 
   footer{margin-top:44px; padding-top:20px; border-top:1px solid var(--ink-14); font-family:var(--mono); font-size:11px; color:var(--ink-52); letter-spacing:.03em;}
   footer a{color:var(--steel);}
-  .meta{font-family:var(--mono); font-size:11px; color:var(--ink-34); margin-top:6px;}
+  .meta{font-family:var(--mono); font-size:11px; color:var(--ink-52); margin-top:6px;}
   @media(max-width:640px){
-    .barrow{grid-template-columns:120px 1fr 54px;}
-    .barrow .name{font-size:11px;}
+    .crow, .axis{grid-template-columns:112px 1fr 66px; gap:8px;}
+    .crow .name{font-size:11px;}
     .mech{display:none;}
   }
 </style>
@@ -113,33 +145,37 @@
   <h1>Evolution-Impact <em>Leaderboard</em></h1>
   <p class="lede">
     How much does each agent runtime actually <b>improve on unseen tasks</b> after warmup&nbsp;+ one evolve step?
-    Every runtime is run twice per holdout task — a clean <b>Base</b> and an evolved <b>Loaded</b> image — and we
-    rank the <b>difference</b>. This is <b>not</b> a raw-capability leaderboard: each row differences out its own
-    Base, so the ranking never compares raw ability across runtimes.
+    Every runtime is run twice per holdout task, once with a clean <b>Base</b> image and once with an evolved
+    <b>Loaded</b> image, and we rank the <b>difference</b>. This is <b>not</b> a raw-capability leaderboard: each row
+    differences out its own Base, so the ranking never compares raw ability across runtimes.
   </p>
 
   <div class="note" id="methodology">
     <b>How to read this.</b> The ranking key is <b>ΔTurns%</b> = (Σ evolved − Σ baseline) / Σ baseline × 100 over
     paired holdout task-repeats. All four efficiency deltas (Turns / Tools / Tokens / Latency) are
     <b>lower-is-better</b>: a <span style="color:var(--pass);font-weight:600">negative</span> value means the evolved
-    agent did the same tasks with <b>fewer</b> turns/tokens — that is the <b>good</b> direction.
+    agent did the same tasks with <b>fewer</b> turns/tokens, which is the <b>good</b> direction.
     A <span style="color:var(--signal);font-weight:600">positive</span> value means it got <b>less</b> efficient.
-    <b>Sig.</b> ✓ marks runtimes whose 95% CI on ΔTurns% (over 10 repeats, population std) lies entirely below zero
-    — the only rows with a repeat-stable signal.
+    <b>Sig.</b> ✓ marks runtimes whose 95% CI on ΔTurns% (over 10 repeats, population std) lies entirely below zero;
+    <b>n.s.</b> marks rows whose CI still straddles zero. Only the ✓ rows carry a repeat-stable signal.
   </div>
 
   <div class="legend">
     <span><span class="arrow" style="color:var(--pass)">◄ negative</span> = fewer turns = <b style="color:var(--pass)">better</b></span>
     <span><span class="arrow" style="color:var(--signal)">positive ►</span> = more cost = <b style="color:var(--signal)">worse</b></span>
-    <span><span class="swatch" style="background:var(--pass)"></span> gain</span>
-    <span><span class="swatch" style="background:var(--signal)"></span> regression</span>
+    <span><span class="dotkey sig"></span> point estimate</span>
+    <span><span class="whiskkey"></span> 95% CI (10 repeats)</span>
+    <span><span class="dotkey nsg"></span> CI crosses 0 = noise</span>
+    <span><span class="bandkey"></span> repeat-stable band (CI fully below 0)</span>
   </div>
 
-  <!-- ================= BAR CHART ================= -->
+  <!-- ================= CI FOREST CHART ================= -->
   <div class="panel">
-    <h2>ΔTurns% by runtime</h2>
-    <p class="sub">Bars left of the zero line are efficiency gains (fewer turns). Class badge: <b>D</b> per-task distillation · <b>C</b> carry-only · <b>R</b> post-hoc reflection.</p>
-    <div class="bars" id="bars"></div>
+    <h2>ΔTurns% with 95% confidence interval</h2>
+    <p class="sub">Each runtime shows its point estimate (dot) and 95% CI (whiskers) over 10 repeats. A whisker
+      clearing the zero line entirely is a repeat-stable gain; one crossing zero is statistical noise. Class badge:
+      <b>D</b> per-task distillation · <b>C</b> carry-only · <b>R</b> post-hoc reflection.</p>
+    <div class="chart" id="chart"></div>
   </div>
 
   <!-- ================= TABLE ================= -->
@@ -154,7 +190,7 @@
           <th data-k="delta_tools_pct">ΔTools%<span class="caret">▾</span></th>
           <th data-k="delta_tokens_pct">ΔTokens%<span class="caret">▾</span></th>
           <th data-k="delta_latency_pct">ΔLatency%<span class="caret">▾</span></th>
-          <th data-k="significant">Sig.<span class="caret">▾</span></th>
+          <th data-k="significant" title="Statistical significance: ✓ = 95% CI on ΔTurns% (10 repeats) lies entirely below zero; n.s. = CI still includes zero">Sig.<span class="caret">▾</span></th>
           <th class="left">Mechanism</th>
         </tr>
       </thead>
@@ -163,57 +199,95 @@
   </div>
 
   <div class="classkey">
-    <div><span class="cls-badge g-D">D</span> Per-task distillation — a blocking review compresses each warmup task</div>
-    <div><span class="cls-badge g-C">C</span> Carry-only — no distillation; whatever the agent wrote is committed</div>
-    <div><span class="cls-badge g-R">R</span> Post-hoc reflection — extra reflection chats after each task / batch</div>
+    <div><span class="cls-badge g-D">D</span> Per-task distillation: a blocking review compresses each warmup task</div>
+    <div><span class="cls-badge g-C">C</span> Carry-only: no distillation; whatever the agent wrote is committed</div>
+    <div><span class="cls-badge g-R">R</span> Post-hoc reflection: extra reflection chats after each task / batch</div>
   </div>
 
   <footer>
     <div id="foot-method"></div>
     <div class="meta" id="foot-meta"></div>
-    <div class="meta">Data regenerated from <code>results/*.tar.xz</code> by <code>scripts/build_leaderboard.py</code> — the same population-ratio methodology as the paper (RQ5 / Appendix&nbsp;C). · <a href="./index.html">← LIFT overview</a></div>
+    <div class="meta">Data regenerated from <code>results/*.tar.xz</code> by <code>scripts/build_leaderboard.py</code>, using the same population-ratio methodology as the paper (RQ5 / Appendix&nbsp;C). · <a href="./index.html">← LIFT overview</a></div>
   </footer>
 </div>
 
 <script>
-const fmt = (v) => (v === null || v === undefined) ? "—" : (v > 0 ? "+" : "") + v.toFixed(2);
+const fmt = (v) => (v === null || v === undefined) ? "·" : (v > 0 ? "+" : "") + v.toFixed(2);
 const dirClass = (v) => (v === null) ? "flat" : (v < 0 ? "good" : (v > 0 ? "bad" : "flat"));
 
 let DATA = null;
 let sortKey = "delta_turns_pct";
 let sortAsc = true;  // asc = most negative first for deltas
 
-function renderBars(entries){
-  const vals = entries.map(e => e.delta_turns_pct).filter(v => v !== null);
-  const lo = Math.min(...vals, 0), hi = Math.max(...vals, 0);
-  const span = (hi - lo) || 1;
-  const zeroPct = ((0 - lo) / span) * 100;   // position of zero line, %
-  const bars = document.getElementById("bars");
-  bars.innerHTML = "";
-  // sort bars by delta ascending for the chart regardless of table sort
+function renderChart(entries){
   const rows = [...entries].sort((a,b)=>(a.delta_turns_pct??1e9)-(b.delta_turns_pct??1e9));
+  // domain spans the full CI extremes (not just point estimates) plus zero, so whiskers never clip
+  const pts = [];
+  rows.forEach(e => {
+    if (e.delta_turns_pct !== null) pts.push(e.delta_turns_pct);
+    if (e.turns_ci_low != null) pts.push(e.turns_ci_low);
+    if (e.turns_ci_high != null) pts.push(e.turns_ci_high);
+  });
+  const rawLo = Math.min(...pts, 0), rawHi = Math.max(...pts, 0);
+  const pad = (rawHi - rawLo) * 0.04 || 1;
+  const lo = rawLo - pad, hi = rawHi + pad;
+  const span = (hi - lo) || 1;
+  const pos = (v) => ((v - lo) / span) * 100;   // value -> % across the plot
+  const zeroPct = pos(0);
+
+  const chart = document.getElementById("chart");
+  chart.innerHTML = "";
+
+  // count the contiguous repeat-stable (significant) cluster leading the sort
+  let sigLead = 0;
+  for (const e of rows){ if (e.significant) sigLead++; else break; }
+
   rows.forEach(e => {
     const v = e.delta_turns_pct;
-    const good = v < 0;
+    const sig = !!e.significant;
     const row = document.createElement("div");
-    row.className = "barrow";
-    // bar geometry
-    let barStyle;
-    if (v < 0){
-      const w = ((0 - v) / span) * 100;
-      barStyle = `right:calc(100% - ${zeroPct}%); width:${w}%; background:var(--pass);`;
-    } else {
-      const w = ((v - 0) / span) * 100;
-      barStyle = `left:${zeroPct}%; width:${w}%; background:var(--signal);`;
-    }
-    row.innerHTML = `
-      <div class="name">${e.display}<span class="cls g-${e.mech_class}">${e.mech_class}</span></div>
-      <div class="track" style="--zero:${zeroPct}%">
-        <div class="bar" style="${barStyle}"></div>
-      </div>
-      <div class="val ${good?'good':(v>0?'bad':'flat')}">${fmt(v)}${e.significant?' ✓':''}</div>`;
-    bars.appendChild(row);
+    row.className = "crow " + (sig ? "sig" : "dim");
+    const cl = (e.turns_ci_low != null) ? e.turns_ci_low : v;
+    const ch = (e.turns_ci_high != null) ? e.turns_ci_high : v;
+    const wl = pos(cl), wr = pos(ch);
+    row.innerHTML =
+      '<div class="name">' + e.display + '<span class="cls g-' + e.mech_class + '">' + e.mech_class + '</span></div>' +
+      '<div class="plot">' +
+        '<div class="zero" style="left:' + zeroPct + '%"></div>' +
+        '<div class="whisker" style="left:' + wl + '%; width:' + Math.max(0, wr-wl) + '%">' +
+          '<span class="cap lo"></span><span class="cap hi"></span></div>' +
+        '<div class="dot" style="left:' + pos(v) + '%"></div>' +
+      '</div>' +
+      '<div class="val">' + fmt(v) + '<span class="tag">' + (sig ? "\u2713 sig" : "n.s.") + '</span></div>';
+    chart.appendChild(row);
   });
+
+  // podium band spanning exactly the leading significant (repeat-stable) rows
+  if (sigLead > 0){
+    const kids = chart.querySelectorAll(".crow");
+    const first = kids[0], last = kids[sigLead-1];
+    const band = document.createElement("div");
+    band.className = "podium";
+    const top = first.offsetTop - 3;
+    band.style.top = Math.max(0, top) + "px";
+    band.style.height = ((last.offsetTop + last.offsetHeight) - top + 6) + "px";
+    chart.appendChild(band);
+  }
+
+  // quantitative axis aligned to the plot column
+  const ticks = [];
+  const step = 5;
+  const start = Math.ceil(lo/step)*step, end = Math.floor(hi/step)*step;
+  for (let t = start; t <= end; t += step) ticks.push(t);
+  if (!ticks.includes(0)) ticks.push(0);
+  ticks.sort((a,b)=>a-b);
+  const axis = document.createElement("div");
+  axis.className = "axis";
+  axis.innerHTML =
+    '<div class="ticks">' + ticks.map(t =>
+      '<div class="tick' + (t===0?' zero':'') + '" style="left:' + pos(t) + '%">' + (t>0?'+':'') + t + '%</div>').join("") + '</div>' +
+    '<div class="caption"><span class="good">\u25c4 fewer turns (better)</span> · 0 = no change · <span class="bad">more turns (worse) \u25ba</span></div>';
+  chart.appendChild(axis);
 }
 
 function renderTable(){
@@ -237,7 +311,7 @@ function renderTable(){
       <td class="left rt">${e.display}<span class="fam">${e.base_family} family</span></td>
       <td><span class="cls-badge g-${e.mech_class}">${e.mech_class}</span></td>
       ${d(e.delta_turns_pct)}${d(e.delta_tools_pct)}${d(e.delta_tokens_pct)}${d(e.delta_latency_pct)}
-      <td class="${e.significant?'sig':'nosig'}">${e.significant?'✓':'—'}</td>
+      <td class="${e.significant?'sig':'nosig'}" title="${e.significant?'95% CI on ΔTurns% lies entirely below zero (repeat-stable gain)':'not significant: 95% CI still includes zero'}">${e.significant?'✓':'n.s.'}</td>
       <td class="mech">${e.mech_short}</td>`;
     body.appendChild(tr);
   });
@@ -272,13 +346,17 @@ fetch("./leaderboard.json")
     document.getElementById("foot-method").textContent = j.methodology;
     document.getElementById("foot-meta").textContent =
       `${j.entries.length} runtimes · ${j.n_repeats_nominal} repeats each · generated ${j.generated_at} · schema v${j.schema_version}`;
-    renderBars(j.entries);
+    renderChart(j.entries);
     renderTable();
     wireSort();
+    // podium band is positioned from live layout metrics; recompute on resize
+    let rt; window.addEventListener("resize", () => {
+      clearTimeout(rt); rt = setTimeout(() => renderChart(DATA.entries), 120);
+    });
   })
   .catch(err => {
     document.querySelector(".wrap").insertAdjacentHTML("beforeend",
-      `<div class="note" style="border-left-color:var(--signal)"><b>Could not load leaderboard.json.</b> If viewing locally, serve the folder over HTTP (e.g. <code>python -m http.server</code>) — browsers block <code>fetch()</code> on <code>file://</code>. Error: ${err}</div>`);
+      `<div class="note" style="border-left-color:var(--signal)"><b>Could not load leaderboard.json.</b> If viewing locally, serve the folder over HTTP (e.g. <code>python -m http.server</code>); browsers block <code>fetch()</code> on <code>file://</code>. Error: ${err}</div>`);
   });
 </script>
 </body>
