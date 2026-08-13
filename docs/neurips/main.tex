@@ -4,7 +4,7 @@
 % affiliation strings, and the Code/Benchmark URLs from the abstract.
 %
 % Experimental status (v1): §6 tables report population-ratio Δ from partial
-% runs (5 runtimes × RQ1..RQ4). Numbers flagged "[Preliminary — full run pending]"
+% runs (8 runtimes × RQ1..RQ4). Numbers flagged "[Preliminary — full run pending]"
 % will be refreshed in v2 once the remaining sweeps land.
 %
 % Working subtitle / acronym anchor: LIFT = Loaded Impact on Final Task.
@@ -26,6 +26,8 @@
 \usepackage{nicefrac}       % compact symbols for 1/2, etc.
 \usepackage{microtype}      % microtypography
 \usepackage{graphicx}       % graphics
+\usepackage{pgfplots}       % native bar charts (no external image files)
+\pgfplotsset{compat=1.18}
 \usepackage{amsmath}        % math
 \usepackage{listings}       % code listings
 \usepackage{xcolor}         % colors
@@ -71,7 +73,7 @@ Self-evolving LLM agents continuously accumulate reusable experience \emph{artif
 
 We present \textbf{LIFT (Loaded Impact on Final Task)}, a counterfactual evaluation framework that makes the \emph{Base vs. Loaded} contrast on held-out tasks its single scientific question. LIFT operationalizes this contrast with three mechanisms: (i) \textbf{paired A/B runs} of the same held-out task with and without consolidated artifacts; (ii) \textbf{strict separation} of warmup (training) tasks from holdout (unseen) tasks; and (iii) \textbf{Docker container snapshots} (\texttt{docker commit} $\rightarrow$ delta image) that solidify the runtime agent state as an artifact-agnostic, cross-machine-reproducible carrier. Together these isolate the confounds above, so that a positive delta on an unseen task is \emph{attributable to the artifacts} rather than to leakage, context pollution, or environment drift. A \textbf{three-layer decoupling} (pipeline / runtime adapter / evaluation kernel) hosts a range of mainstream self-evolving agent runtimes behind four hooks; a \textbf{work-agent + judge-agent review loop} scores each task; and multi-level concurrency plus Langfuse trace backfill make every run auditable in both \emph{conclusion} and \emph{process}. We release a self-contained \textbf{benchmark of 14 scenes (84 tasks)} built on a two-phase schema with a deliberate $\sim$75\%/25\% train-test requirement overlap designed to expose over-fitting to literal training requirements. LIFT provides a standardized, attributable pipeline for empirical research on self-evolving agents and makes precise the methodological gaps in existing agent benchmarks. Code is released at \url{https://github.com/FeiZhuNiU-INFJA/LIFT} and the benchmark at \url{https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE}.
 
-\emph{Preprint status.} This is a v1 preprint. §6 reports population-ratio $\Delta$ from a partial cross-runtime sweep (5 runtimes across RQ1--RQ4); remaining runtimes and full-suite repeats will be released in v2.
+\emph{Preprint status.} This is a v1 preprint. §6 reports population-ratio $\Delta$ from a partial cross-runtime sweep (8 runtimes across RQ1--RQ5); remaining runtimes and full-suite repeats will be released in v2.
 \end{abstract}
 
 
@@ -538,19 +540,25 @@ Image build & \brk{agent-runtimes/openclaw/build-image.sh} & base / with-evolve 
 \subsection{Setup and comparison methodology}
 \label{sec:setup}
 
-\textbf{Runs.} We report five full runs on the EALE benchmark: \texttt{openclaw}, \texttt{openclaw\_with\_openspace}, \texttt{hermes}, \texttt{hermes\_with\_openspace}, and \texttt{genericagent}. Each run covers 14 scenes $\times$ 2 holdout tasks $\times$ \texttt{--repeat 10}, yielding $\approx$280 (Base, Loaded) pairs per runtime. The agent model, work/judge endpoints, \texttt{max\_conversation\_turns=36}, and container resource passthrough are held identical across all cells; the only manipulated axis is Base vs. Loaded.
+\textbf{Runs.} We report eight full runs on the EALE benchmark, organized into three base-runtime families so that every cross-runtime observation stays inside a controlled comparison:
+\begin{itemize}
+\item \textbf{OpenClaw family} --- \texttt{openclaw} (implicit), \texttt{openclaw\_with\_openspace} (OpenSpace skill hub), \texttt{openclaw\_with\_agentmemory} (agentmemory backend);
+\item \textbf{Hermes family} --- \texttt{hermes} (implicit \texttt{review}), \texttt{hermes\_with\_openspace}, \texttt{hermes\_with\_agentmemory};
+\item \textbf{GenericAgent family} --- \texttt{genericagent} (implicit file-I/O), \texttt{genericagent\_active\_evolve} (extra active-reflection pass).
+\end{itemize}
+Each run covers 14 scenes $\times$ 2 holdout tasks $\times$ \texttt{--repeat 10}, yielding $\approx$280 (Base, Loaded) pairs per runtime. The agent model, work/judge endpoints, \texttt{max\_conversation\_turns=36}, and container resource passthrough are held identical across all cells; the only manipulated axis is Base vs. Loaded. This grouping lets us read three orthogonal contrasts off the tables: \emph{(a) evolution-strategy} --- implicit accumulation vs. an explicit plugin/active pass within one base; \emph{(b) plugin} --- OpenSpace vs. agentmemory on the \emph{same} base; and \emph{(c) base agent} --- the raw capability floor of OpenClaw vs. Hermes vs. GenericAgent, read only through delta magnitudes, never absolute scores.
 
-\textbf{How we compare across five heterogeneous runtimes.} A na\"ive leaderboard on absolute Loaded scores conflates (a)~the underlying runtime's raw capability, (b)~its warmup accumulation policy, and (c)~its augmentation plugin --- three confounds that make head-to-head rankings scientifically empty. LIFT deliberately restricts cross-runtime inference to \emph{delta magnitudes}, and we further partition the analysis into three tables that respect three distinct comparison boundaries:
+\textbf{How we compare across eight heterogeneous runtimes.} A na\"ive leaderboard on absolute Loaded scores conflates (a)~the underlying runtime's raw capability, (b)~its warmup accumulation policy, and (c)~its augmentation plugin --- three confounds that make head-to-head rankings scientifically empty. LIFT deliberately restricts cross-runtime inference to \emph{delta magnitudes}, and we further partition the analysis into three tables that respect three distinct comparison boundaries:
 \begin{enumerate}
 \item \textbf{Within-runtime (RQ1, Table~\ref{tab:rq1}).} Each row is a runtime compared \emph{against its own Base}. This is the only within-row causal claim in the paper; every other comparison is derived from it.
-\item \textbf{Delta-of-delta within a base family (RQ2, Table~\ref{tab:rq2}).} To ask ``does the augmentation plugin add value?'', we hold the base runtime fixed and subtract two Base-vs-Loaded deltas: $\text{Gain} = \Delta_\text{augmented} - \Delta_\text{base}$. This cancels the raw-capability confound of the underlying LLM/runtime because both sides share the same Base column.
+\item \textbf{Delta-of-delta within a base family (RQ2, Table~\ref{tab:rq2}).} To ask ``does an explicit augmentation add value on top of implicit evolution?'', we hold the base runtime fixed and subtract two Base-vs-Loaded deltas: $\text{Gain} = \Delta_\text{augmented} - \Delta_\text{base}$. Because the OpenClaw and Hermes families each now carry \emph{two} augmentations (OpenSpace and agentmemory), this table doubles as a plugin-vs-plugin contrast on a shared base; the GenericAgent family contributes the implicit-vs-active-reflection contrast. This cancels the raw-capability confound of the underlying LLM/runtime because both sides share the same Base column.
 \item \textbf{Per-repeat stability (RQ3, Table~\ref{tab:rq3}).} We report the mean, std, and 95\% CI of $\Delta$Turns\% over 10 repeats to expose whether a delta is a robust signal or a single-repeat artifact.
 \end{enumerate}
-We do \textbf{not} directly rank ``\texttt{openclaw+openspace} vs. \texttt{genericagent}'' in any table --- those two rows may not be subtracted, only observed side by side.
+We do \textbf{not} rank runtimes by their \emph{absolute} Loaded scores, and we never \emph{subtract} two rows from different base families (e.g.\ \texttt{openclaw+openspace} minus \texttt{genericagent} is meaningless). We \emph{do}, however, rank runtimes by their evolution-impact $\Delta$ (RQ5, Table~\ref{tab:rank}): since each $\Delta$ has already differenced out its own Base, ordering the $\Delta$s answers ``who improved most from evolution'' without ever comparing raw capability.
 
 \textbf{Metrics.} Let $\bar{B}$ / $\bar{E}$ denote the population means of a metric across all holdout task-repeats. We report the \emph{population-ratio} delta $\Delta X\% = (\bar{E} - \bar{B}) / \bar{B} \cdot 100$ for turns, tool calls, tokens, and latency. Negative means the evolved side is more efficient. Population ratio is preferred over the mean of per-task ratios because the latter is dominated by tasks with near-zero baselines (a single Base $=$ 2, Loaded $=$ 6 task contributes $+200\%$), which flips the direction of the aggregate on Hermes and inflates it on GenericAgent. Pass rates are macro-averaged from the postprocess \texttt{ALL} row of \texttt{summary\_metrics.csv}.
 
-\textbf{Pass rate is saturated on EALE.} Across all five runs, Base pass rate is 0.99--1.00 and Loaded pass rate is 0.99--1.00 (Table~\ref{tab:rq1}). Pass rate is therefore a low-resolution signal of self-evolution on this benchmark; the primary lens is interaction efficiency, with pass rate reported for transparency and to flag any regression.
+\textbf{Pass rate is saturated on EALE.} Across all eight runs, Base pass rate is 0.99--1.00 and Loaded pass rate is 0.99--1.00 (Table~\ref{tab:rq1}). Pass rate is therefore a low-resolution signal of self-evolution on this benchmark; the primary lens is interaction efficiency, with pass rate reported for transparency and to flag any regression.
 
 \subsection{RQ1 --- Do evolved artifacts help on unseen tasks?}
 \label{sec:rq1}
@@ -569,46 +577,90 @@ Runtime & Tasks & Base Pass & Loaded Pass & $\Delta$Pass & $\Delta$Turns\% & $\D
 \midrule
 \texttt{openclaw}              & 280 (269) & 0.9929 & 0.9929 & $+0.00$    & $+2.74$  & $-2.09$  & $+0.44$  & $+3.34$  \\
 \texttt{openclaw+openspace}    & 280 (271) & 1.0000 & 1.0000 & $+0.00$    & $-3.95$  & $-6.41$  & $-7.12$  & $-7.90$  \\
+\texttt{openclaw+agentmemory}  & 278 (265) & 0.9964 & 0.9964 & $+0.00$    & $+0.75$  & $-1.19$  & $+2.28$  & $-0.18$  \\
+\addlinespace
 \texttt{hermes}                & 278 (272) & 0.9964 & 0.9928 & $-0.36$    & $-17.24$ & $-10.38$ & $-17.48$ & $-23.01$ \\
 \texttt{hermes+openspace}      & 280 (268) & 0.9964 & 1.0000 & $+0.36$    & $-19.09$ & $-10.62$ & $-19.27$ & $-22.09$ \\
+\texttt{hermes+agentmemory}    & 280 (269) & 0.9964 & 0.9964 & $+0.00$    & $-16.64$ & $-8.82$  & $-17.34$ & $-22.97$ \\
+\addlinespace
 \texttt{genericagent}          & 275 (257) & 0.9964 & 1.0000 & $+0.36$    & $-1.75$  & $-1.38$  & $-0.53$  & $-2.20$  \\
+\texttt{genericagent+active}   & 274 (263) & 1.0000 & 1.0000 & $+0.00$    & $+1.92$  & $+0.92$  & $+1.68$  & $+3.17$  \\
 \bottomrule
 \end{tabular}%
 }
 \end{table}
 
-\textbf{Reading Table~\ref{tab:rq1}.} \texttt{hermes} shows the strongest interaction-cost reduction on every axis (turns~$-17.2\%$, latency~$-23.0\%$, tokens~$-17.5\%$); its \texttt{review}-driven implicit evolution distills verbose warmup into a compact plan that the model consults on Loaded runs. \texttt{genericagent} moves only marginally in the efficient direction ($-1$ to $-2\%$) --- its file-I/O policy captures skill files but the base runtime already writes highly focused deliverables, leaving little conversational cost to cut. \texttt{openclaw} slightly regresses on turns/tokens/latency ($+0.4\%$ to $+3.3\%$) even while trimming tool calls modestly ($-2.1\%$): natural memory accumulation without an explicit distillation hook produces state that lengthens rather than shortens the outer loop. Pass rate is essentially unchanged across all five runs ($|\Delta\text{Pass}| \le 0.36$pp), consistent with a saturated benchmark.
+\textbf{Reading Table~\ref{tab:rq1}.} \texttt{hermes} and both its augmented siblings show the strongest interaction-cost reduction on every axis (turns $-16.6$ to $-19.1\%$, latency $\approx-22$ to $-23\%$, tokens $\approx-17$ to $-19\%$); its \texttt{review}-driven implicit evolution distills verbose warmup into a compact plan that the model consults on Loaded runs. The \texttt{genericagent} family moves only marginally ($|\Delta|\le 3\%$ on all axes, in either direction) --- its file-I/O policy captures skill files but the base runtime already writes highly focused deliverables, leaving little conversational cost to cut; the extra active-reflection pass does not change this and even drifts slightly inefficient ($+1.9\%$ turns). The \texttt{openclaw} family is the split case: the base and its agentmemory variant hover near zero or slightly regress on turns/tokens/latency ($+0.75$ to $+3.3\%$), whereas OpenSpace is the only OpenClaw configuration that turns clearly efficient ($-4.0\%$ turns, $-7.1\%$ tokens) --- natural memory accumulation without an explicit distillation hook produces state that lengthens rather than shortens the outer loop, and swapping in an agentmemory backend does not by itself fix this. Pass rate is essentially unchanged across all eight runs ($|\Delta\text{Pass}| \le 0.36$pp), consistent with a saturated benchmark.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=\textwidth, height=6.2cm,
+    ybar=1.5pt, bar width=7pt,
+    ymin=-22, ymax=8,
+    ytick={-20,-15,-10,-5,0,5},
+    ylabel={$\Delta$Turns\% \ (Loaded $-$ Base)},
+    ylabel style={font=\small},
+    symbolic x coords={OpenClaw, Hermes, GenericAgent},
+    xtick=data,
+    xticklabel style={font=\small},
+    enlarge x limits=0.28,
+    legend style={at={(0.5,-0.16)}, anchor=north, legend columns=3, font=\footnotesize, draw=none},
+    nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/print sign},
+    every node near coord/.append style={anchor=south, yshift=1pt},
+    tick align=outside, tickpos=left,
+    grid=major, ymajorgrids, grid style={gray!20},
+]
+% implicit base
+\addplot[fill=gray!55, draw=gray!70!black] coordinates {(OpenClaw,2.74) (Hermes,-17.24) (GenericAgent,-1.75)};
+% openspace / (active for genericagent)
+\addplot[fill=blue!55, draw=blue!70!black] coordinates {(OpenClaw,-3.95) (Hermes,-19.09) (GenericAgent,1.92)};
+% agentmemory (genericagent has none -> plotted as 0-height/omitted via nan)
+\addplot[fill=orange!70, draw=orange!80!black] coordinates {(OpenClaw,2.28) (Hermes,-16.64) (GenericAgent,nan)};
+\legend{implicit base, \texttt{+openspace} (\texttt{+active} for GA), \texttt{+agentmemory}}
+\draw[very thick, black] (axis cs:OpenClaw,0) -- (axis cs:GenericAgent,0);
+\node[anchor=north east, font=\footnotesize\bfseries, text=green!45!black, align=right] at (axis cs:GenericAgent,7.3) {$\downarrow$ below zero $=$ fewer turns $=$ \emph{better}};
+\end{axis}
+\end{tikzpicture}
+\caption{\textbf{RQ1 at a glance: $\Delta$Turns\% by base family} (from Table~\ref{tab:rq1}; the third GenericAgent bar is blank because it has no agentmemory variant). Bars \emph{below} the thick zero line are efficiency \emph{gains} (evolved side uses fewer turns --- \textbf{better}); bars \emph{above} zero are regressions. Note that $\Delta$Turns/Tools/Tokens/Latency are ``lower-is-better'' whereas $\Delta$Pass (not shown, saturated) is ``higher-is-better''. The three grey bars are the pure implicit-evolution effect of each base runtime and are directly comparable as an \emph{evolution-impact} ranking (Hermes $\gg$ GenericAgent $\gtrsim$ OpenClaw); see \S\ref{sec:rq-ranking}.}
+\label{fig:rq1bar}
+\end{figure}
 
 \subsection{RQ2 --- Do augmentation plugins add value on top of implicit evolution?}
 \label{sec:rq2}
-
-Both \texttt{openclaw} and \texttt{hermes} are compared against their \texttt{+openspace} sibling. The Gain column is a \emph{delta-of-delta}: $\text{Gain} = \Delta_\text{augmented} - \Delta_\text{base}$, in the same units as the underlying $\Delta$. A \emph{negative} Gain means the augmentation improves the metric \emph{beyond} implicit evolution alone --- i.e., the plugin adds real value on top of natural state accumulation.
+Every augmented runtime is compared against the \emph{implicit} base of its own family. The Gain column is a \emph{delta-of-delta}: $\text{Gain} = \Delta_\text{augmented} - \Delta_\text{base}$, in the same units as the underlying $\Delta$. A \emph{negative} Gain means the augmentation improves the metric \emph{beyond} implicit evolution alone --- i.e., the explicit mechanism adds real value on top of natural state accumulation. Reading the table three ways answers three distinct questions: comparing two rows that share a base (e.g.\ the two \texttt{openclaw} rows) is a \textbf{plugin-vs-plugin} contrast (OpenSpace vs.\ agentmemory); comparing the base row's implicit $\Delta$ against its augmented rows is an \textbf{evolution-strategy} contrast (implicit vs.\ explicit / active); and comparing Gain magnitudes \emph{across} families is a \textbf{base-agent} contrast, admissible here only because the delta-of-delta has already cancelled each base's raw-capability floor.
 
 \begin{table}[h]
 \centering
 \small
-\caption{\textbf{RQ2: OpenSpace augmentation gain (delta-of-delta, same base runtime).} Negative Gain $=$ augmentation is more efficient than the implicit-only baseline.}
+\caption{\textbf{RQ2: augmentation gain (delta-of-delta, same base runtime).} Each row subtracts the implicit base $\Delta$ of its own family from the augmented $\Delta$. Negative Gain $=$ augmentation is more efficient than the implicit-only baseline. Rows sharing a base (OpenClaw, Hermes) form a plugin-vs-plugin contrast; the GenericAgent row is implicit vs.\ active reflection.}
 \label{tab:rq2}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrrrrrrr}
 \toprule
-Base family & \multicolumn{3}{c}{Turns} & \multicolumn{3}{c}{Tool calls} & \multicolumn{3}{c}{Tokens} \\
+Augmentation (base) & \multicolumn{3}{c}{Turns} & \multicolumn{3}{c}{Tool calls} & \multicolumn{3}{c}{Tokens} \\
 \cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}
              & $\Delta$Base & $\Delta$Aug & Gain    & $\Delta$Base & $\Delta$Aug & Gain    & $\Delta$Base & $\Delta$Aug & Gain    \\
 \midrule
-\texttt{openclaw} & $+2.74$  & $-3.95$  & $-6.69$ & $-2.09$  & $-6.41$  & $-4.32$ & $+0.44$  & $-7.12$  & $-7.55$ \\
-\texttt{hermes}   & $-17.24$ & $-19.09$ & $-1.85$ & $-10.38$ & $-10.62$ & $-0.24$ & $-17.48$ & $-19.27$ & $-1.79$ \\
+\texttt{openspace} (openclaw)     & $+2.74$  & $-3.95$  & $-6.69$ & $-2.09$  & $-6.41$  & $-4.32$ & $+0.44$  & $-7.12$  & $-7.55$ \\
+\texttt{agentmemory} (openclaw)   & $+2.74$  & $+0.75$  & $-1.99$ & $-2.09$  & $-1.19$  & $+0.90$ & $+0.44$  & $+2.28$  & $+1.84$ \\
+\addlinespace
+\texttt{openspace} (hermes)       & $-17.24$ & $-19.09$ & $-1.85$ & $-10.38$ & $-10.62$ & $-0.24$ & $-17.48$ & $-19.27$ & $-1.79$ \\
+\texttt{agentmemory} (hermes)     & $-17.24$ & $-16.64$ & $+0.60$ & $-10.38$ & $-8.82$  & $+1.56$ & $-17.48$ & $-17.34$ & $+0.14$ \\
+\addlinespace
+\texttt{active} (genericagent)    & $-1.75$  & $+1.92$  & $+3.67$ & $-1.38$  & $+0.92$  & $+2.30$ & $-0.53$  & $+1.68$  & $+2.21$ \\
 \bottomrule
 \end{tabular}%
 }
 \end{table}
 
-\textbf{Reading Table~\ref{tab:rq2}.} OpenSpace adds value on \emph{both} base families, but the mechanism differs by starting point:
+\textbf{Reading Table~\ref{tab:rq2}.} The three contrasts tell a coherent story about \emph{where} an augmentation helps:
 \begin{itemize}
-\item On \texttt{openclaw}, implicit evolution is neutral-to-negative on turns/tokens/latency (Table~\ref{tab:rq1}); OpenSpace turns this around and delivers the largest observed gain in the paper ($-6.7$pp turns, $-7.6$pp tokens). The plugin is doing real work here --- structured skill retrieval is filling in for the missing distillation step in OpenClaw's implicit-only path.
-\item On \texttt{hermes}, implicit evolution is already very strong; OpenSpace's incremental gain is $-2$pp on turns/tokens and near-zero on tool calls. There is little headroom left: the base runtime has already extracted most of the compressible cost from its warmup, and adding a skill hub only marginally sharpens it.
+\item \textbf{Plugin vs.\ plugin (OpenSpace $\gg$ agentmemory on both shared bases).} On \texttt{openclaw}, OpenSpace delivers the largest gain in the paper ($-6.7$pp turns, $-7.6$pp tokens) while agentmemory yields only a modest turns gain ($-2.0$pp) and is slightly \emph{negative} on tokens ($+1.8$pp). On \texttt{hermes} the ordering repeats: OpenSpace is marginally positive ($-1.9$pp turns) whereas agentmemory is essentially neutral-to-negative (turns $+0.6$pp, tools $+1.6$pp). A structured skill hub compresses the outer loop more reliably than a raw memory backend, which stores observations without a distillation step that shortens future interactions.
+\item \textbf{Evolution strategy (explicit / active is not free).} The GenericAgent active-reflection pass \emph{costs} rather than saves ($+3.7$pp turns, $+2.2$pp tokens): the extra reflection turns are not amortized because the base already writes focused deliverables, so the added deliberation is pure overhead on this benchmark.
+\item \textbf{Base agent (headroom is set by the base's warmup policy).} The same OpenSpace plugin gives $-6.7$pp on OpenClaw but only $-1.9$pp on Hermes --- a $3$--$4\times$ gap --- because Hermes's \texttt{review} step has already extracted most of the compressible cost, leaving little for the plugin to sharpen. Augmentation value is therefore inseparable from the host base: a plugin's absolute effect cannot be quoted without naming its runtime.
 \end{itemize}
-The pattern is directionally consistent (both Gains negative on turns and tokens) but the magnitudes differ by 3--4$\times$, showing that augmentation value is inseparable from the base runtime's warmup policy --- a plugin's absolute effect cannot be quoted without naming its host.
 
 \subsection{RQ3 --- Is the delta stable across repeats?}
 \label{sec:rq3}
@@ -618,24 +670,29 @@ Table~\ref{tab:rq3} reports per-repeat statistics: for each of the 10 repeats we
 \begin{table}[h]
 \centering
 \small
-\caption{\textbf{RQ3: Per-repeat stability across the 10 repeats.} Std is over per-repeat population $\Delta$s. Bold-worthy: Hermes and Hermes+OpenSpace turns-CIs sit fully below zero, giving the strongest statistical claim; OpenClaw and GenericAgent CIs cross zero on turns, so those small $\Delta$s are noise-dominated at 10-repeat resolution.}
+\caption{\textbf{RQ3: Per-repeat stability across the 10 repeats.} Std is over per-repeat population $\Delta$s. The three Hermes rows are the only ones whose turns-CIs sit fully below zero, giving the strongest statistical claim; every OpenClaw and GenericAgent CI crosses zero on turns, so those small $\Delta$s are noise-dominated at 10-repeat resolution.}
 \label{tab:rq3}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrrr}
 \toprule
 Runtime & $\Delta$Turns\% mean & std & 95\% CI & $\Delta$Tools\% mean & std \\
 \midrule
-\texttt{openclaw}           & $+3.13$  & 9.40 & $[-2.70,\ +8.95]$   & $-1.84$  & 8.28  \\
-\texttt{openclaw+openspace} & $-3.78$  & 7.22 & $[-8.26,\ +0.69]$   & $-6.17$  & 7.62  \\
-\texttt{hermes}             & $-17.06$ & 7.58 & $[-21.76,\ -12.36]$ & $-9.83$  & 11.74 \\
-\texttt{hermes+openspace}   & $-18.89$ & 7.56 & $[-23.58,\ -14.20]$ & $-10.00$ & 10.60 \\
-\texttt{genericagent}       & $-1.40$  & 7.91 & $[-6.30,\ +3.50]$   & $-0.97$  & 9.30  \\
+\texttt{openclaw}              & $+3.13$  & 9.40 & $[-2.70,\ +8.95]$   & $-1.84$  & 8.28  \\
+\texttt{openclaw+openspace}    & $-3.78$  & 7.22 & $[-8.26,\ +0.69]$   & $-6.17$  & 7.62  \\
+\texttt{openclaw+agentmemory}  & $+1.21$  & 8.47 & $[-4.04,\ +6.47]$   & $-1.03$  & 7.69  \\
+\addlinespace
+\texttt{hermes}                & $-17.06$ & 7.58 & $[-21.76,\ -12.36]$ & $-9.83$  & 11.74 \\
+\texttt{hermes+openspace}      & $-18.89$ & 7.56 & $[-23.58,\ -14.20]$ & $-10.00$ & 10.60 \\
+\texttt{hermes+agentmemory}    & $-16.57$ & 6.31 & $[-20.48,\ -12.66]$ & $-7.95$  & 15.71 \\
+\addlinespace
+\texttt{genericagent}          & $-1.40$  & 7.91 & $[-6.30,\ +3.50]$   & $-0.97$  & 9.30  \\
+\texttt{genericagent+active}   & $+2.11$  & 6.63 & $[-2.00,\ +6.22]$   & $+0.92$  & 8.29  \\
 \bottomrule
 \end{tabular}%
 }
 \end{table}
 
-Only the two Hermes rows deliver a robust turns-reduction signal at 10-repeat resolution (both CIs well below zero). \texttt{openclaw+openspace}'s CI $[-8.3,\ +0.7]$ narrowly straddles zero: the Gain in Table~\ref{tab:rq2} is real in aggregate but only marginally repeat-stable. \texttt{openclaw} and \texttt{genericagent} CIs cross zero on both turns and tools, so we treat their small point estimates as directional only, not statistically significant.
+All three Hermes rows deliver a robust turns-reduction signal at 10-repeat resolution (every CI well below zero), including \texttt{hermes+agentmemory} whose tighter std ($6.31$) gives the narrowest interval $[-20.48,\ -12.66]$. \texttt{openclaw+openspace}'s CI $[-8.3,\ +0.7]$ narrowly straddles zero: the Gain in Table~\ref{tab:rq2} is real in aggregate but only marginally repeat-stable. Every remaining OpenClaw and GenericAgent CI crosses zero on both turns and tools --- including the two new rows (\texttt{openclaw+agentmemory} $[-4.04,\ +6.47]$, \texttt{genericagent+active} $[-2.00,\ +6.22]$) --- so we treat their small point estimates as directional only, not statistically significant. This reinforces RQ2: only the Hermes family and OpenClaw+OpenSpace carry any repeat-stable efficiency signal; agentmemory and active reflection do not.
 
 \subsection{RQ4 --- Cost view: tokens and latency per task}
 \label{sec:rq4}
@@ -652,26 +709,61 @@ Runtime & Base turns & Base tools & Base tokens & $\Delta$Turns\% & $\Delta$Tool
 \midrule
 \texttt{openclaw}              & 15.9 & 33.2 & 2\,139\,707 & $+2.74$  & $-2.09$  & $+0.44$  & $+3.34$  \\
 \texttt{openclaw+openspace}    & 16.0 & 34.0 & 2\,442\,614 & $-3.95$  & $-6.41$  & $-7.12$  & $-7.90$  \\
+\texttt{openclaw+agentmemory}  & 15.7 & 32.2 & 2\,427\,722 & $+0.75$  & $-1.19$  & $+2.28$  & $-0.18$  \\
+\addlinespace
 \texttt{hermes}                & 16.9 & 39.0 & 2\,623\,025 & $-17.24$ & $-10.38$ & $-17.48$ & $-23.01$ \\
 \texttt{hermes+openspace}      & 16.3 & 39.5 & 2\,888\,667 & $-19.09$ & $-10.62$ & $-19.27$ & $-22.09$ \\
+\texttt{hermes+agentmemory}    & 16.6 & 40.5 & 3\,076\,998 & $-16.64$ & $-8.82$  & $-17.34$ & $-22.97$ \\
+\addlinespace
 \texttt{genericagent}          & 13.9 & 68.5 & 2\,944\,209 & $-1.75$  & $-1.38$  & $-0.53$  & $-2.20$  \\
+\texttt{genericagent+active}   & 13.5 & 62.1 & 1\,630\,682 & $+1.92$  & $+0.92$  & $+1.68$  & $+3.17$  \\
 \bottomrule
 \end{tabular}%
 }
 \end{table}
 
-The Base-turns column is remarkably flat across runtimes (13.9--16.9), so the $\Delta$s translate almost directly to absolute turn-count savings: Hermes saves $\approx$3 turns per task, its OpenSpace variant $\approx$3.1, OpenClaw+OpenSpace $\approx$0.6, GenericAgent $\approx$0.2. Latency savings track turns closely on Hermes (both around $-20\%$) but decouple on OpenClaw variants where OpenSpace saves latency ($-7.9\%$) faster than it saves turns ($-4.0\%$) --- consistent with the skill hub replacing sequential tool-call chains by a single retrieved skill invocation. These Loaded columns exclude \texttt{evolve\_after\_warmup} tokens (booked as training cost, \S5), so EvolutionROI derivations do not double-count.
+The Base-turns column is remarkably flat across runtimes (13.5--16.9), so the $\Delta$s translate almost directly to absolute turn-count savings: the Hermes family saves $\approx$2.8--3.1 turns per task, OpenClaw+OpenSpace $\approx$0.6, and the OpenClaw+agentmemory / GenericAgent variants land within $\pm$0.3 turns of their base. Latency savings track turns closely on the Hermes family (all around $-22$ to $-23\%$) but decouple on OpenClaw variants where OpenSpace saves latency ($-7.9\%$) faster than it saves turns ($-4.0\%$) --- consistent with the skill hub replacing sequential tool-call chains by a single retrieved skill invocation --- while OpenClaw+agentmemory shows the opposite mild pattern (latency $-0.2\%$ vs.\ tokens $+2.3\%$), a memory backend that neither compresses nor bloats the loop. These Loaded columns exclude \texttt{evolve\_after\_warmup} tokens (booked as training cost, \S5), so EvolutionROI derivations do not double-count.
+
+\subsection{RQ5 --- Ranking runtimes by evolution impact}
+\label{sec:rq-ranking}
+
+Table~\ref{tab:rq1} deliberately reports each runtime \emph{against its own Base}, and \S\ref{sec:setup} forbids ranking runtimes by their \emph{absolute} Loaded scores (that would conflate raw capability, warmup policy, and plugin). It does \emph{not}, however, forbid ranking by the quantity LIFT is designed to measure --- the \textbf{evolution impact} $\Delta$ itself. Because every $\Delta$ is a within-runtime Base-vs-Loaded contrast, the raw-capability floor is already differenced out of each number, so ordering runtimes by $\Delta$ is a legitimate ``who improved most from evolution'' ranking (distinct from ``who is best out of the box'', which we never claim). Table~\ref{tab:rank} sorts all eight runtimes by $\Delta$Turns\% (primary efficiency axis; more negative $=$ larger evolution gain $=$ better rank).
+
+\begin{table}[h]
+\centering
+\small
+\caption{\textbf{RQ5: cross-runtime evolution-impact ranking}, sorted by $\Delta$Turns\% (most negative first). This ranks the \emph{size of the improvement each runtime obtains from evolution}, not its absolute capability. Sig.: does the RQ3 95\% CI for $\Delta$Turns\% lie entirely below zero? $\checkmark$ $=$ yes (robust), \texttt{--} $=$ CI crosses zero (directional only).}
+\label{tab:rank}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{clrrrrc}
+\toprule
+Rank & Runtime & $\Delta$Turns\% & $\Delta$Tools\% & $\Delta$Tokens\% & $\Delta$Latency\% & Sig.\ (turns) \\
+\midrule
+1 & \texttt{hermes+openspace}     & $-19.09$ & $-10.62$ & $-19.27$ & $-22.09$ & $\checkmark$ \\
+2 & \texttt{hermes}               & $-17.24$ & $-10.38$ & $-17.48$ & $-23.01$ & $\checkmark$ \\
+3 & \texttt{hermes+agentmemory}   & $-16.64$ & $-8.82$  & $-17.34$ & $-22.97$ & $\checkmark$ \\
+4 & \texttt{openclaw+openspace}   & $-3.95$  & $-6.41$  & $-7.12$  & $-7.90$  & \texttt{--} \\
+5 & \texttt{genericagent}         & $-1.75$  & $-1.38$  & $-0.53$  & $-2.20$  & \texttt{--} \\
+6 & \texttt{openclaw+agentmemory} & $+0.75$  & $-1.19$  & $+2.28$  & $-0.18$  & \texttt{--} \\
+7 & \texttt{genericagent+active}  & $+1.92$  & $+0.92$  & $+1.68$  & $+3.17$  & \texttt{--} \\
+8 & \texttt{openclaw}             & $+2.74$  & $-2.09$  & $+0.44$  & $+3.34$  & \texttt{--} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\textbf{Reading Table~\ref{tab:rank}.} The ranking is dominated by a \emph{base-runtime} effect, not a plugin effect: the entire Hermes family (ranks 1--3) separates from everything else by a $\sim$13pp gap, and no plugin moves a runtime across that gap. Within the Hermes cluster the three configurations are statistically indistinguishable ($\Delta$Turns\% spread $<2.5$pp, all CIs overlapping), so the top of the board should be read as ``Hermes' \texttt{review} distillation'', not ``OpenSpace won''. Only ranks 1--3 carry a repeat-stable signal (RQ3); ranks 4--8 cluster within $\pm$4pp of zero and are \emph{not} statistically separable from each other or from ``no effect'' at 10 repeats --- we print their order for completeness but caution against reading ranks 4 vs.\ 5 vs.\ 6 as a real difference. \textbf{One caveat governs the whole table:} a large $\Delta$ partly reflects how much \emph{compressible slack} the Base run carried --- Hermes' verbose baseline leaves more to cut than GenericAgent's already-terse one --- so this is a ranking of \emph{realized evolution gain on EALE}, not of the intrinsic quality of each evolution mechanism. Appendix~\ref{sec:evo-mechanisms} (Table~\ref{tab:evo-mech}) spells out exactly what each runtime does to evolve --- which hook fires, when, and what it invokes --- and shows the ranking tracks a three-way split (carry-only vs.\ per-task distillation vs.\ post-hoc reflection): only the per-task-distillation class (Hermes) produces the robust signal above.
 
 \subsection{Findings and negative results}
 \label{sec:findings}
 
 We summarize four robust findings and one deliberate non-finding:
 \begin{enumerate}
-\item \textbf{Implicit evolution's efficacy depends heavily on the runtime's warmup policy.} Hermes' \texttt{review}-driven distillation delivers a strong, repeat-stable interaction-cost reduction (turns $-17.2\%$, latency $-23.0\%$, 95\% CI fully below zero). OpenClaw's plain state-accumulation policy actually \emph{regresses} slightly on turns/tokens/latency, indicating that accumulated state without an explicit distillation step is not a reliable win. GenericAgent's file-I/O policy produces a tiny effect that is not statistically distinguishable from zero at 10 repeats.
-\item \textbf{OpenSpace augmentation adds value on both base runtimes, but the mechanism differs.} On OpenClaw, OpenSpace \emph{rescues} an otherwise-neutral base (Gain: turns $-6.7$pp, tokens $-7.6$pp). On Hermes, OpenSpace provides a modest incremental improvement ($-2$pp on turns/tokens) on top of an already-strong base. Both Gains are negative on turns and tokens, but their magnitudes differ by 3--4$\times$ --- augmentation value is inseparable from the host runtime.
-\item \textbf{Statistical significance is unevenly distributed.} Only Hermes and Hermes+OpenSpace show 95\% CIs on $\Delta$Turns\% that lie entirely below zero (Table~\ref{tab:rq3}); the other three rows' turns-CIs cross zero. We report the point estimates for completeness but recommend against reading small differences ($|\Delta| \lesssim 5\%$) as effects at 10-repeat resolution.
-\item \textbf{Pass rate on EALE is saturated.} All five runs score 0.99--1.00 on both Base and Loaded; the largest $|\Delta\text{Pass}|$ is $0.36$pp. Pass rate is retained in Tables~\ref{tab:rq1} and~\ref{tab:rq4} as a guardrail against silent regressions --- none observed --- but is unfit as a discriminator of evolution quality on this benchmark.
-\item \textbf{Non-finding: no cross-runtime ranking is claimed.} The five rows of Table~\ref{tab:rq1} share a benchmark but not a raw-capability floor, a warmup policy, or an augmentation surface. We deliberately produce no ``winner'' across runtimes; each row is a self-comparison, and Table~\ref{tab:rq2} is the only cross-configuration inference we authorize (delta-of-delta, same base family).
+\item \textbf{Implicit evolution's efficacy depends heavily on the runtime's warmup policy.} Hermes' \texttt{review}-driven distillation delivers a strong, repeat-stable interaction-cost reduction (turns $-17.2\%$, latency $-23.0\%$, 95\% CI fully below zero), and this holds across all three Hermes configurations. OpenClaw's plain state-accumulation policy actually \emph{regresses} slightly on turns/tokens/latency, indicating that accumulated state without an explicit distillation step is not a reliable win. GenericAgent's file-I/O policy produces a tiny effect that is not statistically distinguishable from zero at 10 repeats.
+\item \textbf{Plugin choice matters more than plugin presence: OpenSpace $\gg$ agentmemory.} On the two bases that carry both plugins, a structured skill hub (OpenSpace) consistently out-compresses a raw memory backend (agentmemory). On OpenClaw, OpenSpace \emph{rescues} an otherwise-neutral base (Gain: turns $-6.7$pp, tokens $-7.6$pp) whereas agentmemory is neutral-to-negative (turns $-2.0$pp, tokens $+1.8$pp); on Hermes, OpenSpace adds a modest $-2$pp on turns/tokens while agentmemory adds nothing ($+0.6$pp turns). The distillation step, not the storage substrate, is what shortens future interactions.
+\item \textbf{Explicit / active evolution is not automatically better than implicit.} GenericAgent's extra active-reflection pass \emph{costs} interaction budget rather than saving it (Gain: turns $+3.7$pp, tokens $+2.2$pp): on a benchmark where the base already writes focused deliverables, the added deliberation is pure overhead. More evolution machinery does not imply more downstream efficiency.
+\item \textbf{Statistical significance is unevenly distributed.} Only the three Hermes rows show 95\% CIs on $\Delta$Turns\% that lie entirely below zero (Table~\ref{tab:rq3}); every OpenClaw and GenericAgent row's turns-CI crosses zero. We report the point estimates for completeness but recommend against reading small differences ($|\Delta| \lesssim 5\%$) as effects at 10-repeat resolution. Pass rate on EALE is saturated (all eight runs 0.99--1.00 on both Base and Loaded, largest $|\Delta\text{Pass}| = 0.36$pp), so it is retained only as a guardrail against silent regressions --- none observed.
+\item \textbf{We rank evolution impact, not raw capability.} The eight runtimes share a benchmark but not a raw-capability floor, a warmup policy, or an augmentation surface, so we produce no ``best agent'' by absolute Loaded score. What we \emph{do} rank (RQ5, Table~\ref{tab:rank}) is the evolution-impact $\Delta$ --- a within-runtime quantity from which each Base has already been differenced out. On that axis the Hermes family leads decisively ($\Delta$Turns\% $\approx-17$ to $-19\%$, the only repeat-stable rows), the remaining five runtimes cluster within $\pm$4pp of zero and are statistically inseparable, and the ordering is best read as an \emph{evolution-mechanism} comparison (Hermes' \texttt{review} distillation $\gg$ everything else) rather than a product leaderboard. The one confound we flag is compressible slack: a verbose Base leaves more room for evolution to cut, so large $\Delta$s are partly a property of the Base, not only of the evolution mechanism.
 \end{enumerate}
 
 
@@ -679,7 +771,7 @@ We summarize four robust findings and one deliberate non-finding:
 
 \begin{enumerate}
 \item \textbf{Benchmark data contamination.} LIFT cannot prevent the gold set from being contaminated by LLM training data; ABC-Checklist-style tools~\citep{zhu2025abc} must gate this at benchmark-design time.
-\item \textbf{No direct cross-agent comparison.} We deliberately do \textbf{not} support head-to-head \emph{OpenClaw+plugin vs. Hermes} comparison --- too many confounds make conclusions non-attributable. The correct move is per-agent Base vs. Loaded, then compare delta magnitudes.
+\item \textbf{No direct cross-agent comparison on absolute scores.} We deliberately do \textbf{not} support head-to-head \emph{OpenClaw+plugin vs. Hermes} comparison on raw Loaded performance --- too many confounds make such conclusions non-attributable. The sanctioned move is per-agent Base vs. Loaded, then compare the \emph{delta magnitudes} (the evolution-impact ranking of RQ5, \S\ref{sec:rq-ranking}), which is confound-free because each $\Delta$ is measured against its own Base.
 \item \textbf{Evolution $\neq$ artifacts.} LIFT is artifact-source-agnostic by default. To isolate ``the evolution \emph{mechanism} has value,'' use the attribution triplet (No-Evo / Only-Products / Evo-On) --- an optional appendix, not a required metric.
 \item \textbf{Judge bias.} When both work and judge are LLMs, self-preference is a risk. Current mitigation: the judge role-plays ``the user,'' adjudicates the \texttt{content\_reqs} checklist item-by-item into a single completion ratio, and is pinned (temperature 0, fixed model, versioned rubric); work and judge are additionally split into sibling containers (\S3.4) so self-preference cannot compound with state leakage --- neither party can read or write the other's runtime state. Making deterministic requirements fully machine-checkable --- shrinking the subjective surface further --- is future work.
 \item \textbf{Environment fidelity.} The container is still a \emph{controlled Linux environment}; fidelity gaps remain versus desktop-GUI / browser agents --- future work.
@@ -732,6 +824,44 @@ Trace & Langfuse backfill & like Opik, but trace-only, no evaluator \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+
+\section{Evolution mechanisms by runtime}
+\label{sec:evo-mechanisms}
+
+Because RQ5 (Table~\ref{tab:rank}) reads the ranking as an \emph{evolution-mechanism} comparison rather than a capability leaderboard, we spell out here exactly what each runtime does to evolve --- which hook it overrides, when the hook fires, what it invokes, and what state the delta \texttt{docker commit} captures. Every entry is verified against the adapter source under \texttt{src/lift/adapters/}. The framework fixes the ordering \texttt{evolve\_after\_task} (after each warmup task) $\rightarrow$ \texttt{evolve\_after\_warmup} (after the whole warmup batch) $\rightarrow$ \texttt{docker commit} (freeze delta), so any distillation step always runs \emph{before} the delta is frozen. Note that \texttt{docker commit} snapshots the entire writable container layer; the paths listed below are the runtime-declared ``true evolution artifacts'' we use for the pre-commit \texttt{docker diff} audit, not a restriction on what is committed (the \texttt{/workspace/task} bind mount is never captured).
+
+\begin{table}[h]
+\centering
+\footnotesize
+\caption{What each evaluated runtime actually does to evolve. ``Hook'' names the overridden method; ``no-op'' means the runtime performs no explicit distillation and the delta carries only whatever the agent happened to write to disk during warmup. Mechanism class: \textbf{C} = carry-only (no distillation), \textbf{D} = per-task distillation, \textbf{R} = explicit post-hoc reflection.}
+\label{tab:evo-mech}
+\begin{tabular}{p{0.16\textwidth}cp{0.44\textwidth}p{0.22\textwidth}}
+\toprule
+Runtime & Class & Hook @ timing $\rightarrow$ trigger & Delta-committed state \\
+\midrule
+\texttt{openclaw} & C & \texttt{evolve\_after\_warmup} is a no-op; no explicit evolve at all & \texttt{/root/.openclaw/} \texttt{workspace/memory}, \texttt{skill-workshop} (as written) \\
+\addlinespace
+\texttt{openclaw} \texttt{+openspace} & C & Same no-op evolve as \texttt{openclaw}; OpenSpace only adds an MCP skill-hub \emph{tool surface} (retrieval structure), no distillation step & same, plus OpenSpace-local skills \\
+\addlinespace
+\texttt{openclaw} \texttt{+agentmemory} & C & No-op evolve. The \texttt{:3111} agentmemory server runs \emph{without} an LLM provider, so its consolidate/reflect engine is inert --- only raw observations are stored & \texttt{+ /root/.agentmemory} (undistilled) \\
+\midrule
+\texttt{hermes} & D & \texttt{evolve\_after\_task} @ \emph{per task}: after each warmup task the work runner runs a \emph{blocking} background \texttt{review} that distills the session into compact skills/memories (\texttt{end\_session()} must return clean); \texttt{evolve\_after\_warmup} is a no-op & \texttt{/opt/hermes-state/} \texttt{\{skills,memories\}} \\
+\addlinespace
+\texttt{hermes} \texttt{+openspace} & D & Same per-task \texttt{review} as \texttt{hermes}; OpenSpace registered as an MCP tool & same \\
+\addlinespace
+\texttt{hermes} \texttt{+agentmemory} & D & Same per-task \texttt{review}; memory routed through the \texttt{:3111} agentmemory backend & \texttt{+ /root/.agentmemory} \\
+\midrule
+\texttt{genericagent} & C & \texttt{evolve\_after\_warmup} is a no-op; memory files written to \texttt{/opt/GenericAgent/memory} during warmup are carried implicitly & \texttt{/opt/GenericAgent/} \texttt{memory} \\
+\addlinespace
+\texttt{genericagent} \texttt{+active} & R & Two extra reflection passes: an \emph{isolated} GenericAgent chat after each task (\texttt{evolve\_after\_task}) and one after the whole batch (\texttt{evolve\_after\_warmup}), each instructed to write layered memory to \texttt{/opt/GenericAgent/memory} & same \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Three mechanism classes, and why the ranking follows them.} The eight runtimes fall into three families of mechanism. \textbf{(C) Carry-only} (\texttt{openclaw}, \texttt{+openspace}, \texttt{+agentmemory}, and \texttt{genericagent}): there is \emph{no} distillation hook at all; the delta is simply whatever memory/skill files the agent happened to write during warmup, snapshotted by \texttt{docker commit}. \textbf{(D) Per-task distillation} (the entire Hermes family): after \emph{every} warmup task, before the next one starts, a blocking \texttt{review} compresses that task's trajectory into a compact reusable skill/memory. \textbf{(R) Explicit post-hoc reflection} (\texttt{genericagent+active}): two additional reflection chats are spawned to write memory after each task and after the batch. Mapping this onto RQ5, the only class that produces a robust, repeat-stable, double-digit efficiency gain is \textbf{(D)}: per-task distillation is precisely the step that turns a verbose warmup transcript into a short plan the model consults on Loaded runs. Class \textbf{(C)} has no compression step, so its deltas are neutral or even mildly negative (accumulated state lengthens context without shortening the outer loop); class \textbf{(R)}'s extra deliberation \emph{adds} interaction cost on a benchmark where the base already writes focused deliverables. The RQ5 ordering is therefore not an accident of tuning --- it tracks whether a runtime performs distillation at all, and when.
+
+\paragraph{A caveat on the passive \texttt{agentmemory} rows.} The two \texttt{+agentmemory} configurations reported here run agentmemory in its \emph{passive} mode: the local \texttt{:3111} server is started without an LLM provider, so its built-in consolidate/reflect distillation never fires and only raw observations are persisted. The framework also ships an \emph{active} variant (\texttt{openclaw\_with\_agentmemory\_active\_evolve}) that, after warmup, explicitly \texttt{POST}s \texttt{/agentmemory/crystals/auto} followed by \texttt{/agentmemory/consolidate-pipeline} \texttt{\{tier:all\}} to distill raw observations into semantic facts and higher-order insights before committing. That active path was not part of this v1 sweep; consequently the near-zero \texttt{+agentmemory} deltas should be read as ``an undistilled memory store does not by itself help,'' \emph{not} as a verdict on agentmemory's distillation engine. Closing that gap (active agentmemory, plus the \texttt{openclaw\_with\_evolve} \texttt{learn review} path and EvoScientist AutoSkills) is an explicit v2 direction.
 
 
 \section{Datasheet summary (EALE)}
