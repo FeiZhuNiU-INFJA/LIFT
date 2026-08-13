@@ -64,7 +64,8 @@
   /* ---------- chart ---------- */
   .panel{margin:30px 0; background:var(--paper-3); border:1px solid var(--ink-14); border-radius:6px; box-shadow:var(--shadow-2); padding:22px 24px 14px;}
   .panel h2{font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-52); margin:0 0 4px; font-weight:500;}
-  .panel .sub{font-size:12.5px; color:var(--ink-52); margin:0 0 18px;}
+  .panel .sub{font-size:12.5px; color:var(--ink-52); margin:0 0 14px;}
+  .panel .legend{margin:0 0 14px; padding-bottom:14px; border-bottom:1px solid var(--ink-14);}
   /* ---------- CI forest chart (signature: the significance cliff) ---------- */
   .chart{position:relative; display:flex; flex-direction:column; padding-top:4px;}
   /* podium band behind the contiguous repeat-stable (significant) cluster */
@@ -160,21 +161,20 @@
     <b>n.s.</b> marks rows whose CI still straddles zero. Only the ✓ rows carry a repeat-stable signal.
   </div>
 
-  <div class="legend">
-    <span><span class="arrow" style="color:var(--pass)">◄ negative</span> = fewer turns = <b style="color:var(--pass)">better</b></span>
-    <span><span class="arrow" style="color:var(--signal)">positive ►</span> = more cost = <b style="color:var(--signal)">worse</b></span>
-    <span><span class="dotkey sig"></span> point estimate</span>
-    <span><span class="whiskkey"></span> 95% CI (10 repeats)</span>
-    <span><span class="dotkey nsg"></span> CI crosses 0 = noise</span>
-    <span><span class="bandkey"></span> repeat-stable band (CI fully below 0)</span>
-  </div>
-
   <!-- ================= CI FOREST CHART ================= -->
   <div class="panel">
     <h2>ΔTurns% with 95% confidence interval</h2>
     <p class="sub">Each runtime shows its point estimate (dot) and 95% CI (whiskers) over 10 repeats. A whisker
       clearing the zero line entirely is a repeat-stable gain; one crossing zero is statistical noise. Class badge:
       <b>D</b> per-task distillation · <b>C</b> carry-only · <b>R</b> post-hoc reflection.</p>
+    <div class="legend">
+      <span><span class="arrow" style="color:var(--pass)">◄ negative</span> = fewer turns = <b style="color:var(--pass)">better</b></span>
+      <span><span class="arrow" style="color:var(--signal)">positive ►</span> = more cost = <b style="color:var(--signal)">worse</b></span>
+      <span><span class="dotkey sig"></span> point estimate</span>
+      <span><span class="whiskkey"></span> 95% CI (10 repeats)</span>
+      <span><span class="dotkey nsg"></span> CI crosses 0 = noise</span>
+      <span><span class="bandkey"></span> repeat-stable band (CI fully below 0)</span>
+    </div>
     <div class="chart" id="chart"></div>
   </div>
 
