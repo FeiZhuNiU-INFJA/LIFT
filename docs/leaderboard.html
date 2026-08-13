@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LIFT · Evolution-Impact Leaderboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Spline+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --paper:#E8E3D6; --paper-2:#DDD7C7; --paper-3:#F1EDE2;
+    --ink:#19180F; --ink-72:rgba(25,24,15,.72); --ink-52:rgba(25,24,15,.52);
+    --ink-34:rgba(25,24,15,.34); --ink-22:rgba(25,24,15,.22); --ink-14:rgba(25,24,15,.14); --ink-10:rgba(25,24,15,.10);
+    --graph:rgba(25,24,15,.055);
+    --signal:#A8362A;  /* instrument red — regression / worse */
+    --pass:#2C6A4E;    /* lab green — efficiency gain / better */
+    --mark:#A07A22;    /* ochre — warmup / neutral */
+    --steel:#36506B;   /* calm blue — values / refs */
+    --serif:"Instrument Serif",Georgia,serif;
+    --sans:"Spline Sans","PingFang SC",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+    --shadow-2:0 4px 14px rgba(64,52,18,.10),0 1px 0 rgba(64,52,18,.06);
+    --shadow-3:0 12px 32px rgba(64,52,18,.14),0 1px 0 rgba(64,52,18,.06);
+    --ease:cubic-bezier(.22,.61,.36,1);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--paper);}
+  body{
+    font-family:var(--sans); color:var(--ink); line-height:1.5;
+    background-image:linear-gradient(var(--graph) 1px,transparent 1px),linear-gradient(90deg,var(--graph) 1px,transparent 1px);
+    background-size:28px 28px; background-position:center top;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:48px 28px 80px;}
+
+  /* ---------- header ---------- */
+  .eyebrow{font-family:var(--mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-52);}
+  h1{font-family:var(--serif); font-weight:400; font-size:clamp(38px,6vw,64px); line-height:1.02; letter-spacing:-.018em; margin:.15em 0 .1em;}
+  h1 em{font-style:italic; color:var(--mark);}
+  .lede{max-width:60ch; color:var(--ink-72); font-size:16px;}
+  .lede code{font-family:var(--mono); font-size:.86em; background:var(--paper-3); padding:1px 5px; border:1px solid var(--ink-14); border-radius:3px;}
+
+  /* ---------- methodology callout ---------- */
+  .note{
+    margin:26px 0 8px; padding:16px 18px; background:var(--paper-3);
+    border:1px solid var(--ink-14); border-left:3px solid var(--steel); border-radius:4px;
+    font-size:13.5px; color:var(--ink-72); box-shadow:var(--shadow-2);
+  }
+  .note b{color:var(--ink);}
+  .legend{display:flex; flex-wrap:wrap; gap:18px; margin:18px 0 4px; font-family:var(--mono); font-size:11.5px; letter-spacing:.02em;}
+  .legend span{display:inline-flex; align-items:center; gap:7px; color:var(--ink-72);}
+  .swatch{width:14px; height:14px; border-radius:3px; display:inline-block; border:1px solid var(--ink-22);}
+  .arrow{font-weight:700;}
+
+  /* ---------- chart ---------- */
+  .panel{margin:30px 0; background:var(--paper-3); border:1px solid var(--ink-14); border-radius:6px; box-shadow:var(--shadow-2); padding:22px 24px 14px;}
+  .panel h2{font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-52); margin:0 0 4px; font-weight:500;}
+  .panel .sub{font-size:12.5px; color:var(--ink-52); margin:0 0 18px;}
+  .bars{display:flex; flex-direction:column; gap:10px;}
+  .barrow{display:grid; grid-template-columns:180px 1fr 66px; align-items:center; gap:12px;}
+  .barrow .name{font-family:var(--mono); font-size:12.5px; text-align:right; color:var(--ink);}
+  .barrow .name .cls{display:inline-block; width:16px; height:16px; line-height:16px; text-align:center; font-size:10px; font-weight:700; border-radius:3px; margin-left:6px; color:#fff; vertical-align:middle;}
+  .track{position:relative; height:26px; background:linear-gradient(90deg,transparent,transparent); border-radius:3px;}
+  .track::before{content:""; position:absolute; left:var(--zero,60%); top:-4px; bottom:-4px; width:1.5px; background:var(--ink-52);}
+  .bar{position:absolute; top:3px; height:20px; border-radius:2px; transition:width .8s var(--ease); box-shadow:var(--shadow-2);}
+  .val{font-family:var(--mono); font-size:12.5px; font-weight:500; text-align:left;}
+  .val.good{color:var(--pass);} .val.bad{color:var(--signal);} .val.flat{color:var(--mark);}
+  .zerolab{font-family:var(--mono); font-size:10px; color:var(--ink-52); position:absolute; top:100%; transform:translateX(-50%); margin-top:2px;}
+
+  /* ---------- table ---------- */
+  .tablewrap{overflow-x:auto; margin:8px 0;}
+  table{border-collapse:collapse; width:100%; font-size:13.5px; background:var(--paper-3); box-shadow:var(--shadow-2); border-radius:6px; overflow:hidden;}
+  thead th{
+    font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-52);
+    text-align:right; padding:13px 12px; border-bottom:1.5px solid var(--ink-22); cursor:pointer; user-select:none; white-space:nowrap; background:var(--paper-2);
+  }
+  thead th:first-child, thead th.left{text-align:left;}
+  thead th:hover{color:var(--ink);}
+  thead th .caret{opacity:.3; font-size:9px; margin-left:3px;}
+  thead th.sorted .caret{opacity:1; color:var(--signal);}
+  tbody td{padding:12px; border-bottom:1px solid var(--ink-10); text-align:right; font-family:var(--mono); white-space:nowrap;}
+  tbody td.left{text-align:left; font-family:var(--sans);}
+  tbody tr:hover{background:var(--paper-2);}
+  tbody tr.topcut{border-bottom:2px solid var(--ink-34);}
+  .rankcell{font-family:var(--serif); font-size:20px; color:var(--ink); width:38px;}
+  .rt{font-weight:600;}
+  .rt .fam{font-family:var(--mono); font-size:10.5px; color:var(--ink-52); display:block; letter-spacing:.02em;}
+  .cls-badge{display:inline-block; min-width:18px; padding:1px 5px; font-family:var(--mono); font-size:10px; font-weight:700; border-radius:3px; color:#fff; text-align:center;}
+  .g-C{background:var(--mark);} .g-D{background:var(--pass);} .g-R{background:var(--steel);}
+  .good{color:var(--pass);} .bad{color:var(--signal);} .flat{color:var(--ink-72);}
+  .sig{font-weight:700; color:var(--pass);}
+  .nosig{color:var(--ink-34);}
+  .mech{font-family:var(--sans); font-size:11.5px; color:var(--ink-52); text-align:left; white-space:normal; max-width:280px;}
+
+  /* ---------- class key ---------- */
+  .classkey{display:flex; flex-wrap:wrap; gap:14px; margin:16px 0 0; font-size:12.5px; color:var(--ink-72);}
+  .classkey div{display:flex; align-items:center; gap:8px;}
+
+  footer{margin-top:44px; padding-top:20px; border-top:1px solid var(--ink-14); font-family:var(--mono); font-size:11px; color:var(--ink-52); letter-spacing:.03em;}
+  footer a{color:var(--steel);}
+  .meta{font-family:var(--mono); font-size:11px; color:var(--ink-34); margin-top:6px;}
+  @media(max-width:640px){
+    .barrow{grid-template-columns:120px 1fr 54px;}
+    .barrow .name{font-size:11px;}
+    .mech{display:none;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">LIFT · Loaded Impact on Final Task</div>
+  <h1>Evolution-Impact <em>Leaderboard</em></h1>
+  <p class="lede">
+    How much does each agent runtime actually <b>improve on unseen tasks</b> after warmup&nbsp;+ one evolve step?
+    Every runtime is run twice per holdout task — a clean <b>Base</b> and an evolved <b>Loaded</b> image — and we
+    rank the <b>difference</b>. This is <b>not</b> a raw-capability leaderboard: each row differences out its own
+    Base, so the ranking never compares raw ability across runtimes.
+  </p>
+
+  <div class="note" id="methodology">
+    <b>How to read this.</b> The ranking key is <b>ΔTurns%</b> = (Σ evolved − Σ baseline) / Σ baseline × 100 over
+    paired holdout task-repeats. All four efficiency deltas (Turns / Tools / Tokens / Latency) are
+    <b>lower-is-better</b>: a <span style="color:var(--pass);font-weight:600">negative</span> value means the evolved
+    agent did the same tasks with <b>fewer</b> turns/tokens — that is the <b>good</b> direction.
+    A <span style="color:var(--signal);font-weight:600">positive</span> value means it got <b>less</b> efficient.
+    <b>Sig.</b> ✓ marks runtimes whose 95% CI on ΔTurns% (over 10 repeats, population std) lies entirely below zero
+    — the only rows with a repeat-stable signal.
+  </div>
+
+  <div class="legend">
+    <span><span class="arrow" style="color:var(--pass)">◄ negative</span> = fewer turns = <b style="color:var(--pass)">better</b></span>
+    <span><span class="arrow" style="color:var(--signal)">positive ►</span> = more cost = <b style="color:var(--signal)">worse</b></span>
+    <span><span class="swatch" style="background:var(--pass)"></span> gain</span>
+    <span><span class="swatch" style="background:var(--signal)"></span> regression</span>
+  </div>
+
+  <!-- ================= BAR CHART ================= -->
+  <div class="panel">
+    <h2>ΔTurns% by runtime</h2>
+    <p class="sub">Bars left of the zero line are efficiency gains (fewer turns). Class badge: <b>D</b> per-task distillation · <b>C</b> carry-only · <b>R</b> post-hoc reflection.</p>
+    <div class="bars" id="bars"></div>
+  </div>
+
+  <!-- ================= TABLE ================= -->
+  <div class="tablewrap">
+    <table id="lb">
+      <thead>
+        <tr>
+          <th class="left" data-k="rank">#<span class="caret">▾</span></th>
+          <th class="left" data-k="display">Runtime<span class="caret">▾</span></th>
+          <th data-k="mech_class">Class<span class="caret">▾</span></th>
+          <th data-k="delta_turns_pct">ΔTurns%<span class="caret">▾</span></th>
+          <th data-k="delta_tools_pct">ΔTools%<span class="caret">▾</span></th>
+          <th data-k="delta_tokens_pct">ΔTokens%<span class="caret">▾</span></th>
+          <th data-k="delta_latency_pct">ΔLatency%<span class="caret">▾</span></th>
+          <th data-k="significant">Sig.<span class="caret">▾</span></th>
+          <th class="left">Mechanism</th>
+        </tr>
+      </thead>
+      <tbody id="lbbody"></tbody>
+    </table>
+  </div>
+
+  <div class="classkey">
+    <div><span class="cls-badge g-D">D</span> Per-task distillation — a blocking review compresses each warmup task</div>
+    <div><span class="cls-badge g-C">C</span> Carry-only — no distillation; whatever the agent wrote is committed</div>
+    <div><span class="cls-badge g-R">R</span> Post-hoc reflection — extra reflection chats after each task / batch</div>
+  </div>
+
+  <footer>
+    <div id="foot-method"></div>
+    <div class="meta" id="foot-meta"></div>
+    <div class="meta">Data regenerated from <code>results/*.tar.xz</code> by <code>scripts/build_leaderboard.py</code> — the same population-ratio methodology as the paper (RQ5 / Appendix&nbsp;C). · <a href="./index.html">← LIFT overview</a></div>
+  </footer>
+</div>
+
+<script>
+const fmt = (v) => (v === null || v === undefined) ? "—" : (v > 0 ? "+" : "") + v.toFixed(2);
+const dirClass = (v) => (v === null) ? "flat" : (v < 0 ? "good" : (v > 0 ? "bad" : "flat"));
+
+let DATA = null;
+let sortKey = "delta_turns_pct";
+let sortAsc = true;  // asc = most negative first for deltas
+
+function renderBars(entries){
+  const vals = entries.map(e => e.delta_turns_pct).filter(v => v !== null);
+  const lo = Math.min(...vals, 0), hi = Math.max(...vals, 0);
+  const span = (hi - lo) || 1;
+  const zeroPct = ((0 - lo) / span) * 100;   // position of zero line, %
+  const bars = document.getElementById("bars");
+  bars.innerHTML = "";
+  // sort bars by delta ascending for the chart regardless of table sort
+  const rows = [...entries].sort((a,b)=>(a.delta_turns_pct??1e9)-(b.delta_turns_pct??1e9));
+  rows.forEach(e => {
+    const v = e.delta_turns_pct;
+    const good = v < 0;
+    const row = document.createElement("div");
+    row.className = "barrow";
+    // bar geometry
+    let barStyle;
+    if (v < 0){
+      const w = ((0 - v) / span) * 100;
+      barStyle = `right:calc(100% - ${zeroPct}%); width:${w}%; background:var(--pass);`;
+    } else {
+      const w = ((v - 0) / span) * 100;
+      barStyle = `left:${zeroPct}%; width:${w}%; background:var(--signal);`;
+    }
+    row.innerHTML = `
+      <div class="name">${e.display}<span class="cls g-${e.mech_class}">${e.mech_class}</span></div>
+      <div class="track" style="--zero:${zeroPct}%">
+        <div class="bar" style="${barStyle}"></div>
+      </div>
+      <div class="val ${good?'good':(v>0?'bad':'flat')}">${fmt(v)}${e.significant?' ✓':''}</div>`;
+    bars.appendChild(row);
+  });
+}
+
+function renderTable(){
+  const body = document.getElementById("lbbody");
+  const entries = [...DATA.entries];
+  entries.sort((a,b)=>{
+    let x = a[sortKey], y = b[sortKey];
+    if (typeof x === "boolean"){ x = x?1:0; y = y?1:0; }
+    if (x === null) x = 1e9; if (y === null) y = 1e9;
+    if (x < y) return sortAsc ? -1 : 1;
+    if (x > y) return sortAsc ? 1 : -1;
+    return 0;
+  });
+  body.innerHTML = "";
+  entries.forEach((e, i) => {
+    const tr = document.createElement("tr");
+    if (i === 2) tr.className = "topcut";  // visual cut after rank-3 cluster
+    const d = (v)=>`<td class="${dirClass(v)}">${fmt(v)}</td>`;
+    tr.innerHTML = `
+      <td class="left rankcell">${e.rank}</td>
+      <td class="left rt">${e.display}<span class="fam">${e.base_family} family</span></td>
+      <td><span class="cls-badge g-${e.mech_class}">${e.mech_class}</span></td>
+      ${d(e.delta_turns_pct)}${d(e.delta_tools_pct)}${d(e.delta_tokens_pct)}${d(e.delta_latency_pct)}
+      <td class="${e.significant?'sig':'nosig'}">${e.significant?'✓':'—'}</td>
+      <td class="mech">${e.mech_short}</td>`;
+    body.appendChild(tr);
+  });
+  // header state
+  document.querySelectorAll("thead th").forEach(th=>{
+    th.classList.toggle("sorted", th.dataset.k === sortKey);
+    const c = th.querySelector(".caret");
+    if (c && th.dataset.k === sortKey) c.textContent = sortAsc ? "▴" : "▾";
+    else if (c) c.textContent = "▾";
+  });
+}
+
+function wireSort(){
+  document.querySelectorAll("thead th[data-k]").forEach(th=>{
+    th.addEventListener("click", ()=>{
+      const k = th.dataset.k;
+      if (k === sortKey){ sortAsc = !sortAsc; }
+      else {
+        sortKey = k;
+        // deltas + rank default ascending; text default ascending; sig default desc
+        sortAsc = (k !== "significant");
+      }
+      renderTable();
+    });
+  });
+}
+
+fetch("./leaderboard.json")
+  .then(r => r.json())
+  .then(j => {
+    DATA = j;
+    document.getElementById("foot-method").textContent = j.methodology;
+    document.getElementById("foot-meta").textContent =
+      `${j.entries.length} runtimes · ${j.n_repeats_nominal} repeats each · generated ${j.generated_at} · schema v${j.schema_version}`;
+    renderBars(j.entries);
+    renderTable();
+    wireSort();
+  })
+  .catch(err => {
+    document.querySelector(".wrap").insertAdjacentHTML("beforeend",
+      `<div class="note" style="border-left-color:var(--signal)"><b>Could not load leaderboard.json.</b> If viewing locally, serve the folder over HTTP (e.g. <code>python -m http.server</code>) — browsers block <code>fetch()</code> on <code>file://</code>. Error: ${err}</div>`);
+  });
+</script>
+</body>
+</html>
