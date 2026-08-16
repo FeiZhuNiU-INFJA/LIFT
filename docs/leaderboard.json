@@ -4,7 +4,7 @@
   "methodology": "Runtimes are ranked by evolution impact (ΔTurns%), NOT by absolute capability. Each Δ = (Σ evolved − Σ baseline) / Σ baseline × 100 over paired holdout task-repeats, so every row differences out its own Base. ΔTurns/Tools/Tokens/Latency are lower-is-better (negative = more efficient). Sig. = the 95% CI on ΔTurns% (population std, ddof=0) lies entirely below zero.",
   "primary_sort": "delta_turns_pct",
   "primary_sort_direction": "asc",
-  "generated_at": "2026-08-12T08:49:00Z",
+  "generated_at": "2026-08-16T19:25:17Z",
   "n_repeats_nominal": 10,
   "entries": [
     {
@@ -71,6 +71,27 @@
       "rank": 3
     },
     {
+      "runtime_key": "evoscientist",
+      "display": "evoscientist",
+      "base_family": "evoscientist",
+      "mech_class": "C",
+      "mech_class_label": "Carry-only (no distillation)",
+      "mech_short": "no-op evolve; warmup raw observations carried by docker commit (autoskills/proposals empty, no distillation)",
+      "source_archive": "lift-runid-evosci-full.tar.xz",
+      "paired_task_repeats": 280,
+      "n_repeats": 10,
+      "delta_turns_pct": -14.33,
+      "delta_tools_pct": -34.65,
+      "delta_tokens_pct": -10.23,
+      "delta_latency_pct": -15.05,
+      "turns_ci_low": -19.59,
+      "turns_ci_high": -7.79,
+      "turns_std": 9.52,
+      "significant": true,
+      "base_turns_mean": 15.6,
+      "rank": 4
+    },
+    {
       "runtime_key": "openclaw_with_openspace",
       "display": "openclaw+openspace",
       "base_family": "openclaw",
@@ -89,7 +110,7 @@
       "turns_std": 7.22,
       "significant": false,
       "base_turns_mean": 16.0,
-      "rank": 4
+      "rank": 5
     },
     {
       "runtime_key": "genericagent",
@@ -110,7 +131,7 @@
       "turns_std": 7.91,
       "significant": false,
       "base_turns_mean": 13.9,
-      "rank": 5
+      "rank": 6
     },
     {
       "runtime_key": "openclaw_with_agentmemory",
@@ -131,7 +152,7 @@
       "turns_std": 8.47,
       "significant": false,
       "base_turns_mean": 15.7,
-      "rank": 6
+      "rank": 7
     },
     {
       "runtime_key": "genericagent_active_evolve",
@@ -152,7 +173,7 @@
       "turns_std": 6.63,
       "significant": false,
       "base_turns_mean": 13.5,
-      "rank": 7
+      "rank": 8
     },
     {
       "runtime_key": "openclaw",
@@ -173,7 +194,7 @@
       "turns_std": 9.4,
       "significant": false,
       "base_turns_mean": 15.9,
-      "rank": 8
+      "rank": 9
     }
   ]
 }
