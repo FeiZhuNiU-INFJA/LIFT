@@ -78,6 +78,8 @@ RUNTIME_REGISTRY: list[RuntimeMeta] = [
                 "genericagent", "R", "extra reflection chat after each task and after the batch"),
     RuntimeMeta("genericagent-full", "genericagent", "genericagent",
                 "genericagent", "C", "no-op evolve; memory files carried by docker commit"),
+    RuntimeMeta("evosci-full", "evoscientist", "evoscientist",
+                "evoscientist", "C", "no-op evolve; warmup raw observations carried by docker commit (autoskills/proposals empty, no distillation)"),
 ]
 
 MECH_CLASS_LABEL = {
