@@ -80,6 +80,8 @@ RUNTIME_REGISTRY: list[RuntimeMeta] = [
                 "genericagent", "C", "no-op evolve; memory files carried by docker commit"),
     RuntimeMeta("evosci-full", "evoscientist", "evoscientist",
                 "evoscientist", "C", "no-op evolve; warmup raw observations carried by docker commit (autoskills/proposals empty, no distillation)"),
+    RuntimeMeta("evosci-active", "evoscientist_active_evolve", "evoscientist+active",
+                "evoscientist", "R", "post-hoc AutoSkills pass after the warmup batch distills observations into skill proposals before commit"),
 ]
 
 MECH_CLASS_LABEL = {
