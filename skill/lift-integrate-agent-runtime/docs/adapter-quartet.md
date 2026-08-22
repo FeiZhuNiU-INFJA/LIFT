@@ -88,6 +88,19 @@ def __init__(self, options: RunOptions) -> None:
 1. **`session.py` 加 `post_start_hook`**:容器启动后、首轮 chat 前 `rm -rf` 掉 daemon 运行时瞬态目录。**只清瞬态锁 / owner / worker / lease,绝不碰进化产物目录**——daemon 起来会自建这些锁,清理是安全的。参考 [prime_agent/session.py `_clear_stale_daemon_state`](../../../src/lift/adapters/prime_agent/session.py#L121-L148)(注册见 [L206-208](../../../src/lift/adapters/prime_agent/session.py#L206-L208))。
 2. **`evolve_paths` 收窄**:白名单只声明进化子目录,别把带瞬态锁的父目录也 commit 进来。
 
+## 2.1c `docker exec` 单发 runtime:超时清理必须「进容器 reap」⚠️
+
+`chat_agent.py` 里对单轮 chat 设了 wall-clock 上限(`CHAT_EXEC_TIMEOUT_SECONDS`),超时走 `asyncio.wait_for` → `proc.kill()`。**陷阱**:`proc` 是 host 上的 `docker exec` **客户端**进程,`proc.kill()` 只杀客户端——**`docker exec` 不把信号透传给容器内进程**。于是容器里的 agent / daemon 变**孤儿**,继续持有 session / state 文件的**活动锁**(如 `sessions/<uuid>.jsonl`)。这对 daemon-backed 或有 session 锁的 runtime 是致命的:
+
+- 重试(`retry 1/3`)用**同一个 session_id** 再发 → 撞 `Session is already active` → 要么再超时、要么秒退 → 该 cell **永久卡死**,把 orchestrator 阻塞在等它,几十小时不动。
+- 判据速记:**超时 WARNING 全是 `retry 1/3`、从不升到 2/3/3/3** = 重试根本进不去 = **有把锁没释放**。这跟 §2.1b 的 EXDEV 是两回事:EXDEV 是 evolved **启动**崩,这里是 run **中途**因超时清理不彻底而挂死。
+
+两步修复(缺一不可):
+1. **超时分支 `proc.kill()` 后进容器 reap**:`docker exec <c> pkill -f '[a]gent-cmd'`(先 TERM 给退出机会、再 KILL 兜底),把容器内孤儿进程 + daemon 清干净、释放锁。用 `[a]` 括号首字符自排除写法,避免 `pkill` 匹配到清理命令自己。reap 本身要包 best-effort + 独立超时,**绝不抛异常**打断超时返回路径。
+2. **重试前换新会话**:把该 transport 的续接 session id 清空(`self._session_id = None`),重试起新 conversation,别再撞同一把锁。
+
+参考 [prime_agent/chat_agent.py `_reap_container_prime_agent`](../../../src/lift/adapters/prime_agent/chat_agent.py#L58-L99)(超时分支调用见 [L171-191](../../../src/lift/adapters/prime_agent/chat_agent.py#L171-L191))。blanket `pkill` 隐含**一容器一 agent 进程**假设,对 holdout(`parallel_multi`,每 task-phase 独占容器)与 `serial_single` warmup 精确;仅 `parallel_single` 多题共享容器时才可能误杀兄弟题——而那本就是 §2.1a 里不推荐的高危配置。
+
 ## 2.2 `session.py`(容器启动)
 
 模板:[`src/lift/adapters/genericagent/session.py`](../../../src/lift/adapters/genericagent/session.py)
@@ -151,6 +164,7 @@ turn 2: 我刚才让你记住的口令是什么? 请只回答口令。
   ChatAgent 实例上维护 runtime 自己的 `_thread_id`。首轮创建 / 捕获,后续传回。
   **不要**用容器级全局 thread,也不要查"最新 thread";并发 warmup 会串 task。
 - 单轮 wall-clock 上限统一 1000s(`CHAT_EXEC_TIMEOUT_SECONDS = 1000.0`),超时返回 `CHAT_EXEC_TIMEOUT_MARKER` 前缀字符串走 LIFT 的 provider error 重试通道。
+- **`docker exec` 单发 transport 的超时清理**:`proc.kill()` 只杀 host 侧客户端,容器内进程会变孤儿并锁死 session——超时分支必须**进容器 reap** + 清空续接 session id,否则重试撞 `Session is already active` 永久卡死。详见本文档 §2.1c。
 
 ---
 

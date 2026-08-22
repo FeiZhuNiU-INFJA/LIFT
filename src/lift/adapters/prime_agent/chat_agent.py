@@ -51,6 +51,52 @@ from src.utils import short_id
 # 与 EvoScientist / GenericAgent / OpenHuman 一致：单轮 chat wall-clock 上限 1000s。
 CHAT_EXEC_TIMEOUT_SECONDS = 1000.0
 CHAT_EXEC_TIMEOUT_MARKER = "chat exec timeout"
+# 超时后进容器 reap 孤儿进程的兜底时限——清理本身不能反过来把 chat 挂死。
+CHAT_EXEC_REAP_TIMEOUT_SECONDS = 30.0
+
+
+async def _reap_container_prime_agent(
+    container_name: str, *, role: str, session_id: str
+) -> None:
+    """超时后进容器杀掉孤儿 ``prime-agent`` 进程 + daemon，释放 session 锁。
+
+    ``docker exec`` **不会**把 host 侧 ``proc.kill()`` 的信号透传给容器内进程：
+    host 只杀掉了 ``docker exec`` 客户端，容器里的 ``prime-agent --mode json`` /
+    daemon 变孤儿，继续持有 ``sessions/<uuid>.jsonl`` 的活动锁。下一次重试用同
+    session 再发 → 撞 ``Session is already active`` → 该 cell 永久卡死。故超时时
+    必须**进容器**把它清干净。
+
+    - ``[p]rime-agent`` 括号首字符：经典自排除写法，让 ``pkill -f`` 匹配真正的
+      prime-agent 命令行，却不匹配本清理命令自身（否则会杀掉自己这条 bash）。
+    - 先 ``TERM`` 给退出机会、再 ``KILL`` 兜底；全程 best-effort，**绝不抛异常**
+      打断超时返回路径。
+
+    **一容器一进程假设**：blanket ``pkill`` 杀掉容器内**所有** prime-agent。这在
+    holdout（``parallel_multi``，每 task-phase 独占容器）和 ``serial_single`` warmup
+    （同一时刻仅一题）下是精确的。仅当 base runtime 用 ``parallel_single`` warmup
+    （已在 adapter 构造时告警、不推荐）多题共享一个 warmup 容器时，才可能误杀并发
+    的兄弟题——这是对已知高危配置的可接受降级，不为它牺牲主路径的简洁与可靠。
+    """
+    remote = (
+        "pkill -TERM -f '[p]rime-agent' 2>/dev/null || true; "
+        "sleep 1; "
+        "pkill -KILL -f '[p]rime-agent' 2>/dev/null || true"
+    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "exec", container_name, "bash", "-c", remote,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(
+            proc.wait(), timeout=CHAT_EXEC_REAP_TIMEOUT_SECONDS
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning(
+            "[prime_agent chat] failed to reap container-side prime-agent "
+            "container=%s role=%s session=%s: %s",
+            container_name, role, session_id, exc,
+        )
 
 
 class PrimeAgentContainerAgent(ChatAgent):
@@ -125,9 +171,19 @@ class PrimeAgentContainerAgent(ChatAgent):
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
+                # host 侧 proc.kill() 只杀 docker exec 客户端；容器内 prime-agent /
+                # daemon 是孤儿，仍锁着 session。必须进容器 reap，否则重试撞
+                # "Session is already active" 永久卡死（见 _reap_container_prime_agent）。
+                await _reap_container_prime_agent(
+                    self._container.container_name,
+                    role=self._role,
+                    session_id=session_id,
+                )
+                # session 锁已释放；换新 conversation，避免重试再撞同一把锁。
+                self._session_id = None
                 LOGGER.warning(
                     "[prime_agent chat] prime-agent --mode json exec timed out "
-                    "container=%s role=%s session=%s",
+                    "container=%s role=%s session=%s (reaped container-side proc)",
                     self._container.container_name, self._role, session_id,
                 )
                 return (
