@@ -40,10 +40,17 @@ LIFT 每个 runtime 都要把 5 字段 token 落到 Langfuse 且被 post-process
 
 ## 2. 排障断层图(先按这张图定位在哪一层)
 
+**断点 0(接入时就该确认,别等跑完看 NaN):plugin trace 有没有人 emit?**
+5 字段落库的前提是**存在**一条 `<runtime>-plugin` trace。emitter 只可能在两侧:
+- **容器内**:overlay(GA/EvoScientist)/ plugin(OpenClaw)/ reverse hook。适用于常驻进程或有 plugin 机制的 runtime。
+- **host 侧**:chat transport 拿到 stdout/HTTP response 后**自己解析 usage 补写** trace。适用于 headless CLI 单发(`docker exec ... --mode json`)、闭源二进制、无 plugin 机制的 runtime(OpenHuman / Prime Agent)。
+
+判定:`GET /api/public/traces?sessionId=<sid>` 若**一条 `<runtime>-plugin` trace 都没有**,先别翻 ①-⑤——是断点 0:emitter 根本不存在(headless CLI 忘了做 host 侧 push,是最常见的漏项)。确认有 trace 了,再按下面 ①-⑤ 逐层查字段丢失。
+
 ```
 ① runtime 内部:LLM 响应 → provider 归一 → agent 侧 accumulator/usage
          ↓
-② runtime → Langfuse:plugin/overlay 把 usage 写进 ingestion API
+② runtime → Langfuse:plugin/overlay/host 侧 push 把 usage 写进 ingestion API
          ↓
 ③ Langfuse 持久化:observation.usage / observation.usageDetails
          ↓
@@ -128,6 +135,27 @@ EvoScientist 案例:类名带 `OpenAICompatContentMixin` 极具迷惑性,但 `gr
 **修复**:patch 底层 langchain 基类。EvoScientist 是 `BaseChatOpenAI._astream` + `_should_stream_usage`(双管齐下强制 `stream_options.include_usage=True`),见 [langfuse_tracing_overlay.py:_patch_openai_compat_usage](file:///root/workspace/agent_evolve_evaluation/agent-runtimes/evoscientist/langfuse_tracing_overlay.py#L383-L448)。
 
 **verify**:容器里跑 `python3 -c "from langchain_openai.chat_models.base import BaseChatOpenAI; print(getattr(BaseChatOpenAI._astream, '_lift_patched', False))"` 应为 `True`;实际请求后 `curl <langfuse>/api/public/observations?name=llm.chat` 的 `usageDetails` 应含 5 字段而非 `{}`。
+
+### 3.B §断点 0 修复:host 侧 push(无容器内 emitter 的 runtime)
+
+**适用**:headless CLI 单发(`docker exec ... --mode json`)、闭源二进制、无 plugin 机制的 runtime——容器内**没有** emitter,usage 只在 stdout/HTTP response 里。样板:[`openhuman/transcript_langfuse.py`](../../../src/lift/adapters/openhuman/transcript_langfuse.py)、[`prime_agent/langfuse_usage.py`](../../../src/lift/adapters/prime_agent/langfuse_usage.py)。
+
+**做法**(在 `chat_agent.py` 的 `chat()` 拿到本轮 stdout/response 后调用,失败仅 warning、不阻断主链路):
+
+1. 解析事件流 / response,每个 assistant LLM round-trip 抽一份 usage;
+2. `Langfuse(...)` client + `propagate_attributes(session_id=<LIFT session>, tags=[run_tag, session_id])`;
+3. root `start_as_current_observation(name="<runtime>-plugin", as_type="agent", input=user_msg, metadata=<OpenClaw schema: messages/toolCallBlocks>)`;
+4. 每个 round-trip 一个 `as_type="generation"` 子 obs,`usage_details=` 传细分字段;每次工具调用一个 `as_type="tool"` 子 obs;
+5. root `output` 带 `{content, tool_calls}`(统一观测契约,供后处理校准 toolCallBlocks);
+6. `client.flush()`。
+
+**三个 host 侧 push 专属坑**:
+
+- **`session_id` 必须传 LIFT 的 `user-/judge-` session**(不是 runtime 自己的 conversation id),否则后处理 greedy pairing 挂不回 PhaseRun。
+- **`usage_details` 的 input 口径要迁就 `_usage_breakdown`**:后者的启发式是"OpenAI 家 `input` 含 cache → `input - cache` 得 fresh"。如果 runtime 的原生 `input` 是 **fresh(不含 cache,Anthropic 风格,如 Prime)**,直接透传会让 fresh 被再减一次 cache。修法:落库时把 `usage_details.input` 写成**含 cache 的完整 prompt**(`input+cacheRead+cacheWrite`),再单列 `cache_read_input_tokens`/`cache_creation_input_tokens`,这样无论口径都能恒定还原。
+- **多轮续接不能跨轮重复计数**:先实测确认 `--resume`/`-r` 续接时终态事件(如 `agent_end.messages`)只含**当前轮**消息还是**累积全历史**。若是累积,host 侧 push 每轮全量遍历会 double count——改成只吃**本轮增量**事件(如 Prime 的 `message_end`)。Prime 实测为"仅当前轮",故安全。
+
+**verify**:`GET /api/public/traces?sessionId=<sid>` 应出现 `<runtime>-plugin` trace,其 GENERATION obs 的 `usageDetails` 有值;再用 `observation_briefs` + `tokens_from_detail` 实读,`output>0`/`input>0` 非 NaN。
 
 ---
 
@@ -218,6 +246,7 @@ fresh, cw, cr, out_t, reasoning = _usage_breakdown(usage_payload)
 | GenericAgent / GA active evolve | ✅ 全 5 字段齐 | overlay wrap `_record_usage` 公共汇聚点(而非各 parser);改动后必须 rebuild 镜像 | [genericagent/README.md#token-5-fields](../../../agent-runtimes/genericagent/README.md#token-5-fields) |
 | OpenHuman | ⚠️ `reasoning=0` 合规 | 上游 `MessageUsage` schema 无独立 reasoning 字段,已隐式并入 output | [openhuman/README.md#token-5-fields](../../../agent-runtimes/openhuman/README.md#token-5-fields) |
 | EvoScientist / active evolve | ✅ 全 5 字段齐 | `custom-openai` 走原生 langchain-openai `ChatOpenAI` + otel autoinstrumentation,原生已能吐 usage_metadata;overlay `_should_stream_usage`/`_astream` 双管齐下强制 `stream_options.include_usage=True`,把 judge / 短 turn 的 usage 覆盖率从 44% 拉满到 100%;active 变体复用同一镜像和 overlay,只额外触发 AutoSkills evolve hook | [evoscientist/README.md#token-5-fields](../../../agent-runtimes/evoscientist/README.md#token-5-fields) |
+| Prime Agent / active evolve | ✅ 全 5 字段齐(reasoning=0 合规) | **无容器内 emitter → host 侧 push**:镜像不含 Langfuse 插件,`prime-agent --mode json` 只把 usage 打进 stdout;chat transport 解析事件流在 host 侧补写 `prime-agent-plugin` trace(见 §3.B)。Prime `usage.input` 是 fresh(不含 cache),落库时写成"含 cache 的完整 prompt"让 `_usage_breakdown` 恒还原;`output` 已含 reasoning 且不单列,reasoning=0 合规 | [prime_agent/langfuse_usage.py](../../../src/lift/adapters/prime_agent/langfuse_usage.py) |
 
 排障时:先按 §2 断层图定位在 A/B/C 哪一层,再按 §3-§5 通用修法尝试;若怀疑
 runtime 特定问题,再翻对应 README 的历史病史。
