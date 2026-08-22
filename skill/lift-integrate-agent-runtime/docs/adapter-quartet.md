@@ -57,6 +57,37 @@ src/lift/adapters/<runtime>/
 
 > **典型迭代路径**:新 runtime 首次跑 `--warmup-only` → 看到 `evolve-only` WARNING → 看 candidate 那行的 top 目录 → grep dump 文件确认那些目录里确实是 memory / wiki / skill 类内容 → 更新 `evolve_paths` 声明 → 二次跑,WARNING 消失即视为白名单声明正确。
 
+## 2.1a Warmup 并发策略由「进化产物形态」决定 ⚠️
+
+`evolve_paths` 声明清楚后,紧接着要决定这个 runtime 的 warmup 能不能并发。**判据不是性能,而是进化写入的并发安全性**——看进化产物落成什么形态:
+
+| 进化产物形态 | 并发安全? | warmup 策略 |
+|---|---|---|
+| 每题写**独立子目录 / 独立文件**(memory/ 下按题分文件、skill-registry 按名分目录) | 是 | 默认 `parallel_single`(单容器多题并发,最快) |
+| 多题写**同一个非原子、无锁的全局文件**(如 `harness_state.json`);或进化命令要 `-c` / `--resume` **续接同一条会话轨迹** | 否 | 必须 `SERIAL_SINGLE`——adapter 里 override coerce + 告警 |
+
+并发写单个全局文件会竞态(后写覆盖先写,进化产物只剩最后一题);`-c` 续接语义下并发会让"该续哪条会话"变得不确定。这两种情况都要在 adapter 的 `__init__` 里强制串行:
+
+```python
+def __init__(self, options: RunOptions) -> None:
+    if options.warmup_container_policy is not WarmupContainerPolicy.SERIAL_SINGLE:
+        LOGGER.warning("… coercing warmup_container_policy %s -> serial_single.",
+                       options.warmup_container_policy.value)
+        options = options.model_copy(
+            update={"warmup_container_policy": WarmupContainerPolicy.SERIAL_SINGLE})
+    super().__init__(options)
+```
+
+参考 [prime_agent_active_evolve/adapter.py](../../../src/lift/adapters/prime_agent_active_evolve/adapter.py#L46-L63)。**串行是正确性前提,不是保守**——在 README 里写清"为什么必须串行",别让后来者以为可以放开并发提速。
+
+## 2.1b daemon-backed runtime:清 commit 固化的运行时瞬态 ⚠️
+
+有常驻后台进程的 CLI(daemon-backed runtime)接入时,`docker commit` 会把 warmup 容器里**活动 daemon 的运行时瞬态**(supervisor 锁 / owner 文件 / worker / session-lease 等)一起固化进 delta 镜像。evolved 容器从该镜像启动时,daemon 重启要对这些残留文件做跨设备 `renameSync`(overlayfs upperdir ↔ bind mount) → `EXDEV: cross-device link not permitted`,首轮 chat 秒崩。baseline 从干净基线镜像起不受影响,所以症状是"baseline 正常、evolved 独崩"。
+
+两道防线:
+1. **`session.py` 加 `post_start_hook`**:容器启动后、首轮 chat 前 `rm -rf` 掉 daemon 运行时瞬态目录。**只清瞬态锁 / owner / worker / lease,绝不碰进化产物目录**——daemon 起来会自建这些锁,清理是安全的。参考 [prime_agent/session.py `_clear_stale_daemon_state`](../../../src/lift/adapters/prime_agent/session.py#L121-L148)(注册见 [L206-208](../../../src/lift/adapters/prime_agent/session.py#L206-L208))。
+2. **`evolve_paths` 收窄**:白名单只声明进化子目录,别把带瞬态锁的父目录也 commit 进来。
+
 ## 2.2 `session.py`(容器启动)
 
 模板:[`src/lift/adapters/genericagent/session.py`](../../../src/lift/adapters/genericagent/session.py)

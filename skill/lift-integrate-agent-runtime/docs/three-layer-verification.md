@@ -160,6 +160,24 @@ grep -E "User Prompt|Agent result|captured thread_id|Thread .* not found" "$LOG"
 - thread id 绑定在每个 `ChatAgent` 实例上;不要用容器全局变量或查询
   `sessions.db` 的最新 thread,并发 warmup 会串 task。
 
+### A'.7 联网/时效任务:judge 别把实时数据当造假(死循环哨兵)
+
+跑 `test_search.json` 之类联网 / 时效题时,若日志出现 work agent 反复被打回、
+来回多轮直到撞 `CHAT_EXEC_TIMEOUT_SECONDS` 超时(baseline 尤其易中招):
+
+```bash
+LOG=results/lift-runid-<run_id>/run.log
+grep -E "过时|不符|造假|请再核对|version|as of|CHAT_EXEC|timeout" "$LOG" | head
+```
+
+大概率是 judge LLM 拿自己 cutoff 前的记忆去否定容器内**联网查到的真实实时数据**
+(版本号 / 发布日期 / 价格 / 排名)→ agent 一直"证明自己没造假"→ 死循环。
+**这是 runtime-agnostic 的 eval 内核行为,不是某个 runtime 的 bug**;LIFT 已在
+[`run_task.py::_build_judge_prompt`](../../../src/lift/eval/run_task.py#L94-L98) 注入
+【当前真实日期=系统时间,权威可信】+【别用记忆核实客观事实,核实是 agent 的活,
+你只判任务要求满没满足】两条锚点约束修复。若你的接入自定义了 judge prompt,务必
+保留这两条锚点,否则任何联网 runtime 都会在时效题上偶发死循环超时。
+
 ---
 
 ## 证据 B:Langfuse —— trace 写入 & 后处理拼装
@@ -203,6 +221,8 @@ grep -E "trace not found|Failed to fetch trace|trace_backfill" "$LOG"
 **红旗**:`work=0` / `judge=0` 且日志无 timeout → overlay 没生效或 trace name 没进 `LANGFUSE_PLUGIN_TRACE_NAMES`(见 [common-pitfalls](./common-pitfalls.md))。
 
 **另一红旗**:`work` / `judge` 齐全但 `plugin=0`,容器日志出现 `Failed to export span batch due to timeout` → 容器内 exporter 端点不通宿主 Langfuse。`docker exec <c> env | grep LANGFUSE` 看 `LANGFUSE_BASE_URL` 是否被 `.env` 里的 `localhost` / `127.0.0.1` 污染;修法见 [adapter-quartet](./adapter-quartet.md) §2.2 第 6 点(`env_vars` 覆写)。
+
+**第三红旗(headless CLI / 闭源 / 无 plugin 机制的 runtime)**:`plugin=0` 且容器日志**连 exporter 都没有**(没有 Langfuse 相关日志)→ 大概率是断点 0:**容器内根本没有 emitter**,而你又没做 host 侧 push。这不是端点问题,是架构漏项——见 [token-observability](./token-observability.md) §2 断点 0 + §3.B。此类 runtime 接入时就该在 `chat_agent.py` 做 host 侧 push,而不是等验收看到 NaN 才回头补。
 
 ---
 

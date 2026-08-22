@@ -25,6 +25,8 @@ SUPPORTED_RUNTIMES = (
     "openhuman_with_agentmemory",
     "evoscientist",
     "evoscientist_active_evolve",
+    "prime_agent",
+    "prime_agent_active_evolve",
 )  # CLI 可选的运行时标识
 
 
@@ -127,5 +129,20 @@ def create_adapter(runtime: str, options: RunOptions) -> AgentRuntimeAdapter:
         )
 
         return EvoScientistActiveEvolveAdapter(options)
+    if normalized == "prime_agent":
+        # Prime Agent baseline（被动进化）：pi -p 单发 chat；无显式 /refine 触发，
+        # warmup 期自然写入的 global harness/skills 由 docker commit 携带。
+        from src.lift.adapters.prime_agent.adapter import PrimeAgentAdapter
+
+        return PrimeAgentAdapter(options)
+    if normalized == "prime_agent_active_evolve":
+        # Prime Agent + 显式 global /refine：warmup 后在容器内触发一次
+        # global /refine 把证据支撑的增量写回 global harness，等完成后 docker commit
+        # /root/.prime/agent。
+        from src.lift.adapters.prime_agent_active_evolve.adapter import (
+            PrimeAgentActiveEvolveAdapter,
+        )
+
+        return PrimeAgentActiveEvolveAdapter(options)
     supported = ", ".join(SUPPORTED_RUNTIMES)
     raise ValueError(f"Unknown runtime {runtime!r}; supported: {supported}")

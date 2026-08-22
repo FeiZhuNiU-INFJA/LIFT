@@ -94,6 +94,28 @@ EVOSCIENTIST_DOCKER_IMAGE = "lift-evoscientist:latest"
 EVOSCIENTIST_WORKSPACE_SEED_DIR = EVOSCIENTIST_AGENT_DIR / "workspace_seed"
 """宿主机 EvoScientist eval workspace seed 源目录。"""
 
+PRIME_AGENT_AGENT_DIR = PROJECT_ROOT / "agent-runtimes" / "prime_agent"
+"""Prime Agent 镜像与容器配置目录（``agent-runtimes/prime_agent/``；镜像尚待构建）。"""
+
+PRIME_AGENT_DOCKER_IMAGE = "lift-prime-agent:latest"
+"""Prime Agent runtime 镜像（``PrimeAgentAdapter`` 使用）。
+
+内含 ``@earendil-works/pi-coding-agent``（bin ``pi``）+ LIFT overlay。构建脚本
+``agent-runtimes/prime_agent/build-image.sh`` 尚待补齐（见 adapter 顶部 TODO）。
+镜像内约定：Continual Harness / skills / sessions 全部落在
+``PRIME_AGENT_STATE_DIR``（=容器内 ``PRIME_AGENT_CODING_AGENT_DIR``），使
+``docker commit`` 能整体捕获 global harness。"""
+
+PRIME_AGENT_STATE_DIR = "/root/.prime/agent"
+"""容器内 Prime Agent 状态根目录（``getAgentDir()`` 默认值，显式钉死方便 commit）。
+
+global harness 落在 ``{PRIME_AGENT_STATE_DIR}/harness/harness_state.json`` +
+``refinements.jsonl``；skills/prompts/agents/sessions 亦在此目录下。启动容器时通过
+env ``PRIME_AGENT_CODING_AGENT_DIR={PRIME_AGENT_STATE_DIR}`` 固定，避免 XDG 漂移。"""
+
+PRIME_AGENT_WORKSPACE_SEED_DIR = PRIME_AGENT_AGENT_DIR / "workspace_seed"
+"""宿主机 Prime Agent eval workspace seed 源目录。"""
+
 RESULTS_DIR = "results"
 """单次 eval run 产物根目录名（相对 cwd）：report、outcome、后处理指标。"""
 

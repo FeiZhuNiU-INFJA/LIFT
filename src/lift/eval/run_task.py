@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import datetime
 
 from json_repair import repair_json
 from pydantic import BaseModel, Field
@@ -90,6 +91,11 @@ def _build_judge_prompt(user_prompt: str, agent_result: str, content_reqs: str) 
         "- 如果在任务期望结果中，你发现不同的序号中，对应的要求有相关联的地方，比如他们都可以归为一类，或者放到同一个模块中。绝对不要把它们合并到一起，作为一条要求回复。\n"
         "- 任务期望结果中的要求必须严格的按照序号划分为独立的每一条，回复时绝不允许合并多条要求为一条进行回答。\n"
         "- 对上一轮Agent的结果，你不能因为他说任务已完成/要求已完成就直接判定所有要求都完成了，作为一个严格的用户，你得仔细查看它的产出，确认是否符合所有的任务期望结果，然后才能给出最终评判。\n"
+        f"- 【当前真实日期】今天是 {datetime.now().strftime('%Y-%m-%d')}（评测环境系统时间，权威可信）；涉及「最新 / 当前 / 现在」这类时效信息时一律以此为准。\n"
+        "- 【别用记忆核实客观事实】你的知识有截止时间、可能过时，所以任何客观事实"
+        "（版本号、发布日期、价格、排名等）都不能凭记忆判对错，更不能因为「和你印象不符」"
+        "就判 agent 造假。核实事实是 agent 的活；你只判【任务期望结果】里的要求满没满足。"
+        "只要 agent 确实联网查了就采信，有疑问最多提醒它再核对，不能直接判假。\n"
         "\n"
         "示例对照（只示意语气，**不要照搬内容**）：\n"
         '- 机器味（错误示范）："当前未读取 q3_materials/sales_by_dept.xlsx 进行数据处理，'

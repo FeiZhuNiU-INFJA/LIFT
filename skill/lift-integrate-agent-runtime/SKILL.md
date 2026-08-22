@@ -35,6 +35,7 @@ description: "LIFT 评测框架接入新 agent runtime 的端到端清单:镜像
 - LIFT 通过 **`AgentRuntimeAdapter` ABC + `ContainerAgentRuntimeAdapter` 模板方法** 接入容器化 agent;非容器型 runtime(如 Hermes 直连 OpenAI)走 `AgentRuntimeAdapter` 直接 override
 - Chat 协议是 `WorkerJudgerPair`(一次 task 一对独立 ChatAgent;work / judge 互不干扰),由 `worker_judger_factory` 在每题创建
 - Langfuse trace 拼装要求 plugin 侧 trace 的 **`name` 在 `LANGFUSE_PLUGIN_TRACE_NAMES` 白名单里**,且 trace 的 **`session_id` 与 LIFT 侧 `work-/judge-` session 对齐**
+- **plugin trace 由谁 emit 是接入时就定的架构事实,不是运行时才暴露的 bug**:emitter 要么在**容器内**(overlay/plugin,OpenClaw/GA/EvoScientist),要么在**host 侧**(chat transport 解析 stdout/response 后补写,OpenHuman/Prime Agent)。headless CLI 单发 / 闭源二进制 / 无 plugin 机制的 runtime **没有容器内 emitter** → 必须走 host 侧 push,否则 5 字段 token 恒 NaN。接入时先问"谁 emit",别等跑完看到 NaN 才回头补
 - **统一观测契约**(runtime-agnostic 的地基):每个 eval turn 一条 root span,root 的 `metadata.messages` / `metadata.toolCallBlocks` / `output.tool_calls` 都是"同 session 跨轮累积"值;后处理 token 跨轮 SUM、工具计数跨轮 take-max,**不再有 `_make_row_<runtime>` 之类 runtime 分支**。必读 [docs/langfuse-unified-observation-contract.md](../../docs/langfuse-unified-observation-contract.md)
 - **Token 5 字段口径**必须先读 [docs/token-observability.md](./docs/token-observability.md) §0 —— `reasoning ⊆ output`,不是 sibling;`total = input + output + cache_read`,reasoning 不入 total
 
@@ -55,10 +56,14 @@ description: "LIFT 评测框架接入新 agent runtime 的端到端清单:镜像
 │   ├── 是 → ContainerAgentRuntimeAdapter 模板;走 docs/adapter-quartet.md
 │   └── 否 → AgentRuntimeAdapter 直接 override(参考 Hermes)
 │
-├── 上游是否 Python?
-│   ├── 是 → langfuse_tracing_overlay.py 用 hook 覆盖(GenericAgent 样板)
-│   ├── Node → 写独立 plugin(OpenClaw langfuse-tracer 样板)
-│   └── 闭源二进制 → env 绕过 + reverse mode(OpenHuman 样板)
+├── 观测 trace 谁来 emit?(**先定位 emitter 在哪一侧**,再谈用什么实现)
+│   ├── 容器内能注入 emitter(常驻进程 / 有 plugin 机制)?
+│   │   ├── 上游 Python → langfuse_tracing_overlay.py 用 hook 覆盖(GenericAgent 样板)
+│   │   └── 上游 Node   → 写独立 plugin(OpenClaw langfuse-tracer 样板)
+│   └── 容器内没有 / 不宜放 emitter(headless CLI 单发、闭源二进制、
+│       usage 只在 stdout/response 里) → **host 侧 push**:chat transport 拿到
+│       stdout/response 后解析 usage,在 host 侧补写 plugin trace
+│       (OpenHuman `transcript_langfuse` / Prime Agent `langfuse_usage` 样板)
 │
 ├── 单进程跨多轮?(文件 I/O 型 / 长连接 stdin-stdout 型)
 │   └── overlay 必须处理进程级 transcript 累积器 + 每轮 root span
@@ -67,6 +72,15 @@ description: "LIFT 评测框架接入新 agent runtime 的端到端清单:镜像
 ├── 进化产物是否落 container FS 层?
 │   ├── 是(需要 evolve) → docs/evolve-artifact-contract.md 三点错位检查
 │   └── 否 → skip
+│
+├── 进化产物是什么形态?(决定 warmup 能不能并发)
+│   ├── 每题独立子目录 / 文件 → 默认 parallel_single(最快)
+│   └── 共享单文件(无锁非原子)/ 需 -c 续接同一会话
+│       → adapter.__init__ coerce 到 SERIAL_SINGLE(docs/adapter-quartet.md §2.1a)
+│
+├── runtime 有常驻后台 daemon 吗?(daemon-backed CLI)
+│   └── 有 → docker commit 会固化运行时瞬态锁,evolved 容器 EXDEV 秒崩
+│      → session.py 加 post_start_hook 清瞬态(docs/adapter-quartet.md §2.1b)
 │
 └── Token 5 字段落库 →(必修,不是可选)
     docs/token-observability.md 全流程
@@ -122,6 +136,7 @@ CLI 注册:
 ### Step 4. 后处理 + trace 拼装
 
 - `src/models.py::LANGFUSE_PLUGIN_TRACE_NAMES` 加 `"<runtime>-plugin"`,让后处理能匹配 plugin trace
+- **确认 plugin trace 有人 emit**(见前置认知的 emitter locus):容器内有 emitter(overlay/plugin)就走 Step 1 的 overlay;若是 headless CLI / 闭源 / 无 plugin 机制,**在 `chat_agent.py` 里 host 侧 push**——chat 拿到 stdout/response 后解析 usage,构造 `name="<runtime>-plugin"` 的 root span + 每个 LLM round-trip 一个 `as_type="generation"`(带 `usage_details`)+ 每次工具调用一个 `as_type="tool"` 子 span,`session_id` 传 LIFT 侧 session。样板:[`openhuman/transcript_langfuse.py`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/openhuman/transcript_langfuse.py) / [`prime_agent/langfuse_usage.py`](file:///root/workspace/agent_evolve_evaluation/src/lift/adapters/prime_agent/langfuse_usage.py)
 - **遵循统一观测契约**:overlay / push 侧保证每个 eval turn 一条 root span,root 的 `metadata.messages` / `metadata.toolCallBlocks` / `output.tool_calls` 都是"同 session 跨轮累积"值,且 `len(output.tool_calls) == toolCallBlocks`(同源)。做到这点后,**后处理零改动**——`_make_metric_row` runtime-agnostic,不再需要 `_make_row_<runtime>`
 - 若 trace 布局不复用 OpenClaw sid-only(如 Hermes 要 tag 才能配对),在 `langfuse_trace_stitch` 加一条 `_stitch_<runtime>` dispatch
 
@@ -151,13 +166,15 @@ CLI 注册:
 
 按症状定位到具体 docs 文档,详见 → [docs/common-pitfalls.md](./docs/common-pitfalls.md)
 
-高频前 5:
+高频清单:
 1. `docker exec` 起不来 → 上游硬编码 cwd 没 patch,见 [docs/image-scaffold.md §1.4](./docs/image-scaffold.md)
-2. Langfuse 全无 plugin trace → overlay 没生效 / trace name 未加白名单 / `LANGFUSE_HOST=localhost` 污染
+2. Langfuse 全无 plugin trace → overlay 没生效 / trace name 未加白名单 / `LANGFUSE_HOST=localhost` 污染 / **容器内根本没 emitter(headless CLI 忘了 host 侧 push)**
 3. `cache_read_tokens` / `reasoning_tokens` 全 0 → 5 字段落库链路某层断了,走 [docs/token-observability.md §2-§5](./docs/token-observability.md)
 4. evolved == baseline → 进化产物三点错位,走 [docs/evolve-artifact-contract.md](./docs/evolve-artifact-contract.md)
 5. `Delta preflight diff (evolve-only) ... no changes` WARNING → `evolve_paths` 声明错,看 log 里 `candidate unlisted evolve paths` 建议名单
 6. **长产出被静默截断,内容分低但看不出原因** → `MAX_TOKENS` 链路断层(env 有但没送到 LLM),按 [docs/acceptance-checklist.md §6.1a](./docs/acceptance-checklist.md) 抓 HTTP body 复核
+7. **evolved 容器 `EXDEV` 秒崩、baseline 却正常**(daemon-backed runtime)→ `docker commit` 固化了运行时瞬态锁,`session.py` 加 post_start_hook 清瞬态,见 [docs/adapter-quartet.md §2.1b](./docs/adapter-quartet.md)
+8. **联网/时效题 work 被 judge 反复打回直到超时** → judge 凭记忆否定实时数据死循环,`_build_judge_prompt` 需保留日期+"别用记忆核实事实"锚点,见 [docs/three-layer-verification.md A'.7](./docs/three-layer-verification.md)
 
 ---
 
