@@ -23,10 +23,11 @@
 | 9 | `lift-openhuman-with-agentmemory:latest` | `DOCKER_BUILD_NETWORK=host bash agent-runtimes/openhuman/build-image.sh --with-agentmemory` | `-r openhuman_with_agentmemory` |
 | 10 | `lift-genericagent:latest` | `bash agent-runtimes/genericagent/build-image.sh` | `-r genericagent` / `-r genericagent_active_evolve` |
 | 11 | `lift-evoscientist:latest` | `bash agent-runtimes/evoscientist/build-image.sh` | `-r evoscientist` / `-r evoscientist_active_evolve` |
+| 12 | `lift-prime-agent:latest` | `bash agent-runtimes/prime_agent/build-image.sh` | `-r prime_agent` / `-r prime_agent_active_evolve` |
 
 > `_active_evolve` 变体和 base 变体**共享同一镜像**,只需 build 一次。
 >
-> `_with_openspace` 只加到有 MCP 客户端能力的 runtime(OpenClaw / Hermes);GenericAgent / OpenHuman / EvoScientist 不是 MCP 客户端,所以没有对应变体。见 [../CLAUDE.md](../CLAUDE.md)。
+> `_with_openspace` 只加到有 MCP 客户端能力的 runtime(OpenClaw / Hermes);GenericAgent / OpenHuman / EvoScientist 不是 MCP 客户端,所以没有对应变体;Prime Agent 自带 firecrawl remote MCP skill,亦无 OpenSpace 变体。见 [../CLAUDE.md](../CLAUDE.md)。
 
 ## 共同环境开关
 
@@ -75,3 +76,4 @@ bash scripts/build-all-images.sh --list
 - [agent-runtimes/openhuman/README.md](../agent-runtimes/openhuman/README.md)
 - [agent-runtimes/genericagent/README.md](../agent-runtimes/genericagent/README.md)
 - [agent-runtimes/evoscientist/README.md](../agent-runtimes/evoscientist/README.md)
+- [agent-runtimes/prime_agent/README.md](../agent-runtimes/prime_agent/README.md)

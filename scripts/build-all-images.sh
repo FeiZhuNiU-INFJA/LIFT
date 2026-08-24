@@ -43,6 +43,7 @@ readonly TARGETS=(
   "openhuman-with-agentmemory|DOCKER_BUILD_NETWORK=host bash agent-runtimes/openhuman/build-image.sh --with-agentmemory"
   "genericagent|bash agent-runtimes/genericagent/build-image.sh"
   "evoscientist|bash agent-runtimes/evoscientist/build-image.sh"
+  "prime-agent|bash agent-runtimes/prime_agent/build-image.sh"
 )
 
 usage() {

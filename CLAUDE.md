@@ -28,6 +28,8 @@ bash agent-runtimes/hermes/build-image.sh --with-openspace  # → lift-hermes-wi
 # Hermes / OpenHuman agentmemory variants
 bash agent-runtimes/hermes/build-image.sh --with-agentmemory    # → lift-hermes-with-agentmemory:latest
 bash agent-runtimes/openhuman/build-image.sh --with-agentmemory # → lift-openhuman-with-agentmemory:latest
+# Prime Agent (Node/TS CLI + resident IPython kernel); both -r prime_agent* variants share one image
+bash agent-runtimes/prime_agent/build-image.sh             # → lift-prime-agent:latest
 
 # One-shot: build all runtime images (SSoT for the full command list: docs/build-images.md)
 bash scripts/build-all-images.sh                            # build everything
@@ -54,6 +56,10 @@ python -m src.cli.lift_main -r openclaw --evaluate-only --run-id my-run
 
 # Pull benchmark markdowns from TOS / HuggingFace / ModelScope and convert to suite JSON
 python -m src.cli.preprocess
+
+# Rebuild the GitHub Pages leaderboard data (docs/leaderboard.html reads docs/leaderboard.json;
+# ranks evolution impact via population-ratio deltas, NOT absolute capability)
+python scripts/build_leaderboard.py            # auto-discovers results/*.tar.xz
 
 # Unit tests
 python -m pytest src/lift/tests -q
@@ -88,6 +94,7 @@ lift/eval (src/lift/eval)
 | Hermes | `src/lift/adapters/hermes/` | Docker exec runner; review-driven implicit evolution under `/opt/hermes-state` |
 | OpenHuman | `src/lift/adapters/openhuman/` | Rust core JSON-RPC runtime; transcript push to Langfuse |
 | EvoScientist | `src/lift/adapters/evoscientist[_active_evolve]/` | `EvoSci -p ... --output-format stream-json`; `_active_evolve` runs EvoMemory AutoSkills after warmup |
+| Prime Agent | `src/lift/adapters/prime_agent[_active_evolve]/` | Node/TS CLI `prime-agent --mode json` via `docker exec` + resident IPython kernel; `_active_evolve` triggers per-task global `/refine` |
 | Data models | `src/models.py` | `Suite` / `EvalReport` / `PhaseRun` / `CustomTags` / Langfuse trace schema |
 | Status bus | `src/lift/status/` | Event bus + state aggregator + TUI / HTTP dashboard + replay |
 | Post-processing | `src/postprocess/run_post_process.py` | trace backfill, metric extraction, trajectory judge, CSV / HTML reports |
@@ -107,8 +114,10 @@ Supported runtimes (`-r` values, see `src/lift/adapters/registry.py`):
 - `openhuman_with_agentmemory` — OpenHuman + agentmemory backend (`config.toml [memory] backend="agentmemory"`); starts container-local `:3111`, forces bridge networking, and commits `/root/.agentmemory`
 - `evoscientist` — EvoScientist CLI headless runtime (`EvoSci -p ... --output-format stream-json`); runtime conversation continuity uses captured `--resume <thread_id>`, not LIFT observability `session_id`
 - `evoscientist_active_evolve` — EvoScientist + explicit EvoMemory AutoSkills hook after warmup; reuses `lift-evoscientist:latest`, waits for LangGraph run completion, then commits `/root/.evoscientist`
+- `prime_agent` — Prime Agent baseline (passive evolution); state under `/root/.prime/agent` (`PRIME_AGENT_STATE_DIR`, captured by `docker commit`). Continual Harness is session-local by default, so evolved-phase gain is **expected ≈0** — this runtime is deliberately kept as the ablation control for `prime_agent_active_evolve`, not a capability measurement. Warmup should use `serial_single` (concurrent CRUD on the shared global harness races, same class of issue as Hermes)
+- `prime_agent_active_evolve` — same image and chat path; `evolve_after_task` triggers one **global** `/refine` per finished warmup task (per-task because `/refine` only reviews the most recent session; one suite-level trigger would lose the first N-1 tasks' lessons), then commits `/root/.prime/agent`
 
-> MCP support: OpenSpace is only added to MCP-capable runtimes (OpenClaw, Hermes). GenericAgent (fixed atomic tools) and OpenHuman (no `mcp_servers`) are not MCP clients, so they get no OpenSpace variant.
+> MCP support: OpenSpace is only added to MCP-capable runtimes (OpenClaw, Hermes). GenericAgent (fixed atomic tools) and OpenHuman (no `mcp_servers`) are not MCP clients, so they get no OpenSpace variant; Prime Agent ships its own firecrawl remote MCP skill and likewise has no OpenSpace variant.
 
 ### Evaluation Flow
 
@@ -200,11 +209,11 @@ TOS_SECRET_KEY=your_secret_key
 
 - **Image tags**: `src/paths.py` defines `OPENCLAW_BASE_DOCKER_IMAGE` and `OPENCLAW_WITH_EVOLVE_DOCKER_IMAGE`, corresponding to `INSTALL_SELF_EVOLVING=false/true`
 - **Plugins**: `langfuse-tracer`, `self-evolving-plugin-pro`, firecrawl-plugin, etc. are baked at build time and not downloaded at runtime
-- **Chat channel**: `docker exec openclaw agent --local --json --session-id <sid>`; stdout JSON is parsed into the chat result; a 1000s safety timeout applies per call (timeouts retry as provider errors). Other runtimes use similar per-call ceilings (GenericAgent / OpenHuman = 1000s, Hermes = 1200s) — see `CHAT_EXEC_TIMEOUT_SECONDS` in each adapter's `chat_agent.py`
+- **Chat channel**: `docker exec openclaw agent --local --json --session-id <sid>`; stdout JSON is parsed into the chat result; a 1000s safety timeout applies per call (timeouts retry as provider errors). Other runtimes use similar per-call ceilings (GenericAgent / OpenHuman / EvoScientist / Prime Agent = 1000s, Hermes = 1200s) — see `CHAT_EXEC_TIMEOUT_SECONDS` in each adapter's `chat_agent.py`
 - **Langfuse correlation contract**:
   - Same Langfuse project (host and container share keys / host)
   - Same `session_id` (pre-chat span and in-container plugin trace share it)
-  - Plugin trace name ∈ `{"openclaw-plugin", "Hermes turn", "genericagent-plugin", "openhuman-plugin", "evoscientist-plugin"}` (see `LANGFUSE_PLUGIN_TRACE_NAMES` in `src/models.py`)
+  - Plugin trace name ∈ `{"openclaw-plugin", "Hermes turn", "genericagent-plugin", "openhuman-plugin", "evoscientist-plugin", "prime-agent-plugin"}` (see `LANGFUSE_PLUGIN_TRACE_NAMES` in `src/models.py`)
   - Retries do **not** emit a new `*_agent` pre-chat span; post-process consumes multiple plugin traces via an extended greedy pairing
 - **Workspace seed**: `agent-runtimes/openclaw/workspace_seed/` is `COPY`'d into `/root/.openclaw/workspace` at build time. It contains `SOUL.md` / `IDENTITY.md` / `USER.md` / `AGENTS.md` / `TOOLS.md` / `HEARTBEAT.md`. The old host-side copy logic has been removed.
 
@@ -234,4 +243,6 @@ TOS_SECRET_KEY=your_secret_key
 - Flow / data / post-process details: `docs/eval-flow.md`
 - OpenClaw image build: `agent-runtimes/openclaw/README.md`
 - EvoScientist image build / AutoSkills active evolve: `agent-runtimes/evoscientist/README.md`
+- Prime Agent image build / refine-based active evolve: `agent-runtimes/prime_agent/README.md`
+- NeurIPS paper source: `docs/neurips/main.tex` (build via `docs/neurips/build.sh`; compiled `main.pdf` is gitignored)
 - Cross-module change narratives: `docs/release-notes/`

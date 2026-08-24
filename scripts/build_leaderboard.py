@@ -82,6 +82,8 @@ RUNTIME_REGISTRY: list[RuntimeMeta] = [
                 "evoscientist", "C", "no-op evolve; warmup raw observations carried by docker commit (autoskills/proposals empty, no distillation)"),
     RuntimeMeta("evosci-active", "evoscientist_active_evolve", "evoscientist+active",
                 "evoscientist", "R", "post-hoc AutoSkills pass after the warmup batch distills observations into skill proposals before commit"),
+    RuntimeMeta("prime-full", "prime_agent_active_evolve", "prime-agent+active",
+                "prime-agent", "D", "per-task '/refine --global' distills each warmup trajectory into the global Continual Harness via -c"),
 ]
 
 MECH_CLASS_LABEL = {

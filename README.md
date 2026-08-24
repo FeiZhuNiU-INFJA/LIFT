@@ -24,6 +24,10 @@
   <img alt="Langfuse" src="https://img.shields.io/badge/tracing-Langfuse-ffb74d">
 </p>
 
+<p align="center">
+  <a href="https://feizhuniu-infja.github.io/LIFT/leaderboard.html"><img alt="Leaderboard" src="https://img.shields.io/badge/🏆%20Evolution%20Impact-Leaderboard-6f42c1?style=for-the-badge"></a>
+</p>
+
 > Agent **越用越好用**到底是不是真的？给它一份「练习题」、一份「期末考」，把进化前后的成绩单摆在一起。
 
 LIFT 是一套面向 **Agent 自我进化能力**的评测框架。它不评测 agent 本身的开箱能力，而是回答一个朴素但被忽视的问题：
@@ -79,6 +83,8 @@ flowchart LR
 - **终端 TUI**（`--tui`）：终端里原地刷新，header 进度条 + suite × repeat 矩阵 + 活跃容器表
 - **浏览器 Dashboard**（`--dashboard 8080`）：无需额外依赖，多人可同时连。点任一 task 弹出 work↔judge 完整对话；KPI 条 / phase delta 着色 / retry 闪烁告警一应俱全
 - **静态快照**（自动）：跑完自动写 `results/<run_id>/dashboard.html`，发出去同事打开就能复盘；事后用 `--evaluate-only` 还能在不重跑 agent 的前提下，把整个评测过程的 dashboard 重建出来
+
+> 🏆 **在线排行榜**：跨 runtime 的「进化影响」榜单（按 ΔTurns% 排序）常驻在 **[feizhuniu-infja.github.io/LIFT/leaderboard.html](https://feizhuniu-infja.github.io/LIFT/leaderboard.html)**。它排的是「进化带来的提升幅度」（每行都已减去自身 Base），不是原始能力横比。
 
 <table>
   <tr>
