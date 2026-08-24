@@ -11,16 +11,17 @@ Snapshot of what §6 currently claims **vs** what the numbers on disk actually s
 | `hermes` | `lift-runid-hermes-10-a` | ✅ | ✅ | ✅ | ✅ | 10-repeat; the RQ1 winner |
 | `hermes_with_openspace` | `lift-runid-hermes-openspace-full` | ✅ | ✅ | ✅ | ✅ | Pairs with `hermes` for augmentation Gain |
 | `genericagent` | `lift-runid-genericagent-full` | ✅ | ⚠️ | ✅ | ✅ | Included in RQ1/3/4; not paired in RQ2 (no plugin variant) |
+| `genericagent_active_evolve` | `lift-runid-genericagent-active-10-b` | ✅ | ✅ | ✅ | ✅ | Active-reflection RQ2 partner for GenericAgent |
+| `openclaw_with_agentmemory` | `lift-runid-openclaw-am-10-e` | ✅ | ✅ | ✅ | ✅ | Passive agentmemory backend; RQ2 partner for `openclaw` |
+| `hermes_with_agentmemory` | `lift-runid-herems-am-10-b` | ✅ | ✅ | ✅ | ✅ | agentmemory backend; RQ2 partner for `hermes` |
+| `evoscientist` / `_active_evolve` | `lift-runid-evosci-full` / `lift-runid-evosci-active-full` | ✅ | ✅ | ✅ | ✅ | Both variants swept; non-Claw/non-Hermes family |
+| `prime_agent_active_evolve` | `lift-runid-prime-full-r10` | ✅ | ⚠️ | ✅ | ✅ | 10-repeat; per-task `/refine --global` distillation. Not paired in RQ2 (no passive-baseline variant swept). ΔTurns% $-3.27$, 95% CI $[-6.96, +0.87]$ crosses zero (directional only). Base pass 0.9321 (below the 0.99–1.00 band) is a run-condition artifact of this sweep's timeout/hang incidents, not a capability gap |
 | `openclaw_with_evolve` | — | ❌ | ❌ | ❌ | ❌ | Never run in this sweep; §3 mentions it as a registered runtime |
-| `openclaw_with_agentmemory` | — | ❌ | ❌ | ❌ | ❌ | Runtime works; sweep not scheduled |
-| `hermes_with_agentmemory` | — | ❌ | ❌ | ❌ | ❌ | Same |
 | `multi_user_openclaw` | — | ❌ | ❌ | ❌ | ❌ | Same |
-| `genericagent_active_evolve` | — | ❌ | ❌ | ❌ | ❌ | Would give an active-reflection RQ2 pair for GenericAgent |
 | `openhuman` | — | ❌ | ❌ | ❌ | ❌ | Runtime debugged (policy-blocked fix); no full sweep yet |
 | `openhuman_with_agentmemory` | — | ❌ | ❌ | ❌ | ❌ | Same |
-| `evoscientist` / `_active_evolve` | — | ❌ | ❌ | ❌ | ❌ | Runtime ready; no sweep |
 
-**§3.3 claims twelve registered runtimes; §6 evaluates five.** Not misleading — §6 is explicit about which rows are in each table — but v2 should aim to close this to at least 8 runtimes for a stronger cross-runtime story.
+**§3.3 keeps the registered-runtime count non-numeric ("Registered runtimes include…"); §6 now evaluates eleven of them.** Not misleading — §6 is explicit about which rows are in each table — but v2 should still close the remaining gap (openclaw\_with\_evolve, openhuman family, multi\_user\_openclaw) for a fuller cross-runtime story.
 
 ## Claims-in-text audit (against current tables)
 
@@ -30,8 +31,8 @@ Snapshot of what §6 currently claims **vs** what the numbers on disk actually s
 | "Only Hermes and Hermes+OpenSpace show 95% CIs on ΔTurns% that lie entirely below zero." | ✅ backed by RQ3 CI table |
 | "OpenSpace rescues an otherwise-neutral base on OpenClaw (Gain: turns −6.7pp, tokens −7.6pp)." | ✅ backed by RQ2 delta-of-delta |
 | "GenericAgent … not statistically distinguishable from zero at 10 repeats." | ✅ backed by RQ3 CI table |
-| "Pass rate on EALE is saturated (0.99–1.00)." | ✅ backed by RQ4 absolute means |
-| "12 registered runtimes" (§3.3) | ⚠️ true at runtime level; only 5 evaluated |
+| "Pass rate on EALE is saturated (0.99–1.00)." | ⚠️ holds for 10 of 11 rows; `prime_agent_active_evolve` base pass 0.9321 is the one exception — a run-condition timeout artifact (see coverage-matrix note), not a benchmark-difficulty signal. RQ4 caption qualifies it |
+| Registered-runtime count (§3.3) | ✅ non-numeric ("Registered runtimes include…"); 11 of them evaluated in §6 |
 
 ## What v2 should add (priority order)
 
