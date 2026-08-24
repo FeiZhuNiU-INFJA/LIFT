@@ -4,7 +4,7 @@
   "methodology": "Runtimes are ranked by evolution impact (ΔTurns%), NOT by absolute capability. Each Δ = (Σ evolved − Σ baseline) / Σ baseline × 100 over paired holdout task-repeats, so every row differences out its own Base. ΔTurns/Tools/Tokens/Latency are lower-is-better (negative = more efficient). Sig. = the 95% CI on ΔTurns% (population std, ddof=0) lies entirely below zero.",
   "primary_sort": "delta_turns_pct",
   "primary_sort_direction": "asc",
-  "generated_at": "2026-08-19T06:29:30Z",
+  "generated_at": "2026-08-23T15:14:31Z",
   "n_repeats_nominal": 10,
   "entries": [
     {
@@ -134,6 +134,27 @@
       "rank": 6
     },
     {
+      "runtime_key": "prime_agent_active_evolve",
+      "display": "prime-agent+active",
+      "base_family": "prime-agent",
+      "mech_class": "D",
+      "mech_class_label": "Per-task distillation",
+      "mech_short": "per-task '/refine --global' distills each warmup trajectory into the global Continual Harness via -c",
+      "source_archive": "lift-runid-prime-full-r10.tar.xz",
+      "paired_task_repeats": 280,
+      "n_repeats": 10,
+      "delta_turns_pct": -3.27,
+      "delta_tools_pct": 5.66,
+      "delta_tokens_pct": 3.21,
+      "delta_latency_pct": -5.73,
+      "turns_ci_low": -6.96,
+      "turns_ci_high": 0.87,
+      "turns_std": 6.31,
+      "significant": false,
+      "base_turns_mean": 16.6,
+      "rank": 7
+    },
+    {
       "runtime_key": "genericagent",
       "display": "genericagent",
       "base_family": "genericagent",
@@ -152,7 +173,7 @@
       "turns_std": 7.91,
       "significant": false,
       "base_turns_mean": 13.9,
-      "rank": 7
+      "rank": 8
     },
     {
       "runtime_key": "openclaw_with_agentmemory",
@@ -173,7 +194,7 @@
       "turns_std": 8.47,
       "significant": false,
       "base_turns_mean": 15.7,
-      "rank": 8
+      "rank": 9
     },
     {
       "runtime_key": "genericagent_active_evolve",
@@ -194,7 +215,7 @@
       "turns_std": 6.63,
       "significant": false,
       "base_turns_mean": 13.5,
-      "rank": 9
+      "rank": 10
     },
     {
       "runtime_key": "openclaw",
@@ -215,7 +236,7 @@
       "turns_std": 9.4,
       "significant": false,
       "base_turns_mean": 15.9,
-      "rank": 10
+      "rank": 11
     }
   ]
 }
