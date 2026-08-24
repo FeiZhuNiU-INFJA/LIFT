@@ -6,25 +6,26 @@
 <title>LIFT · Evolution-Impact Leaderboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Spline+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Spline+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
 <style>
   :root{
-    --paper:#E8E3D6; --paper-2:#DDD7C7; --paper-3:#F1EDE2;
-    --ink:#19180F; --ink-72:rgba(25,24,15,.72); --ink-52:rgba(25,24,15,.52);
-    --ink-34:rgba(25,24,15,.34); --ink-22:rgba(25,24,15,.22); --ink-14:rgba(25,24,15,.14); --ink-10:rgba(25,24,15,.10);
+    --paper:#F4F3ED; --paper-2:#E8E7DE; --paper-3:#FCFBF6;
+    --ink:#16221E; --ink-72:rgba(22,34,30,.72); --ink-52:rgba(22,34,30,.52);
+    --ink-34:rgba(22,34,30,.34); --ink-22:rgba(22,34,30,.22); --ink-14:rgba(22,34,30,.14); --ink-10:rgba(22,34,30,.10);
     --graph:rgba(25,24,15,.055);
     --signal:#A8362A;  /* instrument red · regression / worse */
-    --pass:#2C6A4E;    /* lab green · efficiency gain / better */
-    --mark:#A07A22;    /* ochre · warmup / neutral */
-    --steel:#36506B;   /* calm blue · values / refs */
-    --serif:"Instrument Serif",Georgia,serif;
+    --pass:#176B4D;    /* lab green · efficiency gain / better */
+    --mark:#8B6B16;    /* warmup / neutral */
+    --steel:#315D70;   /* values / refs */
+    --serif:"Spline Sans","PingFang SC",system-ui,sans-serif;
     --sans:"Spline Sans","PingFang SC",system-ui,sans-serif;
     --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
-    --shadow-2:0 4px 14px rgba(64,52,18,.10),0 1px 0 rgba(64,52,18,.06);
-    --shadow-3:0 12px 32px rgba(64,52,18,.14),0 1px 0 rgba(64,52,18,.06);
+    --shadow-2:0 4px 14px rgba(22,34,30,.08),0 1px 0 rgba(22,34,30,.06);
+    --shadow-3:0 12px 32px rgba(22,34,30,.12),0 1px 0 rgba(22,34,30,.06);
     --ease:cubic-bezier(.22,.61,.36,1);
   }
   *{box-sizing:border-box;}
+  html{scroll-behavior:smooth; scroll-snap-type:y mandatory; scroll-padding-top:58px;}
   html,body{margin:0;background:var(--paper);}
   body{
     font-family:var(--sans); color:var(--ink); line-height:1.5;
@@ -32,19 +33,109 @@
     background-size:28px 28px; background-position:center top;
     -webkit-font-smoothing:antialiased;
   }
-  .wrap{max-width:1080px; margin:0 auto; padding:48px 28px 80px;}
+  .progress{position:fixed; z-index:20; top:0; left:0; height:3px; width:var(--progress, 0%); background:var(--pass); transition:width .1s linear; box-shadow:0 0 12px rgba(23,107,77,.5);}
+  .wrap{max-width:1360px; margin:0 auto; padding:0 32px;}
+
+  /* every narrative block is its own full-height, snap-locked scene */
+  .section{position:relative; min-height:100dvh; display:flex; flex-direction:column; justify-content:center;
+    padding:112px 0; scroll-snap-align:start; scroll-snap-stop:always; overflow:hidden;}
+  .section-inner{position:relative; z-index:1; width:100%;}
+  /* the ranking scene is taller than the viewport: align its top and never trap the scroll */
+  #results, #ranking{justify-content:flex-start; scroll-snap-stop:normal;}
+  /* alternating paper tints give each scene its own "room" without a hard seam */
+  .section.tint{background:
+    radial-gradient(120% 90% at 82% 0%, color-mix(in srgb, var(--pass) 6%, transparent), transparent 60%),
+    linear-gradient(180deg, var(--paper-3), var(--paper));}
+  /* a thin animated rule draws itself across the top of each scene as it arrives */
+  .section::before{content:""; position:absolute; top:0; left:0; right:0; height:1px; background:var(--ink-22);
+    transform:scaleX(0); transform-origin:left; transition:transform 1.1s var(--ease);}
+  .section.visible::before{transform:scaleX(1);}
+
+  /* staggered reveal: children lift + scale in one after another once the scene enters */
+  .reveal [data-rise]{opacity:0; transform:translateY(48px) scale(.985); filter:blur(8px);
+    transition:opacity .9s var(--ease),transform .9s var(--ease),filter .9s var(--ease);}
+  .reveal.visible [data-rise]{opacity:1; transform:none; filter:blur(0);}
+  .reveal.visible [data-rise="1"]{transition-delay:.06s;}
+  .reveal.visible [data-rise="2"]{transition-delay:.18s;}
+  .reveal.visible [data-rise="3"]{transition-delay:.30s;}
+  .reveal.visible [data-rise="4"]{transition-delay:.42s;}
+  .reveal.visible [data-rise="5"]{transition-delay:.54s;}
+  /* headline gets an underline that sweeps in after the words land */
+  .reveal .narrative h2{position:relative; padding-bottom:.18em;}
+  .reveal .narrative h2::after{content:""; position:absolute; left:0; bottom:0; width:clamp(64px,9vw,120px); height:3px;
+    background:var(--pass); transform:scaleX(0); transform-origin:left;
+    transition:transform .8s var(--ease); transition-delay:.5s;}
+  .reveal.visible .narrative h2::after{transform:scaleX(1);}
 
   /* ---------- header ---------- */
+  .masthead{position:sticky; top:0; z-index:15; height:58px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--ink-14); background:color-mix(in srgb, var(--paper) 86%, transparent); backdrop-filter:blur(8px);}
+  .brand{font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.15em; color:var(--ink); text-decoration:none;}
+  .nav{display:flex; align-items:center; gap:20px; font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;}
+  .nav a{color:var(--ink-52); text-decoration:none; transition:color .2s var(--ease);}
+  .nav a:hover{color:var(--pass);}
+  .hero{position:relative; min-height:calc(100dvh - 58px); display:flex; flex-direction:column; justify-content:center; gap:46px; padding:48px 0 76px; scroll-snap-align:start; scroll-snap-stop:always; overflow:hidden;}
+  .hero-top{display:grid; grid-template-columns:minmax(0,1.2fr) minmax(260px,.8fr); gap:64px; align-items:center;}
   .eyebrow{font-family:var(--mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-52);}
-  h1{font-family:var(--serif); font-weight:400; font-size:clamp(38px,6vw,64px); line-height:1.02; letter-spacing:-.018em; margin:.15em 0 .1em;}
-  h1 em{font-style:italic; color:var(--mark);}
-  .lede{max-width:60ch; color:var(--ink-72); font-size:16px;}
+  h1{font-family:var(--serif); font-weight:700; font-size:clamp(44px,5.6vw,74px); line-height:1.02; letter-spacing:-.01em; margin:.14em 0 .18em;}
+  h1 em{font-style:normal; color:var(--pass);}
+  .lede{max-width:48ch; color:var(--ink-72); font-size:17px;}
   .lede code{font-family:var(--mono); font-size:.86em; background:var(--paper-3); padding:1px 5px; border:1px solid var(--ink-14); border-radius:3px;}
+  .hero-action{display:inline-flex; align-items:center; gap:10px; margin-top:24px; font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--paper-3); background:var(--ink); padding:12px 14px; text-decoration:none; transition:transform .2s var(--ease),background .2s var(--ease);}
+  .hero-action:hover{background:var(--pass); transform:translateY(-2px);}
+  .hero-action:active{transform:translateY(1px);}
+  .hero-action span{transition:transform .3s var(--ease);}
+  .hero-action:hover span{transform:translateY(3px);}
+  .signal-board{align-self:center; border-top:2px solid var(--ink); border-bottom:1px solid var(--ink-22); padding:18px 0 16px;}
+  .signal-kicker{font-family:var(--mono); font-size:10px; letter-spacing:.12em; color:var(--ink-52); text-transform:uppercase;}
+  .signal-value{font-family:var(--mono); font-size:clamp(42px,5vw,66px); line-height:1; font-weight:700; margin:18px 0 8px; color:var(--pass); font-variant-numeric:tabular-nums;}
+  .signal-copy{font-size:13px; color:var(--ink-72); max-width:28ch;}
+  .signal-rule{height:1px; background:var(--ink-14); margin:18px 0;}
+  .signal-meta{font-family:var(--mono); font-size:11px; color:var(--ink-52);}
+
+  /* ---------- animated scroll cue: a chevron that bounces down at the foot of every scene ---------- */
+  .scroll-cue{position:absolute; left:50%; bottom:26px; transform:translateX(-50%); z-index:2;
+    width:34px; height:34px; display:flex; align-items:center; justify-content:center;
+    color:var(--ink-34); text-decoration:none; cursor:pointer;
+    transition:color .25s var(--ease); animation:cue-bob 1.8s var(--ease) infinite;}
+  .scroll-cue:hover{color:var(--pass);}
+  .scroll-cue svg{width:26px; height:26px; display:block;}
+  .scroll-cue .chev{stroke:currentColor; stroke-width:2.2; fill:none; stroke-linecap:round; stroke-linejoin:round;}
+  .scroll-cue .chev.two{opacity:.45;}
+  .hero .scroll-cue{bottom:18px;}
+  #ranking .scroll-cue{display:none;}   /* last scene: nothing more to scroll to */
+  @keyframes cue-bob{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,7px)}}
+
+  /* ---------- narrative blocks ---------- */
+  .section-head{position:relative; display:grid; grid-template-columns:180px minmax(0,1fr); gap:26px; margin-bottom:28px;}
+  .section-index{font-family:var(--mono); font-size:11px; letter-spacing:.12em; color:var(--pass);}
+  .ghost-index{position:absolute; right:-8px; bottom:-8px; z-index:-1; font-family:var(--serif); font-weight:700; font-size:clamp(140px,22vw,300px); line-height:.72; color:var(--ink); opacity:.05; pointer-events:none; user-select:none; letter-spacing:-.03em; transform:translateY(var(--par,0px)); will-change:transform;}
+  .section h2{font-size:clamp(27px,4vw,44px); line-height:1.08; letter-spacing:-.01em; margin:0; max-width:19ch;}
+  .section-intro{font-size:16px; color:var(--ink-72); max-width:62ch; margin:14px 0 0;}
+  .metric-strip{display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--ink-22); border-bottom:1px solid var(--ink-22);}
+  .metric{padding:20px 18px 20px 0; border-right:1px solid var(--ink-14);}
+  .metric:not(:first-child){padding-left:18px;}
+  .metric:last-child{border-right:0;}
+  .metric-label{font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.09em; color:var(--ink-52);}
+  .metric-value{display:block; margin-top:7px; font-family:var(--mono); font-weight:700; font-size:28px; letter-spacing:0; color:var(--pass); font-variant-numeric:tabular-nums;}
+  .metric-desc{font-size:12px; color:var(--ink-52); margin-top:3px;}
+  /* hero-embedded compact metric strip (folds old section 01 into the landing) */
+  .hero .metric-strip{border-top:1px solid var(--ink-22); border-bottom:1px solid var(--ink-22);}
+
+  /* ---------- split scenes: narrative on the left, growable visual on the right ---------- */
+  .split{display:grid; grid-template-columns:minmax(280px,340px) minmax(0,1fr); gap:56px; align-items:start;}
+  /* anchor the narrative to the top of the grid row: when a filter resizes the
+     visual column the row height changes, but top-aligned text can't drift with it */
+  .split .narrative{position:relative; align-self:start; padding-top:6px;}
+  .split .visual{min-width:0;}         /* let the grid child shrink so wide tables can scroll */
+  .narrative .section-index{display:block; margin-bottom:14px;}
+  .narrative h2{font-size:clamp(26px,3.2vw,40px); line-height:1.1; letter-spacing:-.01em; margin:0; max-width:16ch;}
+  .narrative .section-intro{max-width:42ch;}
+  .split .ghost-index{right:auto; left:-6px; top:-118px; bottom:auto; opacity:.045;}
 
   /* ---------- methodology callout ---------- */
   .note{
-    margin:26px 0 8px; padding:16px 18px; background:var(--paper-3);
-    border:1px solid var(--ink-14); border-left:3px solid var(--steel); border-radius:4px;
+    margin:0; padding:20px 22px; background:var(--paper-3);
+    border:1px solid var(--ink-14); border-left:3px solid var(--steel); border-radius:0;
     font-size:13.5px; color:var(--ink-72); box-shadow:var(--shadow-2);
   }
   .note b{color:var(--ink);}
@@ -62,7 +153,7 @@
   .arrow{font-weight:700;}
 
   /* ---------- chart ---------- */
-  .panel{margin:30px 0; background:var(--paper-3); border:1px solid var(--ink-14); border-radius:6px; box-shadow:var(--shadow-2); padding:22px 24px 14px;}
+  .panel{margin:0; background:var(--paper-3); border:1px solid var(--ink-14); border-radius:0; box-shadow:var(--shadow-2); padding:22px 24px 14px;}
   .panel h2{font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-52); margin:0 0 4px; font-weight:500;}
   .panel .sub{font-size:12.5px; color:var(--ink-52); margin:0 0 14px;}
   .panel .legend{margin:0 0 14px; padding-bottom:14px; border-bottom:1px solid var(--ink-14);}
@@ -78,10 +169,15 @@
   .crow .name .cls{display:inline-block; min-width:16px; height:16px; line-height:16px; text-align:center; font-size:10px; font-weight:700; border-radius:3px; margin-left:6px; color:#fff; vertical-align:middle;}
   .plot{position:relative; height:34px;}
   .plot .zero{position:absolute; top:-1px; bottom:-1px; width:1.5px; background:var(--ink-52); z-index:1;}
-  .whisker{position:absolute; top:50%; height:2px; transform:translateY(-50%); border-radius:2px; transition:left .7s var(--ease), width .7s var(--ease);}
-  .whisker .cap{position:absolute; top:50%; width:2px; height:10px; transform:translateY(-50%); border-radius:2px;}
+  .whisker{position:absolute; top:50%; height:2px; transform:translateY(-50%); border-radius:2px;
+    transition:left .8s var(--ease), width .8s var(--ease); transition-delay:var(--d,0s);}
+  .whisker .cap{position:absolute; top:50%; width:2px; height:10px; transform:translateY(-50%) scaleY(0); border-radius:2px;
+    transition:transform .4s var(--ease); transition-delay:calc(var(--d,0s) + .5s);}
+  .chart.drawn .whisker .cap{transform:translateY(-50%) scaleY(1);}
   .whisker .cap.lo{left:0;} .whisker .cap.hi{right:0;}
-  .dot{position:absolute; top:50%; width:11px; height:11px; border-radius:50%; transform:translate(-50%,-50%); z-index:2; box-shadow:0 1px 3px rgba(64,52,18,.28); transition:left .7s var(--ease);}
+  .dot{position:absolute; top:50%; width:11px; height:11px; border-radius:50%; transform:translate(-50%,-50%) scale(0); z-index:2; box-shadow:0 1px 3px rgba(64,52,18,.28);
+    transition:left .8s var(--ease), transform .5s cubic-bezier(.34,1.56,.64,1); transition-delay:var(--d,0s), calc(var(--d,0s) + .45s);}
+  .chart.drawn .dot{transform:translate(-50%,-50%) scale(1);}
   .crow.sig .whisker, .crow.sig .whisker .cap{background:var(--pass);}
   .crow.sig .dot{background:var(--pass); border:2px solid var(--paper-3);}
   .crow.dim .whisker, .crow.dim .whisker .cap{background:var(--ink-34);}
@@ -99,11 +195,29 @@
   .axis .tick.zero::before{height:6px; top:-7px; background:var(--ink-52);}
   .axis .caption{grid-column:2; font-family:var(--mono); font-size:10px; color:var(--ink-52); text-align:center; margin-top:8px; letter-spacing:.02em;}
   .axis .caption .good{color:var(--pass); font-weight:600;} .axis .caption .bad{color:var(--signal); font-weight:600;}
-  @media (prefers-reduced-motion: reduce){ .whisker,.dot{transition:none;} }
+  .chart .crow{opacity:0; transform:translateX(-14px); transition:opacity .5s var(--ease),transform .5s var(--ease); transition-delay:var(--d,0s);}
+  .chart.drawn .crow{opacity:1; transform:none;}
+  @media (prefers-reduced-motion: reduce){
+    html{scroll-behavior:auto; scroll-snap-type:none}
+    .reveal [data-rise]{opacity:1;transform:none;filter:none;transition:none}
+    .section::before,.reveal .section-head h2::after{transform:none;transition:none}
+    .ghost-index{transform:none}
+    .whisker,.dot,.whisker .cap{transition:none}
+    .chart .crow{opacity:1;transform:none;transition:none}
+    .dot{transform:translate(-50%,-50%) scale(1)}
+    .whisker .cap{transform:translateY(-50%) scaleY(1)}
+    .scroll-cue{animation:none}
+    tbody tr{opacity:1;transform:none;transition:none}
+  }
 
   /* ---------- table ---------- */
-  .tablewrap{overflow-x:auto; margin:8px 0;}
-  table{border-collapse:collapse; width:100%; font-size:13.5px; background:var(--paper-3); box-shadow:var(--shadow-2); border-radius:6px; overflow:hidden;}
+  .table-tools{display:flex; justify-content:space-between; align-items:end; gap:24px; margin-bottom:16px;}
+  .filter-group{display:flex; flex-wrap:wrap; gap:7px;}
+  .filter{appearance:none; border:1px solid var(--ink-22); background:transparent; color:var(--ink-72); font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase; padding:8px 10px; cursor:pointer; transition:background .2s var(--ease),color .2s var(--ease),border-color .2s var(--ease);}
+  .filter:hover,.filter.active{background:var(--ink); border-color:var(--ink); color:var(--paper-3);}
+  .filter:active{transform:translateY(1px);}
+  .tablewrap{overflow-x:auto; margin:0;}
+  table{border-collapse:collapse; width:100%; font-size:13.5px; background:var(--paper-3); box-shadow:var(--shadow-2); border-radius:0; overflow:hidden;}
   thead th{
     font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-52);
     text-align:right; padding:13px 12px; border-bottom:1.5px solid var(--ink-22); cursor:pointer; user-select:none; white-space:nowrap; background:var(--paper-2);
@@ -116,6 +230,8 @@
   tbody td.left{text-align:left; font-family:var(--sans);}
   tbody tr:hover{background:var(--paper-2);}
   tbody tr.topcut{border-bottom:2px solid var(--ink-34);}
+  tbody tr{opacity:0; transform:translateY(16px); transition:opacity .5s var(--ease),transform .5s var(--ease);}
+  #ranking.visible tbody tr{opacity:1; transform:none;}
   .rankcell{font-family:var(--serif); font-size:20px; color:var(--ink); width:38px;}
   .rt{font-weight:600;}
   .rt .fam{font-family:var(--mono); font-size:10.5px; color:var(--ink-52); display:block; letter-spacing:.02em;}
@@ -130,10 +246,25 @@
   .classkey{display:flex; flex-wrap:wrap; gap:14px; margin:16px 0 0; font-size:12.5px; color:var(--ink-72);}
   .classkey div{display:flex; align-items:center; gap:8px;}
 
-  footer{margin-top:44px; padding-top:20px; border-top:1px solid var(--ink-14); font-family:var(--mono); font-size:11px; color:var(--ink-52); letter-spacing:.03em;}
+  footer{margin-top:44px; padding-top:20px; padding-bottom:40px; border-top:1px solid var(--ink-14); font-family:var(--mono); font-size:11px; color:var(--ink-52); letter-spacing:.03em; scroll-snap-align:end; scroll-snap-stop:normal;}
   footer a{color:var(--steel);}
   .meta{font-family:var(--mono); font-size:11px; color:var(--ink-52); margin-top:6px;}
   @media(max-width:640px){
+    html{scroll-snap-type:none;}
+    .wrap{padding:0 18px 60px;}
+    .nav{gap:12px;}.nav a:first-child{display:none;}
+    .hero{min-height:auto; grid-template-columns:1fr; gap:36px; padding:58px 0 54px;}
+    h1{font-size:48px;}
+    .section{min-height:auto; padding:64px 0;}
+    .ghost-index{font-size:clamp(110px,34vw,180px); top:-56px;}
+    .section-head{grid-template-columns:1fr; gap:10px;}
+    .split{grid-template-columns:1fr; gap:26px;}
+    .split .narrative{align-self:start;}
+    .split .ghost-index{left:auto; right:-4px; top:-46px;}
+    .metric-strip{grid-template-columns:1fr;}
+    .metric,.metric:not(:first-child){padding:16px 0;border-right:0;border-bottom:1px solid var(--ink-14);}
+    .metric:last-child{border-bottom:0;}
+    .table-tools{align-items:start; flex-direction:column;}
     .crow, .axis{grid-template-columns:112px 1fr 66px; gap:8px;}
     .crow .name{font-size:11px;}
     .mech{display:none;}
@@ -141,74 +272,128 @@
 </style>
 </head>
 <body>
+<div class="progress" aria-hidden="true"></div>
 <div class="wrap">
-  <div class="eyebrow">LIFT · Loaded Impact on Final Task</div>
-  <h1>Evolution-Impact <em>Leaderboard</em></h1>
-  <p class="lede">
-    How much does each agent runtime actually <b>improve on unseen tasks</b> after warmup&nbsp;+ one evolve step?
-    Every runtime is run twice per holdout task, once with a clean <b>Base</b> image and once with an evolved
-    <b>Loaded</b> image, and we rank the <b>difference</b>. This is <b>not</b> a raw-capability leaderboard: each row
-    differences out its own Base, so the ranking never compares raw ability across runtimes.
-  </p>
+  <header class="masthead">
+    <a class="brand" href="./index.html">LIFT</a>
+    <nav class="nav" aria-label="Page sections"><a href="#results">Signal</a><a href="#ranking">Ranking</a><a href="./index.html">Overview ↗</a></nav>
+  </header>
 
-  <div class="note" id="methodology">
-    <b>How to read this.</b> The ranking key is <b>ΔTurns%</b> = (Σ evolved − Σ baseline) / Σ baseline × 100 over
-    paired holdout task-repeats. All four efficiency deltas (Turns / Tools / Tokens / Latency) are
-    <b>lower-is-better</b>: a <span style="color:var(--pass);font-weight:600">negative</span> value means the evolved
-    agent did the same tasks with <b>fewer</b> turns/tokens, which is the <b>good</b> direction.
-    A <span style="color:var(--signal);font-weight:600">positive</span> value means it got <b>less</b> efficient.
-    <b>Sig.</b> ✓ marks runtimes whose 95% CI on ΔTurns% (over 10 repeats, population std) lies entirely below zero;
-    <b>n.s.</b> marks rows whose CI still straddles zero. Only the ✓ rows carry a repeat-stable signal.
-  </div>
-
-  <!-- ================= CI FOREST CHART ================= -->
-  <div class="panel">
-    <h2>ΔTurns% with 95% confidence interval</h2>
-    <p class="sub">Each runtime shows its point estimate (dot) and 95% CI (whiskers) over 10 repeats. A whisker
-      clearing the zero line entirely is a repeat-stable gain; one crossing zero is statistical noise. Class badge:
-      <b>D</b> per-task distillation · <b>C</b> carry-only · <b>R</b> post-hoc reflection.</p>
-    <div class="legend">
-      <span><span class="arrow" style="color:var(--pass)">◄ negative</span> = fewer turns = <b style="color:var(--pass)">better</b></span>
-      <span><span class="arrow" style="color:var(--signal)">positive ►</span> = more cost = <b style="color:var(--signal)">worse</b></span>
-      <span><span class="dotkey sig"></span> point estimate</span>
-      <span><span class="whiskkey"></span> 95% CI (10 repeats)</span>
-      <span><span class="dotkey nsg"></span> CI crosses 0 = noise</span>
-      <span><span class="bandkey"></span> repeat-stable band (CI fully below 0)</span>
+  <main>
+  <section class="hero reveal">
+    <div class="hero-top">
+      <div>
+      <div class="eyebrow" data-rise="1">Loaded Impact on Final Task · Public benchmark</div>
+      <h1 data-rise="2">Does evolution <em>hold up?</em></h1>
+      <p class="lede" data-rise="3">A leaderboard for the improvement an agent carries into unseen tasks, not its raw capability at the start. Each runtime faces every holdout twice — once from a clean Base image, once from its Loaded state after warmup plus an evolve step — so it is judged against itself.</p>
+      <a class="hero-action" href="#results" data-rise="4">Read the evidence <span aria-hidden="true">↓</span></a>
     </div>
-    <div class="chart" id="chart"></div>
-  </div>
+    <aside class="signal-board" aria-label="Top result summary" data-rise="3">
+      <div class="signal-kicker">Best observed efficiency gain</div>
+      <div class="signal-value" id="hero-best">--</div>
+      <div class="signal-copy" id="hero-copy">Loading paired holdout measurements.</div>
+      <div class="signal-rule"></div>
+      <div class="signal-meta" id="hero-meta">10 repeated trials / runtime</div>
+    </aside>
+    </div>
+    <div class="metric-strip" id="metric-strip" aria-label="Leaderboard summary" data-rise="5"></div>
+    <a class="scroll-cue" href="#results" aria-label="Scroll to the evidence">
+      <svg viewBox="0 0 24 30" aria-hidden="true"><path class="chev" d="M5 8 L12 15 L19 8"/><path class="chev two" d="M5 16 L12 23 L19 16"/></svg>
+    </a>
+  </section>
+
+  <!-- ================= CI FOREST CHART (02 · THE SIGNAL, with the reading rule folded in) ================= -->
+  <section class="section reveal" id="results">
+    <div class="section-inner split">
+      <div class="narrative">
+        <span class="ghost-index" aria-hidden="true">01</span>
+        <span class="section-index" data-rise="1">01 / THE SIGNAL</span>
+        <h2 data-rise="2">The confidence interval is part of the result.</h2>
+        <p class="section-intro" data-rise="3">The ranking key is <b>ΔTurns%</b> = (Σ evolved − Σ baseline) / Σ baseline × 100 over paired holdout task-repeats.
+          All four efficiency deltas (Turns / Tools / Tokens / Latency) are <b>lower-is-better</b>: a
+          <span style="color:var(--pass);font-weight:600">negative</span> value means the evolved agent did the same
+          tasks with <b>fewer</b> turns, the <b>good</b> direction; a
+          <span style="color:var(--signal);font-weight:600">positive</span> value means it got less efficient.</p>
+        <p class="section-intro" data-rise="3"><b>Sig.</b> ✓ marks runtimes whose 95% CI on ΔTurns% (10 repeats,
+          population std) lies entirely below zero; <b>n.s.</b> rows still straddle zero. The green band identifies only
+          the ✓ cluster — the runtimes whose interval stays entirely on the improvement side of zero.</p>
+      </div>
+      <div class="visual">
+        <div class="panel" id="chart-panel" data-rise="4">
+          <h2>ΔTurns% with 95% confidence interval</h2>
+          <p class="sub">Each runtime shows its point estimate (dot) and 95% CI (whiskers) over 10 repeats. A whisker
+            clearing the zero line entirely is a repeat-stable gain; one crossing zero is statistical noise. Class badge:
+            <b>D</b> per-task distillation · <b>C</b> carry-only · <b>R</b> post-hoc reflection.</p>
+          <div class="legend">
+            <span><span class="arrow" style="color:var(--pass)">◄ negative</span> = fewer turns = <b style="color:var(--pass)">better</b></span>
+            <span><span class="arrow" style="color:var(--signal)">positive ►</span> = more cost = <b style="color:var(--signal)">worse</b></span>
+            <span><span class="dotkey sig"></span> point estimate</span>
+            <span><span class="whiskkey"></span> 95% CI (10 repeats)</span>
+            <span><span class="dotkey nsg"></span> CI crosses 0 = noise</span>
+            <span><span class="bandkey"></span> repeat-stable band (CI fully below 0)</span>
+          </div>
+          <div class="chart" id="chart"></div>
+        </div>
+      </div>
+    </div>
+    <a class="scroll-cue" href="#ranking" aria-label="Scroll to the ranking">
+      <svg viewBox="0 0 24 30" aria-hidden="true"><path class="chev" d="M5 8 L12 15 L19 8"/><path class="chev two" d="M5 16 L12 23 L19 16"/></svg>
+    </a>
+  </section>
 
   <!-- ================= TABLE ================= -->
-  <div class="tablewrap">
-    <table id="lb">
-      <thead>
-        <tr>
-          <th class="left" data-k="rank">#<span class="caret">▾</span></th>
-          <th class="left" data-k="display">Runtime<span class="caret">▾</span></th>
-          <th data-k="mech_class">Class<span class="caret">▾</span></th>
-          <th data-k="delta_turns_pct">ΔTurns%<span class="caret">▾</span></th>
-          <th data-k="delta_tools_pct">ΔTools%<span class="caret">▾</span></th>
-          <th data-k="delta_tokens_pct">ΔTokens%<span class="caret">▾</span></th>
-          <th data-k="delta_latency_pct">ΔLatency%<span class="caret">▾</span></th>
-          <th data-k="significant" title="Statistical significance: ✓ = 95% CI on ΔTurns% (10 repeats) lies entirely below zero; n.s. = CI still includes zero">Sig.<span class="caret">▾</span></th>
-          <th class="left">Mechanism</th>
-        </tr>
-      </thead>
-      <tbody id="lbbody"></tbody>
-    </table>
-  </div>
-
-  <div class="classkey">
-    <div><span class="cls-badge g-D">D</span> Per-task distillation: a blocking review compresses each warmup task</div>
-    <div><span class="cls-badge g-C">C</span> Carry-only: no distillation; whatever the agent wrote is committed</div>
-    <div><span class="cls-badge g-R">R</span> Post-hoc reflection: extra reflection chats after each task / batch</div>
-  </div>
+  <section class="section reveal tint" id="ranking">
+    <div class="section-inner split">
+      <div class="narrative">
+        <span class="ghost-index" aria-hidden="true">02</span>
+        <span class="section-index" data-rise="1">02 / THE FULL FIELD</span>
+        <h2 data-rise="2">Inspect every mechanism, not just the podium.</h2>
+        <p class="section-intro" data-rise="3">Sort any measurement, or focus the field by evolution mechanism. Rankings remain ordered by ΔTurns% by default.</p>
+        <div class="classkey" data-rise="4">
+          <div><span class="cls-badge g-D">D</span> Per-task distillation: a blocking review compresses each warmup task</div>
+          <div><span class="cls-badge g-C">C</span> Carry-only: no distillation; whatever the agent wrote is committed</div>
+          <div><span class="cls-badge g-R">R</span> Post-hoc reflection: extra reflection chats after each task / batch</div>
+        </div>
+      </div>
+      <div class="visual">
+        <div class="table-tools" data-rise="4">
+          <div class="filter-group" aria-label="Filter runtimes">
+            <button class="filter active" type="button" data-filter="all">All</button>
+            <button class="filter" type="button" data-filter="stable">Repeat-stable</button>
+            <button class="filter" type="button" data-filter="D">Distillation</button>
+            <button class="filter" type="button" data-filter="C">Carry-only</button>
+            <button class="filter" type="button" data-filter="R">Reflection</button>
+          </div>
+          <div class="meta" id="filter-status">Loading field...</div>
+        </div>
+      <div class="tablewrap" data-rise="4">
+        <table id="lb">
+          <thead>
+            <tr>
+              <th class="left" data-k="rank">#<span class="caret">▾</span></th>
+              <th class="left" data-k="display">Runtime<span class="caret">▾</span></th>
+              <th data-k="mech_class">Class<span class="caret">▾</span></th>
+              <th data-k="delta_turns_pct">ΔTurns%<span class="caret">▾</span></th>
+              <th data-k="delta_tools_pct">ΔTools%<span class="caret">▾</span></th>
+              <th data-k="delta_tokens_pct">ΔTokens%<span class="caret">▾</span></th>
+              <th data-k="delta_latency_pct">ΔLatency%<span class="caret">▾</span></th>
+              <th data-k="significant" title="Statistical significance: ✓ = 95% CI on ΔTurns% (10 repeats) lies entirely below zero; n.s. = CI still includes zero">Sig.<span class="caret">▾</span></th>
+              <th class="left">Mechanism</th>
+            </tr>
+          </thead>
+          <tbody id="lbbody"></tbody>
+        </table>
+      </div>
+      </div>
+    </div>
+  </section>
 
   <footer>
     <div id="foot-method"></div>
     <div class="meta" id="foot-meta"></div>
     <div class="meta">Data regenerated from <code>results/*.tar.xz</code> by <code>scripts/build_leaderboard.py</code>, using the same population-ratio methodology as the paper (RQ5 / Appendix&nbsp;C). · <a href="./index.html">← LIFT overview</a></div>
   </footer>
+</main>
 </div>
 
 <script>
@@ -218,6 +403,56 @@ const dirClass = (v) => (v === null) ? "flat" : (v < 0 ? "good" : (v > 0 ? "bad"
 let DATA = null;
 let sortKey = "delta_turns_pct";
 let sortAsc = true;  // asc = most negative first for deltas
+let activeFilter = "all";
+
+function visibleEntries(){
+  if (!DATA) return [];
+  if (activeFilter === "stable") return DATA.entries.filter(e => e.significant);
+  return activeFilter === "all" ? DATA.entries : DATA.entries.filter(e => e.mech_class === activeFilter);
+}
+
+function renderSummary(){
+  const entries = DATA.entries;
+  const best = [...entries].sort((a,b) => a.delta_turns_pct - b.delta_turns_pct)[0];
+  const stable = entries.filter(e => e.significant);
+  const heroBest = document.getElementById("hero-best");
+  heroBest.dataset.to = best.delta_turns_pct; heroBest.dataset.dec = "2"; heroBest.dataset.suffix = "%"; heroBest.dataset.signed = "1";
+  heroBest.textContent = "0.00%";
+  document.getElementById("hero-copy").textContent = `${best.display} required fewer turns after evolution, with a 95% interval entirely below zero.`;
+  document.getElementById("hero-meta").textContent = `${DATA.n_repeats_nominal} repeated trials / runtime · ${entries.length} runtimes`;
+  document.getElementById("metric-strip").innerHTML = [
+    ["Runtimes tested", entries.length, 0, "", 0, "separate evolution mechanisms"],
+    ["Repeat-stable gains", stable.length, 0, "", 0, "95% CI stays below zero"],
+    ["Best ΔTurns%", best.delta_turns_pct, 2, "%", 1, `${best.display} on unseen tasks`],
+  ].map(([label,value,dec,suffix,signed,desc]) =>
+    `<div class="metric"><span class="metric-label">${label}</span><span class="metric-value" data-to="${value}" data-dec="${dec}" data-suffix="${suffix}" data-signed="${signed}">0${dec?".00":""}${suffix}</span><div class="metric-desc">${desc}</div></div>`
+  ).join("");
+}
+
+// count a number up to its data-to target when it first scrolls into view
+function countUp(el){
+  const to = parseFloat(el.dataset.to), dec = parseInt(el.dataset.dec || "0", 10);
+  const suffix = el.dataset.suffix || "", signed = el.dataset.signed === "1";
+  const plus = (n) => (signed && n > 0 ? "+" : "");
+  const start = performance.now(), dur = 1100;
+  const tick = (now) => {
+    const p = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - p, 3);
+    const cur = to * eased;
+    el.textContent = plus(cur) + cur.toFixed(dec) + suffix;
+    if (p < 1) requestAnimationFrame(tick);
+    else el.textContent = plus(to) + to.toFixed(dec) + suffix;
+  };
+  requestAnimationFrame(tick);
+}
+
+function growChart(){
+  document.querySelectorAll("#chart .whisker").forEach(w => {
+    w.style.left = w.dataset.l + "%";
+    w.style.width = w.dataset.w + "%";
+  });
+  document.querySelectorAll("#chart .dot").forEach(d => { d.style.left = d.dataset.l + "%"; });
+}
 
 function renderChart(entries){
   const rows = [...entries].sort((a,b)=>(a.delta_turns_pct??1e9)-(b.delta_turns_pct??1e9));
@@ -242,25 +477,29 @@ function renderChart(entries){
   let sigLead = 0;
   for (const e of rows){ if (e.significant) sigLead++; else break; }
 
-  rows.forEach(e => {
+  rows.forEach((e, i) => {
     const v = e.delta_turns_pct;
     const sig = !!e.significant;
     const row = document.createElement("div");
     row.className = "crow " + (sig ? "sig" : "dim");
+    row.style.setProperty("--d", (i * 0.06) + "s");
     const cl = (e.turns_ci_low != null) ? e.turns_ci_low : v;
     const ch = (e.turns_ci_high != null) ? e.turns_ci_high : v;
     const wl = pos(cl), wr = pos(ch);
+    // start collapsed on the zero line; the .drawn class expands to the real geometry
     row.innerHTML =
       '<div class="name">' + e.display + '<span class="cls g-' + e.mech_class + '">' + e.mech_class + '</span></div>' +
       '<div class="plot">' +
         '<div class="zero" style="left:' + zeroPct + '%"></div>' +
-        '<div class="whisker" style="left:' + wl + '%; width:' + Math.max(0, wr-wl) + '%">' +
+        '<div class="whisker" data-l="' + wl + '" data-w="' + Math.max(0, wr-wl) + '" style="left:' + zeroPct + '%; width:0%">' +
           '<span class="cap lo"></span><span class="cap hi"></span></div>' +
-        '<div class="dot" style="left:' + pos(v) + '%"></div>' +
+        '<div class="dot" data-l="' + pos(v) + '" style="left:' + zeroPct + '%"></div>' +
       '</div>' +
       '<div class="val">' + fmt(v) + '<span class="tag">' + (sig ? "\u2713 sig" : "n.s.") + '</span></div>';
     chart.appendChild(row);
   });
+  // if the chart is already on-screen (filter change / resize), expand immediately
+  if (chart.classList.contains("drawn")) requestAnimationFrame(growChart);
 
   // podium band spanning exactly the leading significant (repeat-stable) rows
   if (sigLead > 0){
@@ -292,7 +531,7 @@ function renderChart(entries){
 
 function renderTable(){
   const body = document.getElementById("lbbody");
-  const entries = [...DATA.entries];
+  const entries = visibleEntries();
   entries.sort((a,b)=>{
     let x = a[sortKey], y = b[sortKey];
     if (typeof x === "boolean"){ x = x?1:0; y = y?1:0; }
@@ -305,6 +544,7 @@ function renderTable(){
   entries.forEach((e, i) => {
     const tr = document.createElement("tr");
     if (i === 2) tr.className = "topcut";  // visual cut after rank-3 cluster
+    tr.style.transitionDelay = (i * 0.045) + "s";  // deal rows in one at a time
     const d = (v)=>`<td class="${dirClass(v)}">${fmt(v)}</td>`;
     tr.innerHTML = `
       <td class="left rankcell">${e.rank}</td>
@@ -322,6 +562,7 @@ function renderTable(){
     if (c && th.dataset.k === sortKey) c.textContent = sortAsc ? "▴" : "▾";
     else if (c) c.textContent = "▾";
   });
+  document.getElementById("filter-status").textContent = `${entries.length} of ${DATA.entries.length} runtimes shown`;
 }
 
 function wireSort(){
@@ -339,6 +580,69 @@ function wireSort(){
   });
 }
 
+function wireFilters(){
+  document.querySelectorAll(".filter").forEach(button => {
+    button.addEventListener("click", () => {
+      activeFilter = button.dataset.filter;
+      document.querySelectorAll(".filter").forEach(item => item.classList.toggle("active", item === button));
+      const entries = visibleEntries();
+      renderChart(entries);
+      renderTable();
+    });
+  });
+}
+
+function wireMotion(){
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const chart = document.getElementById("chart");
+  const settleNumbers = (root) => root.querySelectorAll("[data-to]").forEach(el => {
+    const to = parseFloat(el.dataset.to), dec = parseInt(el.dataset.dec || "0", 10);
+    el.textContent = (el.dataset.signed === "1" && to > 0 ? "+" : "") + to.toFixed(dec) + (el.dataset.suffix || "");
+  });
+  if (reduceMotion){
+    document.querySelectorAll(".reveal").forEach(el => el.classList.add("visible"));
+    settleNumbers(document);
+    chart.classList.add("drawn"); growChart();
+    return;
+  }
+  // hero number counts up right away
+  document.querySelectorAll(".hero [data-to]").forEach(countUp);
+  const observer = new IntersectionObserver((items, obs) => items.forEach(item => {
+    if (item.isIntersecting) {
+      item.target.classList.add("visible");
+      item.target.querySelectorAll("[data-to]").forEach(countUp);
+      obs.unobserve(item.target);
+    }
+  }), {threshold:.2});
+  document.querySelectorAll(".reveal:not(.visible)").forEach(el => observer.observe(el));
+  const chartObserver = new IntersectionObserver((items, obs) => items.forEach(item => {
+    if (item.isIntersecting) {
+      chart.classList.add("drawn");
+      requestAnimationFrame(() => requestAnimationFrame(growChart));  // let collapsed state paint first
+      obs.unobserve(item.target);
+    }
+  }), {threshold:.28});
+  chartObserver.observe(document.getElementById("chart-panel"));
+  const progress = document.querySelector(".progress");
+  // measure parallax from the (untransformed) parent scene so the transform can't feed back on itself
+  const ghosts = [...document.querySelectorAll(".ghost-index")].map(g => ({el:g, scene:g.closest(".section, .hero")}));
+  let ticking = false;
+  const onScroll = () => {
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    progress.style.setProperty("--progress", `${max > 0 ? (window.scrollY / max) * 100 : 0}%`);
+    // drift the big ghost numbers against the scroll for depth
+    const vh = window.innerHeight;
+    ghosts.forEach(({el, scene}) => {
+      const r = scene.getBoundingClientRect();
+      const rel = (r.top + r.height / 2 - vh / 2) / vh;   // -1 .. 1 across the viewport
+      el.style.setProperty("--par", (rel * -40).toFixed(1) + "px");
+    });
+    ticking = false;
+  };
+  const updateProgress = () => { if (!ticking){ ticking = true; requestAnimationFrame(onScroll); } };
+  window.addEventListener("scroll", updateProgress, {passive:true}); onScroll();
+}
+
 fetch("./leaderboard.json")
   .then(r => r.json())
   .then(j => {
@@ -346,9 +650,12 @@ fetch("./leaderboard.json")
     document.getElementById("foot-method").textContent = j.methodology;
     document.getElementById("foot-meta").textContent =
       `${j.entries.length} runtimes · ${j.n_repeats_nominal} repeats each · generated ${j.generated_at} · schema v${j.schema_version}`;
+    renderSummary();
     renderChart(j.entries);
     renderTable();
     wireSort();
+    wireFilters();
+    wireMotion();
     // podium band is positioned from live layout metrics; recompute on resize
     let rt; window.addEventListener("resize", () => {
       clearTimeout(rt); rt = setTimeout(() => renderChart(DATA.entries), 120);
