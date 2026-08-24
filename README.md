@@ -259,11 +259,11 @@ python -m src.cli.lift_main -r hermes \
 如果 LIFT 对你有帮助，欢迎点一颗 ⭐️ —— 它是这个项目能被更多人看见的最直接方式。
 
 <p align="center">
-  <a href="https://star-history.com/#FeiZhuNiU-INFJA/LIFT&Date">
+  <a href="https://www.star-history.com/?repos=FeiZhuNiU-INFJA/LIFT&type=date&legend=top-left">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=FeiZhuNiU-INFJA/LIFT&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=FeiZhuNiU-INFJA/LIFT&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=FeiZhuNiU-INFJA/LIFT&type=Date" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=FeiZhuNiU-INFJA/LIFT&type=date&theme=dark&legend=top-left&sealed_token=RK7efewjLAWvJYX4Y-ic_qW67ftH_pX7chQCkuMCNR3o3Ws0-Y0Tu1BftjqFDZmx_Mm7Z-v_ogGpOAekgPeUksCedWVCH_7u3y5PP7tVx5QfMXxq_nwzlQ" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=FeiZhuNiU-INFJA/LIFT&type=date&legend=top-left&sealed_token=RK7efewjLAWvJYX4Y-ic_qW67ftH_pX7chQCkuMCNR3o3Ws0-Y0Tu1BftjqFDZmx_Mm7Z-v_ogGpOAekgPeUksCedWVCH_7u3y5PP7tVx5QfMXxq_nwzlQ" />
+      <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=FeiZhuNiU-INFJA/LIFT&type=date&legend=top-left&sealed_token=RK7efewjLAWvJYX4Y-ic_qW67ftH_pX7chQCkuMCNR3o3Ws0-Y0Tu1BftjqFDZmx_Mm7Z-v_ogGpOAekgPeUksCedWVCH_7u3y5PP7tVx5QfMXxq_nwzlQ" />
     </picture>
   </a>
 </p>
