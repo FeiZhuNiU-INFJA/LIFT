@@ -4,7 +4,7 @@
 % affiliation strings, and the Code/Benchmark URLs from the abstract.
 %
 % Experimental status (v1): §6 tables report population-ratio Δ from partial
-% runs (10 runtimes × RQ1..RQ4). Numbers flagged "[Preliminary — full run pending]"
+% runs (11 runtimes × RQ1..RQ4). Numbers flagged "[Preliminary — full run pending]"
 % will be refreshed in v2 once the remaining sweeps land.
 %
 % Working subtitle / acronym anchor: LIFT = Loaded Impact on Final Task.
@@ -33,7 +33,30 @@
 \usepackage{xcolor}         % colors
 \usepackage[htt]{hyphenat}  % allow hyphenation/breaking inside \texttt
 \usepackage{seqsplit}       % break long monospace tokens char-by-char
+\usepackage{array}          % \newcolumntype for ragged paragraph columns
+\usepackage{ragged2e}       % \RaggedRight: ragged edge but still hyphenates
+\usepackage{xurl}           % break long URLs anywhere (no underfull on url lines)
 \setlength{\tabcolsep}{4pt} % tighter column gutter to prevent p{...} table overfull
+
+% Ragged (non-justified) paragraph column that still hyphenates. ragged2e's
+% \RaggedRight caps edge stretch at 2em, which can leave short last lines
+% flagged as underfull; widening its rightskip to infinite fill left-aligns
+% every line with no stretch, so wrapped cells produce no underfull-hbox
+% warnings while long words can still hyphenate. Long monospace tokens that
+% would overflow are wrapped with \brk (seqsplit) at the call site.
+\setlength{\RaggedRightRightskip}{0pt plus 1fil}
+\newcolumntype{P}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+
+% Allow the last line of a page to fall short instead of stretching inter-block
+% glue to force a flush bottom; removes the "Underfull \vbox while \output is
+% active" warnings that [H]-placed tables otherwise trigger.
+\raggedbottom
+
+% Last-resort line-breaking slack for justified body paragraphs that carry long
+% unbreakable \texttt{} tokens (policy/class names): engages only after normal
+% breaking fails, absorbing the residual so no underfull-hbox is reported
+% without visibly loosening inter-word spacing.
+\setlength{\emergencystretch}{3em}
 
 % allow line breaks inside long monospace tokens (long file paths / runtime names)
 \newcommand{\brk}[1]{\texttt{\seqsplit{#1}}}
@@ -73,7 +96,7 @@ Self-evolving LLM agents continuously accumulate reusable experience \emph{artif
 
 We present \textbf{LIFT (Loaded Impact on Final Task)}, a counterfactual evaluation framework that makes the \emph{Base vs. Loaded} contrast on held-out tasks its single scientific question. LIFT operationalizes this contrast with three mechanisms: (i) \textbf{paired A/B runs} of the same held-out task with and without consolidated artifacts; (ii) \textbf{strict separation} of warmup (training) tasks from holdout (unseen) tasks; and (iii) \textbf{Docker container snapshots} (\texttt{docker commit} $\rightarrow$ delta image) that solidify the runtime agent state as an artifact-agnostic, cross-machine-reproducible carrier. Together these isolate the confounds above, so that a positive delta on an unseen task is \emph{attributable to the artifacts} rather than to leakage, context pollution, or environment drift. A \textbf{three-layer decoupling} (pipeline / runtime adapter / evaluation kernel) hosts a range of mainstream self-evolving agent runtimes behind four hooks; a \textbf{work-agent + judge-agent review loop} scores each task; and multi-level concurrency plus Langfuse trace backfill make every run auditable in both \emph{conclusion} and \emph{process}. We release a self-contained \textbf{benchmark of 14 scenes (84 tasks)} built on a two-phase schema with a deliberate $\sim$75\%/25\% train-test requirement overlap designed to expose over-fitting to literal training requirements. LIFT provides a standardized, attributable pipeline for empirical research on self-evolving agents and makes precise the methodological gaps in existing agent benchmarks. Code is released at \url{https://github.com/FeiZhuNiU-INFJA/LIFT} and the benchmark at \url{https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE}.
 
-\emph{Preprint status.} This is a v1 preprint. §6 reports population-ratio $\Delta$ from a partial cross-runtime sweep (10 runtimes across RQ1--RQ5); remaining runtimes and full-suite repeats will be released in v2.
+\emph{Preprint status.} This is a v1 preprint. §6 reports population-ratio $\Delta$ from a partial cross-runtime sweep (11 runtimes across RQ1--RQ5); remaining runtimes and full-suite repeats will be released in v2.
 \end{abstract}
 
 
@@ -101,7 +124,7 @@ Surveying 32 open-source works (surveys / benchmarks / SDKs) along the axis ``ca
 \centering
 \caption{Three shared fault lines in current agent evaluation.}
 \label{tab:fault-lines}
-\begin{tabular}{p{0.22\textwidth}p{0.42\textwidth}p{0.28\textwidth}}
+\begin{tabular}{P{0.22\textwidth}P{0.42\textwidth}P{0.28\textwidth}}
 \toprule
 Fault line & Symptom & Representative work \\
 \midrule
@@ -175,7 +198,7 @@ We treat the survey conclusions as hard constraints that all engineering must ob
 \centering
 \caption{Design principles P1--P5 that all LIFT engineering must obey.}
 \label{tab:principles}
-\begin{tabular}{p{0.32\textwidth}p{0.6\textwidth}}
+\begin{tabular}{P{0.32\textwidth}P{0.6\textwidth}}
 \toprule
 Principle & Meaning \\
 \midrule
@@ -212,7 +235,7 @@ TaskRun
 
 \begin{itemize}
 \item \textbf{Warmup container orchestration is configurable.} In a single-agent evolution scenario, all warmup tasks share one container by default (\texttt{parallel\_single}; continuous file-system state is a natural requirement of the evolution plugin). The framework also supports \texttt{parallel\_multi} for scenarios where artifacts should live outside the container (e.g., an external memory service): each task gets its own container, artifacts land in the external service, and \texttt{docker commit} degenerates to a no-op. Both forms are transparent to the upper pipeline.
-\item \textbf{Holdout starts a new container per task.} Unlike warmup, this is a protocol-level hard constraint --- baseline must be an \emph{uncontaminated} environment, and per-task workspaces must be isolated. Hence \texttt{HoldoutContainerPolicy} (\texttt{src/lift/policies/container.py}) offers only \texttt{SERIAL\_MULTI} / \texttt{PARALLEL\_MULTI} ``multi-container'' forms, with no single-container option.
+\item \textbf{Holdout starts a new container per task.} Unlike warmup, this is a protocol-level hard constraint --- baseline must be an \emph{uncontaminated} environment, and per-task workspaces must be isolated. Hence \brk{HoldoutContainerPolicy} (\brk{src/lift/policies/container.py}) offers only \brk{SERIAL\_MULTI} / \brk{PARALLEL\_MULTI} ``multi-container'' forms, with no single-container option.
 \item \textbf{All holdout tasks share one delta.} The artifact is a suite-level constant and must not vary across holdout tasks.
 \end{itemize}
 
@@ -248,7 +271,7 @@ The direct payoff: \textbf{integrating a new runtime is near-zero-cost.} Registe
 \small
 \caption{Registered runtimes and their evolve behavior after warmup.}
 \label{tab:runtimes}
-\begin{tabular}{p{0.26\textwidth}p{0.26\textwidth}p{0.40\textwidth}}
+\begin{tabular}{P{0.26\textwidth}P{0.26\textwidth}P{0.40\textwidth}}
 \toprule
 runtime & image & evolve behavior \\
 \midrule
@@ -317,7 +340,7 @@ The carrier form of the artifact is an engineering choice that \emph{looks incid
 \centering
 \caption{Three candidate artifact carriers and why LIFT chooses container snapshots.}
 \label{tab:carrier}
-\begin{tabular}{p{0.28\textwidth}p{0.26\textwidth}p{0.4\textwidth}}
+\begin{tabular}{P{0.28\textwidth}P{0.26\textwidth}P{0.4\textwidth}}
 \toprule
 Option & Pro & Fatal con \\
 \midrule
@@ -361,7 +384,7 @@ As evaluation goes from ``produce one report'' $\rightarrow$ ``iterate continuou
 \centering
 \caption{Concurrency and isolation levels with their flags and defaults.}
 \label{tab:concurrency}
-\begin{tabular}{p{0.42\textwidth}p{0.3\textwidth}p{0.2\textwidth}}
+\begin{tabular}{P{0.42\textwidth}P{0.3\textwidth}P{0.2\textwidth}}
 \toprule
 Level & Flag & Default \\
 \midrule
@@ -384,7 +407,7 @@ LIFT writes its report in two passes:
 \centering
 \caption{The dual-chain report writing: execution-time and post-process passes.}
 \label{tab:observability}
-\begin{tabular}{p{0.16\textwidth}p{0.44\textwidth}p{0.34\textwidth}}
+\begin{tabular}{P{0.16\textwidth}P{0.44\textwidth}P{0.34\textwidth}}
 \toprule
 Phase & Content & File \\
 \midrule
@@ -416,7 +439,7 @@ An early replay mode (all-suite baseline $\rightarrow$ one evolve $\rightarrow$ 
 \centering
 \caption{LIFT's holdout-extrapolation protocol versus the diagnostic replay mode.}
 \label{tab:replay}
-\begin{tabular}{p{0.14\textwidth}p{0.42\textwidth}p{0.38\textwidth}}
+\begin{tabular}{P{0.14\textwidth}P{0.42\textwidth}P{0.38\textwidth}}
 \toprule
  & LIFT (this paper) & replay \\
 \midrule
@@ -439,7 +462,7 @@ This section is self-contained: the benchmark design (schema, task-authoring pri
 
 \subsection{Three-layer structure}
 
-The dataset is organized in three layers --- \textbf{total dataset $\rightarrow$ scene datasets $\rightarrow$ train/test tasks} --- stored human-readably as folders + task markdowns and compiled by \texttt{python -m src.cli.preprocess} into machine-readable suite JSON (\texttt{Suite} in \texttt{src/models.py}):
+The dataset is organized in three layers --- \textbf{total dataset $\rightarrow$ scene datasets $\rightarrow$ train/test tasks} --- stored human-readably as folders + task markdowns and compiled by \brk{python -m src.cli.preprocess} into machine-readable suite JSON (\texttt{Suite} in \brk{src/models.py}):
 
 \begin{lstlisting}
 <scene>/
@@ -486,7 +509,7 @@ The released suite has \textbf{14 scenes}, each with \textbf{4 warmup + 2 holdou
 \centering
 \caption{The 14 benchmark scenes grouped by thematic category.}
 \label{tab:scenes}
-\begin{tabular}{p{0.4\textwidth}p{0.55\textwidth}}
+\begin{tabular}{P{0.4\textwidth}P{0.55\textwidth}}
 \toprule
 Category & Scenes \\
 \midrule
@@ -515,7 +538,7 @@ Any benchmark plugged into LIFT must satisfy: (1) \textbf{two-phase schema} --- 
 \small
 \caption{Key implementation files and their one-line responsibilities.}
 \label{tab:implementation}
-\begin{tabular}{p{0.24\textwidth}p{0.34\textwidth}p{0.36\textwidth}}
+\begin{tabular}{P{0.24\textwidth}P{0.34\textwidth}P{0.36\textwidth}}
 \toprule
 Topic & Key file & One-liner \\
 \midrule
@@ -559,7 +582,7 @@ We do \textbf{not} rank runtimes by their \emph{absolute} Loaded scores, and we 
 
 \textbf{Metrics.} Let $\bar{B}$ / $\bar{E}$ denote the population means of a metric across all holdout task-repeats. We report the \emph{population-ratio} delta $\Delta X\% = (\bar{E} - \bar{B}) / \bar{B} \cdot 100$ for turns, tool calls, tokens, and latency. Negative means the evolved side is more efficient. Population ratio is preferred over the mean of per-task ratios because the latter is dominated by tasks with near-zero baselines (a single Base $=$ 2, Loaded $=$ 6 task contributes $+200\%$), which flips the direction of the aggregate on Hermes and inflates it on GenericAgent. Pass rates are macro-averaged from the postprocess \texttt{ALL} row of \texttt{summary\_metrics.csv}.
 
-\textbf{Pass rate is saturated on EALE.} Across all ten runs, Base pass rate is 0.99--1.00 and Loaded pass rate is 0.99--1.00 (Table~\ref{tab:rq1}). Pass rate is therefore a low-resolution signal of self-evolution on this benchmark; the primary lens is interaction efficiency, with pass rate reported for transparency and to flag any regression.
+\textbf{Pass rate is saturated on EALE.} Across the eleven runs, Base and Loaded pass rate are 0.99--1.00 for every runtime except \texttt{prime-agent+active}, whose lower band is a run-condition artifact of that sweep discussed in \S\ref{sec:rq1} (Table~\ref{tab:rq1}). Pass rate is therefore a low-resolution signal of self-evolution on this benchmark; the primary lens is interaction efficiency, with pass rate reported for transparency and to flag any regression.
 
 \subsection{RQ1 --- Do evolved artifacts help on unseen tasks?}
 \label{sec:rq1}
@@ -589,12 +612,14 @@ Runtime & Tasks & Base Pass & Loaded Pass & $\Delta$Pass & $\Delta$Turns\% & $\D
 \addlinespace
 \texttt{evoscientist}          & 280 (248) & 1.0000 & 0.9929 & $-0.71$    & $-14.33$ & $-34.65$ & $-10.23$ & $-15.05$ \\
 \texttt{evoscientist+active}   & 278 (250) & 1.0000 & 1.0000 & $+0.00$    & $-14.69$ & $-27.57$ & $-12.73$ & $-16.57$ \\
+\addlinespace
+\texttt{prime-agent+active}    & 280 (260) & 0.9321 & 0.9429 & $+1.07$    & $-3.27$  & $+5.66$  & $+3.21$  & $-5.73$  \\
 \bottomrule
 \end{tabular}%
 }
 \end{table}
 
-\textbf{Reading Table~\ref{tab:rq1}.} \texttt{hermes} and both its augmented siblings show the strongest interaction-cost reduction on every axis (turns $-16.6$ to $-19.1\%$, latency $\approx-22$ to $-23\%$, tokens $\approx-17$ to $-19\%$); its \texttt{review}-driven implicit evolution distills verbose warmup into a compact plan that the model consults on Loaded runs. The \texttt{genericagent} family moves only marginally ($|\Delta|\le 3\%$ on all axes, in either direction) --- its file-I/O policy captures skill files but the base runtime already writes highly focused deliverables, leaving little conversational cost to cut; the extra active-reflection pass does not change this and even drifts slightly inefficient ($+1.9\%$ turns). The \texttt{openclaw} family is the split case: the base and its agentmemory variant hover near zero or slightly regress on turns/tokens/latency ($+0.75$ to $+3.3\%$), whereas OpenSpace is the only OpenClaw configuration that turns clearly efficient ($-4.0\%$ turns, $-7.1\%$ tokens) --- natural memory accumulation without an explicit distillation hook produces state that lengthens rather than shortens the outer loop, and swapping in an agentmemory backend does not by itself fix this. \texttt{evoscientist} is the standout non-Hermes row: it cuts turns $-14.3\%$, tokens $-10.2\%$, and latency $-15.1\%$, and posts the single largest tool-call reduction in the paper ($-34.7\%$) --- its always-on internal memory loop writes synthesized profiles during warmup (not just raw observations), and its verbose Base (186 tool calls/task, Table~\ref{tab:rq4}) leaves the most compressible slack of any runtime. Its active-AutoSkills sibling \texttt{evoscientist+active} lands almost on top of it on turns ($-14.7\%$), latency ($-16.6\%$), and tokens ($-12.7\%$), but its tool-call cut is \emph{smaller} ($-27.6\%$ vs.\ $-34.7\%$) --- the explicit post-hoc distillation does not add efficiency over the always-on loop it sits on and slightly erodes the tool-call advantage (analysed in RQ2/RQ3). Pass rate is essentially unchanged across all ten runs ($|\Delta\text{Pass}| \le 0.71$pp, the passive \texttt{evoscientist} row's two dropped Loaded successes out of 280; the active variant holds $1.0000$ on both sides), consistent with a saturated benchmark.
+\textbf{Reading Table~\ref{tab:rq1}.} \texttt{hermes} and both its augmented siblings show the strongest interaction-cost reduction on every axis (turns $-16.6$ to $-19.1\%$, latency $\approx-22$ to $-23\%$, tokens $\approx-17$ to $-19\%$); its \texttt{review}-driven implicit evolution distills verbose warmup into a compact plan that the model consults on Loaded runs. The \texttt{genericagent} family moves only marginally ($|\Delta|\le 3\%$ on all axes, in either direction) --- its file-I/O policy captures skill files but the base runtime already writes highly focused deliverables, leaving little conversational cost to cut; the extra active-reflection pass does not change this and even drifts slightly inefficient ($+1.9\%$ turns). The \texttt{openclaw} family is the split case: the base and its agentmemory variant hover near zero or slightly regress on turns/tokens/latency ($+0.75$ to $+3.3\%$), whereas OpenSpace is the only OpenClaw configuration that turns clearly efficient ($-4.0\%$ turns, $-7.1\%$ tokens) --- natural memory accumulation without an explicit distillation hook produces state that lengthens rather than shortens the outer loop, and swapping in an agentmemory backend does not by itself fix this. \texttt{evoscientist} is the standout non-Hermes row: it cuts turns $-14.3\%$, tokens $-10.2\%$, and latency $-15.1\%$, and posts the single largest tool-call reduction in the paper ($-34.7\%$) --- its always-on internal memory loop writes synthesized profiles during warmup (not just raw observations), and its verbose Base (186 tool calls/task, Table~\ref{tab:rq4}) leaves the most compressible slack of any runtime. Its active-AutoSkills sibling \texttt{evoscientist+active} lands almost on top of it on turns ($-14.7\%$), latency ($-16.6\%$), and tokens ($-12.7\%$), but its tool-call cut is \emph{smaller} ($-27.6\%$ vs.\ $-34.7\%$) --- the explicit post-hoc distillation does not add efficiency over the always-on loop it sits on and slightly erodes the tool-call advantage (analysed in RQ2/RQ3). Pass rate is essentially unchanged across the first ten runs ($|\Delta\text{Pass}| \le 0.71$pp, the passive \texttt{evoscientist} row's two dropped Loaded successes out of 280; the active variant holds $1.0000$ on both sides), consistent with a saturated benchmark. The one row that sits off the saturation band is \texttt{prime-agent+active} (Base $0.9321$, Loaded $0.9429$, $\Delta\text{Pass}\,{+}1.07$pp): its lower absolute pass rate is a run-condition artifact of that sweep --- baseline tasks lost to per-turn timeout / session-lock hangs, not benchmark difficulty --- and both phases ran under the same timeout regime, so its within-runtime $\Delta$s remain a valid Base-vs-Loaded contrast (it posts the run's only positive $\Delta$Pass).
 
 \begin{figure}[h]
 \centering
@@ -696,6 +721,8 @@ Runtime & $\Delta$Turns\% mean & std & 95\% CI & $\Delta$Tools\% mean & std \\
 \addlinespace
 \texttt{evoscientist}          & $-13.69$ & 9.52 & $[-19.59,\ -7.79]$  & $-27.89$ & 22.34 \\
 \texttt{evoscientist+active}   & $-14.60$ & 5.77 & $[-18.18,\ -11.02]$ & $-27.11$ & 39.77 \\
+\addlinespace
+\texttt{prime-agent+active}    & $-3.05$  & 6.31 & $[-6.96,\ +0.87]$   & $+6.21$  & 10.67 \\
 \bottomrule
 \end{tabular}%
 }
@@ -729,6 +756,8 @@ Runtime & Base turns & Base tools & Base tokens & $\Delta$Turns\% & $\Delta$Tool
 \addlinespace
 \texttt{evoscientist}          & 15.6 & 186.1 & 7\,275\,312 & $-14.33$ & $-34.65$ & $-10.23$ & $-15.05$ \\
 \texttt{evoscientist+active}   & 15.7 & 199.9 & 7\,181\,170 & $-14.69$ & $-27.57$ & $-12.73$ & $-16.57$ \\
+\addlinespace
+\texttt{prime-agent+active}    & 16.6 & 10.7 & 2\,170\,430 & $-3.27$  & $+5.66$  & $+3.21$  & $-5.73$  \\
 \bottomrule
 \end{tabular}%
 }
@@ -739,7 +768,7 @@ The Base-turns column is remarkably flat across runtimes (13.5--16.9), so the $\
 \subsection{RQ5 --- Ranking runtimes by evolution impact}
 \label{sec:rq-ranking}
 
-Table~\ref{tab:rq1} deliberately reports each runtime \emph{against its own Base}, and \S\ref{sec:setup} forbids ranking runtimes by their \emph{absolute} Loaded scores (that would conflate raw capability, warmup policy, and plugin). It does \emph{not}, however, forbid ranking by the quantity LIFT is designed to measure --- the \textbf{evolution impact} $\Delta$ itself. Because every $\Delta$ is a within-runtime Base-vs-Loaded contrast, the raw-capability floor is already differenced out of each number, so ordering runtimes by $\Delta$ is a legitimate ``who improved most from evolution'' ranking (distinct from ``who is best out of the box'', which we never claim). Table~\ref{tab:rank} sorts all ten runtimes by $\Delta$Turns\% (primary efficiency axis; more negative $=$ larger evolution gain $=$ better rank).
+Table~\ref{tab:rq1} deliberately reports each runtime \emph{against its own Base}, and \S\ref{sec:setup} forbids ranking runtimes by their \emph{absolute} Loaded scores (that would conflate raw capability, warmup policy, and plugin). It does \emph{not}, however, forbid ranking by the quantity LIFT is designed to measure --- the \textbf{evolution impact} $\Delta$ itself. Because every $\Delta$ is a within-runtime Base-vs-Loaded contrast, the raw-capability floor is already differenced out of each number, so ordering runtimes by $\Delta$ is a legitimate ``who improved most from evolution'' ranking (distinct from ``who is best out of the box'', which we never claim). Table~\ref{tab:rank} sorts all eleven runtimes by $\Delta$Turns\% (primary efficiency axis; more negative $=$ larger evolution gain $=$ better rank).
 
 \begin{table}[h]
 \centering
@@ -757,10 +786,11 @@ Rank & Runtime & $\Delta$Turns\% & $\Delta$Tools\% & $\Delta$Tokens\% & $\Delta$
 4 & \texttt{evoscientist+active}  & $-14.69$ & $-27.57$ & $-12.73$ & $-16.57$ & $\checkmark$ \\
 5 & \texttt{evoscientist}         & $-14.33$ & $-34.65$ & $-10.23$ & $-15.05$ & $\checkmark$ \\
 6 & \texttt{openclaw+openspace}   & $-3.95$  & $-6.41$  & $-7.12$  & $-7.90$  & \texttt{--} \\
-7 & \texttt{genericagent}         & $-1.75$  & $-1.38$  & $-0.53$  & $-2.20$  & \texttt{--} \\
-8 & \texttt{openclaw+agentmemory} & $+0.75$  & $-1.19$  & $+2.28$  & $-0.18$  & \texttt{--} \\
-9 & \texttt{genericagent+active}  & $+1.92$  & $+0.92$  & $+1.68$  & $+3.17$  & \texttt{--} \\
-10 & \texttt{openclaw}            & $+2.74$  & $-2.09$  & $+0.44$  & $+3.34$  & \texttt{--} \\
+7 & \texttt{prime-agent+active}   & $-3.27$  & $+5.66$  & $+3.21$  & $-5.73$  & \texttt{--} \\
+8 & \texttt{genericagent}         & $-1.75$  & $-1.38$  & $-0.53$  & $-2.20$  & \texttt{--} \\
+9 & \texttt{openclaw+agentmemory} & $+0.75$  & $-1.19$  & $+2.28$  & $-0.18$  & \texttt{--} \\
+10 & \texttt{genericagent+active}  & $+1.92$  & $+0.92$  & $+1.68$  & $+3.17$  & \texttt{--} \\
+11 & \texttt{openclaw}            & $+2.74$  & $-2.09$  & $+0.44$  & $+3.34$  & \texttt{--} \\
 \bottomrule
 \end{tabular}%
 }
@@ -776,8 +806,8 @@ We summarize four robust findings and one deliberate non-finding:
 \item \textbf{Implicit evolution's efficacy depends heavily on the runtime's warmup policy --- and more than one policy works.} Hermes' \texttt{review}-driven distillation delivers a strong, repeat-stable interaction-cost reduction (turns $-17.2\%$, latency $-23.0\%$, 95\% CI fully below zero), and this holds across all three Hermes configurations. EvoScientist reaches a comparable repeat-stable gain (turns $-14.3\%$, 95\% CI fully below zero) by a \emph{different} policy: an always-on internal loop that synthesizes structured profiles during warmup rather than distilling per task. OpenClaw's plain state-accumulation policy, by contrast, actually \emph{regresses} slightly on turns/tokens/latency, indicating that merely accumulating undistilled state is not a reliable win. GenericAgent's file-I/O policy produces a tiny effect that is not statistically distinguishable from zero at 10 repeats. The dividing line is not distillation-vs-not but whether the warmup policy produces a \emph{compacted, reusable} artifact at all.
 \item \textbf{Plugin choice matters more than plugin presence: OpenSpace $\gg$ agentmemory.} On the two bases that carry both plugins, a structured skill hub (OpenSpace) consistently out-compresses a raw memory backend (agentmemory). On OpenClaw, OpenSpace \emph{rescues} an otherwise-neutral base (Gain: turns $-6.7$pp, tokens $-7.6$pp) whereas agentmemory is neutral-to-negative (turns $-2.0$pp, tokens $+1.8$pp); on Hermes, OpenSpace adds a modest $-2$pp on turns/tokens while agentmemory adds nothing ($+0.6$pp turns). The distillation step, not the storage substrate, is what shortens future interactions.
 \item \textbf{Explicit / active evolution is not automatically better than implicit.} GenericAgent's extra active-reflection pass \emph{costs} interaction budget rather than saving it (Gain: turns $+3.7$pp, tokens $+2.2$pp): on a benchmark where the base already writes focused deliverables, the added deliberation is pure overhead. EvoScientist's active-AutoSkills pass makes the point from the opposite direction: layered on a base whose implicit loop \emph{already} evolves strongly, the explicit distillation adds \emph{no} separable gain (turns $-14.7\%$ vs.\ $-14.3\%$, statistically tied; tool calls actually \emph{worse}, $-27.6\%$ vs.\ $-34.7\%$) and its one measurable effect is to halve per-repeat variance (RQ3 std $5.77$ vs.\ $9.52$) --- at the cost of an extra warmup LLM pass. More evolution machinery does not imply more downstream efficiency; at best it buys stability once an implicit mechanism is already saturating the available slack.
-\item \textbf{Statistical significance is unevenly distributed, and not confined to one mechanism.} Five rows show 95\% CIs on $\Delta$Turns\% that lie entirely below zero (Table~\ref{tab:rq3}): the three Hermes configurations \emph{and both} EvoScientist variants; every OpenClaw and GenericAgent row's turns-CI crosses zero. Crucially the passive \texttt{evoscientist} performs no per-task distillation, so a repeat-stable double-digit gain is achievable without the \texttt{review}-style hook --- distillation is sufficient but not necessary --- while its active sibling shows the converse limit: adding an explicit distillation hook on top of an already-evolving base tightens the CI but does not move the mean. We report the point estimates for completeness but recommend against reading small differences ($|\Delta| \lesssim 5\%$) as effects at 10-repeat resolution. Pass rate on EALE is saturated (all ten runs 0.99--1.00 on both Base and Loaded, largest $|\Delta\text{Pass}| = 0.71$pp), so it is retained only as a guardrail against silent regressions --- none observed.
-\item \textbf{We rank evolution impact, not raw capability.} The ten runtimes share a benchmark but not a raw-capability floor, a warmup policy, or an augmentation surface, so we produce no ``best agent'' by absolute Loaded score. What we \emph{do} rank (RQ5, Table~\ref{tab:rank}) is the evolution-impact $\Delta$ --- a within-runtime quantity from which each Base has already been differenced out. On that axis the Hermes family leads ($\Delta$Turns\% $\approx-17$ to $-19\%$) with both EvoScientist variants close behind ($-14.3$ to $-14.7\%$); these five are the repeat-stable rows, the remaining five cluster within $\pm$4pp of zero and are statistically inseparable. The ordering is best read as an \emph{evolution-mechanism} comparison, but not a single-mechanism story: robust gains come both from Hermes' per-task \texttt{review} distillation and from EvoScientist's always-on internal memory synthesis, so ``distillation'' is one sufficient route rather than the only one. The one confound we flag is compressible slack: a verbose Base leaves more room for evolution to cut, so large $\Delta$s are partly a property of the Base, not only of the evolution mechanism --- EvoScientist's very verbose Base (186 tool-calls/task) is a clear instance.
+\item \textbf{Statistical significance is unevenly distributed, and not confined to one mechanism.} Five rows show 95\% CIs on $\Delta$Turns\% that lie entirely below zero (Table~\ref{tab:rq3}): the three Hermes configurations \emph{and both} EvoScientist variants; every OpenClaw and GenericAgent row's turns-CI crosses zero. Crucially the passive \texttt{evoscientist} performs no per-task distillation, so a repeat-stable double-digit gain is achievable without the \texttt{review}-style hook --- distillation is sufficient but not necessary --- while its active sibling shows the converse limit: adding an explicit distillation hook on top of an already-evolving base tightens the CI but does not move the mean. We report the point estimates for completeness but recommend against reading small differences ($|\Delta| \lesssim 5\%$) as effects at 10-repeat resolution. Pass rate on EALE is saturated (0.99--1.00 on both Base and Loaded for every runtime except \texttt{prime-agent+active}, largest $|\Delta\text{Pass}| = 1.07$pp), so it is retained only as a guardrail against silent regressions --- none observed.
+\item \textbf{We rank evolution impact, not raw capability.} The eleven runtimes share a benchmark but not a raw-capability floor, a warmup policy, or an augmentation surface, so we produce no ``best agent'' by absolute Loaded score. What we \emph{do} rank (RQ5, Table~\ref{tab:rank}) is the evolution-impact $\Delta$ --- a within-runtime quantity from which each Base has already been differenced out. On that axis the Hermes family leads ($\Delta$Turns\% $\approx-17$ to $-19\%$) with both EvoScientist variants close behind ($-14.3$ to $-14.7\%$); these five are the repeat-stable rows, the remaining six cluster within $\pm$4pp of zero and are statistically inseparable. The ordering is best read as an \emph{evolution-mechanism} comparison, but not a single-mechanism story: robust gains come both from Hermes' per-task \texttt{review} distillation and from EvoScientist's always-on internal memory synthesis, so ``distillation'' is one sufficient route rather than the only one. The one confound we flag is compressible slack: a verbose Base leaves more room for evolution to cut, so large $\Delta$s are partly a property of the Base, not only of the evolution mechanism --- EvoScientist's very verbose Base (186 tool-calls/task) is a clear instance.
 \end{enumerate}
 
 
@@ -802,9 +832,9 @@ Our stance in one sentence: \textbf{evaluating a self-evolving agent is not abou
 
 \begin{itemize}
 \item \textbf{Code}: framework, adapters for mainstream self-evolving agent runtimes, status dashboard, post-processing --- released at \url{https://github.com/FeiZhuNiU-INFJA/LIFT}.
-\item \textbf{Images}: \texttt{lift-openclaw-base} / \texttt{lift-openclaw-with-openspace} / \texttt{lift-openclaw-with-agentmemory} and \texttt{lift-\{genericagent,hermes,hermes-with-openspace,hermes-with-agentmemory,openhuman,openhuman-with-agentmemory,evoscientist\}:latest} build scripts.
-\item \textbf{Data}: 14-scene benchmark (EALE) hosted at \url{https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE} under \textbf{CC BY 4.0}, with a dataset card and Croissant metadata (Appendix C summarizes the datasheet); plus the demo smoke suite in-repo. EALE is file-structured (per-task folders + materials), so it is consumed by cloning the repository tree rather than via a single-table \texttt{load\_dataset}.
-\item \textbf{Entry points}: \texttt{python -m src.cli.lift\_main -r <runtime> --benchmark\_dir <dir> --suite <name>.json --run\_id <id>}; \texttt{--evaluate-only} for post-process replay.
+\item \textbf{Images}: \brk{lift-openclaw-base} / \brk{lift-openclaw-with-openspace} / \brk{lift-openclaw-with-agentmemory} and \brk{lift-\{genericagent,hermes,hermes-with-openspace,hermes-with-agentmemory,openhuman,openhuman-with-agentmemory,evoscientist\}:latest} build scripts.
+\item \textbf{Data}: 14-scene benchmark (EALE) hosted at \url{https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE} under \textbf{CC BY 4.0}, with a dataset card and Croissant metadata (Appendix C summarizes the datasheet); plus the demo smoke suite in-repo. EALE is file-structured (per-task folders + materials), so it is consumed by cloning the repository tree rather than via a single-table \brk{load\_dataset}.
+\item \textbf{Entry points}: \brk{python -m src.cli.lift\_main -r <runtime> --benchmark\_dir <dir> --suite <name>.json --run\_id <id>}; \texttt{--evaluate-only} for post-process replay.
 \end{itemize}
 
 
@@ -822,7 +852,7 @@ We group the works surveyed along the axis ``can it answer \emph{do the artifact
 \small
 \caption{Relation matrix contrasting LIFT's stance with existing work along nine dimensions.}
 \label{tab:relation}
-\begin{tabular}{p{0.2\textwidth}p{0.36\textwidth}p{0.38\textwidth}}
+\begin{tabular}{P{0.2\textwidth}P{0.36\textwidth}P{0.38\textwidth}}
 \toprule
 Dimension & LIFT's stance & Direct contrast \\
 \midrule
@@ -850,7 +880,7 @@ Because RQ5 (Table~\ref{tab:rank}) reads the ranking as an \emph{evolution-mecha
 \footnotesize
 \caption{What each evaluated runtime actually does to evolve. ``Hook'' names the overridden method; ``no-op'' means the runtime performs no explicit distillation and the delta carries only whatever the agent happened to write to disk during warmup. Mechanism class: \textbf{C} = carry-only (no distillation), \textbf{D} = per-task distillation, \textbf{R} = explicit post-hoc reflection.}
 \label{tab:evo-mech}
-\begin{tabular}{p{0.16\textwidth}cp{0.44\textwidth}p{0.22\textwidth}}
+\begin{tabular}{P{0.16\textwidth}cP{0.44\textwidth}P{0.22\textwidth}}
 \toprule
 Runtime & Class & Hook @ timing $\rightarrow$ trigger & Delta-committed state \\
 \midrule
@@ -870,14 +900,16 @@ Runtime & Class & Hook @ timing $\rightarrow$ trigger & Delta-committed state \\
 \addlinespace
 \texttt{genericagent} \texttt{+active} & R & Two extra reflection passes: an \emph{isolated} GenericAgent chat after each task (\texttt{evolve\_after\_task}) and one after the whole batch (\texttt{evolve\_after\_warmup}), each instructed to write layered memory to \texttt{/opt/GenericAgent/memory} & same \\
 \midrule
-\texttt{evoscientist} & C & \texttt{evolve\_after\_warmup} is a LIFT no-op; but EvoScientist runs an \emph{always-on} internal memory loop that, during warmup, writes synthesized profiles (\texttt{SOUL}, \texttt{USER\_PROFILE}, \texttt{RESEARCH\_TASTE}, per-project \texttt{PROJECT\_PROFILE}) alongside raw observations. No explicit AutoSkills distillation fires (\texttt{autoskills/proposals} stays empty) & \texttt{/root/.evoscientist/} \texttt{\{memories,sessions.db\}} \\
+\texttt{evoscientist} & C & \texttt{evolve\_after\_warmup} is a LIFT no-op; but EvoScientist runs an \emph{always-on} internal memory loop that, during warmup, writes synthesized profiles (\texttt{SOUL}, \brk{USER\_PROFILE}, \brk{RESEARCH\_TASTE}, per-project \brk{PROJECT\_PROFILE}) alongside raw observations. No explicit AutoSkills distillation fires (\brk{autoskills/proposals} stays empty) & \brk{/root/.evoscientist/} \brk{\{memories,sessions.db\}} \\
 \addlinespace
 \texttt{evoscientist} \texttt{+active} & R & \texttt{evolve\_after\_warmup} @ \emph{post-batch}: after all warmup tasks it runs EvoScientist's AutoSkills maintenance graph in the still-live container (host-injected via \texttt{docker exec}), distilling accumulated observations into explicit skill proposals (\texttt{autoskills/proposals} populated) before the commit; the always-on internal loop still runs underneath & same as \texttt{evoscientist}, plus populated \texttt{autoskills} \\
+\midrule
+\texttt{prime-agent} \texttt{+active} & D & \texttt{evolve\_after\_task} @ \emph{per task}: after each warmup task a \texttt{/refine --global} pass distills that trajectory into the global Continual Harness (invoked via \texttt{-c}), carried by \texttt{docker commit} & \texttt{/root/.prime/} \texttt{agent/} (global harness) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Three mechanism classes, and what the ranking does (and does not) follow.} The ten runtimes fall into three families of mechanism. \textbf{(C) Carry-only} (\texttt{openclaw}, \texttt{+openspace}, \texttt{+agentmemory}, \texttt{genericagent}, and \texttt{evoscientist}): there is \emph{no} LIFT-triggered distillation hook; the delta is whatever memory/skill files the agent wrote during warmup, snapshotted by \texttt{docker commit}. \textbf{(D) Per-task distillation} (the entire Hermes family): after \emph{every} warmup task, before the next one starts, a blocking \texttt{review} compresses that task's trajectory into a compact reusable skill/memory. \textbf{(R) Explicit post-hoc reflection} (\texttt{genericagent+active} and \texttt{evoscientist+active}): an extra post-warmup pass distills the batch --- for GenericAgent, two additional reflection chats (after each task and after the batch); for EvoScientist, one AutoSkills maintenance-graph run that turns accumulated observations into explicit skill proposals before commit. Mapping this onto RQ5, per-task distillation \textbf{(D)} reliably produces a robust, repeat-stable, double-digit gain --- it is precisely the step that turns a verbose warmup transcript into a short plan the model consults on Loaded runs. But \textbf{(D) is not the only route}: \texttt{evoscientist} sits in class \textbf{(C)} yet is also repeat-stable ($-14.3\%$ turns, CI fully below zero, rank 4). The distinction is that its always-on internal loop does not merely accumulate raw observations --- it continuously \emph{synthesizes} structured profiles (\texttt{SOUL}/\texttt{USER\_PROFILE}/\texttt{RESEARCH\_TASTE}/\texttt{PROJECT\_PROFILE}) during warmup, which function as a compact plan much like a distilled skill even though no explicit distillation hook fires. The remaining class-\textbf{(C)} runtimes (\texttt{openclaw}, \texttt{genericagent}), which carry only undistilled files, stay neutral or mildly negative (accumulated state lengthens context without shortening the outer loop); class \textbf{(R)}'s extra deliberation \emph{adds} interaction cost on GenericAgent, where the base already writes focused deliverables. EvoScientist's class-\textbf{(R)} variant is the more instructive case: bolted onto a base whose class-\textbf{(C)} internal loop is \emph{already} repeat-stable, its explicit AutoSkills distillation neither enlarges the turns gain ($-14.7\%$ vs.\ the passive $-14.3\%$, statistically tied) nor improves tool efficiency (in fact $-27.6\%$ vs.\ $-34.7\%$, \emph{worse}); its one measurable effect is halving the per-repeat variance (RQ3 std $5.77$ vs.\ $9.52$) at the price of an extra warmup LLM pass. The refined reading: what predicts a robust gain is not the presence of a distillation \emph{hook} per se, but whether \emph{some} process --- explicit per-task review \emph{or} an always-on synthesis loop --- turns the verbose warmup trace into a compact, reusable artifact before the Loaded run; and once such a process exists, layering an \emph{additional} explicit distillation on top yields at most stability, not extra efficiency.
+\paragraph{Three mechanism classes, and what the ranking does (and does not) follow.} The eleven runtimes fall into three families of mechanism. \textbf{(C) Carry-only} (\texttt{openclaw}, \texttt{+openspace}, \texttt{+agentmemory}, \texttt{genericagent}, and \texttt{evoscientist}): there is \emph{no} LIFT-triggered distillation hook; the delta is whatever memory/skill files the agent wrote during warmup, snapshotted by \texttt{docker commit}. \textbf{(D) Per-task distillation} (the entire Hermes family, plus \texttt{prime-agent+active}): after \emph{every} warmup task, before the next one starts, a blocking step compresses that task's trajectory into a compact reusable artifact --- a \texttt{review} into skills/memory for Hermes, a \texttt{/refine --global} pass into the global Continual Harness for prime-agent. \textbf{(R) Explicit post-hoc reflection} (\texttt{genericagent+active} and \texttt{evoscientist+active}): an extra post-warmup pass distills the batch --- for GenericAgent, two additional reflection chats (after each task and after the batch); for EvoScientist, one AutoSkills maintenance-graph run that turns accumulated observations into explicit skill proposals before commit. Mapping this onto RQ5, per-task distillation \textbf{(D)} \emph{as implemented on Hermes} reliably produces a robust, repeat-stable, double-digit gain --- it is precisely the step that turns a verbose warmup transcript into a short plan the model consults on Loaded runs. But the class-\textbf{(D)} hook is neither sufficient nor necessary on its own. It is \emph{not sufficient}: \texttt{prime-agent+active} runs the same per-task-distillation family (a \texttt{/refine --global} pass) yet lands at only $-3.27\%$ turns (rank 7, CI crosses zero), because its Base is the \emph{tersest} we measured (10.7 tool-calls/task, Table~\ref{tab:rq4}) --- with almost no compressible slack, even a genuine distillation step has little to cut. And it is \emph{not necessary}: \texttt{evoscientist} sits in class \textbf{(C)} yet is repeat-stable ($-14.3\%$ turns, CI fully below zero, rank 4). The distinction is that its always-on internal loop does not merely accumulate raw observations --- it continuously \emph{synthesizes} structured profiles (\texttt{SOUL}/\texttt{USER\_PROFILE}/\texttt{RESEARCH\_TASTE}/\texttt{PROJECT\_PROFILE}) during warmup, which function as a compact plan much like a distilled skill even though no explicit distillation hook fires. The remaining class-\textbf{(C)} runtimes (\texttt{openclaw}, \texttt{genericagent}), which carry only undistilled files, stay neutral or mildly negative (accumulated state lengthens context without shortening the outer loop); class \textbf{(R)}'s extra deliberation \emph{adds} interaction cost on GenericAgent, where the base already writes focused deliverables. EvoScientist's class-\textbf{(R)} variant is the more instructive case: bolted onto a base whose class-\textbf{(C)} internal loop is \emph{already} repeat-stable, its explicit AutoSkills distillation neither enlarges the turns gain ($-14.7\%$ vs.\ the passive $-14.3\%$, statistically tied) nor improves tool efficiency (in fact $-27.6\%$ vs.\ $-34.7\%$, \emph{worse}); its one measurable effect is halving the per-repeat variance (RQ3 std $5.77$ vs.\ $9.52$) at the price of an extra warmup LLM pass. The refined reading: what predicts a robust gain is not the presence of a distillation \emph{hook} per se, but whether \emph{some} process --- explicit per-task review \emph{or} an always-on synthesis loop --- turns the verbose warmup trace into a compact, reusable artifact before the Loaded run; and once such a process exists, layering an \emph{additional} explicit distillation on top yields at most stability, not extra efficiency.
 
 \paragraph{A caveat on the passive \texttt{agentmemory} rows.} The two \texttt{+agentmemory} configurations reported here run agentmemory in its \emph{passive} mode: the local \texttt{:3111} server is started without an LLM provider, so its built-in consolidate/reflect distillation never fires and only raw observations are persisted. The framework also ships an \emph{active} variant (\texttt{openclaw\_with\_agentmemory\_active\_evolve}) that, after warmup, explicitly \texttt{POST}s \texttt{/agentmemory/crystals/auto} followed by \texttt{/agentmemory/consolidate-pipeline} \texttt{\{tier:all\}} to distill raw observations into semantic facts and higher-order insights before committing. That active path was not part of this v1 sweep; consequently the near-zero \texttt{+agentmemory} deltas should be read as ``an undistilled memory store does not by itself help,'' \emph{not} as a verdict on agentmemory's distillation engine. Closing that gap (active agentmemory, plus the \texttt{openclaw\_with\_evolve} \texttt{learn review} path) is an explicit v2 direction. We already close one arm of it here: EvoScientist's \emph{active} AutoSkills variant (\texttt{evoscientist\_active\_evolve}) is run on top of the passive \texttt{evoscientist} baseline and reported throughout \S6, and its finding --- that an explicit distillation pass layered on an already-self-synthesising base tightens per-repeat variance but adds no separable mean gain (and slightly erodes tool-call efficiency) --- is exactly the kind of null-with-a-twist result this active/passive contrast was designed to surface.
 
