@@ -76,6 +76,16 @@
   .hero{position:relative; min-height:calc(100dvh - 58px); display:flex; flex-direction:column; justify-content:center; gap:46px; padding:48px 0 76px; scroll-snap-align:start; scroll-snap-stop:always; overflow:hidden;}
   .hero-top{display:grid; grid-template-columns:minmax(0,1.2fr) minmax(260px,.8fr); gap:64px; align-items:center;}
   .eyebrow{font-family:var(--mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-52);}
+  /* prominent "this is a leaderboard" badge on the landing scene */
+  .hero-badge{display:inline-flex; align-items:center; gap:11px; padding:9px 16px 9px 13px;
+    border:1px solid color-mix(in srgb, var(--pass) 42%, var(--ink-14)); border-radius:999px;
+    background:color-mix(in srgb, var(--pass) 9%, var(--paper-3));
+    font-family:var(--mono); font-weight:700; font-size:13px; letter-spacing:.13em; text-transform:uppercase; color:var(--pass);
+    box-shadow:var(--shadow-2);}
+  .hero-badge .live{width:8px; height:8px; border-radius:50%; background:var(--pass); box-shadow:0 0 0 0 color-mix(in srgb, var(--pass) 60%, transparent); animation:pulse 2.4s var(--ease) infinite;}
+  .hero-badge .badge-sub{color:var(--ink-52); font-weight:500; letter-spacing:.1em; font-size:11px;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--pass) 55%, transparent);}70%{box-shadow:0 0 0 7px transparent;}100%{box-shadow:0 0 0 0 transparent;}}
+  @media (prefers-reduced-motion:reduce){.hero-badge .live{animation:none;}}
   h1{font-family:var(--serif); font-weight:700; font-size:clamp(44px,5.6vw,74px); line-height:1.02; letter-spacing:-.01em; margin:.14em 0 .18em;}
   h1 em{font-style:normal; color:var(--pass);}
   .lede{max-width:48ch; color:var(--ink-72); font-size:17px;}
@@ -111,15 +121,6 @@
   .ghost-index{position:absolute; right:-8px; bottom:-8px; z-index:-1; font-family:var(--serif); font-weight:700; font-size:clamp(140px,22vw,300px); line-height:.72; color:var(--ink); opacity:.05; pointer-events:none; user-select:none; letter-spacing:-.03em; transform:translateY(var(--par,0px)); will-change:transform;}
   .section h2{font-size:clamp(27px,4vw,44px); line-height:1.08; letter-spacing:-.01em; margin:0; max-width:19ch;}
   .section-intro{font-size:16px; color:var(--ink-72); max-width:62ch; margin:14px 0 0;}
-  .metric-strip{display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--ink-22); border-bottom:1px solid var(--ink-22);}
-  .metric{padding:20px 18px 20px 0; border-right:1px solid var(--ink-14);}
-  .metric:not(:first-child){padding-left:18px;}
-  .metric:last-child{border-right:0;}
-  .metric-label{font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.09em; color:var(--ink-52);}
-  .metric-value{display:block; margin-top:7px; font-family:var(--mono); font-weight:700; font-size:28px; letter-spacing:0; color:var(--pass); font-variant-numeric:tabular-nums;}
-  .metric-desc{font-size:12px; color:var(--ink-52); margin-top:3px;}
-  /* hero-embedded compact metric strip (folds old section 01 into the landing) */
-  .hero .metric-strip{border-top:1px solid var(--ink-22); border-bottom:1px solid var(--ink-22);}
 
   /* ---------- split scenes: narrative on the left, growable visual on the right ---------- */
   .split{display:grid; grid-template-columns:minmax(280px,340px) minmax(0,1fr); gap:56px; align-items:start;}
@@ -240,7 +241,6 @@
   .good{color:var(--pass);} .bad{color:var(--signal);} .flat{color:var(--ink-72);}
   .sig{font-weight:700; color:var(--pass);}
   .nosig{color:var(--ink-72); font-size:11px; letter-spacing:.02em;}
-  .mech{font-family:var(--sans); font-size:11.5px; color:var(--ink-52); text-align:left; white-space:normal; max-width:280px;}
 
   /* ---------- class key ---------- */
   .classkey{display:flex; flex-wrap:wrap; gap:14px; margin:16px 0 0; font-size:12.5px; color:var(--ink-72);}
@@ -261,13 +261,9 @@
     .split{grid-template-columns:1fr; gap:26px;}
     .split .narrative{align-self:start;}
     .split .ghost-index{left:auto; right:-4px; top:-46px;}
-    .metric-strip{grid-template-columns:1fr;}
-    .metric,.metric:not(:first-child){padding:16px 0;border-right:0;border-bottom:1px solid var(--ink-14);}
-    .metric:last-child{border-bottom:0;}
     .table-tools{align-items:start; flex-direction:column;}
     .crow, .axis{grid-template-columns:112px 1fr 66px; gap:8px;}
     .crow .name{font-size:11px;}
-    .mech{display:none;}
   }
 </style>
 </head>
@@ -283,7 +279,7 @@
   <section class="hero reveal">
     <div class="hero-top">
       <div>
-      <div class="eyebrow" data-rise="1">Loaded Impact on Final Task · Public benchmark</div>
+      <div class="hero-badge" data-rise="1"><span class="live" aria-hidden="true"></span>Evolution-Impact Leaderboard <span class="badge-sub">· Live public benchmark</span></div>
       <h1 data-rise="2">Does evolution <em>hold up?</em></h1>
       <p class="lede" data-rise="3">A leaderboard for the improvement an agent carries into unseen tasks, not its raw capability at the start. Each runtime faces every holdout twice — once from a clean Base image, once from its Loaded state after warmup plus an evolve step — so it is judged against itself.</p>
       <a class="hero-action" href="#results" data-rise="4">Read the evidence <span aria-hidden="true">↓</span></a>
@@ -296,7 +292,6 @@
       <div class="signal-meta" id="hero-meta">10 repeated trials / runtime</div>
     </aside>
     </div>
-    <div class="metric-strip" id="metric-strip" aria-label="Leaderboard summary" data-rise="5"></div>
     <a class="scroll-cue" href="#results" aria-label="Scroll to the evidence">
       <svg viewBox="0 0 24 30" aria-hidden="true"><path class="chev" d="M5 8 L12 15 L19 8"/><path class="chev two" d="M5 16 L12 23 L19 16"/></svg>
     </a>
@@ -347,7 +342,7 @@
       <div class="narrative">
         <span class="ghost-index" aria-hidden="true">02</span>
         <span class="section-index" data-rise="1">02 / THE FULL FIELD</span>
-        <h2 data-rise="2">Every mechanism, ranked.</h2>
+        <h2 data-rise="2">The complete standings.</h2>
         <p class="section-intro" data-rise="3">Sort any measurement, or focus the field by evolution mechanism. Rankings remain ordered by ΔTurns% by default.</p>
         <div class="classkey" data-rise="4">
           <div><span class="cls-badge g-D">D</span> Per-task distillation: a blocking review compresses each warmup task</div>
@@ -378,7 +373,6 @@
               <th data-k="delta_tokens_pct">ΔTokens%<span class="caret">▾</span></th>
               <th data-k="delta_latency_pct">ΔLatency%<span class="caret">▾</span></th>
               <th data-k="significant" title="Statistical significance: ✓ = 95% CI on ΔTurns% (10 repeats) lies entirely below zero; n.s. = CI still includes zero">Sig.<span class="caret">▾</span></th>
-              <th class="left">Mechanism</th>
             </tr>
           </thead>
           <tbody id="lbbody"></tbody>
@@ -418,14 +412,7 @@ function renderSummary(){
   heroBest.dataset.to = best.delta_turns_pct; heroBest.dataset.dec = "2"; heroBest.dataset.suffix = "%"; heroBest.dataset.signed = "1";
   heroBest.textContent = "0.00%";
   document.getElementById("hero-copy").textContent = `${best.display} required fewer turns after evolution, with a 95% interval entirely below zero.`;
-  document.getElementById("hero-meta").textContent = `${DATA.n_repeats_nominal} repeated trials / runtime · ${entries.length} runtimes`;
-  document.getElementById("metric-strip").innerHTML = [
-    ["Runtimes tested", entries.length, 0, "", 0, "separate evolution mechanisms"],
-    ["Repeat-stable gains", stable.length, 0, "", 0, "95% CI stays below zero"],
-    ["Best ΔTurns%", best.delta_turns_pct, 2, "%", 1, `${best.display} on unseen tasks`],
-  ].map(([label,value,dec,suffix,signed,desc]) =>
-    `<div class="metric"><span class="metric-label">${label}</span><span class="metric-value" data-to="${value}" data-dec="${dec}" data-suffix="${suffix}" data-signed="${signed}">0${dec?".00":""}${suffix}</span><div class="metric-desc">${desc}</div></div>`
-  ).join("");
+  document.getElementById("hero-meta").textContent = `${DATA.n_repeats_nominal} repeated trials / runtime · ${entries.length} runtimes · ${stable.length} repeat-stable`;
 }
 
 // count a number up to its data-to target when it first scrolls into view
@@ -550,8 +537,7 @@ function renderTable(){
       <td class="left rt">${e.display}<span class="fam">${e.base_family} family</span></td>
       <td><span class="cls-badge g-${e.mech_class}">${e.mech_class}</span></td>
       ${d(e.delta_turns_pct)}${d(e.delta_tools_pct)}${d(e.delta_tokens_pct)}${d(e.delta_latency_pct)}
-      <td class="${e.significant?'sig':'nosig'}" title="${e.significant?'95% CI on ΔTurns% lies entirely below zero (repeat-stable gain)':'not significant: 95% CI still includes zero'}">${e.significant?'✓':'n.s.'}</td>
-      <td class="mech">${e.mech_short}</td>`;
+      <td class="${e.significant?'sig':'nosig'}" title="${e.significant?'95% CI on ΔTurns% lies entirely below zero (repeat-stable gain)':'not significant: 95% CI still includes zero'}">${e.significant?'✓':'n.s.'}</td>`;
     body.appendChild(tr);
   });
   // header state
