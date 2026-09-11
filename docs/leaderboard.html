@@ -95,6 +95,11 @@
   .hero-action:active{transform:translateY(1px);}
   .hero-action span{transition:transform .3s var(--ease);}
   .hero-action:hover span{transform:translateY(3px);}
+  .paper-link{display:inline-flex; align-items:center; gap:8px; margin-top:16px; margin-left:14px; font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--steel); text-decoration:none; border-bottom:1px solid transparent; transition:color .2s var(--ease),border-color .2s var(--ease);}
+  .paper-link:hover{color:var(--pass); border-bottom-color:var(--pass);}
+  .paper-ico{width:15px; height:15px; flex:none; stroke:currentColor; stroke-width:1.8; fill:none; stroke-linecap:round; stroke-linejoin:round;}
+  .paper-link span{transition:transform .3s var(--ease);}
+  .paper-link:hover span{transform:translate(2px,-2px);}
   .signal-board{align-self:center; border-top:2px solid var(--ink); border-bottom:1px solid var(--ink-22); padding:18px 0 16px;}
   .signal-kicker{font-family:var(--mono); font-size:10px; letter-spacing:.12em; color:var(--ink-52); text-transform:uppercase;}
   .signal-value{font-family:var(--mono); font-size:clamp(42px,5vw,66px); line-height:1; font-weight:700; margin:18px 0 8px; color:var(--pass); font-variant-numeric:tabular-nums;}
@@ -272,7 +277,7 @@
 <div class="wrap">
   <header class="masthead">
     <a class="brand" href="./index.html">LIFT</a>
-    <nav class="nav" aria-label="Page sections"><a href="#results">Signal</a><a href="#ranking">Ranking</a><a href="./index.html">Overview ↗</a></nav>
+    <nav class="nav" aria-label="Page sections"><a href="#results">Signal</a><a href="#ranking">Ranking</a><a href="./lift-paper.pdf" target="_blank" rel="noopener">Paper ↗</a><a href="./index.html">Overview ↗</a></nav>
   </header>
 
   <main>
@@ -283,6 +288,7 @@
       <h1 data-rise="2">Does evolution <em>hold up?</em></h1>
       <p class="lede" data-rise="3">A leaderboard for the improvement an agent carries into unseen tasks, not its raw capability at the start. Each runtime faces every holdout twice — once from a clean Base image, once from its Loaded state after warmup plus an evolve step — so it is judged against itself.</p>
       <a class="hero-action" href="#results" data-rise="4">Read the evidence <span aria-hidden="true">↓</span></a>
+      <a class="paper-link" href="./lift-paper.pdf" target="_blank" rel="noopener" data-rise="4"><svg class="paper-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>Full paper (PDF) <span aria-hidden="true">↗</span></a>
     </div>
     <aside class="signal-board" aria-label="Top result summary" data-rise="3">
       <div class="signal-kicker">Best observed efficiency gain</div>
