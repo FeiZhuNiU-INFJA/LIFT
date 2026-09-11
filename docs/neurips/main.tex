@@ -1,0 +1,935 @@
+% arXiv v1 preprint. Non-anonymous, author-visible build via [preprint] option.
+% Companion target: NeurIPS 2027 (Datasets & Benchmarks Track) — the NeurIPS
+% submission MUST switch to the anonymous build and strip author identifiers,
+% affiliation strings, and the Code/Benchmark URLs from the abstract.
+%
+% Experimental status (v1): §6 tables report population-ratio Δ from partial
+% runs (11 runtimes × RQ1..RQ4). Numbers flagged "[Preliminary — full run pending]"
+% will be refreshed in v2 once the remaining sweeps land.
+%
+% Working subtitle / acronym anchor: LIFT = Loaded Impact on Final Task.
+
+\documentclass{article}
+
+
+\usepackage[preprint]{neurips_2023}
+
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{float}          % enables [H] placement specifier (must load before hyperref)
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{amssymb}        % \lesssim, \gtrsim, etc.
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{graphicx}       % graphics
+\usepackage{pgfplots}       % native bar charts (no external image files)
+\pgfplotsset{compat=1.18}
+\usepackage{amsmath}        % math
+\usepackage{listings}       % code listings
+\usepackage{xcolor}         % colors
+\usepackage[htt]{hyphenat}  % allow hyphenation/breaking inside \texttt
+\usepackage{seqsplit}       % break long monospace tokens char-by-char
+\usepackage{array}          % \newcolumntype for ragged paragraph columns
+\usepackage{ragged2e}       % \RaggedRight: ragged edge but still hyphenates
+\usepackage{xurl}           % break long URLs anywhere (no underfull on url lines)
+\setlength{\tabcolsep}{4pt} % tighter column gutter to prevent p{...} table overfull
+
+% Ragged (non-justified) paragraph column that still hyphenates. ragged2e's
+% \RaggedRight caps edge stretch at 2em, which can leave short last lines
+% flagged as underfull; widening its rightskip to infinite fill left-aligns
+% every line with no stretch, so wrapped cells produce no underfull-hbox
+% warnings while long words can still hyphenate. Long monospace tokens that
+% would overflow are wrapped with \brk (seqsplit) at the call site.
+\setlength{\RaggedRightRightskip}{0pt plus 1fil}
+\newcolumntype{P}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+
+% Allow the last line of a page to fall short instead of stretching inter-block
+% glue to force a flush bottom; removes the "Underfull \vbox while \output is
+% active" warnings that [H]-placed tables otherwise trigger.
+\raggedbottom
+
+% Last-resort line-breaking slack for justified body paragraphs that carry long
+% unbreakable \texttt{} tokens (policy/class names): engages only after normal
+% breaking fails, absorbing the residual so no underfull-hbox is reported
+% without visibly loosening inter-word spacing.
+\setlength{\emergencystretch}{3em}
+
+% allow line breaks inside long monospace tokens (long file paths / runtime names)
+\newcommand{\brk}[1]{\texttt{\seqsplit{#1}}}
+
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible,
+}
+
+
+\title{LIFT: A Counterfactual Framework and Benchmark for Disentangling Genuine Self-Evolution in LLM Agents}
+
+
+\author{%
+  Lin Yu\thanks{Equal contribution; author order is arbitrary and does not reflect seniority or contribution weight. All authors are independent researchers.} \\
+  \And
+  Tong Han\footnotemark[1] \\
+  \And
+  Linsheng Zheng\footnotemark[1] \\
+}
+
+
+\begin{document}
+
+
+\maketitle
+
+
+\begin{abstract}
+Self-evolving LLM agents continuously accumulate reusable experience \emph{artifacts} --- skills, memories, tool libraries, and workflows (SOPs) --- produced during interaction and reloaded on later tasks. Yet mainstream evaluation cannot separate \emph{genuine} capability generalization from \emph{pseudo} performance growth introduced by evaluation confounds: training-memory leakage (the agent replaying an earlier task's output into the next), cross-session context pollution, grader self-preference, and non-reproducible runtimes. As a result, ``the agent evolved a pile of artifacts'' is routinely mistaken for ``the artifacts help downstream.''
+
+We present \textbf{LIFT (Loaded Impact on Final Task)}, a counterfactual evaluation framework that makes the \emph{Base vs. Loaded} contrast on held-out tasks its single scientific question. LIFT operationalizes this contrast with three mechanisms: (i) \textbf{paired A/B runs} of the same held-out task with and without consolidated artifacts; (ii) \textbf{strict separation} of warmup (training) tasks from holdout (unseen) tasks; and (iii) \textbf{Docker container snapshots} (\texttt{docker commit} $\rightarrow$ delta image) that solidify the runtime agent state as an artifact-agnostic, cross-machine-reproducible carrier. Together these isolate the confounds above, so that a positive delta on an unseen task is \emph{attributable to the artifacts} rather than to leakage, context pollution, or environment drift. A \textbf{three-layer decoupling} (pipeline / runtime adapter / evaluation kernel) hosts a range of mainstream self-evolving agent runtimes behind four hooks; a \textbf{work-agent + judge-agent review loop} scores each task; and multi-level concurrency plus Langfuse trace backfill make every run auditable in both \emph{conclusion} and \emph{process}. We release a self-contained \textbf{benchmark of 14 scenes (84 tasks)} built on a two-phase schema with a deliberate $\sim$75\%/25\% train-test requirement overlap designed to expose over-fitting to literal training requirements. LIFT provides a standardized, attributable pipeline for empirical research on self-evolving agents and makes precise the methodological gaps in existing agent benchmarks. Code is released at \url{https://github.com/FeiZhuNiU-INFJA/LIFT} and the benchmark at \url{https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE}.
+
+\emph{Preprint status.} This is a v1 preprint. §6 reports population-ratio $\Delta$ from a partial cross-runtime sweep (11 runtimes across RQ1--RQ5); remaining runtimes and full-suite repeats will be released in v2.
+\end{abstract}
+
+
+\section{Introduction}
+
+\subsection{From model evaluation to agent evaluation}
+
+LLM evaluation began as ``feed a prompt, check the output.'' Agents shattered that: a single task becomes a long chain of \emph{planning $\rightarrow$ tool calls $\rightarrow$ file-system operations $\rightarrow$ multi-turn feedback $\rightarrow$ final deliverable}, and the model is only one node. An agent that appears to ``answer correctly'' may do so because (i) the task itself is flawed (the ABC Checklist~\citep{zhu2025abc} reports overestimation of up to 100\% on ill-posed items), (ii) it \emph{replays} the previous task's output into the next task (pseudo-evolution), (iii) the grader is the same model family (self-preference bias), or (iv) environment fidelity is too low (a safety-benchmark taxonomy~\citep{fu2025raseval} reports Kendall's \emph{W} $\approx 0.10$ --- near-random cross-benchmark safety rankings).
+
+\subsection{Self-evolving agents magnify the problem}
+
+Over the past year, self-evolving agents accumulate reloadable artifacts --- skills, memories, tool libraries, workflows (SOPs) --- during interaction. Commercially, ``an agent that keeps learning'' is the headline; academically, the four-component loop (System Inputs $\rightarrow$ Agent System $\rightarrow$ Environment $\rightarrow$ Optimisers) has crystallized. But a blunt empirical fact stands out: on SkillsBench's 86 tasks~\citep{li2026skillsbench}, \emph{curated} skills yield $+16.2$pp on average, while \emph{self-generated} skills are on average useless or harmful. Hence:
+
+\begin{quote}
+``The agent evolved a pile of artifacts'' $\neq$ ``the artifacts help downstream.''
+\end{quote}
+
+These must be evaluated separately, and the method must be a \textbf{causal contrast} --- not how high the evolved agent scores in absolute terms, but the score difference on \emph{the same task, same agent, same tool set, artifacts loaded vs. not}.
+
+\subsection{Three fault lines in current evaluation}
+
+Surveying 32 open-source works (surveys / benchmarks / SDKs) along the axis ``can it answer \emph{do the artifacts help?}'', we find three shared fault lines:
+
+\begin{table}[h]
+\centering
+\caption{Three shared fault lines in current agent evaluation.}
+\label{tab:fault-lines}
+\begin{tabular}{P{0.22\textwidth}P{0.42\textwidth}P{0.28\textwidth}}
+\toprule
+Fault line & Symptom & Representative work \\
+\midrule
+\textbf{No loaded/unloaded contrast} & Benchmarks measure a bare agent's pass rate; no artifact-dimension A/B & AgentBench, GAIA, SWE-bench, REAL, $\tau$-bench \\
+\textbf{Train and test tasks entangled} & Agent learns on Q1..Qn then is tested on the same Q1..Qn --- cannot separate ``learned'' from ``memorized'' & most episodic self-evolution setups \\
+\textbf{Runtime not reproducible / not isolated} & Multi-step FS ops, concurrency, missing trace correlation $\rightarrow$ unstable deltas, huge variance across repeats & most host-machine eval scripts \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The third is the most underrated. Once evaluation must be \emph{run repeatedly} --- for commercial artifact certification, for iterating an evolution mechanism, for comparing runtimes --- reproducibility flips from nice-to-have to hard requirement. REAL~\citep{garg2025real} centered exactly on making deterministic simulation a first-class citizen of web-agent evaluation, evidencing the community's weight on this.
+
+\subsection{Contributions}
+
+We propose \textbf{LIFT}, whose thesis is one sentence:
+
+\begin{quote}
+To evaluate a self-evolving agent, ask ``does it do better on \emph{unseen} tasks after loading its artifacts?'' --- not ``how high does it score after running through all tasks?''
+\end{quote}
+
+Concretely we contribute:
+
+\begin{enumerate}
+\item \textbf{A scientific protocol} --- train/test separation (\texttt{warmup\_tasks} / \texttt{holdout\_tasks}) + same-task paired runs (baseline / evolved) + a work-judge review loop (\S3).
+\item \textbf{An engineering carrier, released} --- container snapshots (\texttt{docker commit} $\rightarrow$ delta image) as the artifact-agnostic form of evolved state; each holdout task starts an isolated container; runtime / pipeline / evaluation are decoupled into three layers (\S3.3, \S3.5). We release the framework code, adapters for mainstream self-evolving agent runtimes, container images, and datasets, so the protocol is reusable, criticizable, and comparable.
+\item \textbf{Repeatability \& observability} --- multi-level concurrency and pre-chat + Langfuse trace backfill, so both conclusion and process are re-queryable (\S3.6--3.7).
+\item \textbf{A self-contained benchmark suite} --- 14 scenes / 84 tasks on a two-phase schema with a deliberate 75\%/25\% train-test requirement overlap (\S4).
+\end{enumerate}
+
+
+\section{Related Work}
+
+\textbf{General agent benchmarks.} AgentBench~\citep{liu2023agentbench}, GAIA~\citep{mialon2023gaia}, REAL~\citep{garg2025real}, $\tau$-bench / $\tau^2$-bench~\citep{yao2024taubench,barres2025tau2bench}, SWE-bench~\citep{jimenez2024swebench}, and harness-comparison benchmarks answer ``can the agent do the job on a static task set.'' They are LIFT's \emph{task source}, not its contrast object. Some already do cross-harness comparison and tiered evaluation (script verification / point-wise verification / pairwise comparison), a design we reuse --- but none reach the artifact-dimension causal contrast.
+
+\textbf{Artifact benchmarks.} SkillsBench~\citep{li2026skillsbench}, EvolveTool-Bench~\citep{kaliyev2026evolvetoolbench}, and memory benchmarks (EvoMemBench~\citep{wang2026evomembench}, Evo-Memory~\citep{wei2025evomemory}) begin to probe the artifact dimension but each binds to one artifact form (skill / tool / memory). LIFT's \textbf{artifact-source-agnostic} stance abstracts over them: whether the artifact is a skill, a memory, a tool library, or a workflow, the verification logic is \emph{Base vs. Loaded}.
+
+\textbf{Lifelong / sequential learning.} LifelongAgentBench~\citep{zheng2025lifelongagentbench} and SEA-Eval~\citep{jiang2026seaeval} provide learning-curve metrics (FWT / BWT / RecoveryRate). LIFT positions these as \textbf{evolution-specific diagnostics}: if the Base-vs-Loaded test is conclusive, no curve is needed; when it is not, learning curves help diagnose forgetting vs. non-transfer. This differs from prior work that treats them as primary metrics, and it avoids coupling evolution-mechanism complexity into the main evaluation path.
+
+\textbf{Evaluation methodology.} The ABC Checklist~\citep{zhu2025abc}, Agent-as-a-Judge~\citep{zhuge2024agentasajudge}, and MAJ-Eval~\citep{chen2026majeval} answer ``how do we grade reliably.'' LIFT's review loop borrows Agent-as-a-Judge's \emph{tool-augmented verification}: the judge calls real tools to verify outputs rather than grading on surface text (LIFT sandboxes it in a sibling container; \S\ref{sec:lift-vs-existing}).
+
+\textbf{Evaluation SDKs.} DeepEval~\citep{confidentai_deepeval}, Opik~\citep{cometml_opik}, and Promptfoo~\citep{promptfoo} target LLM-API-layer developer evaluation at the granularity of prompt $\times$ model. LIFT's granularity is \emph{in-container agent $\times$ holdout task $\times$ baseline/evolved} --- a different layer. Langfuse~\citep{langfuse} plays Opik's \emph{trace} role in LIFT --- we use only its trace capability, not its evaluator, because the evaluator role is filled by the work-judge loop.
+
+\textbf{Safety evaluation.} OS-Harm~\citep{kuntz2025osharm} and RAS-Eval~\citep{fu2025raseval} flag that loading artifacts introduces new safety risk. LIFT keeps SafetyRegression as an optional cross-cutting dimension (off by default, to avoid entangling it with functional artifact evaluation); a full safety protocol is orthogonal future work.
+
+\subsection{LIFT vs. existing work: where LIFT fills the gaps}
+\label{sec:lift-vs-existing}
+
+The five paragraphs above sketch \emph{who does what}. This subsection zooms into the five works closest to LIFT along the axis ``can this answer \emph{do the artifacts help?}''. Each contrast is expressed as: \emph{what the work does well, what design LIFT reuses, and what LIFT adds that this work does not}. A wider nine-dimension matrix appears in Appendix~\ref{sec:relation-matrix}.
+
+\paragraph{SkillsBench~\citep{li2026skillsbench} --- motivating evidence, not a substitute.} SkillsBench's three-condition design (\emph{no skill / curated skill / self-generated skill}) yields the fact that motivates LIFT (\S1.2): generation quality is not implied by generation activity, so evaluation must contrast \emph{loaded vs. not}. LIFT reuses this ternary logic but generalises the artifact form: SkillsBench binds to skill packs while LIFT is \textbf{artifact-source-agnostic} --- whatever the runtime writes to disk during warmup is committed into a delta image and reloaded, so skill, memory, tool library, and workflow all pass through the same protocol. SkillsBench cannot answer ``does memory help?'' because memory is not in its scope; LIFT can.
+
+\paragraph{LifelongAgentBench~\citep{zheng2025lifelongagentbench} --- learning curves are diagnostic, not primary.} LifelongAgentBench is the closest lifelong-learning benchmark and centres FWT / BWT / RecoveryRate as its primary metrics --- capturing forward transfer, catastrophic forgetting, and recovery. LIFT considers these \emph{necessary diagnostics but insufficient primary metrics}: a positive FWT on a curated task ordering does not answer whether the artifact helps on \emph{arbitrary} unseen tasks, and BWT is defined only along the ordering used at training. LIFT instead makes \textbf{Base vs. Loaded on held-out tasks} the primary contrast (P1--P2 in \S\ref{sec:design-principles}) and demotes FWT / BWT to optional diagnostics reserved for cases where P1 is inconclusive. This inversion is intentional: it lets a benchmark author decide train / test separation once (in the suite JSON) rather than every time a curriculum is redesigned.
+
+\paragraph{Agent-as-a-Judge~\citep{zhuge2024agentasajudge} --- LIFT inherits tool-augmented verification, but sandboxes it.} Agent-as-a-Judge shows that a judge with tool access verifies multi-step agent outputs far more reliably than surface-text LLM-as-a-Judge. LIFT's work $\leftrightarrow$ judge review loop (\S\ref{sec:work-judge-loop}) directly adopts this stance: the judge is a real agent in the \emph{same} runtime, capable of executing tools to verify (e.g., open the artifact file, run the reproduction script). Where LIFT adds design: (i) the judge runs in a \emph{sibling container} of the work agent, not inside the same session --- so file-system, memory, and process state cannot leak from work to judge, closing a self-preference pathway that shared-session LLM-as-a-Judge suffers from; and (ii) both work and judge share the same Langfuse \texttt{session\_id}, giving one navigable trace tree per task while keeping state strictly isolated.
+
+\paragraph{EvolveTool-Bench~\citep{kaliyev2026evolvetoolbench} --- static tool quality is orthogonal to loaded impact.} EvolveTool-Bench evaluates \emph{tool libraries} on four dimensions (correctness, reusability, composability, regression safety), showing that tools which work on the task that produced them frequently fail to generalise. This is a valuable \emph{static} check on a tool artifact --- but static quality does not imply downstream lift. LIFT is deliberately positioned one layer above: it asks whether the runtime that produced the tool (plus everything else in the delta image) benefits a held-out task. The two are complementary: EvolveTool-Bench diagnoses \emph{which tool is broken}, LIFT diagnoses \emph{whether loading any of the tools together helps}. A tool that passes EvolveTool-Bench can still produce a null delta on LIFT; a null delta on LIFT is a signal that the static check missed the composition-level failure that only shows up under real load.
+
+\paragraph{REAL~\citep{garg2025real} --- reproducibility as a first-class citizen.} REAL (NeurIPS 2025 Oral) centres on making deterministic simulation of web tasks a first-class evaluation citizen: 11 real websites replicated as fixed sandboxes, 112 tasks with programmatic verifiers, so that a repeat run gives you a comparable score even six months later. LIFT applies the same principle in a different scope: not task-level determinism (LLM sampling variance remains) but \textbf{artifact-level reproducibility} --- the exact delta image reloaded on any machine reproduces the same evaluated agent state, and Langfuse trace backfill re-hydrates the process record. Where REAL's contribution is ``the environment does not drift,'' LIFT's contribution is ``the artifact does not drift.'' We view REAL as the closest methodological ancestor for the reproducibility principle P4, though the two answer different scientific questions.
+
+
+\section{The LIFT Framework}
+
+LIFT = \textbf{L}oaded \textbf{I}mpact on \textbf{F}inal \textbf{T}ask. The scientific question: \textbf{after loading artifacts, is there positive impact on the final (holdout) task?}
+
+\subsection{Design principles}
+\label{sec:design-principles}
+
+We treat the survey conclusions as hard constraints that all engineering must obey:
+
+\begin{table}[H]
+\centering
+\caption{Design principles P1--P5 that all LIFT engineering must obey.}
+\label{tab:principles}
+\begin{tabular}{P{0.32\textwidth}P{0.6\textwidth}}
+\toprule
+Principle & Meaning \\
+\midrule
+\textbf{P1 Single causal contrast} & The only variable under test is ``loaded vs. not''; everything else held constant \\
+\textbf{P2 Train/test separation} & The tasks used to evolve (warmup) and the tasks used to test (holdout) must not overlap \\
+\textbf{P3 Artifact-source agnostic} & Whether the artifact is a skill / memory / tool library / workflow, the evaluation logic is identical \\
+\textbf{P4 Reproducible runtime} & The same \texttt{run\_id} re-run on any machine should produce a consistent structure (including traces) \\
+\textbf{P5 Optional evolution diagnostics} & Learning curves (FWT / BWT) are used only when P1 is inconclusive \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Protocol layer: what a ``LIFT run'' is}
+
+A \textbf{Suite} consists of two task groups --- this is P2 enforced at the data-structure level:
+
+\begin{lstlisting}
+SuiteSpec
+|-- warmup_tasks[]   <- trigger artifact production (learn / evolve)
+`-- holdout_tasks[]  <- final tasks, the tasks under test
+\end{lstlisting}
+
+warmup and holdout are \textbf{explicit} separate fields in the suite JSON; the runtime no longer slices by question index.
+
+\textbf{Control groups.} Each holdout task is run twice, forming one TaskRun:
+
+\begin{lstlisting}
+TaskRun
+|-- baseline   PhaseRun  <- clean container from base image, no artifacts
+`-- evolved    PhaseRun  <- clean container from delta image, with artifacts
+\end{lstlisting}
+
+\textbf{Key engineering trade-offs.}
+
+\begin{itemize}
+\item \textbf{Warmup container orchestration is configurable.} In a single-agent evolution scenario, all warmup tasks share one container by default (\texttt{parallel\_single}; continuous file-system state is a natural requirement of the evolution plugin). The framework also supports \texttt{parallel\_multi} for scenarios where artifacts should live outside the container (e.g., an external memory service): each task gets its own container, artifacts land in the external service, and \texttt{docker commit} degenerates to a no-op. Both forms are transparent to the upper pipeline.
+\item \textbf{Holdout starts a new container per task.} Unlike warmup, this is a protocol-level hard constraint --- baseline must be an \emph{uncontaminated} environment, and per-task workspaces must be isolated. Hence \brk{HoldoutContainerPolicy} (\brk{src/lift/policies/container.py}) offers only \brk{SERIAL\_MULTI} / \brk{PARALLEL\_MULTI} ``multi-container'' forms, with no single-container option.
+\item \textbf{All holdout tasks share one delta.} The artifact is a suite-level constant and must not vary across holdout tasks.
+\end{itemize}
+
+\textbf{Report hierarchy.}
+
+\begin{lstlisting}
+EvalReport
+`-- runs[]              <- --repeat iterations
+      `-- suites[]      <- --suite multiple suites
+            `-- tasks[]
+                  |-- baseline: PhaseRun
+                  `-- evolved:  PhaseRun
+\end{lstlisting}
+
+\subsection{Abstraction layer: runtime / pipeline / eval decoupling}
+
+LIFT's code follows three abstraction layers, each with a single concern:
+
+\begin{lstlisting}
+CLI / Pipeline           <- slice tasks, loop, concurrency, write report (doesn't know what OpenClaw is)
+        |
+        v
+AgentRuntimeAdapter      <- container, artifact materialization, how to chat (doesn't know what holdout / repeat is)
+        |
+        v
+lift/eval (work + judge) <- per-task review loop (doesn't know what Docker is)
+\end{lstlisting}
+
+The direct payoff: \textbf{integrating a new runtime is near-zero-cost.} Registered runtimes include:
+
+\begin{table}[h]
+\centering
+\small
+\caption{Registered runtimes and their evolve behavior after warmup.}
+\label{tab:runtimes}
+\begin{tabular}{P{0.26\textwidth}P{0.26\textwidth}P{0.40\textwidth}}
+\toprule
+runtime & image & evolve behavior \\
+\midrule
+\texttt{openclaw} & base image, no evolution plugin & no-op after warmup; only \texttt{docker commit} \\
+\brk{openclaw\_with\_openspace} & with-openspace image (OpenSpace MCP skill hub) & reuses base warmup / commit flow; MCP-side skill hub is exercised during warmup \\
+\brk{openclaw\_with\_agentmemory} & with-agentmemory image & container-local agentmemory server on \texttt{:3111} (offline embedding); bridge network; base warmup / commit flow captures \brk{/root/.agentmemory} \\
+\texttt{genericagent} / \brk{genericagent\_active\_evolve} & \brk{lift-genericagent:latest} & baseline file I/O; active variant does reflection chat \\
+\texttt{hermes} & \texttt{lift-hermes:latest} & Hermes review flow writes \texttt{/opt/hermes-state}, then commit \\
+\brk{hermes\_with\_openspace} & \brk{lift-hermes-with-openspace:latest} & Hermes review flow + OpenSpace MCP registered in \texttt{config.yaml}; commit \\
+\brk{hermes\_with\_agentmemory} & \brk{lift-hermes-with-agentmemory:latest} & Hermes review flow + agentmemory provider (container-local \texttt{:3111}, bridge network); commit \\
+\texttt{openhuman} & \texttt{lift-openhuman:latest} & Rust JSON-RPC runtime; long-term memory / wiki paths enter the delta \\
+\brk{openhuman\_with\_agentmemory} & \brk{lift-openhuman-with-agentmemory:latest} & \texttt{config.toml} \brk{[memory] backend=agentmemory} routes to container-local \texttt{:3111}; bridge network; commit captures \brk{/root/.agentmemory} \\
+\texttt{evoscientist} / \brk{evoscientist\_active\_evolve} & \brk{lift-evoscientist:latest} & baseline captures natural state change; active variant triggers EvoMemory AutoSkills, then commit \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{MCP note.} OpenSpace variants are only added to MCP-capable runtimes (OpenClaw, Hermes). GenericAgent (fixed atomic tools) and OpenHuman (no \texttt{mcp\_servers} field) are not MCP clients, so they do not receive an OpenSpace variant.
+
+A new runtime implements four hooks --- \texttt{resolve\_docker\_image} / \texttt{start\_container} / \texttt{worker\_judger\_factory} / \texttt{evolve\_after\_warmup} --- on the container base class \texttt{ContainerAgentRuntimeAdapter} (\texttt{src/lift/adapters/container/adapter.py}), which reuses the entire \texttt{docker commit} / holdout-orchestration logic. This directly realizes P3: different runtimes place artifacts in the image / group memory / file system, all transparent to the pipeline.
+
+\textbf{Counter-example (design origin).} An early host-machine implementation bound OpenClaw directly into the eval script. When we tried to integrate a second runtime (Hermes), the whole pipeline had to be rewritten --- the direct motivation for the current three-layer abstraction.
+
+\subsection{Per-task kernel: the work + judge review loop}
+\label{sec:work-judge-loop}
+
+The single task is LIFT's minimal scoring unit. We use an \emph{execute $\rightarrow$ review $\rightarrow$ feedback $\rightarrow$ retry} loop.
+
+\textbf{Why a loop, and why this shape.} Real-user interaction is neither one-shot nor rubric-driven. A user rarely writes their full acceptance criteria up front; they issue a query, look at the deliverable, and only then surface an unmet requirement --- \emph{one at a time}, in natural language, in the tone of ``oh, and I also wanted X.'' An agent operating under this loop must not only produce a plausible first draft, but also \emph{interpret and act on partial, unordered feedback} --- a strictly harder skill than answering a fully-specified prompt. Any evaluation that collapses this to a single ``answer $\rightarrow$ score'' step loses the most discriminative signal about artifact usefulness: whether the evolved agent needs \emph{fewer} clarification rounds than the base. LIFT therefore mirrors the interaction rather than the grading rubric:
+
+\begin{itemize}
+\item \textbf{Query only, checklist hidden.} The agent receives what a user would actually type; the ground-truth \texttt{content\_reqs} list never enters the agent's context (\S4.2).
+\item \textbf{Judge as the user, not a rubric adjudicator.} The judge role-plays the person who wrote the query, compares the deliverable against the hidden checklist, and returns a natural-language \texttt{reason} that surfaces \emph{the top unmet requirement(s)} only --- not the full diff, reconstructing the ``user suddenly remembers one more thing'' dynamic.
+\item \textbf{Feedback becomes the next prompt.} That \texttt{reason} is fed back verbatim as \texttt{current\_prompt}, so the follow-up turn is indistinguishable in shape from a first turn --- another human-style utterance, no metadata leak, no structured tool-call trace injected on the user's behalf.
+\item \textbf{Bounded by a shared \texttt{max\_turns}.} The loop terminates when the judge marks success or the budget is exhausted; \texttt{baseline} and \texttt{evolved} share the same budget (rationale in decision~3 below).
+\end{itemize}
+
+The code block below encodes exactly this loop:
+
+\begin{lstlisting}
+run_task:
+  while turn < max_conversation_turns:
+      work_result   = work_agent.chat(current_prompt)
+      judge_result  = judge_agent.chat(...) -> JSON {success, reason, score}
+      if judge_result.success: return True
+      current_prompt = judge_result.reason      # disclose the top unmet requirement, human-style
+  return False
+\end{lstlisting}
+
+Design decisions:
+
+\begin{enumerate}
+\item \textbf{The judge runs in a sibling container of the same runtime} --- started from the same image and workspace as the work container, but sharing neither its file system nor its process space. This simulates a real user reviewing, introduces no cross-model bias, and lets the judge call real tools to verify outputs (Agent-as-a-Judge's \emph{executable verification}). The physical split also prevents the work agent from reading the judge's tool state, and --- combined with \S3.5 --- keeps any reviewing artifact out of the delta.
+\item \textbf{First-round and final pass rates are reported separately} --- FirstRoundPassRate reflects ``artifacts let the agent get it right in one shot''; FinalPassRate reflects ``artifacts + feedback loop.'' Good artifacts show up mainly in the former.
+\item \textbf{baseline and evolved must share \texttt{max\_turns}} --- otherwise evolved wins by getting two more feedback rounds, not by artifact merit.
+\item \textbf{Tokens include the judge's consumption} --- if Loaded retries less, the judge's token savings count toward the artifact's contribution.
+\end{enumerate}
+
+\textbf{Scoring.} The judge returns a single scalar $\text{score} = (\text{satisfied requirements}) / (\text{total requirements})$ (\texttt{score = 1} on success), together with \texttt{success} and the natural-language \texttt{reason}. There is no rule/rubric weighted blend --- the score is one judge call. Content requirements and trajectory requirements are scored on two separate lines (\S4.2).
+
+\subsection{Artifact materialization: why \texttt{docker commit}}
+
+The carrier form of the artifact is an engineering choice that \emph{looks incidental but determines reproducibility}. We considered three options:
+
+\begin{table}[h]
+\centering
+\caption{Three candidate artifact carriers and why LIFT chooses container snapshots.}
+\label{tab:carrier}
+\begin{tabular}{P{0.28\textwidth}P{0.26\textwidth}P{0.4\textwidth}}
+\toprule
+Option & Pro & Fatal con \\
+\midrule
+Host-machine toggle load & simple & state depends on host FS; concurrency cross-contaminates; not replayable across machines \\
+Structured export (YAML/JSON artifact pack) & readable, versionable & hard to cover FS-level evolution (OpenClaw's entire \brk{\textasciitilde/.openclaw/} tree) \\
+\textbf{Container snapshot (\texttt{docker commit})} $\checkmark$ & full FS capture; naturally cross-machine replayable; naturally concurrency-isolated & delta images have size; need cleanup \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+LIFT chooses \texttt{docker commit}. A full run's timeline:
+
+\begin{lstlisting}
+Pipeline -> Adapter: warmup tasks (all warmup_tasks[])
+Adapter  -> Warmup container: start one container, run tasks continuously (default parallel_single)
+Warmup container: evolve_after_warmup (in-container learn review)
+Warmup container: docker commit -> delta image
+Adapter: delete warmup container
+
+for each holdout task:
+    Pipeline -> Adapter: baseline  -> new container from BASE image  -> run + score
+    Pipeline -> Adapter: evolved   -> new container from DELTA image -> run + score
+
+Pipeline: write report.json; on suite end, docker rmi the delta
+\end{lstlisting}
+
+Implicit constraints:
+
+\begin{itemize}
+\item \textbf{Delta is a suite-level temporary artifact} --- \texttt{docker rmi}'d when the suite finishes, never polluting the local image list.
+\item \textbf{Holdout workspace must be explicitly seeded} --- to avoid a first-run agent asking for a name/emoji and confusing scoring.
+\item \textbf{\texttt{docker commit} operates on the work container only} --- the judge sibling (\S3.4) is torn down without commit, so no reviewing artifact can leak into \texttt{evolved}; tool counts, tokens, and \texttt{evolve\_after\_warmup} hooks are likewise scoped to the work side.
+\item \textbf{External-artifact runtimes} use the same interface \texttt{DeltaRef(image\_tag=base\_image, owned=False)} (\texttt{owned=False} skips \texttt{docker rmi}), unifying ``artifacts live externally'' under one abstraction.
+\end{itemize}
+
+\subsection{Concurrency \& isolation: making ``run it repeatedly'' cheap}
+
+As evaluation goes from ``produce one report'' $\rightarrow$ ``iterate continuously'' $\rightarrow$ ``commercial artifact certification,'' the cost of repeated runs becomes increasingly sensitive. LIFT adds concurrency + isolation at three levels:
+
+\begin{table}[h]
+\centering
+\caption{Concurrency and isolation levels with their flags and defaults.}
+\label{tab:concurrency}
+\begin{tabular}{P{0.42\textwidth}P{0.3\textwidth}P{0.2\textwidth}}
+\toprule
+Level & Flag & Default \\
+\midrule
+Between matrix cells (repeat $\times$ suite Cartesian product) & \texttt{--max-parallel-suites} & 3 \\
+Between tasks (within a phase) & \texttt{--max-concurrent-tasks} & no cap \\
+Between phases (within a task) & \texttt{--holdout-phase-policy} & parallel \\
+Warmup container policy & \texttt{--warmup-container-policy} & parallel\_single \\
+Holdout container policy & \texttt{--holdout-container-policy} & parallel\_multi \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each level of concurrency rests on container isolation: every holdout task gets its own container, workspace subdirectory, and ephemeral port; cleanup is centrally tracked by a \texttt{SuiteRunResources} registry. Failure isolation prevents cascades; first-pass failed cells are retried once globally, phases/tasks retry once each, and the chat layer retries provider errors 5$\times$ / judge-JSON parse 8$\times$.
+
+\subsection{Observability: an execution-time + post-processing dual chain}
+
+LIFT writes its report in two passes:
+
+\begin{table}[h]
+\centering
+\caption{The dual-chain report writing: execution-time and post-process passes.}
+\label{tab:observability}
+\begin{tabular}{P{0.16\textwidth}P{0.44\textwidth}P{0.34\textwidth}}
+\toprule
+Phase & Content & File \\
+\midrule
+Execution & conclusion: success, score, session, workspace paths & \texttt{report.json} \\
+Post-process & Langfuse trace backfill, comparison CSV, trajectory judging, HTML report & \brk{*\_backfilled.json}, \brk{*\_comparison\_metrics.csv} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Why two passes: at execution time, traces are still in the Langfuse worker queue --- synchronously waiting would slow the main path; and post-processing can be re-run independently (\texttt{--evaluate-only}) to diagnose or add new metrics. Execution-time \texttt{emit\_pre\_chat\_state} stamps \texttt{session\_id} and phase metadata before each chat; post-processing \texttt{stitch\_phase\_langfuse\_traces} merges the agent's \texttt{*\_agent} trace with the plugin trace by \texttt{session\_id} + time window into \texttt{PhaseRun.langfuse}. This contract guarantees \textbf{the report can open the trace} to show what actually happened on that task.
+
+\subsection{Metric system}
+
+\begin{itemize}
+\item \textbf{Required}: $\text{DownstreamPassDelta} = \text{PassRate}(\text{Loaded}) - \text{PassRate}(\text{Base})$, FirstRoundPassRate, FinalPassRate, AvgAttempts, $\text{Outcome}_i = \text{score}$ (the judge's single completion ratio = satisfied/total, 1 on success), TotalTokens (incl. judge), TotalLatency.
+\item \textbf{Efficiency (primary for evolution)}: $\text{impr\_metric} = \text{evolved\_metric} / \text{baseline\_metric} \times 100\%$ over \{attempts, tool calls, tokens\} --- an evolution that reaches the user's requirements in fewer interactions on similar tasks is beneficial; the greater the reduction, the better the mechanism.
+\item \textbf{Sequential}: Pass@k, RecoveryRate.
+\item \textbf{Evolution-specific (optional)}: attribution triplet \emph{No-Evo / Only-Products / Evo-On}; curve diagnostics FWT / BWT.
+\item \textbf{Cross-cutting}: static DistillateConflictRate / SafetyConcernCount, dynamic SafetyRegression, cost ColdStartTTV / EvolutionROI.
+\end{itemize}
+
+LIFT itself only emits a \textbf{structured execution record (Pydantic)}; which metrics are \emph{required} is decided by the benchmark --- hence the benchmark is described as a distinct component, orthogonal to the protocol.
+
+\subsection{Contrast with replay mode}
+
+An early replay mode (all-suite baseline $\rightarrow$ one evolve $\rightarrow$ all-suite evolved) is not the main path; it fits only as an ablation:
+
+\begin{table}[h]
+\centering
+\caption{LIFT's holdout-extrapolation protocol versus the diagnostic replay mode.}
+\label{tab:replay}
+\begin{tabular}{P{0.14\textwidth}P{0.42\textwidth}P{0.38\textwidth}}
+\toprule
+ & LIFT (this paper) & replay \\
+\midrule
+Focus & loaded contrast on holdout final & run all tasks once before and once after evolution \\
+Artifact stage & warmup $\rightarrow$ $\Delta$ image, then test & evolve once after all-suite baseline \\
+Risk & none & Q5 baseline may be polluted by \brk{Q1..Q4} state; Q5 evolved may directly reuse \brk{Q1..Q4} outputs \\
+Scientific question & do artifacts help on \emph{unseen} tasks (\textbf{extrapolation}) & per-task evolution magnitude (\textbf{interpolation}, diagnostic) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+LIFT picks extrapolation as the \textbf{main} protocol precisely to exclude the second fault line of \S1.3.
+
+
+\section{The LIFT Benchmark Suite}
+
+\begin{quote}
+This section is self-contained: the benchmark design (schema, task-authoring principles, rubric design, the 14 scenes) is described here rather than deferred to a companion paper.
+\end{quote}
+
+\subsection{Three-layer structure}
+
+The dataset is organized in three layers --- \textbf{total dataset $\rightarrow$ scene datasets $\rightarrow$ train/test tasks} --- stored human-readably as folders + task markdowns and compiled by \brk{python -m src.cli.preprocess} into machine-readable suite JSON (\texttt{Suite} in \brk{src/models.py}):
+
+\begin{lstlisting}
+<scene>/
+|-- train/                    # warmup tasks (artifact evolution)
+|   |-- q1_<shortname>/{q1_<shortname>.md, q1_materials/}
+|   `-- ...                   # 4 tasks
+|-- test/                     # final / holdout tasks (LIFT paired contrast)
+|   |-- q5_<shortname>/ ...
+|   `-- q6_<shortname>/       # 2 tasks
+`-- skills/                   # optional, scene-level skill
+\end{lstlisting}
+
+The compiled \texttt{Suite} explicitly separates \texttt{warmup\_tasks[]} ($\leftarrow$ \texttt{train/}) from \texttt{holdout\_tasks[]} ($\leftarrow$ \texttt{test/}), the data-structure enforcement of P2.
+
+\subsection{Task anatomy: query / requirements / trajectory requirements}
+
+Each task reconstructs a real interaction where the user \emph{first asks vaguely, then gradually clarifies, and silently inspects the process}. It has three parts:
+
+\begin{enumerate}
+\item \textbf{query} --- a colloquial, deliberately under-specified first instruction, carrying only entry info essential to start (which \texttt{qN\_materials} to use; where to save the deliverable, \texttt{result/result\_qN}). It simulates a user who has not yet worked out the details.
+\item \textbf{requirements (\texttt{content\_reqs})} --- the true acceptance checklist the user reveals after seeing an unsatisfactory draft: content, format, fields, organization, business rules, personalized preferences. Each item must be \textbf{independently verifiable} and at the \textbf{same level} (no nested sub-requirements); a scene carries \textbf{$\geq 12$} items. This is the main signal for both the judge and the agent's evolution.
+\item \textbf{trajectory requirements (\texttt{trajectory\_reqs})} --- constrains/inspects the execution path (tool-call validity and efficiency, allowed information sources, allowed tools/skills; catching hallucination such as fabricating instead of searching). Trajectory requirements are derived \emph{only} from the requirements and must not contradict them.
+\end{enumerate}
+
+Content and trajectory are \textbf{scored on two separate lines}. At run time only the \texttt{query} reaches the agent; the checklist stays hidden and is disclosed one top-unmet item at a time by the judge (\S\ref{sec:work-judge-loop}).
+
+\textbf{Concrete example} (travel scene, warmup Q1, translated): the \emph{query} is one sentence --- ``Plan a same-day round-trip family itinerary from Hangzhou to Fuyang on 2026-06-01, two adults + one child, no budget limit; save the plan to \texttt{result/result\_q1}.'' The 12 \emph{requirements} are the hidden checklist (local weather in a basics module; round-trip transport in a transport module; itinerary split by date and morning/afternoon/evening; child-friendly items flagged; walking distance shown separately and $\leq 3$ km/day; all facts date-verified with sources shown; \dots). The 4 \emph{trajectory requirements} constrain the path (facts must come from authoritative web search, not fabricated; search destination content before planning; save to the specified folder).
+
+\subsection{The 75\% / 25\% train-test overlap}
+
+For the test set we deliberately require \textbf{$\sim$75\%} of requirements to match the train set and \textbf{$\sim$25\%} to be \emph{variants of} or \emph{contradictions to} train requirements. This ratio is not arbitrary: the highly-overlapping part checks whether the agent applies distilled experience \textbf{in the right place}; the 25\% variant/contradiction part acts as a mirror that exposes (i) over-fitting to the \emph{literal} train requirements, (ii) mistaking a temporary preference for a universal rule, and (iii) failure to override old experience under a new constraint.
+
+Example: a train requirement ``on trips, visit more cultural/historical sites'' has, in the test set, a \textbf{variant} ``when planning routes, add more scenic natural spots'' and a \textbf{contradiction} ``do not include any cultural/historical site visits --- I don't like them.'' Non-generalizable ``noise'' requirements are strictly confined to appearing sparingly in the \textbf{train} set only, so that pseudo-experience is not retroactively rationalized by the test set --- preserving the purity of the evolution-ability measurement.
+
+\subsection{Rubric design and grading}
+
+Requirements are engineered for \textbf{verifiability, not product quality}, to minimize the judge's randomness on the attempt-count metric. Deterministic requirements are phrased for rule-checkable judgment (fixed headings, fixed CSV columns, fixed metric formulas, numeric thresholds); open-ended parts are graded by the LLM judge against the checklist. The judge is pinned (temperature 0, fixed model, versioned rubric). Cross-runtime neutrality is required: a \texttt{query} must not bind to a specific agent's tool naming, to avoid gifting points to any one runtime.
+
+\subsection{Suite statistics}
+
+The released suite has \textbf{14 scenes}, each with \textbf{4 warmup + 2 holdout = 6 tasks}, totaling \textbf{56 warmup + 28 holdout = 84 tasks}, thematically spanning:
+
+\begin{table}[h]
+\centering
+\caption{The 14 benchmark scenes grouped by thematic category.}
+\label{tab:scenes}
+\begin{tabular}{P{0.4\textwidth}P{0.55\textwidth}}
+\toprule
+Category & Scenes \\
+\midrule
+Travel \& trip planning & Travel Planning, Business Travel \\
+Shopping / consumer \& finance decisions & Healthy-Snack Guide, Cat-Food Guide, Stock Investment Decisions \\
+Data analysis & data\_analysis, Sales-Ops Weekly Analytics \\
+Content creation \& document/deck authoring & Xiaohongshu Product Ops, PPT Creation, Startup BP / Investor Roadshow \\
+Workplace reporting \& ops planning & Weekly-Report Auto-Generation, Team-Building Planning \\
+Information retrieval \& research & information\_search\_gathering \\
+Learning / education & English-Grammar Learning Guide \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A minimal smoke suite \texttt{assets/benchmarks\_demo/hello.json} (1 warmup ``Reply with a greeting'' + 1 holdout ``Introduce yourself'') is shipped for framework-level regression testing. Full benchmarks are compiled from external markdown sources via \texttt{python -m src.cli.preprocess}.
+
+\subsection{The minimal contract (for third-party benchmarks)}
+
+Any benchmark plugged into LIFT must satisfy: (1) \textbf{two-phase schema} --- explicit \texttt{warmup\_tasks[]} / \texttt{holdout\_tasks[]}, each task carrying \texttt{query} / \texttt{requirements} / \texttt{expected\_result.\{content\_reqs, trajectory\_reqs\}}; (2) \textbf{judge-friendly} --- \texttt{content\_reqs} must be a machine-adjudicable checklist (rules for deterministic parts, LLM rubric for open parts); (3) \textbf{cross-runtime neutral} --- no tool-name binding; (4) \textbf{scenario diversity}.
+
+
+\section{Implementation}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Key implementation files and their one-line responsibilities.}
+\label{tab:implementation}
+\begin{tabular}{P{0.24\textwidth}P{0.34\textwidth}P{0.36\textwidth}}
+\toprule
+Topic & Key file & One-liner \\
+\midrule
+Pipeline orchestration & \brk{src/lift/pipeline/lift\_pipeline.py} & repeat $\times$ suite $\times$ phase multi-level concurrency \\
+Adapter contract (base) & \brk{src/lift/adapters/base.py} & abstract \texttt{AgentRuntimeAdapter}: \brk{worker\_judger\_factory} / \brk{evolve\_after\_warmup} hooks \\
+Container orchestration & \brk{src/lift/adapters/container/adapter.py} & \brk{ContainerAgentRuntimeAdapter}: \brk{resolve\_docker\_image} / \brk{start\_container} + default \texttt{docker commit} \\
+Per-task kernel & \brk{src/lift/eval/run\_task.py} & work + judge review loop \\
+Container policies & \brk{src/lift/policies/container.py} & warmup / holdout / phase orchestration enums \\
+Status visualization & \texttt{src/lift/status/} & TUI (rich) + HTTP dashboard \\
+Trace backfill & \brk{src/postprocess/trace\_backfill.py} & \texttt{session\_id} correlation (calls \brk{stitch\_phase\_langfuse\_traces}) \\
+Data models & \texttt{src/models.py} & \texttt{Suite} / \texttt{EvalReport} / \texttt{PhaseRun} / Langfuse trace schema \\
+Image build & \brk{agent-runtimes/openclaw/build-image.sh} & base / with-evolve dual artifacts \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Token accounting.} LIFT enforces a fixed 5-field token schema across all runtimes: \texttt{input\_tokens} (excl. cache), \texttt{cache\_write\_tokens}, \texttt{cache\_read\_tokens}, \texttt{output\_tokens} (incl. \texttt{reasoning\_tokens} as a subset), \texttt{reasoning\_tokens} ($\subset$ output). $\text{total\_tokens} = \text{input} + \text{cache\_write} + \text{cache\_read} + \text{output}$ --- reasoning is not added again. Evolution cost (\texttt{evolve\_after\_warmup} tokens) is booked as \emph{training} cost, not Loaded inference cost, so EvolutionROI is not under-counted.
+
+
+\section{Experiments}
+
+\subsection{Setup and comparison methodology}
+\label{sec:setup}
+
+\textbf{Runs.} We report ten full runs on the EALE benchmark, organized into four base-runtime families so that every cross-runtime observation stays inside a controlled comparison:
+\begin{itemize}
+\item \textbf{OpenClaw family} --- \texttt{openclaw} (implicit), \texttt{openclaw\_with\_openspace} (OpenSpace skill hub), \texttt{openclaw\_with\_agentmemory} (agentmemory backend);
+\item \textbf{Hermes family} --- \texttt{hermes} (implicit \texttt{review}), \texttt{hermes\_with\_openspace}, \texttt{hermes\_with\_agentmemory};
+\item \textbf{GenericAgent family} --- \texttt{genericagent} (implicit file-I/O), \texttt{genericagent\_active\_evolve} (extra active-reflection pass);
+\item \textbf{EvoScientist family} --- \texttt{evoscientist} (passive baseline: always-on internal memory synthesis, no LIFT-triggered AutoSkills distillation), \texttt{evoscientist\_active\_evolve} (adds an explicit post-hoc AutoSkills pass after the warmup batch that distills observations into skill proposals before commit).
+\end{itemize}
+Each run covers 14 scenes $\times$ 2 holdout tasks $\times$ \texttt{--repeat 10}, yielding $\approx$280 (Base, Loaded) pairs per runtime. The agent model, work/judge endpoints, \texttt{max\_conversation\_turns=36}, and container resource passthrough are held identical across all cells; the only manipulated axis is Base vs. Loaded. This grouping lets us read three orthogonal contrasts off the tables: \emph{(a) evolution-strategy} --- implicit accumulation vs. an explicit plugin/active pass within one base; \emph{(b) plugin} --- OpenSpace vs. agentmemory on the \emph{same} base; and \emph{(c) base agent} --- the raw capability floor of OpenClaw vs. Hermes vs. GenericAgent vs. EvoScientist, read only through delta magnitudes, never absolute scores.
+
+\textbf{How we compare across ten heterogeneous runtimes.} A na\"ive leaderboard on absolute Loaded scores conflates (a)~the underlying runtime's raw capability, (b)~its warmup accumulation policy, and (c)~its augmentation plugin --- three confounds that make head-to-head rankings scientifically empty. LIFT deliberately restricts cross-runtime inference to \emph{delta magnitudes}, and we further partition the analysis into three tables that respect three distinct comparison boundaries:
+\begin{enumerate}
+\item \textbf{Within-runtime (RQ1, Table~\ref{tab:rq1}).} Each row is a runtime compared \emph{against its own Base}. This is the only within-row causal claim in the paper; every other comparison is derived from it.
+\item \textbf{Delta-of-delta within a base family (RQ2, Table~\ref{tab:rq2}).} To ask ``does an explicit augmentation add value on top of implicit evolution?'', we hold the base runtime fixed and subtract two Base-vs-Loaded deltas: $\text{Gain} = \Delta_\text{augmented} - \Delta_\text{base}$. Because the OpenClaw and Hermes families each now carry \emph{two} augmentations (OpenSpace and agentmemory), this table doubles as a plugin-vs-plugin contrast on a shared base; the GenericAgent family contributes the implicit-vs-active-reflection contrast. This cancels the raw-capability confound of the underlying LLM/runtime because both sides share the same Base column.
+\item \textbf{Per-repeat stability (RQ3, Table~\ref{tab:rq3}).} We report the mean, std, and 95\% CI of $\Delta$Turns\% over 10 repeats to expose whether a delta is a robust signal or a single-repeat artifact.
+\end{enumerate}
+We do \textbf{not} rank runtimes by their \emph{absolute} Loaded scores, and we never \emph{subtract} two rows from different base families (e.g.\ \texttt{openclaw+openspace} minus \texttt{genericagent} is meaningless). We \emph{do}, however, rank runtimes by their evolution-impact $\Delta$ (RQ5, Table~\ref{tab:rank}): since each $\Delta$ has already differenced out its own Base, ordering the $\Delta$s answers ``who improved most from evolution'' without ever comparing raw capability.
+
+\textbf{Metrics.} Let $\bar{B}$ / $\bar{E}$ denote the population means of a metric across all holdout task-repeats. We report the \emph{population-ratio} delta $\Delta X\% = (\bar{E} - \bar{B}) / \bar{B} \cdot 100$ for turns, tool calls, tokens, and latency. Negative means the evolved side is more efficient. Population ratio is preferred over the mean of per-task ratios because the latter is dominated by tasks with near-zero baselines (a single Base $=$ 2, Loaded $=$ 6 task contributes $+200\%$), which flips the direction of the aggregate on Hermes and inflates it on GenericAgent. Pass rates are macro-averaged from the postprocess \texttt{ALL} row of \texttt{summary\_metrics.csv}.
+
+\textbf{Pass rate is saturated on EALE.} Across the eleven runs, Base and Loaded pass rate are 0.99--1.00 for every runtime except \texttt{prime-agent+active}, whose lower band is a run-condition artifact of that sweep discussed in \S\ref{sec:rq1} (Table~\ref{tab:rq1}). Pass rate is therefore a low-resolution signal of self-evolution on this benchmark; the primary lens is interaction efficiency, with pass rate reported for transparency and to flag any regression.
+
+\subsection{RQ1 --- Do evolved artifacts help on unseen tasks?}
+\label{sec:rq1}
+
+Each row of Table~\ref{tab:rq1} is a within-runtime Base-vs-Loaded comparison.
+
+\begin{table}[h]
+\centering
+\small
+\caption{\textbf{RQ1: Base vs.\ Loaded across the 14 scenes} (holdout only, macro-averaged over 10 repeats). Negative $\Delta$Turns\% / $\Delta$Tools\% / $\Delta$Tokens\% / $\Delta$Latency\% mean the evolved side is \emph{more efficient}. Tasks column: total (post-processed after excluding cells with missing traces).}
+\label{tab:rq1}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrccrrrrr}
+\toprule
+Runtime & Tasks & Base Pass & Loaded Pass & $\Delta$Pass & $\Delta$Turns\% & $\Delta$Tools\% & $\Delta$Tokens\% & $\Delta$Latency\% \\
+\midrule
+\texttt{openclaw}              & 280 (269) & 0.9929 & 0.9929 & $+0.00$    & $+2.74$  & $-2.09$  & $+0.44$  & $+3.34$  \\
+\texttt{openclaw+openspace}    & 280 (271) & 1.0000 & 1.0000 & $+0.00$    & $-3.95$  & $-6.41$  & $-7.12$  & $-7.90$  \\
+\texttt{openclaw+agentmemory}  & 278 (265) & 0.9964 & 0.9964 & $+0.00$    & $+0.75$  & $-1.19$  & $+2.28$  & $-0.18$  \\
+\addlinespace
+\texttt{hermes}                & 278 (272) & 0.9964 & 0.9928 & $-0.36$    & $-17.24$ & $-10.38$ & $-17.48$ & $-23.01$ \\
+\texttt{hermes+openspace}      & 280 (268) & 0.9964 & 1.0000 & $+0.36$    & $-19.09$ & $-10.62$ & $-19.27$ & $-22.09$ \\
+\texttt{hermes+agentmemory}    & 280 (269) & 0.9964 & 0.9964 & $+0.00$    & $-16.64$ & $-8.82$  & $-17.34$ & $-22.97$ \\
+\addlinespace
+\texttt{genericagent}          & 275 (257) & 0.9964 & 1.0000 & $+0.36$    & $-1.75$  & $-1.38$  & $-0.53$  & $-2.20$  \\
+\texttt{genericagent+active}   & 274 (263) & 1.0000 & 1.0000 & $+0.00$    & $+1.92$  & $+0.92$  & $+1.68$  & $+3.17$  \\
+\addlinespace
+\texttt{evoscientist}          & 280 (248) & 1.0000 & 0.9929 & $-0.71$    & $-14.33$ & $-34.65$ & $-10.23$ & $-15.05$ \\
+\texttt{evoscientist+active}   & 278 (250) & 1.0000 & 1.0000 & $+0.00$    & $-14.69$ & $-27.57$ & $-12.73$ & $-16.57$ \\
+\addlinespace
+\texttt{prime-agent+active}    & 280 (260) & 0.9321 & 0.9429 & $+1.07$    & $-3.27$  & $+5.66$  & $+3.21$  & $-5.73$  \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\textbf{Reading Table~\ref{tab:rq1}.} \texttt{hermes} and both its augmented siblings show the strongest interaction-cost reduction on every axis (turns $-16.6$ to $-19.1\%$, latency $\approx-22$ to $-23\%$, tokens $\approx-17$ to $-19\%$); its \texttt{review}-driven implicit evolution distills verbose warmup into a compact plan that the model consults on Loaded runs. The \texttt{genericagent} family moves only marginally ($|\Delta|\le 3\%$ on all axes, in either direction) --- its file-I/O policy captures skill files but the base runtime already writes highly focused deliverables, leaving little conversational cost to cut; the extra active-reflection pass does not change this and even drifts slightly inefficient ($+1.9\%$ turns). The \texttt{openclaw} family is the split case: the base and its agentmemory variant hover near zero or slightly regress on turns/tokens/latency ($+0.75$ to $+3.3\%$), whereas OpenSpace is the only OpenClaw configuration that turns clearly efficient ($-4.0\%$ turns, $-7.1\%$ tokens) --- natural memory accumulation without an explicit distillation hook produces state that lengthens rather than shortens the outer loop, and swapping in an agentmemory backend does not by itself fix this. \texttt{evoscientist} is the standout non-Hermes row: it cuts turns $-14.3\%$, tokens $-10.2\%$, and latency $-15.1\%$, and posts the single largest tool-call reduction in the paper ($-34.7\%$) --- its always-on internal memory loop writes synthesized profiles during warmup (not just raw observations), and its verbose Base (186 tool calls/task, Table~\ref{tab:rq4}) leaves the most compressible slack of any runtime. Its active-AutoSkills sibling \texttt{evoscientist+active} lands almost on top of it on turns ($-14.7\%$), latency ($-16.6\%$), and tokens ($-12.7\%$), but its tool-call cut is \emph{smaller} ($-27.6\%$ vs.\ $-34.7\%$) --- the explicit post-hoc distillation does not add efficiency over the always-on loop it sits on and slightly erodes the tool-call advantage (analysed in RQ2/RQ3). Pass rate is essentially unchanged across the first ten runs ($|\Delta\text{Pass}| \le 0.71$pp, the passive \texttt{evoscientist} row's two dropped Loaded successes out of 280; the active variant holds $1.0000$ on both sides), consistent with a saturated benchmark. The one row that sits off the saturation band is \texttt{prime-agent+active} (Base $0.9321$, Loaded $0.9429$, $\Delta\text{Pass}\,{+}1.07$pp): its lower absolute pass rate is a run-condition artifact of that sweep --- baseline tasks lost to per-turn timeout / session-lock hangs, not benchmark difficulty --- and both phases ran under the same timeout regime, so its within-runtime $\Delta$s remain a valid Base-vs-Loaded contrast (it posts the run's only positive $\Delta$Pass).
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=\textwidth, height=6.2cm,
+    ybar=1.5pt, bar width=7pt,
+    ymin=-22, ymax=8,
+    ytick={-20,-15,-10,-5,0,5},
+    ylabel={$\Delta$Turns\% \ (Loaded $-$ Base)},
+    ylabel style={font=\small},
+    symbolic x coords={OpenClaw, Hermes, GenericAgent, EvoScientist},
+    xtick=data,
+    xticklabel style={font=\small},
+    enlarge x limits=0.28,
+    legend style={at={(0.5,-0.16)}, anchor=north, legend columns=3, font=\footnotesize, draw=none},
+    nodes near coords, nodes near coords style={font=\tiny, /pgf/number format/fixed, /pgf/number format/print sign},
+    every node near coord/.append style={anchor=south, yshift=1pt},
+    tick align=outside, tickpos=left,
+    grid=major, ymajorgrids, grid style={gray!20},
+]
+% implicit base
+\addplot[fill=gray!55, draw=gray!70!black] coordinates {(OpenClaw,2.74) (Hermes,-17.24) (GenericAgent,-1.75) (EvoScientist,-14.33)};
+% openspace / (active for genericagent)
+\addplot[fill=blue!55, draw=blue!70!black] coordinates {(OpenClaw,-3.95) (Hermes,-19.09) (GenericAgent,1.92) (EvoScientist,-14.69)};
+% agentmemory (genericagent has none -> plotted as 0-height/omitted via nan)
+\addplot[fill=orange!70, draw=orange!80!black] coordinates {(OpenClaw,2.28) (Hermes,-16.64) (GenericAgent,nan) (EvoScientist,nan)};
+\legend{implicit base, \texttt{+openspace} (\texttt{+active} for GA/EvoSci), \texttt{+agentmemory}}
+\draw[very thick, black] (axis cs:OpenClaw,0) -- (axis cs:EvoScientist,0);
+\node[anchor=north east, font=\footnotesize\bfseries, text=green!45!black, align=right] at (axis cs:EvoScientist,7.3) {$\downarrow$ below zero $=$ fewer turns $=$ \emph{better}};
+\end{axis}
+\end{tikzpicture}
+\caption{\textbf{RQ1 at a glance: $\Delta$Turns\% by base family} (from Table~\ref{tab:rq1}; GenericAgent and EvoScientist have no \emph{plugin} variants but do have an \emph{active}-evolution variant, plotted in the second series --- so their \texttt{+agentmemory} bar is blank). Bars \emph{below} the thick zero line are efficiency \emph{gains} (evolved side uses fewer turns --- \textbf{better}); bars \emph{above} zero are regressions. Note that $\Delta$Turns/Tools/Tokens/Latency are ``lower-is-better'' whereas $\Delta$Pass (not shown, saturated) is ``higher-is-better''. The four grey bars are the pure implicit-evolution effect of each base runtime and are directly comparable as an \emph{evolution-impact} ranking (Hermes $\gg$ EvoScientist $\gg$ GenericAgent $\gtrsim$ OpenClaw); see \S\ref{sec:rq-ranking}.}
+\label{fig:rq1bar}
+\end{figure}
+
+\subsection{RQ2 --- Do augmentation plugins add value on top of implicit evolution?}
+\label{sec:rq2}
+Every augmented runtime is compared against the \emph{implicit} base of its own family. The Gain column is a \emph{delta-of-delta}: $\text{Gain} = \Delta_\text{augmented} - \Delta_\text{base}$, in the same units as the underlying $\Delta$. A \emph{negative} Gain means the augmentation improves the metric \emph{beyond} implicit evolution alone --- i.e., the explicit mechanism adds real value on top of natural state accumulation. Reading the table three ways answers three distinct questions: comparing two rows that share a base (e.g.\ the two \texttt{openclaw} rows) is a \textbf{plugin-vs-plugin} contrast (OpenSpace vs.\ agentmemory); comparing the base row's implicit $\Delta$ against its augmented rows is an \textbf{evolution-strategy} contrast (implicit vs.\ explicit / active); and comparing Gain magnitudes \emph{across} families is a \textbf{base-agent} contrast, admissible here only because the delta-of-delta has already cancelled each base's raw-capability floor.
+
+\begin{table}[h]
+\centering
+\small
+\caption{\textbf{RQ2: augmentation gain (delta-of-delta, same base runtime).} Each row subtracts the implicit base $\Delta$ of its own family from the augmented $\Delta$. Negative Gain $=$ augmentation is more efficient than the implicit-only baseline. Rows sharing a base (OpenClaw, Hermes) form a plugin-vs-plugin contrast; the GenericAgent and EvoScientist rows are implicit vs.\ active (reflection / AutoSkills distillation).}
+\label{tab:rq2}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrrrr}
+\toprule
+Augmentation (base) & \multicolumn{3}{c}{Turns} & \multicolumn{3}{c}{Tool calls} & \multicolumn{3}{c}{Tokens} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}
+             & $\Delta$Base & $\Delta$Aug & Gain    & $\Delta$Base & $\Delta$Aug & Gain    & $\Delta$Base & $\Delta$Aug & Gain    \\
+\midrule
+\texttt{openspace} (openclaw)     & $+2.74$  & $-3.95$  & $-6.69$ & $-2.09$  & $-6.41$  & $-4.32$ & $+0.44$  & $-7.12$  & $-7.55$ \\
+\texttt{agentmemory} (openclaw)   & $+2.74$  & $+0.75$  & $-1.99$ & $-2.09$  & $-1.19$  & $+0.90$ & $+0.44$  & $+2.28$  & $+1.84$ \\
+\addlinespace
+\texttt{openspace} (hermes)       & $-17.24$ & $-19.09$ & $-1.85$ & $-10.38$ & $-10.62$ & $-0.24$ & $-17.48$ & $-19.27$ & $-1.79$ \\
+\texttt{agentmemory} (hermes)     & $-17.24$ & $-16.64$ & $+0.60$ & $-10.38$ & $-8.82$  & $+1.56$ & $-17.48$ & $-17.34$ & $+0.14$ \\
+\addlinespace
+\texttt{active} (genericagent)    & $-1.75$  & $+1.92$  & $+3.67$ & $-1.38$  & $+0.92$  & $+2.30$ & $-0.53$  & $+1.68$  & $+2.21$ \\
+\addlinespace
+\texttt{active} (evoscientist)    & $-14.33$ & $-14.69$ & $-0.36$ & $-34.65$ & $-27.57$ & $+7.08$ & $-10.23$ & $-12.73$ & $-2.50$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\textbf{Reading Table~\ref{tab:rq2}.} The three contrasts tell a coherent story about \emph{where} an augmentation helps:
+\begin{itemize}
+\item \textbf{Plugin vs.\ plugin (OpenSpace $\gg$ agentmemory on both shared bases).} On \texttt{openclaw}, OpenSpace delivers the largest gain in the paper ($-6.7$pp turns, $-7.6$pp tokens) while agentmemory yields only a modest turns gain ($-2.0$pp) and is slightly \emph{negative} on tokens ($+1.8$pp). On \texttt{hermes} the ordering repeats: OpenSpace is marginally positive ($-1.9$pp turns) whereas agentmemory is essentially neutral-to-negative (turns $+0.6$pp, tools $+1.6$pp). A structured skill hub compresses the outer loop more reliably than a raw memory backend, which stores observations without a distillation step that shortens future interactions.
+\item \textbf{Evolution strategy (explicit / active is not free).} The GenericAgent active-reflection pass \emph{costs} rather than saves ($+3.7$pp turns, $+2.2$pp tokens): the extra reflection turns are not amortized because the base already writes focused deliverables, so the added deliberation is pure overhead on this benchmark. The EvoScientist active-AutoSkills pass tells a subtler cautionary tale: on a base whose implicit loop \emph{already} evolves strongly ($-14.3\%$ turns), the explicit post-hoc distillation returns essentially \emph{zero marginal gain} on the primary axis (turns Gain $-0.36$pp, within run-to-run noise) and is measurably \emph{worse} on tool calls (Gain $+7.08$pp: active cuts tools only $-27.6\%$ versus the passive base's $-34.7\%$). It does buy a small tokens improvement ($-2.5$pp) and, more interestingly, a tighter per-repeat spread (RQ3 std $5.77$ versus $9.52$), so the AutoSkills pass mainly \emph{stabilises} an already-strong signal rather than enlarging it --- while adding real warmup cost (the distillation graph fires an extra LLM pass per suite). The reading matches GenericAgent's: an explicit active step is only worth its overhead when the implicit base has left compressible slack \emph{on the table}; layered on a base that already self-distills, it is at best a variance-reduction knob, not an efficiency lever.
+\item \textbf{Base agent (headroom is set by the base's warmup policy).} The same OpenSpace plugin gives $-6.7$pp on OpenClaw but only $-1.9$pp on Hermes --- a $3$--$4\times$ gap --- because Hermes's \texttt{review} step has already extracted most of the compressible cost, leaving little for the plugin to sharpen. Augmentation value is therefore inseparable from the host base: a plugin's absolute effect cannot be quoted without naming its runtime.
+\end{itemize}
+
+\subsection{RQ3 --- Is the delta stable across repeats?}
+\label{sec:rq3}
+
+Table~\ref{tab:rq3} reports per-repeat statistics: for each of the 10 repeats we compute a population $\Delta$ (as in Table~\ref{tab:rq1}), then report mean, std, and 95\% CI over the 10 per-repeat values. $\text{CI} = \text{mean} \pm 1.96 \cdot \text{std}/\sqrt{10}$.
+
+\begin{table}[h]
+\centering
+\small
+\caption{\textbf{RQ3: Per-repeat stability across the 10 repeats.} Std is over per-repeat population $\Delta$s. Five rows --- the three Hermes configurations and \emph{both} EvoScientist variants --- have turns-CIs sitting fully below zero, giving the strongest statistical claim; every OpenClaw and GenericAgent CI crosses zero on turns, so those small $\Delta$s are noise-dominated at 10-repeat resolution.}
+\label{tab:rq3}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrr}
+\toprule
+Runtime & $\Delta$Turns\% mean & std & 95\% CI & $\Delta$Tools\% mean & std \\
+\midrule
+\texttt{openclaw}              & $+3.13$  & 9.40 & $[-2.70,\ +8.95]$   & $-1.84$  & 8.28  \\
+\texttt{openclaw+openspace}    & $-3.78$  & 7.22 & $[-8.26,\ +0.69]$   & $-6.17$  & 7.62  \\
+\texttt{openclaw+agentmemory}  & $+1.21$  & 8.47 & $[-4.04,\ +6.47]$   & $-1.03$  & 7.69  \\
+\addlinespace
+\texttt{hermes}                & $-17.06$ & 7.58 & $[-21.76,\ -12.36]$ & $-9.83$  & 11.74 \\
+\texttt{hermes+openspace}      & $-18.89$ & 7.56 & $[-23.58,\ -14.20]$ & $-10.00$ & 10.60 \\
+\texttt{hermes+agentmemory}    & $-16.57$ & 6.31 & $[-20.48,\ -12.66]$ & $-7.95$  & 15.71 \\
+\addlinespace
+\texttt{genericagent}          & $-1.40$  & 7.91 & $[-6.30,\ +3.50]$   & $-0.97$  & 9.30  \\
+\texttt{genericagent+active}   & $+2.11$  & 6.63 & $[-2.00,\ +6.22]$   & $+0.92$  & 8.29  \\
+\addlinespace
+\texttt{evoscientist}          & $-13.69$ & 9.52 & $[-19.59,\ -7.79]$  & $-27.89$ & 22.34 \\
+\texttt{evoscientist+active}   & $-14.60$ & 5.77 & $[-18.18,\ -11.02]$ & $-27.11$ & 39.77 \\
+\addlinespace
+\texttt{prime-agent+active}    & $-3.05$  & 6.31 & $[-6.96,\ +0.87]$   & $+6.21$  & 10.67 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+All three Hermes rows deliver a robust turns-reduction signal at 10-repeat resolution (every CI well below zero), including \texttt{hermes+agentmemory} whose tighter std ($6.31$) gives the narrowest interval $[-20.48,\ -12.66]$. \texttt{evoscientist} joins them as the fourth repeat-stable row: despite the widest std of the significant group ($9.52$), its large mean gain keeps the whole interval $[-19.59,\ -7.79]$ below zero --- a robust efficiency signal from a runtime with \emph{no} per-task distillation hook (Appendix~\ref{sec:evo-mechanisms}), showing that distillation is sufficient but not necessary for a repeat-stable gain. Its active sibling \texttt{evoscientist+active} is the fifth such row and, tellingly, its interval is the \emph{tightest} of the two EvoScientist runs ($[-18.18,\ -11.02]$, std $5.77$ vs.\ $9.52$) at a near-identical mean ($-14.60$ vs.\ $-13.69$): the explicit post-hoc AutoSkills pass roughly \emph{halves} the per-repeat variance without moving the point estimate, i.e.\ it makes an already-strong gain more \emph{reliable} rather than larger --- the only clear benefit we can attribute to the active step. \texttt{openclaw+openspace}'s CI $[-8.3,\ +0.7]$ narrowly straddles zero: the Gain in Table~\ref{tab:rq2} is real in aggregate but only marginally repeat-stable. Every remaining OpenClaw and GenericAgent CI crosses zero on both turns and tools --- including the two new rows (\texttt{openclaw+agentmemory} $[-4.04,\ +6.47]$, \texttt{genericagent+active} $[-2.00,\ +6.22]$) --- so we treat their small point estimates as directional only, not statistically significant. The updated picture: the Hermes family and \texttt{evoscientist} carry a strong repeat-stable signal, OpenClaw+OpenSpace a marginal one, and agentmemory / active reflection none.
+
+\subsection{RQ4 --- Cost view: tokens and latency per task}
+\label{sec:rq4}
+
+\begin{table}[h]
+\centering
+\small
+\caption{\textbf{RQ4: Per-task means with token totals.} Base turns / tools / tokens are absolute per-task population means; $\Delta$ columns repeat Table~\ref{tab:rq1} for direct cost comparison. Tokens are the full 5-field sum (input $+$ cache\_write $+$ cache\_read $+$ output) from Langfuse \texttt{trace\_backfill}.}
+\label{tab:rq4}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrr}
+\toprule
+Runtime & Base turns & Base tools & Base tokens & $\Delta$Turns\% & $\Delta$Tools\% & $\Delta$Tokens\% & $\Delta$Latency\% \\
+\midrule
+\texttt{openclaw}              & 15.9 & 33.2 & 2\,139\,707 & $+2.74$  & $-2.09$  & $+0.44$  & $+3.34$  \\
+\texttt{openclaw+openspace}    & 16.0 & 34.0 & 2\,442\,614 & $-3.95$  & $-6.41$  & $-7.12$  & $-7.90$  \\
+\texttt{openclaw+agentmemory}  & 15.7 & 32.2 & 2\,427\,722 & $+0.75$  & $-1.19$  & $+2.28$  & $-0.18$  \\
+\addlinespace
+\texttt{hermes}                & 16.9 & 39.0 & 2\,623\,025 & $-17.24$ & $-10.38$ & $-17.48$ & $-23.01$ \\
+\texttt{hermes+openspace}      & 16.3 & 39.5 & 2\,888\,667 & $-19.09$ & $-10.62$ & $-19.27$ & $-22.09$ \\
+\texttt{hermes+agentmemory}    & 16.6 & 40.5 & 3\,076\,998 & $-16.64$ & $-8.82$  & $-17.34$ & $-22.97$ \\
+\addlinespace
+\texttt{genericagent}          & 13.9 & 68.5 & 2\,944\,209 & $-1.75$  & $-1.38$  & $-0.53$  & $-2.20$  \\
+\texttt{genericagent+active}   & 13.5 & 62.1 & 1\,630\,682 & $+1.92$  & $+0.92$  & $+1.68$  & $+3.17$  \\
+\addlinespace
+\texttt{evoscientist}          & 15.6 & 186.1 & 7\,275\,312 & $-14.33$ & $-34.65$ & $-10.23$ & $-15.05$ \\
+\texttt{evoscientist+active}   & 15.7 & 199.9 & 7\,181\,170 & $-14.69$ & $-27.57$ & $-12.73$ & $-16.57$ \\
+\addlinespace
+\texttt{prime-agent+active}    & 16.6 & 10.7 & 2\,170\,430 & $-3.27$  & $+5.66$  & $+3.21$  & $-5.73$  \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+The Base-turns column is remarkably flat across runtimes (13.5--16.9), so the $\Delta$s translate almost directly to absolute turn-count savings: the Hermes family saves $\approx$2.8--3.1 turns per task, OpenClaw+OpenSpace $\approx$0.6, and the OpenClaw+agentmemory / GenericAgent variants land within $\pm$0.3 turns of their base. Latency savings track turns closely on the Hermes family (all around $-22$ to $-23\%$) but decouple on OpenClaw variants where OpenSpace saves latency ($-7.9\%$) faster than it saves turns ($-4.0\%$) --- consistent with the skill hub replacing sequential tool-call chains by a single retrieved skill invocation --- while OpenClaw+agentmemory shows the opposite mild pattern (latency $-0.2\%$ vs.\ tokens $+2.3\%$), a memory backend that neither compresses nor bloats the loop. These Loaded columns exclude \texttt{evolve\_after\_warmup} tokens (booked as training cost, \S5), so EvolutionROI derivations do not double-count.
+
+\subsection{RQ5 --- Ranking runtimes by evolution impact}
+\label{sec:rq-ranking}
+
+Table~\ref{tab:rq1} deliberately reports each runtime \emph{against its own Base}, and \S\ref{sec:setup} forbids ranking runtimes by their \emph{absolute} Loaded scores (that would conflate raw capability, warmup policy, and plugin). It does \emph{not}, however, forbid ranking by the quantity LIFT is designed to measure --- the \textbf{evolution impact} $\Delta$ itself. Because every $\Delta$ is a within-runtime Base-vs-Loaded contrast, the raw-capability floor is already differenced out of each number, so ordering runtimes by $\Delta$ is a legitimate ``who improved most from evolution'' ranking (distinct from ``who is best out of the box'', which we never claim). Table~\ref{tab:rank} sorts all eleven runtimes by $\Delta$Turns\% (primary efficiency axis; more negative $=$ larger evolution gain $=$ better rank).
+
+\begin{table}[h]
+\centering
+\small
+\caption{\textbf{RQ5: cross-runtime evolution-impact ranking}, sorted by $\Delta$Turns\% (most negative first). This ranks the \emph{size of the improvement each runtime obtains from evolution}, not its absolute capability. Sig.: does the RQ3 95\% CI for $\Delta$Turns\% lie entirely below zero? $\checkmark$ $=$ yes (robust), \texttt{--} $=$ CI crosses zero (directional only).}
+\label{tab:rank}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{clrrrrc}
+\toprule
+Rank & Runtime & $\Delta$Turns\% & $\Delta$Tools\% & $\Delta$Tokens\% & $\Delta$Latency\% & Sig.\ (turns) \\
+\midrule
+1 & \texttt{hermes+openspace}     & $-19.09$ & $-10.62$ & $-19.27$ & $-22.09$ & $\checkmark$ \\
+2 & \texttt{hermes}               & $-17.24$ & $-10.38$ & $-17.48$ & $-23.01$ & $\checkmark$ \\
+3 & \texttt{hermes+agentmemory}   & $-16.64$ & $-8.82$  & $-17.34$ & $-22.97$ & $\checkmark$ \\
+4 & \texttt{evoscientist+active}  & $-14.69$ & $-27.57$ & $-12.73$ & $-16.57$ & $\checkmark$ \\
+5 & \texttt{evoscientist}         & $-14.33$ & $-34.65$ & $-10.23$ & $-15.05$ & $\checkmark$ \\
+6 & \texttt{openclaw+openspace}   & $-3.95$  & $-6.41$  & $-7.12$  & $-7.90$  & \texttt{--} \\
+7 & \texttt{prime-agent+active}   & $-3.27$  & $+5.66$  & $+3.21$  & $-5.73$  & \texttt{--} \\
+8 & \texttt{genericagent}         & $-1.75$  & $-1.38$  & $-0.53$  & $-2.20$  & \texttt{--} \\
+9 & \texttt{openclaw+agentmemory} & $+0.75$  & $-1.19$  & $+2.28$  & $-0.18$  & \texttt{--} \\
+10 & \texttt{genericagent+active}  & $+1.92$  & $+0.92$  & $+1.68$  & $+3.17$  & \texttt{--} \\
+11 & \texttt{openclaw}            & $+2.74$  & $-2.09$  & $+0.44$  & $+3.34$  & \texttt{--} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\textbf{Reading Table~\ref{tab:rank}.} The top of the board is dominated by a \emph{base-runtime} effect, not a plugin effect: the entire Hermes family (ranks 1--3) clusters tightly, and no plugin moves a runtime within it across more than $\sim$2.5pp. Within the Hermes cluster the three configurations are statistically indistinguishable ($\Delta$Turns\% spread $<2.5$pp, all CIs overlapping), so ranks 1--3 should be read as ``Hermes' \texttt{review} distillation'', not ``OpenSpace won''. The two EvoScientist rows (ranks 4--5) are the important addition: they sit only $\approx$2--2.5pp behind the Hermes cluster and are the \emph{fourth and fifth} repeat-stable rows (RQ3), so the sharp gap that earlier separated Hermes from everything else is now bridged by a non-Hermes family. Crucially the passive \texttt{evoscientist} (rank 5, \emph{no} per-task distillation) and its active AutoSkills variant (rank 4) are statistically indistinguishable on turns ($\Delta$ spread $0.36$pp, overlapping CIs), and the active pass is actually \emph{weaker} on tool calls ($-27.6\%$ vs.\ $-34.7\%$): the explicit distillation reorders them by a hair but buys no separable efficiency gain over the always-on internal loop it sits on. There is instead a clear break \emph{below} rank 5: ranks 6--10 cluster within $\pm$4pp of zero and are \emph{not} statistically separable from each other or from ``no effect'' at 10 repeats --- we print their order for completeness but caution against reading ranks 6 vs.\ 7 vs.\ 8 as a real difference. \textbf{One caveat governs the whole table:} a large $\Delta$ partly reflects how much \emph{compressible slack} the Base run carried --- Hermes' and EvoScientist's verbose baselines leave more to cut than GenericAgent's already-terse one (EvoScientist's 186 tool-calls/task Base is the most verbose we measured) --- so this is a ranking of \emph{realized evolution gain on EALE}, not of the intrinsic quality of each evolution mechanism. Appendix~\ref{sec:evo-mechanisms} (Table~\ref{tab:evo-mech}) spells out exactly what each runtime does to evolve --- which hook fires, when, and what it invokes --- and shows the five repeat-stable rows do \emph{not} share a single mechanism class: three are per-task distillation (Hermes), one is carry-only with an always-on internal memory loop (\texttt{evoscientist}), and one adds an explicit post-hoc AutoSkills reflection on top of that same loop (\texttt{evoscientist+active}), so distillation is \emph{sufficient but not necessary} for the robust signal above --- and, as the two EvoScientist rows show, an \emph{explicit} distillation step on a base that already self-synthesises is neither necessary nor individually beneficial beyond variance reduction.
+
+\subsection{Findings and negative results}
+\label{sec:findings}
+
+We summarize four robust findings and one deliberate non-finding:
+\begin{enumerate}
+\item \textbf{Implicit evolution's efficacy depends heavily on the runtime's warmup policy --- and more than one policy works.} Hermes' \texttt{review}-driven distillation delivers a strong, repeat-stable interaction-cost reduction (turns $-17.2\%$, latency $-23.0\%$, 95\% CI fully below zero), and this holds across all three Hermes configurations. EvoScientist reaches a comparable repeat-stable gain (turns $-14.3\%$, 95\% CI fully below zero) by a \emph{different} policy: an always-on internal loop that synthesizes structured profiles during warmup rather than distilling per task. OpenClaw's plain state-accumulation policy, by contrast, actually \emph{regresses} slightly on turns/tokens/latency, indicating that merely accumulating undistilled state is not a reliable win. GenericAgent's file-I/O policy produces a tiny effect that is not statistically distinguishable from zero at 10 repeats. The dividing line is not distillation-vs-not but whether the warmup policy produces a \emph{compacted, reusable} artifact at all.
+\item \textbf{Plugin choice matters more than plugin presence: OpenSpace $\gg$ agentmemory.} On the two bases that carry both plugins, a structured skill hub (OpenSpace) consistently out-compresses a raw memory backend (agentmemory). On OpenClaw, OpenSpace \emph{rescues} an otherwise-neutral base (Gain: turns $-6.7$pp, tokens $-7.6$pp) whereas agentmemory is neutral-to-negative (turns $-2.0$pp, tokens $+1.8$pp); on Hermes, OpenSpace adds a modest $-2$pp on turns/tokens while agentmemory adds nothing ($+0.6$pp turns). The distillation step, not the storage substrate, is what shortens future interactions.
+\item \textbf{Explicit / active evolution is not automatically better than implicit.} GenericAgent's extra active-reflection pass \emph{costs} interaction budget rather than saving it (Gain: turns $+3.7$pp, tokens $+2.2$pp): on a benchmark where the base already writes focused deliverables, the added deliberation is pure overhead. EvoScientist's active-AutoSkills pass makes the point from the opposite direction: layered on a base whose implicit loop \emph{already} evolves strongly, the explicit distillation adds \emph{no} separable gain (turns $-14.7\%$ vs.\ $-14.3\%$, statistically tied; tool calls actually \emph{worse}, $-27.6\%$ vs.\ $-34.7\%$) and its one measurable effect is to halve per-repeat variance (RQ3 std $5.77$ vs.\ $9.52$) --- at the cost of an extra warmup LLM pass. More evolution machinery does not imply more downstream efficiency; at best it buys stability once an implicit mechanism is already saturating the available slack.
+\item \textbf{Statistical significance is unevenly distributed, and not confined to one mechanism.} Five rows show 95\% CIs on $\Delta$Turns\% that lie entirely below zero (Table~\ref{tab:rq3}): the three Hermes configurations \emph{and both} EvoScientist variants; every OpenClaw and GenericAgent row's turns-CI crosses zero. Crucially the passive \texttt{evoscientist} performs no per-task distillation, so a repeat-stable double-digit gain is achievable without the \texttt{review}-style hook --- distillation is sufficient but not necessary --- while its active sibling shows the converse limit: adding an explicit distillation hook on top of an already-evolving base tightens the CI but does not move the mean. We report the point estimates for completeness but recommend against reading small differences ($|\Delta| \lesssim 5\%$) as effects at 10-repeat resolution. Pass rate on EALE is saturated (0.99--1.00 on both Base and Loaded for every runtime except \texttt{prime-agent+active}, largest $|\Delta\text{Pass}| = 1.07$pp), so it is retained only as a guardrail against silent regressions --- none observed.
+\item \textbf{We rank evolution impact, not raw capability.} The eleven runtimes share a benchmark but not a raw-capability floor, a warmup policy, or an augmentation surface, so we produce no ``best agent'' by absolute Loaded score. What we \emph{do} rank (RQ5, Table~\ref{tab:rank}) is the evolution-impact $\Delta$ --- a within-runtime quantity from which each Base has already been differenced out. On that axis the Hermes family leads ($\Delta$Turns\% $\approx-17$ to $-19\%$) with both EvoScientist variants close behind ($-14.3$ to $-14.7\%$); these five are the repeat-stable rows, the remaining six cluster within $\pm$4pp of zero and are statistically inseparable. The ordering is best read as an \emph{evolution-mechanism} comparison, but not a single-mechanism story: robust gains come both from Hermes' per-task \texttt{review} distillation and from EvoScientist's always-on internal memory synthesis, so ``distillation'' is one sufficient route rather than the only one. The one confound we flag is compressible slack: a verbose Base leaves more room for evolution to cut, so large $\Delta$s are partly a property of the Base, not only of the evolution mechanism --- EvoScientist's very verbose Base (186 tool-calls/task) is a clear instance.
+\end{enumerate}
+
+
+\section{Discussion and Limitations}
+
+\begin{enumerate}
+\item \textbf{Benchmark data contamination.} LIFT cannot prevent the gold set from being contaminated by LLM training data; ABC-Checklist-style tools~\citep{zhu2025abc} must gate this at benchmark-design time.
+\item \textbf{No direct cross-agent comparison on absolute scores.} We deliberately do \textbf{not} support head-to-head \emph{OpenClaw+plugin vs. Hermes} comparison on raw Loaded performance --- too many confounds make such conclusions non-attributable. The sanctioned move is per-agent Base vs. Loaded, then compare the \emph{delta magnitudes} (the evolution-impact ranking of RQ5, \S\ref{sec:rq-ranking}), which is confound-free because each $\Delta$ is measured against its own Base.
+\item \textbf{Evolution $\neq$ artifacts.} LIFT is artifact-source-agnostic by default. To isolate ``the evolution \emph{mechanism} has value,'' use the attribution triplet (No-Evo / Only-Products / Evo-On) --- an optional appendix, not a required metric.
+\item \textbf{Judge bias.} When both work and judge are LLMs, self-preference is a risk. Current mitigation: the judge role-plays ``the user,'' adjudicates the \texttt{content\_reqs} checklist item-by-item into a single completion ratio, and is pinned (temperature 0, fixed model, versioned rubric); work and judge are additionally split into sibling containers (\S3.4) so self-preference cannot compound with state leakage --- neither party can read or write the other's runtime state. Making deterministic requirements fully machine-checkable --- shrinking the subjective surface further --- is future work.
+\item \textbf{Environment fidelity.} The container is still a \emph{controlled Linux environment}; fidelity gaps remain versus desktop-GUI / browser agents --- future work.
+\item \textbf{Dimensions the relation matrix (Appendix~\ref{sec:relation-matrix}) does not cover.} Three axes were considered and deliberately left out. \emph{Cost per artifact-unit} (dollars-per-percent-lift) requires a cost model of the evolution mechanism, which is runtime-internal and out of LIFT's scope. \emph{Multi-agent / group memory} is partially covered by the framework's group-memory mixin, but no benchmark yet forces multi-agent Base-vs-Loaded --- an explicit v2 direction. \emph{Human-in-the-loop grading} is out of scope by construction: LIFT's contribution is a mechanistic protocol runnable unattended by a third party; HITL is orthogonal and can be layered on top for high-stakes deployment.
+\end{enumerate}
+
+
+\section{Conclusion}
+
+Our stance in one sentence: \textbf{evaluating a self-evolving agent is not about how much better it gets on tasks it has already seen, but how much better it gets on \emph{unseen} tasks by virtue of its distilled artifacts.} LIFT realizes this with train/test separation + same-task paired runs + container snapshots + a three-layer abstraction + multi-level concurrency + trace backfill, and ships a self-contained 14-scene / 84-task benchmark. We hope to provide a reusable, criticizable, comparable base for evaluation infrastructure.
+
+
+\section*{Reproducibility \& Release}
+
+\begin{itemize}
+\item \textbf{Code}: framework, adapters for mainstream self-evolving agent runtimes, status dashboard, post-processing --- released at \url{https://github.com/FeiZhuNiU-INFJA/LIFT}.
+\item \textbf{Images}: \brk{lift-openclaw-base} / \brk{lift-openclaw-with-openspace} / \brk{lift-openclaw-with-agentmemory} and \brk{lift-\{genericagent,hermes,hermes-with-openspace,hermes-with-agentmemory,openhuman,openhuman-with-agentmemory,evoscientist\}:latest} build scripts.
+\item \textbf{Data}: 14-scene benchmark (EALE) hosted at \url{https://huggingface.co/datasets/FeiZhuNiU-INFJA/EALE} under \textbf{CC BY 4.0}, with a dataset card and Croissant metadata (Appendix C summarizes the datasheet); plus the demo smoke suite in-repo. EALE is file-structured (per-task folders + materials), so it is consumed by cloning the repository tree rather than via a single-table \brk{load\_dataset}.
+\item \textbf{Entry points}: \brk{python -m src.cli.lift\_main -r <runtime> --benchmark\_dir <dir> --suite <name>.json --run\_id <id>}; \texttt{--evaluate-only} for post-process replay.
+\end{itemize}
+
+
+\appendix
+
+\section{Surveyed open-source works (by type)}
+
+We group the works surveyed along the axis ``can it answer \emph{do the artifacts help?}''. Methods / judge: ABC Checklist~\citep{zhu2025abc}, Agent-as-a-Judge~\citep{zhuge2024agentasajudge}, MAJ-Eval~\citep{chen2026majeval}, AgentDistill~\citep{qiu2025agentdistill}. Evolution / artifact benchmarks: SEA-Eval~\citep{jiang2026seaeval}, EvolveTool-Bench~\citep{kaliyev2026evolvetoolbench}, SkillsBench~\citep{li2026skillsbench}, EvoMemBench~\citep{wang2026evomembench}, Evo-Memory~\citep{wei2025evomemory}. Lifelong / sequential: LifelongAgentBench~\citep{zheng2025lifelongagentbench}. General task benchmarks: REAL~\citep{garg2025real}, MLR-Bench~\citep{chen2025mlrbench}, AgentIF~\citep{qi2025agentif}, $\tau$-bench / $\tau^2$-bench~\citep{yao2024taubench,barres2025tau2bench}, AgentBench~\citep{liu2023agentbench}, GAIA~\citep{mialon2023gaia}, SWE-bench~\citep{jimenez2024swebench}, and harness-comparison benchmarks. Safety: OS-Harm~\citep{kuntz2025osharm}, RAS-Eval~\citep{fu2025raseval}, MultiBreak~\citep{song2026multibreak}. Evaluation SDKs: DeepEval~\citep{confidentai_deepeval}, Opik~\citep{cometml_opik}, Promptfoo~\citep{promptfoo}, with Langfuse~\citep{langfuse} used for tracing.
+
+\section{LIFT vs. existing work (relation matrix)}
+\label{sec:relation-matrix}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Relation matrix contrasting LIFT's stance with existing work along nine dimensions.}
+\label{tab:relation}
+\begin{tabular}{P{0.2\textwidth}P{0.36\textwidth}P{0.38\textwidth}}
+\toprule
+Dimension & LIFT's stance & Direct contrast \\
+\midrule
+Artifact source & source-agnostic; test whether the artifact itself helps & SkillsBench empirically shows self-generated skills often useless; LIFT provides the infrastructure to test this \\
+Causal contrast & Base vs. Loaded, same-task paired & most benchmarks lack this control group \\
+Train / test & explicit separation (warmup/holdout) & most self-evolution papers mix them \\
+Per-task scoring & work + judge review loop & borrows Agent-as-a-Judge tool-augmented verification \\
+Artifact materialization & \texttt{docker commit} $\rightarrow$ delta image & more reproducible than toggle-load, more complete than structured export \\
+Learning curves & evolution-specific diagnostic (optional) & LifelongAgentBench makes FWT/BWT primary; LIFT makes them diagnostic \\
+Cross-agent comparison & per-agent Base-vs-Loaded, compare deltas; no head-to-head & harness-comparison benchmarks compare bare agents \\
+Safety & cross-cutting, optional & OS-Harm / RAS-Eval provide dedicated safety benchmarks; LIFT does not redo them \\
+Trace & Langfuse backfill & like Opik, but trace-only, no evaluator \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\section{Evolution mechanisms by runtime}
+\label{sec:evo-mechanisms}
+
+Because RQ5 (Table~\ref{tab:rank}) reads the ranking as an \emph{evolution-mechanism} comparison rather than a capability leaderboard, we spell out here exactly what each runtime does to evolve --- which hook it overrides, when the hook fires, what it invokes, and what state the delta \texttt{docker commit} captures. Every entry is verified against the adapter source under \texttt{src/lift/adapters/}. The framework fixes the ordering \texttt{evolve\_after\_task} (after each warmup task) $\rightarrow$ \texttt{evolve\_after\_warmup} (after the whole warmup batch) $\rightarrow$ \texttt{docker commit} (freeze delta), so any distillation step always runs \emph{before} the delta is frozen. Note that \texttt{docker commit} snapshots the entire writable container layer; the paths listed below are the runtime-declared ``true evolution artifacts'' we use for the pre-commit \texttt{docker diff} audit, not a restriction on what is committed (the \texttt{/workspace/task} bind mount is never captured).
+
+\begin{table}[h]
+\centering
+\footnotesize
+\caption{What each evaluated runtime actually does to evolve. ``Hook'' names the overridden method; ``no-op'' means the runtime performs no explicit distillation and the delta carries only whatever the agent happened to write to disk during warmup. Mechanism class: \textbf{C} = carry-only (no distillation), \textbf{D} = per-task distillation, \textbf{R} = explicit post-hoc reflection.}
+\label{tab:evo-mech}
+\begin{tabular}{P{0.16\textwidth}cP{0.44\textwidth}P{0.22\textwidth}}
+\toprule
+Runtime & Class & Hook @ timing $\rightarrow$ trigger & Delta-committed state \\
+\midrule
+\texttt{openclaw} & C & \texttt{evolve\_after\_warmup} is a no-op; no explicit evolve at all & \texttt{/root/.openclaw/} \texttt{workspace/memory}, \texttt{skill-workshop} (as written) \\
+\addlinespace
+\texttt{openclaw} \texttt{+openspace} & C & Same no-op evolve as \texttt{openclaw}; OpenSpace only adds an MCP skill-hub \emph{tool surface} (retrieval structure), no distillation step & same, plus OpenSpace-local skills \\
+\addlinespace
+\texttt{openclaw} \texttt{+agentmemory} & C & No-op evolve. The \texttt{:3111} agentmemory server runs \emph{without} an LLM provider, so its consolidate/reflect engine is inert --- only raw observations are stored & \texttt{+ /root/.agentmemory} (undistilled) \\
+\midrule
+\texttt{hermes} & D & \texttt{evolve\_after\_task} @ \emph{per task}: after each warmup task the work runner runs a \emph{blocking} background \texttt{review} that distills the session into compact skills/memories (\texttt{end\_session()} must return clean); \texttt{evolve\_after\_warmup} is a no-op & \texttt{/opt/hermes-state/} \texttt{\{skills,memories\}} \\
+\addlinespace
+\texttt{hermes} \texttt{+openspace} & D & Same per-task \texttt{review} as \texttt{hermes}; OpenSpace registered as an MCP tool & same \\
+\addlinespace
+\texttt{hermes} \texttt{+agentmemory} & D & Same per-task \texttt{review}; memory routed through the \texttt{:3111} agentmemory backend & \texttt{+ /root/.agentmemory} \\
+\midrule
+\texttt{genericagent} & C & \texttt{evolve\_after\_warmup} is a no-op; memory files written to \texttt{/opt/GenericAgent/memory} during warmup are carried implicitly & \texttt{/opt/GenericAgent/} \texttt{memory} \\
+\addlinespace
+\texttt{genericagent} \texttt{+active} & R & Two extra reflection passes: an \emph{isolated} GenericAgent chat after each task (\texttt{evolve\_after\_task}) and one after the whole batch (\texttt{evolve\_after\_warmup}), each instructed to write layered memory to \texttt{/opt/GenericAgent/memory} & same \\
+\midrule
+\texttt{evoscientist} & C & \texttt{evolve\_after\_warmup} is a LIFT no-op; but EvoScientist runs an \emph{always-on} internal memory loop that, during warmup, writes synthesized profiles (\texttt{SOUL}, \brk{USER\_PROFILE}, \brk{RESEARCH\_TASTE}, per-project \brk{PROJECT\_PROFILE}) alongside raw observations. No explicit AutoSkills distillation fires (\brk{autoskills/proposals} stays empty) & \brk{/root/.evoscientist/} \brk{\{memories,sessions.db\}} \\
+\addlinespace
+\texttt{evoscientist} \texttt{+active} & R & \texttt{evolve\_after\_warmup} @ \emph{post-batch}: after all warmup tasks it runs EvoScientist's AutoSkills maintenance graph in the still-live container (host-injected via \texttt{docker exec}), distilling accumulated observations into explicit skill proposals (\texttt{autoskills/proposals} populated) before the commit; the always-on internal loop still runs underneath & same as \texttt{evoscientist}, plus populated \texttt{autoskills} \\
+\midrule
+\texttt{prime-agent} \texttt{+active} & D & \texttt{evolve\_after\_task} @ \emph{per task}: after each warmup task a \texttt{/refine --global} pass distills that trajectory into the global Continual Harness (invoked via \texttt{-c}), carried by \texttt{docker commit} & \texttt{/root/.prime/} \texttt{agent/} (global harness) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Three mechanism classes, and what the ranking does (and does not) follow.} The eleven runtimes fall into three families of mechanism. \textbf{(C) Carry-only} (\texttt{openclaw}, \texttt{+openspace}, \texttt{+agentmemory}, \texttt{genericagent}, and \texttt{evoscientist}): there is \emph{no} LIFT-triggered distillation hook; the delta is whatever memory/skill files the agent wrote during warmup, snapshotted by \texttt{docker commit}. \textbf{(D) Per-task distillation} (the entire Hermes family, plus \texttt{prime-agent+active}): after \emph{every} warmup task, before the next one starts, a blocking step compresses that task's trajectory into a compact reusable artifact --- a \texttt{review} into skills/memory for Hermes, a \texttt{/refine --global} pass into the global Continual Harness for prime-agent. \textbf{(R) Explicit post-hoc reflection} (\texttt{genericagent+active} and \texttt{evoscientist+active}): an extra post-warmup pass distills the batch --- for GenericAgent, two additional reflection chats (after each task and after the batch); for EvoScientist, one AutoSkills maintenance-graph run that turns accumulated observations into explicit skill proposals before commit. Mapping this onto RQ5, per-task distillation \textbf{(D)} \emph{as implemented on Hermes} reliably produces a robust, repeat-stable, double-digit gain --- it is precisely the step that turns a verbose warmup transcript into a short plan the model consults on Loaded runs. But the class-\textbf{(D)} hook is neither sufficient nor necessary on its own. It is \emph{not sufficient}: \texttt{prime-agent+active} runs the same per-task-distillation family (a \texttt{/refine --global} pass) yet lands at only $-3.27\%$ turns (rank 7, CI crosses zero), because its Base is the \emph{tersest} we measured (10.7 tool-calls/task, Table~\ref{tab:rq4}) --- with almost no compressible slack, even a genuine distillation step has little to cut. And it is \emph{not necessary}: \texttt{evoscientist} sits in class \textbf{(C)} yet is repeat-stable ($-14.3\%$ turns, CI fully below zero, rank 4). The distinction is that its always-on internal loop does not merely accumulate raw observations --- it continuously \emph{synthesizes} structured profiles (\texttt{SOUL}/\texttt{USER\_PROFILE}/\texttt{RESEARCH\_TASTE}/\texttt{PROJECT\_PROFILE}) during warmup, which function as a compact plan much like a distilled skill even though no explicit distillation hook fires. The remaining class-\textbf{(C)} runtimes (\texttt{openclaw}, \texttt{genericagent}), which carry only undistilled files, stay neutral or mildly negative (accumulated state lengthens context without shortening the outer loop); class \textbf{(R)}'s extra deliberation \emph{adds} interaction cost on GenericAgent, where the base already writes focused deliverables. EvoScientist's class-\textbf{(R)} variant is the more instructive case: bolted onto a base whose class-\textbf{(C)} internal loop is \emph{already} repeat-stable, its explicit AutoSkills distillation neither enlarges the turns gain ($-14.7\%$ vs.\ the passive $-14.3\%$, statistically tied) nor improves tool efficiency (in fact $-27.6\%$ vs.\ $-34.7\%$, \emph{worse}); its one measurable effect is halving the per-repeat variance (RQ3 std $5.77$ vs.\ $9.52$) at the price of an extra warmup LLM pass. The refined reading: what predicts a robust gain is not the presence of a distillation \emph{hook} per se, but whether \emph{some} process --- explicit per-task review \emph{or} an always-on synthesis loop --- turns the verbose warmup trace into a compact, reusable artifact before the Loaded run; and once such a process exists, layering an \emph{additional} explicit distillation on top yields at most stability, not extra efficiency.
+
+\paragraph{A caveat on the passive \texttt{agentmemory} rows.} The two \texttt{+agentmemory} configurations reported here run agentmemory in its \emph{passive} mode: the local \texttt{:3111} server is started without an LLM provider, so its built-in consolidate/reflect distillation never fires and only raw observations are persisted. The framework also ships an \emph{active} variant (\texttt{openclaw\_with\_agentmemory\_active\_evolve}) that, after warmup, explicitly \texttt{POST}s \texttt{/agentmemory/crystals/auto} followed by \texttt{/agentmemory/consolidate-pipeline} \texttt{\{tier:all\}} to distill raw observations into semantic facts and higher-order insights before committing. That active path was not part of this v1 sweep; consequently the near-zero \texttt{+agentmemory} deltas should be read as ``an undistilled memory store does not by itself help,'' \emph{not} as a verdict on agentmemory's distillation engine. Closing that gap (active agentmemory, plus the \texttt{openclaw\_with\_evolve} \texttt{learn review} path) is an explicit v2 direction. We already close one arm of it here: EvoScientist's \emph{active} AutoSkills variant (\texttt{evoscientist\_active\_evolve}) is run on top of the passive \texttt{evoscientist} baseline and reported throughout \S6, and its finding --- that an explicit distillation pass layered on an already-self-synthesising base tightens per-repeat variance but adds no separable mean gain (and slightly erodes tool-call efficiency) --- is exactly the kind of null-with-a-twist result this active/passive contrast was designed to surface.
+
+\paragraph{Why \texttt{prime-agent} is evaluated only in its \texttt{+active} form.} Unlike the runtimes above, prime-agent has no meaningful passive counterpart to pair against. Its Continual Harness is \emph{session-local by default}: ordinary task execution writes harness edits bound to that conversation's session id. Because every LIFT holdout task runs in a fresh container with a fresh session, that session-local state is unreadable at evaluation time, so a purely passive prime-agent (warmup writes carried by \texttt{docker commit} alone) transfers $\approx$0 usable artifact --- its Loaded runs would, by construction, see essentially nothing. The \texttt{/refine --global} pass is precisely what escapes this: it promotes the distilled increment to the session-independent layer (\texttt{\textasciitilde/.prime/agent/harness/}) that the commit can carry and a new session can read. A passive prime-agent row would therefore be a near-zero \emph{negative control} rather than a second comparable data point, which is why RQ2 reports no prime-agent pair and \S6 lists only \texttt{prime-agent+active}. This makes prime-agent's own rank a within-runtime statement (does explicit global \texttt{/refine} help \emph{this} agent), read against the same $\approx$0 passive floor that its architecture guarantees.
+
+
+\section{Datasheet summary (EALE)}
+
+Following \emph{Datasheets for Datasets}~\citep{gebru2021datasheets}, we summarize EALE here; the full datasheet ships with the dataset release.
+
+\begin{itemize}
+\item \textbf{Motivation.} Measure whether a self-evolving agent genuinely improves on \emph{unseen} tasks after consolidating artifacts from warmup tasks, isolating genuine generalization from pseudo growth (leakage, context pollution, grader self-preference, non-reproducible runtimes).
+\item \textbf{Composition.} 14 scenes $\times$ (4 warmup + 2 holdout) $=$ 84 tasks. Each instance is a per-task folder: a markdown spec (query + hidden requirements checklist, $\geq 12$ verifiable items + trajectory requirements) plus synthetic input materials (CSV/documents). No real personal data.
+\item \textbf{Splits.} Load-bearing \texttt{train/} (warmup, drives evolution) vs. \texttt{test/} (holdout, paired Base-vs-Loaded contrast); requirements overlap $\sim$75\%/25\% by design.
+\item \textbf{Collection.} Expert-authored against an authoring contract (\texttt{assets/suite\_requirement.md}); materials synthesized per task; produced during 2026 framework development. No human subjects.
+\item \textbf{Preprocessing.} Human-readable markdown compiled into machine-readable suite JSON (\texttt{Suite}) by \texttt{python -m src.cli.preprocess}; raw source retained as the released artifact.
+\item \textbf{Uses.} Benchmarking agent memory / skill acquisition / workflow distillation and continual-learning diagnostics under the Base-vs-Loaded protocol. \emph{Not} a raw one-shot capability leaderboard; several scenes are locale-specific and should not be over-generalized.
+\item \textbf{Distribution \& maintenance.} Public Hugging Face repository (ModelScope mirror) under \textbf{CC BY 4.0}; Croissant metadata~\citep{akhtar2024croissant} is auto-generated (\texttt{conformsTo: mlcommons/croissant 1.1}), with the authoritative file structure documented in the dataset card since EALE is file-structured rather than a single table. Versioned updates and corrections are released via the repository git history.
+\end{itemize}
+
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+
+\end{document}
